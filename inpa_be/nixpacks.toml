@@ -1,0 +1,17 @@
+# Railway 빌드/시작 정의 (nixpacks).
+# Railway 가 이 파일을 자동 감지한다. 루트 디렉토리를 inpa_be 로 지정해 사용.
+# - 빌드: 시스템 MySQL 헤더 설치 → pip 의존성 설치 → 정적파일 수집(whitenoise)
+# - 시작: gunicorn 으로 WSGI 앱 서빙 ($PORT 는 Railway 가 주입)
+
+[phases.setup]
+nixPkgs = ['python311', 'gcc', 'libmysqlclient', 'pkg-config']
+
+[phases.install]
+cmds = ['pip install -r requirements.txt']
+
+[phases.build]
+# 정적파일을 whitenoise 가 서빙할 수 있게 수집. prod 설정·더미 DATABASE_URL 로 build 시 DB 접속 회피.
+cmds = ['DJANGO_SETTINGS_MODULE=config.settings.prod DATABASE_URL=mysql://build:build@localhost:3306/build python manage.py collectstatic --noinput']
+
+[start]
+cmd = 'gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120'
