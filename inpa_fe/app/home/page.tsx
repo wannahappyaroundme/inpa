@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { calendar, calendarEvents, eventMeta, todayTasks, type EventType } from "@/lib/mock";
@@ -11,6 +12,7 @@ const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 
 // 설계사 대시보드. KPI 한 줄(내 고객 수=실API) + 캘린더(일정/업무) + 오늘 할 일.
 export default function HomePage() {
+  const router = useRouter();
   const ready = useAuthGuard();
   const [sel, setSel] = useState(calendar.today);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
@@ -27,12 +29,19 @@ export default function HomePage() {
     if (!ready) return;
     // 프로필 & 고객 수 병렬 로드
     getProfile()
-      .then(setProfile)
+      .then((p) => {
+        // 온보딩 미완료면 투어로 보냄 (홈 진입 가드)
+        if (!p.onboarding_completed_at) {
+          router.replace("/onboarding");
+          return;
+        }
+        setProfile(p);
+      })
       .catch(() => { /* 토큰 만료 시 useAuthGuard가 처리 */ });
     listCustomers({ page: 1 })
       .then((res) => setCustomerCount(res.count))
       .catch(() => setCustomerCount(null));
-  }, [ready]);
+  }, [ready, router]);
 
   if (!ready) return null;
 

@@ -45,7 +45,7 @@ function LoginForm() {
     try {
       const res = await login({ email, password });
       tokenStore.set(res.token);
-      if (res.onboarding_required) {
+      if (!res.onboarding_completed) {
         router.replace("/onboarding");
       } else {
         router.replace("/home");

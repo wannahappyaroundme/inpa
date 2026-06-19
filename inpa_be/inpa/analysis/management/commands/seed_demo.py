@@ -14,12 +14,20 @@
   4) PlannerBaseline.coverage_key == AnalysisDetail.name (★ 히트맵 grading 매칭 키),
        baseline_source!=null + is_active=True → 해당 고객 heatmap mode='graded'.
 
+추가 시드 도메인 (v2 — boards / notifications / promotion / billing):
+  9)  boards: 게시글 5~8개(demo + neutral 작성) + 댓글·좋아요 + 공지 2 + FAQ 3 + 1:1문의 1
+  10) notifications: demo 설계사 알림 5~6개 (일부 미읽음)
+  11) promotion: PromotionSample 3~4개 + demo 주문 1~2개(상태 다양)
+  12) billing: Plan 2~3개(무료/구독) + demo Subscription(무료) + UsageMeter 약간
+
 멱등: 매 실행 시 데모 마커(설계사 이메일/카탈로그 라벨/NormalizationDict source=seed 등)로
   기존 데모 데이터를 정리한 뒤 재생성 → 재실행해도 중복 없음.
 
 실행:
   PYTHONPATH=<inpa_be> python3 manage.py seed_demo
 """
+import datetime
+
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -30,10 +38,18 @@ from inpa.analysis.models import (
     AnalysisCategory, AnalysisDetail, AnalysisSubCategory, ChartDetail,
     NormalizationDict,
 )
+from inpa.billing.models import Plan, Subscription, UsageMeter
+from inpa.boards.models import (
+    Comment, Faq, Inquiry, Notice, Post, PostLike,
+)
 from inpa.customers.models import Customer, CustomerTag, PlannerBaseline
 from inpa.insurances.models import (
     CustomerInsurance, CustomerInsuranceDetail, Insurance, InsuranceCategory,
     InsuranceDetail, InsuranceSubCategory,
+)
+from inpa.notifications.models import Notification, NotifType
+from inpa.promotion.models import (
+    PromotionOrder, PromotionSample, PromotionSampleImage,
 )
 
 User = get_user_model()
@@ -186,6 +202,12 @@ class Command(BaseCommand):
         graded_customer = self._seed_baselines(planner, customers)  # 7) 고객 1명 baseline(graded)
         # 8) 보조: baseline 없는 설계사 + 고객 1명 → mode='neutral' 시연
         neutral_planner, neutral_customer = self._seed_neutral_demo(catalog_by_std_name)
+        # 9~12) 추가 도메인 시드
+        self._seed_boards(planner, neutral_planner, customers)
+        self._seed_notifications(planner, customers)
+        samples = self._seed_promotion_samples()
+        self._seed_promotion_orders(planner, samples)
+        self._seed_billing(planner)
 
         self.stdout.write(self.style.SUCCESS('=== seed_demo 완료 ==='))
         self.stdout.write(f'  [메인] 로그인 이메일 : {DEMO_PLANNER_EMAIL}')
@@ -203,9 +225,10 @@ class Command(BaseCommand):
         """데모 마커 기준으로 기존 데모 데이터 삭제 (재실행 안전).
 
         설계사(owner) 삭제 시 Customer/CustomerInsurance/PlannerBaseline 등이 CASCADE.
-        공유 전역 마스터(표준 트리/카탈로그/정규화)는 데모 라벨·코드 기준으로만 정리한다.
+        공유 전역 마스터(표준 트리/카탈로그/정규화/게시판 공용/판촉물샘플/요금제)는
+        데모 라벨 기준으로만 정리한다.
         """
-        # 설계사 → CASCADE 로 고객/포트폴리오/baseline/태그 연쇄 삭제
+        # 설계사 → CASCADE 로 고객/포트폴리오/baseline/태그/알림/주문 연쇄 삭제
         User.objects.filter(
             email__in=[DEMO_PLANNER_EMAIL, DEMO_NEUTRAL_PLANNER_EMAIL]).delete()
 
@@ -219,6 +242,17 @@ class Command(BaseCommand):
         # 표준 담보 트리(데모 라벨 prefix) — 카테고리 CASCADE 로 sub/detail 정리
         AnalysisCategory.objects.filter(name__startswith=DEMO_CATALOG_TAG).delete()
         ChartDetail.objects.filter(name__startswith=DEMO_CATALOG_TAG).delete()
+
+        # 공유 게시판 (공지/FAQ/게시글 — [DEMO] 마커 본문 기준)
+        Post.objects.filter(title__startswith=DEMO_CATALOG_TAG).delete()
+        Notice.objects.filter(title__startswith=DEMO_CATALOG_TAG).delete()
+        Faq.objects.filter(question__startswith=DEMO_CATALOG_TAG).delete()
+
+        # 판촉물 샘플 (공유 — [DEMO] 마커 이름 기준) + CASCADE 로 이미지·주문 정리
+        PromotionSample.objects.filter(name__startswith=DEMO_CATALOG_TAG).delete()
+
+        # 요금제 (공유 — [DEMO] 마커 display_name 기준)
+        Plan.objects.filter(display_name__startswith=DEMO_CATALOG_TAG).delete()
 
     # ── 1) 표준 담보 트리 + 차트 ─────────────────────────────────────────
     def _seed_tree(self):
@@ -450,3 +484,435 @@ class Command(BaseCommand):
         self.stdout.write(f'  [8] neutral 시연: 설계사 {user.email}(baseline 0) + '
                           f'고객 {customer.name}(id={customer.id})')
         return user, customer
+
+    # ── 9) 게시판 (Post·Comment·PostLike·Notice·Faq·Inquiry) ─────────────
+    def _seed_boards(self, planner, neutral_planner, customers):
+        """공유 게시글 5~8개 (demo + neutral 작성) + 댓글·좋아요 + 공지 2 + FAQ 3 + 1:1문의 1.
+
+        게시판 데이터 가시성(boards/models.py §0):
+          Post/Comment/PostLike — 공유(author FK만 기록, owner 스코프 없음).
+          Notice/Faq            — 공개 읽기, 관리자 쓰기.
+          Inquiry               — 비공개(owner=planner).
+        """
+        now = timezone.now()
+
+        # ── 공지사항 2개 ────────────────────────────────────────────────
+        n1 = Notice.objects.create(
+            author=planner,
+            title=f'{DEMO_CATALOG_TAG} 인파 베타 서비스 오픈 안내',
+            body=(
+                '[DEMO] 인파(Inpa) 베타 서비스가 오픈되었습니다.\n'
+                '담보 한눈표·갈아타기 비교표 등 주요 기능을 무료로 사용할 수 있습니다.\n'
+                '피드백은 1:1 문의로 남겨주세요. (★ 데모 전용 콘텐츠, 운영 데이터 아님)'
+            ),
+            is_pinned=True,
+            is_published=True,
+            published_at=now,
+        )
+        Notice.objects.create(
+            author=planner,
+            title=f'{DEMO_CATALOG_TAG} 보장분석 기능 업데이트 안내 (v0.2)',
+            body=(
+                '[DEMO] 히트맵 graded 모드에서 shortage/adequate/over 색상 구분이 개선되었습니다.\n'
+                '자세한 사항은 FAQ를 참고하세요.'
+            ),
+            is_pinned=False,
+            is_published=True,
+            published_at=now,
+        )
+
+        # ── FAQ 3개 ─────────────────────────────────────────────────────
+        Faq.objects.create(
+            author=planner,
+            category='기능문의',
+            question=f'{DEMO_CATALOG_TAG} 담보 한눈표란 무엇인가요?',
+            answer=(
+                '[DEMO] 고객의 현재 보유 보험을 표준 담보 체계로 정규화하여 '
+                '보장 현황을 한 화면에서 확인할 수 있는 기능입니다.\n'
+                '부족(shortage)/충분(adequate)/초과(over) 상태를 색상으로 시각화합니다.'
+            ),
+            order=1,
+        )
+        Faq.objects.create(
+            author=planner,
+            category='기능문의',
+            question=f'{DEMO_CATALOG_TAG} 갈아타기 비교표는 어떻게 활용하나요?',
+            answer=(
+                '[DEMO] 보험업법 §97 기준 부당승환 방지 안내서를 AI가 초안 생성합니다.\n'
+                '★ AI 생성물 = 초안이며 최종 책임은 설계사 본인에게 있습니다. (면책 고정)'
+            ),
+            order=2,
+        )
+        Faq.objects.create(
+            author=planner,
+            category='요금결제',
+            question=f'{DEMO_CATALOG_TAG} 무료 플랜 사용 한도는 어떻게 되나요?',
+            answer=(
+                '[DEMO] 무료 플랜은 OCR 10건/월, AI 분석 10건/월, 판촉물 주문 5건/월을 '
+                '제공합니다. 베타 기간에는 한도가 적용되지 않을 수 있습니다.'
+            ),
+            order=3,
+        )
+
+        # ── 공유 게시글 6개 (demo 4 + neutral 2) ────────────────────────
+        post_specs = [
+            # (author, title, body, category, pinned)
+            (planner,
+             f'{DEMO_CATALOG_TAG} 갱신 임박 고객 응대 노하우 공유',
+             '[DEMO] 갱신 3개월 전 연락 타이밍이 핵심입니다. '
+             '문자+카카오 알림 순서를 잡아두면 성공률이 크게 올라요.',
+             '영업팁', False),
+            (planner,
+             f'{DEMO_CATALOG_TAG} 실손보험 4세대 전환 안내 정리',
+             '[DEMO] 4세대 실손 전환 포인트를 요약했습니다. '
+             '비급여 본인부담률 변화에 주의하세요. (★ AI 초안, 최종 책임은 설계사 본인)',
+             '상품정보', False),
+            (planner,
+             f'{DEMO_CATALOG_TAG} 신입 설계사 첫 달 루틴 후기',
+             '[DEMO] 하루 콜드콜 30건 목표 + 인파 보장분석으로 첫 미팅 전환율을 높였습니다.',
+             '경험공유', False),
+            (planner,
+             f'{DEMO_CATALOG_TAG} 인파 히트맵 기능 사용 팁',
+             '[DEMO] shortage 항목 클릭 시 추천 상품 연결 기능이 곧 추가될 예정입니다. '
+             '기대해주세요!',
+             '공지', True),
+            (neutral_planner,
+             f'{DEMO_CATALOG_TAG} 암 진단비 기준 공유 (40대 남성)',
+             '[DEMO] 40대 남성 기준 암진단비 3천만 원 이상 권장이라는 업계 기준을 공유합니다.',
+             '영업팁', False),
+            (neutral_planner,
+             f'{DEMO_CATALOG_TAG} GA 소속 설계사 계약 관리 방법',
+             '[DEMO] GA 소속이라 원수사 계약과 GA 계약을 구분 관리해야 해서 인파 메모 기능을 활용 중입니다.',
+             '경험공유', False),
+        ]
+        posts = []
+        for author, title, body, category, pinned in post_specs:
+            p = Post.objects.create(
+                author=author, title=title, body=body,
+                category=category, pinned=pinned, view_count=0, like_count=0,
+            )
+            posts.append(p)
+
+        # ── 댓글 (게시글 0·1·4에 달기) ──────────────────────────────────
+        c1 = Comment.objects.create(
+            post=posts[0], author=neutral_planner,
+            body='[DEMO] 저도 같은 방식으로 하고 있어요. 갱신 알림을 인파에서 자동으로 잡아주면 더 좋겠네요.',
+        )
+        Comment.objects.create(
+            post=posts[0], author=planner, parent=c1,
+            body='[DEMO] 맞아요! 알림 기능 곧 업데이트 예정입니다.',
+        )
+        Comment.objects.create(
+            post=posts[1], author=neutral_planner,
+            body='[DEMO] 4세대 전환 자료 감사합니다. 고객 설명용으로 써볼게요.',
+        )
+        Comment.objects.create(
+            post=posts[4], author=planner,
+            body='[DEMO] 인파 기준선에도 반영해뒀어요. 확인해보세요!',
+        )
+
+        # like_count 캐시 업데이트가 필요하므로 직접 갱신
+        def _add_like(post, user):
+            PostLike.objects.create(post=post, user=user)
+            Post.objects.filter(pk=post.pk).update(like_count=post.like_count + 1)
+
+        _add_like(posts[0], neutral_planner)
+        _add_like(posts[1], neutral_planner)
+        _add_like(posts[4], planner)
+
+        # comment_count 캐시 업데이트
+        Post.objects.filter(pk=posts[0].pk).update(comment_count=2)
+        Post.objects.filter(pk=posts[1].pk).update(comment_count=1)
+        Post.objects.filter(pk=posts[4].pk).update(comment_count=1)
+
+        # ── demo 설계사의 1:1 문의 1개 ──────────────────────────────────
+        Inquiry.objects.create(
+            owner=planner,
+            category=Inquiry.CATEGORY_FEATURE,
+            title='[DEMO] 고객 분석 결과 PDF 내보내기 기능 요청',
+            body=(
+                '[DEMO] 담보 한눈표와 갈아타기 비교표를 PDF로 출력해서 고객에게 직접 보여줄 수 있으면 좋겠습니다. '
+                '현재 화면 캡처로 대신하고 있는데 해상도가 낮아서 불편합니다.'
+            ),
+            status=Inquiry.STATUS_OPEN,
+        )
+
+        self.stdout.write(
+            f'  [9] 게시판: 공지 2 + FAQ 3 + 게시글 {len(posts)} + 댓글 4 + 좋아요 3 + 1:1문의 1'
+        )
+
+    # ── 10) 알림 (demo 설계사 전용) ──────────────────────────────────────
+    def _seed_notifications(self, planner, customers):
+        """demo 설계사에게 알림 5~6개 (일부 미읽음).
+
+        NotifType 7종 중 6종 커버: expiry_soon / birthday_soon / consult_reminder /
+          task_due / share_unread / board_comment.
+        target_date 있는 알림 → UniqueConstraint(owner, notif_type, target_date, customer) 준수.
+        board_comment 는 target_date=None + customer=None 이므로 constraint 대상 아님.
+        """
+        today = timezone.now().date()
+
+        notifs = [
+            # (notif_type, title, body, target_date, customer, is_read)
+            (
+                NotifType.EXPIRY_SOON,
+                '김영수 고객 계약 만기 임박',
+                '[DEMO] 김영수 고객의 종합보장보험이 30일 후 만기됩니다. 갱신 안내를 준비하세요.',
+                today + datetime.timedelta(days=30),
+                customers[0],
+                False,   # 미읽음
+            ),
+            (
+                NotifType.BIRTHDAY_SOON,
+                '이지은 고객 생일 7일 전',
+                '[DEMO] 이지은 고객 생일이 7일 후입니다. 생일 메시지를 준비해보세요.',
+                today + datetime.timedelta(days=7),
+                customers[1],
+                False,   # 미읽음
+            ),
+            (
+                NotifType.CONSULT_REMINDER,
+                '박철민 고객 상담 약속 D-1',
+                '[DEMO] 내일 박철민 고객과 첫 미팅 약속이 있습니다. 보장분석을 미리 확인하세요.',
+                today + datetime.timedelta(days=1),
+                customers[2],
+                False,   # 미읽음
+            ),
+            (
+                NotifType.TASK_DUE,
+                '최수진 고객 실손 검토 마감일',
+                '[DEMO] 최수진 고객 실손 비교 검토 마감이 내일입니다.',
+                today + datetime.timedelta(days=1),
+                customers[3],
+                True,    # 읽음
+            ),
+            (
+                NotifType.SHARE_UNREAD,
+                '정대호 고객 — 공유 링크 미열람',
+                '[DEMO] 정대호 고객이 공유된 보장분석 링크를 아직 열람하지 않았습니다.',
+                today,
+                customers[4],
+                True,    # 읽음
+            ),
+            (
+                NotifType.BOARD_COMMENT,
+                '내 게시글에 댓글이 달렸습니다',
+                '[DEMO] "갱신 임박 고객 응대 노하우 공유" 게시글에 새 댓글이 달렸습니다.',
+                None,    # board_comment는 target_date 없음
+                None,    # customer 없음
+                False,   # 미읽음
+            ),
+        ]
+
+        created = 0
+        for notif_type, title, body, target_date, customer, is_read in notifs:
+            Notification.objects.create(
+                owner=planner,
+                notif_type=notif_type,
+                title=title,
+                body=body,
+                target_date=target_date,
+                customer=customer,
+                is_read=is_read,
+            )
+            created += 1
+
+        unread = sum(1 for *_, is_read in notifs if not is_read)
+        self.stdout.write(f'  [10] 알림: {created}개 생성 (미읽음 {unread}개)')
+
+    # ── 11) 판촉물 샘플 + demo 주문 ────────────────────────────────────────
+    def _seed_promotion_samples(self):
+        """PromotionSample 3~4개 + PromotionSampleImage placeholder.
+
+        샘플 이미지: S3 미연동 단계이므로 placeholder URL 사용.
+        form_fields: 실제 주문 폼을 시연할 수 있도록 다양한 타입 정의.
+        """
+        sample_specs = [
+            {
+                'name': f'{DEMO_CATALOG_TAG} 2027 탁상달력',
+                'category': PromotionSample.CATEGORY_CALENDAR,
+                'description': '[DEMO] 고품질 탁상달력. 설계사 이름·연락처 인쇄 가능. 납기 2~3주.',
+                'is_available': True,
+                'sort_order': 1,
+                'form_fields': [
+                    {'key': 'quantity', 'label': '수량', 'type': 'number',
+                     'required': True, 'min': 50, 'max': 1000},
+                    {'key': 'name_text', 'label': '인쇄 이름·연락처', 'type': 'text',
+                     'required': True, 'placeholder': '예: 홍길동 설계사 010-1234-5678'},
+                    {'key': 'color', 'label': '표지 색상', 'type': 'radio',
+                     'required': True, 'options': ['빨강', '파랑', '초록', '베이지']},
+                ],
+                'image_url': 'https://placehold.co/400x300?text=달력+샘플',
+            },
+            {
+                'name': f'{DEMO_CATALOG_TAG} 고급 다이어리 (A5)',
+                'category': PromotionSample.CATEGORY_DIARY,
+                'description': '[DEMO] A5 양장 다이어리. 로고 각인 가능. 최소 주문 30권.',
+                'is_available': True,
+                'sort_order': 2,
+                'form_fields': [
+                    {'key': 'quantity', 'label': '수량', 'type': 'number',
+                     'required': True, 'min': 30, 'max': 500},
+                    {'key': 'logo_engraving', 'label': '로고 각인 여부', 'type': 'radio',
+                     'required': True, 'options': ['있음', '없음']},
+                    {'key': 'delivery_address', 'label': '배송지 주소', 'type': 'textarea',
+                     'required': True},
+                ],
+                'image_url': 'https://placehold.co/400x300?text=다이어리+샘플',
+            },
+            {
+                'name': f'{DEMO_CATALOG_TAG} 보험 안내 에코백',
+                'category': PromotionSample.CATEGORY_LIFE,
+                'description': '[DEMO] 친환경 에코백. 전면 인쇄 가능. 납기 3~4주.',
+                'is_available': True,
+                'sort_order': 3,
+                'form_fields': [
+                    {'key': 'quantity', 'label': '수량', 'type': 'number',
+                     'required': True, 'min': 100},
+                    {'key': 'print_text', 'label': '인쇄 문구', 'type': 'text',
+                     'required': False, 'placeholder': '예: 인파손해보험 홍길동'},
+                ],
+                'image_url': 'https://placehold.co/400x300?text=에코백+샘플',
+            },
+            {
+                'name': f'{DEMO_CATALOG_TAG} 미니 우산 (단종 예정)',
+                'category': PromotionSample.CATEGORY_LIFE,
+                'description': '[DEMO] 접이식 미니 우산. 재고 소진 후 단종 예정.',
+                'is_available': False,   # 품절/단종 배지 시연
+                'sort_order': 4,
+                'form_fields': [
+                    {'key': 'quantity', 'label': '수량', 'type': 'number',
+                     'required': True, 'min': 50},
+                ],
+                'image_url': 'https://placehold.co/400x300?text=우산+샘플',
+            },
+        ]
+
+        samples = []
+        for spec in sample_specs:
+            image_url = spec.pop('image_url')
+            sample = PromotionSample.objects.create(**spec)
+            PromotionSampleImage.objects.create(
+                sample=sample,
+                image_url=image_url,
+                is_primary=True,
+                sort_order=0,
+            )
+            samples.append(sample)
+
+        self.stdout.write(
+            f'  [11a] 판촉물 샘플: {len(samples)}개 (이미지 각 1장, '
+            f'주문가능 {sum(s.is_available for s in samples)}개 / '
+            f'품절 {sum(not s.is_available for s in samples)}개)'
+        )
+        return samples
+
+    def _seed_promotion_orders(self, planner, samples):
+        """demo 설계사의 판촉물 주문 2개 (상태 다양 — pending, producing)."""
+        # 주문 1: 달력 — pending (접수 단계)
+        order1 = PromotionOrder.objects.create(
+            owner=planner,
+            sample=samples[0],   # 탁상달력
+            form_response={
+                'quantity': 100,
+                'name_text': '[DEMO] 인파데모 설계사 010-0000-0000',
+                'color': '파랑',
+            },
+            status=PromotionOrder.STATUS_PENDING,
+            admin_note='',
+        )
+
+        # 주문 2: 다이어리 — producing (제작 중) + 상태 이력 로그 시연
+        order2 = PromotionOrder.objects.create(
+            owner=planner,
+            sample=samples[1],   # 다이어리
+            form_response={
+                'quantity': 50,
+                'logo_engraving': '있음',
+                'delivery_address': '[DEMO] 서울시 강남구 테헤란로 123',
+            },
+            status=PromotionOrder.STATUS_PRODUCING,
+            admin_note='[DEMO] 로고 시안 확인 완료. 제작 진행 중.',
+        )
+        # 상태 이력 로그 (producing 전 단계: pending → reviewing → producing)
+        from inpa.promotion.models import PromotionOrderStatusLog
+        PromotionOrderStatusLog.objects.create(
+            order=order2, to_status=PromotionOrder.STATUS_PENDING,
+            changed_by=planner, note='[DEMO] 주문 접수',
+        )
+        PromotionOrderStatusLog.objects.create(
+            order=order2, to_status=PromotionOrder.STATUS_REVIEWING,
+            changed_by=planner, note='[DEMO] 시안 검토 시작',
+        )
+        PromotionOrderStatusLog.objects.create(
+            order=order2, to_status=PromotionOrder.STATUS_PRODUCING,
+            changed_by=planner, note='[DEMO] 로고 시안 확인 완료, 제작 진행',
+        )
+
+        self.stdout.write(
+            f'  [11b] 판촉물 주문: 2개 '
+            f'(주문#{order1.pk} pending, 주문#{order2.pk} producing+이력3)'
+        )
+
+    # ── 12) Billing — Plan + Subscription + UsageMeter ─────────────────
+    def _seed_billing(self, planner):
+        """Plan 2개(무료/플러스) + demo Subscription(무료 활성) + UsageMeter 약간.
+
+        Plan은 공유 전역 데이터이므로 [DEMO] prefix display_name으로 생성.
+        _cleanup에서 display_name__startswith=DEMO_CATALOG_TAG 로 정리.
+        code는 unique이므로 demo_ prefix 사용.
+        """
+        now = timezone.now()
+        ym = UsageMeter.current_month()
+
+        # 요금제 2개
+        plan_free = Plan.objects.create(
+            code='demo_free',
+            display_name=f'{DEMO_CATALOG_TAG} 무료 플랜',
+            price_krw=0,
+            description='[DEMO] 베타 무료 플랜. OCR 10건/AI분석 10건/판촉물 5건 월 한도.',
+            limit_ocr=10,
+            limit_ai_compare=5,
+            limit_analysis=10,
+            limit_promotion=5,
+            is_active=True,
+        )
+        plan_plus = Plan.objects.create(
+            code='demo_plus',
+            display_name=f'{DEMO_CATALOG_TAG} Plus 플랜',
+            price_krw=29000,
+            description='[DEMO] Plus 플랜. 모든 기능 무제한.',
+            limit_ocr=None,
+            limit_ai_compare=None,
+            limit_analysis=None,
+            limit_promotion=None,
+            is_active=True,
+        )
+
+        # demo 설계사 구독: 무료 플랜 활성
+        # OneToOneField → 이미 존재하면 업데이트(signal 등에서 선생성 가능)
+        Subscription.objects.update_or_create(
+            user=planner,
+            defaults={
+                'plan': plan_free,
+                'status': 'active',
+                'expires_at': None,   # 무료 = 무기한
+            },
+        )
+
+        # UsageMeter: 이번 달 일부 사용량 기록 (한도 내 정상 범위)
+        usage_rows = [
+            ('ocr', 3),
+            ('ai_compare', 2),
+            ('analysis', 5),
+            ('promotion', 1),
+        ]
+        for action, count in usage_rows:
+            UsageMeter.objects.create(
+                user=planner, action=action, year_month=ym, count=count,
+            )
+
+        self.stdout.write(
+            f'  [12] 빌링: Plan {plan_free.code} + {plan_plus.code} + '
+            f'Subscription(demo, free, active) + UsageMeter {len(usage_rows)}행'
+        )
