@@ -14,7 +14,7 @@
 | 1 | 인증 방식 | 이메일/비밀번호 전용. 카카오 OAuth 제거. |
 | 2 | 가입 흐름 | 이메일 인증 → 약관 동의(통합) → 위촉 자기신고 → 대시보드 |
 | 3 | 세션 | DRF Token. 베타 무기한, 정식 출시 전 만료 정책 재검토 |
-| 4 | 비밀번호 찾기 | 이메일 토큰 재설정. 24시간 만료 1회용 링크 |
+| 4 | 비밀번호 찾기 | 이메일 토큰 재설정. 1시간 만료 1회용 링크 |
 | 5 | 권한·멀티테넌시 | `OwnedQuerySetMixin` + `IsOwner` 단일 강제점. 예외 2개(admin/share_token) |
 | 6 | 동의 분리 | 설계사 약관(가입) ≠ 고객 국외이전 동의(detect 412 게이트) |
 | 7 | 콜드스타트 | 첫 고객 등록 유도 = 활성화 북극선, 빈 상태 전부 단일 CTA |
@@ -36,10 +36,10 @@
    │                               │                             │
    │  (A) 회원가입                  │                             │
    │──────────────────────────────>│                             │
-   │                               │ POST /accounts/register/    │
+   │                               │ POST /api/v1/auth/register/ │
    │                               │  {email, password,          │
-   │                               │   terms_agreed,             │
-   │                               │   privacy_agreed,           │
+   │                               │   tos_agreed,               │
+   │                               │   pp_agreed,                │
    │                               │   marketing_agreed(선택)}    │
    │                               │───────────────────────────>│
    │                               │                   User 생성(비활성)
@@ -48,8 +48,8 @@
    │                               │<───────────────────────────│
    │  이메일 수신 → 링크 클릭        │                             │
    │──────────────────────────────>│                             │
-   │                               │ GET /accounts/verify-email/ │
-   │                               │  ?token=<uuid>              │
+   │                               │ GET /api/v1/auth/           │
+   │                               │   verify-email/?token=      │
    │                               │───────────────────────────>│
    │                               │              User.is_active=True
    │                               │  /login?verified=true       │
@@ -57,7 +57,7 @@
    │                               │                             │
    │  (B) 로그인                    │                             │
    │──────────────────────────────>│                             │
-   │                               │ POST /accounts/login/       │
+   │                               │ POST /api/v1/auth/login/    │
    │                               │  {email, password}          │
    │                               │───────────────────────────>│
    │                               │             비밀번호 검증
@@ -75,8 +75,8 @@
 [설계사]                        [inpa_fe]                    [inpa_be]
    │  이메일 입력                   │                             │
    │──────────────────────────────>│                             │
-   │                               │ POST /accounts/             │
-   │                               │   password-reset/request/   │
+   │                               │ POST /api/v1/auth/          │
+   │                               │   password-reset/           │
    │                               │  {email}                    │
    │                               │───────────────────────────>│
    │                               │        해당 이메일 존재 여부
@@ -87,15 +87,15 @@
    │  이메일 수신 → 링크 클릭        │                             │
    │──────────────────────────────>│                             │
    │                               │ GET /reset-password         │
-   │                               │  ?token=<uuid>              │
-   │                               │  → 토큰 유효 여부 확인       │
+   │                               │  ?token=<signed_token>      │
+   │                               │  → 토큰 유효 여부 확인(1h TTL)│
    │                               │───────────────────────────>│
    │                               │  {valid: true/false}        │
    │                               │<───────────────────────────│
    │  새 비밀번호 입력               │                             │
    │──────────────────────────────>│                             │
-   │                               │ POST /accounts/             │
-   │                               │   password-reset/confirm/   │
+   │                               │ POST /api/v1/auth/          │
+   │                               │   password-reset/           │
    │                               │  {token, new_password,      │
    │                               │   new_password_confirm}     │
    │                               │───────────────────────────>│
@@ -130,11 +130,11 @@
 
 | 항목 | 정책 |
 |---|---|
-| 인증 토큰 | UUID4, DB 저장(`EmailVerificationToken`) |
-| 만료 | 24시간 |
-| 링크 형식 | `https://inpa.도메인/auth/verify-email?token=<uuid>` |
-| 이중 클릭 가드 | 토큰 1회 사용 후 즉시 `used_at` 기록, 재사용 시 410 Gone |
-| 미인증 재발송 | `/accounts/resend-verification/` (쿨다운 60초) |
+| 인증 토큰 | Django `PasswordResetTokenGenerator` 상속, 서명 토큰(stateless — 별도 DB 테이블 없음) |
+| 만료 | 24시간 (`EMAIL_VERIFY_TOKEN_TTL_HOURS=24` settings) |
+| 링크 형식 | `https://inpa.도메인/verify-email?uid=<pk_b64>&token=<signed_token>` |
+| 이중 클릭 가드 | `User.is_active=True` 전환 시 토큰 자동 무효화(1회용 자동 보장) |
+| 미인증 재발송 | `POST /api/v1/auth/resend-verification/` (쿨다운 60초) |
 | 미인증 로그인 | 403 `EMAIL_NOT_VERIFIED` + 재발송 버튼 안내 |
 
 ### 2.3 위촉확인 — "자기신고" 모델 (베타 정책)
@@ -144,7 +144,7 @@
 | 필드 | 타입 | 필수 | 용도 |
 |---|---|---|---|
 | `affiliation` | str | ✓ | 소속(원수사/GA명) — 자유입력 |
-| `agent_type` | enum(life/nonlife/both) | ✓ | 생명/손해/교차 — §97 비교안내 게이트 입력 |
+| `agent_type` | SmallInt (1=생명/2=손해/3=교차) | ✓ | DB는 SmallInt. life/nonlife/both는 표시용 별칭. §97 비교안내 게이트 입력 |
 | `license_self_declared` | bool | ✓ | "본인은 유효한 보험모집 자격을 보유하고 있음" 자기신고 체크 |
 | `career_years` | int | – | 경력연차 (성과카드/온보딩 카피 개인화) |
 | `license_no` | str | – | 자격번호 (선택 입력 — 추후 검증 hook 대비 컬럼만 확보) |
@@ -153,14 +153,19 @@
 
 ### 2.4 `User` & `Profile` 모델 (인파 기준)
 
+> **정본:** `dev/02 §2.1~2.3`. 아래는 auth/onboarding 레이어에서 참조하는 필드 요약이다.
+
 ```
 User (Django 내장)
   email          CharField(unique)   ← 로그인 ID
-  password       (bcrypt, Django 기본)
-  is_active      bool default=False  ← 이메일 인증 전 비활성
+  password       (PBKDF2 해시 — Django 기본, 신규 의존성 0)
+  is_active      bool default=False  ← 이메일 인증 전 비활성, 인증 완료 시 True
   date_joined    datetime
 
 Profile (OneToOne User)
+  ── 인증 ────────────────────────────────────
+  email_verified_at       datetime(null)       # 이메일 인증 완료 시각 (User.is_active와 1:1)
+  last_password_changed   datetime(null)       # 비밀번호 변경 이력
   ── 계정 상태 ─────────────────────────────
   is_admin                bool default=False
   is_dormant              bool default=False    # 미들웨어 게이트 금지!
@@ -168,31 +173,25 @@ Profile (OneToOne User)
   dormancy_warning_sent_at datetime(null)
   will_delete_at          datetime(null)
   ── 약관 동의 (가입 시 통합) ─────────────────
-  terms_agreed_at         datetime             # 서비스 이용약관
-  privacy_agreed_at       datetime             # 개인정보 처리방침
+  tos_agreed_at           datetime(null)       # 서비스 이용약관 (필수)
+  tos_doc_version         str default=''       # 동의한 버전
+  pp_agreed_at            datetime(null)       # 개인정보 처리방침 (필수)
+  pp_doc_version          str default=''
   marketing_agreed_at     datetime(null)       # 선택 마케팅 동의
+  marketing_revoked_at    datetime(null)       # 마케팅 철회
   ── 위촉·온보딩 ──────────────────────────────
   affiliation             str(null)
-  agent_type              enum(1=life/2=nonlife/3=both, null)
+  agent_type              SmallInt(null)       # 1=생명 / 2=손해 / 3=교차 (DB는 SmallInt)
   license_self_declared   bool default=False
   license_no              str(null)
   career_years            int(null)
   onboarding_completed_at datetime(null)       # null=온보딩 미완 → 재진입
   ref_code                str(unique, null)    # Day1 컬럼만, 발급 로직 Sprint0
 
-EmailVerificationToken
-  user        FK User
-  token       UUIDField(unique)
-  created_at  datetime
-  used_at     datetime(null)
-  expires_at  datetime                         # created_at + 24h
-
-PasswordResetToken
-  user        FK User
-  token       UUIDField(unique)
-  created_at  datetime
-  used_at     datetime(null)
-  expires_at  datetime                         # created_at + 24h
+# 이메일 인증 토큰 / 비밀번호 재설정 토큰 — 별도 DB 모델 없음
+# Django PasswordResetTokenGenerator 상속, stateless 서명 토큰 사용
+# 이메일 인증 TTL: EMAIL_VERIFY_TOKEN_TTL_HOURS=24 (settings)
+# 비번 재설정 TTL: PASSWORD_RESET_TOKEN_TTL_HOURS=1 (settings), 1회용 자동 보장
 ```
 
 ---
@@ -203,7 +202,7 @@ PasswordResetToken
 
 - **DRF Token** 사용. 로그인 성공 → `{ token }` 발급 → FE가 `Authorization: Token <…>` 헤더로 모든 API 인증.
 - **만료 정책**: 베타는 무기한(설계사 도구 — 매일 진입, 잦은 재로그인은 마찰). 정식 출시 전 만료/리프레시 정책 재검토.
-- **로그아웃**: `POST /accounts/logout/` → BE Token 삭제 + FE 로컬스토리지 폐기.
+- **로그아웃**: `POST /api/v1/auth/logout/` → BE Token 삭제 + FE 로컬스토리지 폐기.
 - **비밀번호 변경**: 변경 완료 시 기존 Token 전부 무효화(보안 강제 재로그인).
 
 ### 3.2 권한 레이어 (3단)
@@ -271,8 +270,8 @@ class IsOwner(BasePermission):
 ### 3.4 휴면/탈퇴
 
 - 휴면 시스템(`process_dormancy`: +150d 경고 / +180d 휴면 / dormant+180d 삭제) — foliio 로직 포팅.
-- **레드라인 재확인**: `is_dormant`를 미들웨어/permission에서 차단하지 말 것. 로그인 API(`/accounts/login/`)가 `is_dormant=True` 상태 확인 후 자동으로 `is_dormant=False` + `dormant_at=None` 복구. admin(`is_admin=True`)은 휴면 처리 제외.
-- 탈퇴: foliio `withdraw/` 익명화 패턴 포팅(no-undo). 탈퇴 설계사의 `Customer.user`가 `SET_NULL` → "소유자 없는 유령행" 발생 → admin "owner=NULL 고객" 필터 + 재배정 액션 필수.
+- **레드라인 재확인**: `is_dormant`를 미들웨어/permission에서 차단하지 말 것. 로그인 API(`/api/v1/auth/login/`)가 `is_dormant=True` 상태 확인 후 자동으로 `is_dormant=False` + `dormant_at=None` 복구. admin(`is_admin=True`)은 휴면 처리 제외.
+- 탈퇴: foliio `withdraw/` 익명화 패턴 포팅(no-undo). 탈퇴 설계사의 `Customer.owner`는 `CASCADE` — 탈퇴 시 고객 개인정보 함께 삭제(`dev/02 §3.1` 정본). SET_NULL 유령행 패턴 사용 금지.
 
 ---
 
@@ -295,8 +294,8 @@ class IsOwner(BasePermission):
 ```
 ConsentLog  (고객별 동의 감사로그 — 6요건)
   customer FK        # 누가(고객)
-  consented_at       # 언제
-  scope              # 무엇을 (overseas_transfer / medical_sensitive)
+  agreed_at          # 언제 (auto_now_add)
+  scope              # 무엇을 (overseas_medical / medical_sensitive)
   doc_version        # 어느 약관 버전
   ip                 # 어디서
   revoked_at (null)  # 철회 시점 (철회권 보장)
@@ -365,7 +364,7 @@ signup → email_verified → login → onboarding_complete
 | 라우트 | 화면 | 렌더 | 가드 |
 |---|---|---|---|
 | `/register` | 회원가입 폼 | client | 비인증만 |
-| `/auth/verify-email` | 이메일 인증 처리 | client | — (비인증 접근 가능) |
+| `/verify-email` | 이메일 인증 처리 | client | — (비인증 접근 가능) |
 | `/login` | 로그인 폼 | client | 비인증만 |
 | `/forgot-password` | 비밀번호 찾기 이메일 입력 | client | 비인증만 |
 | `/reset-password` | 새 비밀번호 입력 | client | — (토큰 파라미터로 접근) |
@@ -383,23 +382,24 @@ signup → email_verified → login → onboarding_complete
       └ skip → /home (빈상태 동일 CTA로 계속 유도)
 ```
 
-### 6.3 로그인 화면 상태 6종
+### 6.3 로그인 화면 상태 7종
 
-| 상태 | 렌더 |
-|---|---|
-| 기본 | 이메일·비밀번호 입력 + [로그인] 버튼 |
-| 진행중 | 버튼 disabled + 스피너 |
-| 이메일 미인증 | 403 → "이메일 인증 후 로그인하세요" + [인증 메일 재발송] 버튼 |
-| 비밀번호 오류 | 401 → "이메일 또는 비밀번호가 올바르지 않습니다" (계정 존재 여부 노출 금지) |
-| 이메일 인증 완료 직후 | `/login?verified=true` → "이메일 인증이 완료되었습니다. 로그인하세요" 배너 |
-| 휴면 자동복구 | 로그인 성공 후 "계정이 복구되었습니다" 토스트 + `/onboarding` or `/home` |
+| 상태 | HTTP | 렌더 |
+|---|---|---|
+| 기본 | — | 이메일·비밀번호 입력 + [로그인] 버튼 |
+| 진행중 | — | 버튼 disabled + 스피너 |
+| 이메일 미인증 | 403 `EMAIL_NOT_VERIFIED` | "이메일 인증 후 로그인하세요" + [인증 메일 재발송] 버튼 |
+| 비밀번호 오류 | 401 `INVALID_CREDENTIALS` | "이메일 또는 비밀번호가 올바르지 않습니다" (계정 존재 여부 노출 금지) |
+| 계정 잠금 | 423 `LOCKED` + `Retry-After` 헤더 | "비밀번호를 5회 틀려 10분간 잠겼습니다. 잠시 후 다시 시도하세요" (5회 실패 → 10분 잠금) |
+| 이메일 인증 완료 직후 | — | `/login?verified=true` → "이메일 인증이 완료되었습니다. 로그인하세요" 배너 |
+| 휴면 자동복구 | 200 | 로그인 성공 후 "계정이 복구되었습니다" 토스트 + `/onboarding` or `/home` |
 
 ### 6.4 마이페이지(설정) — `/settings/profile`
 
 | 기능 | UX |
 |---|---|
 | 비밀번호 변경 | 현재 비밀번호 확인 → 새 비밀번호 × 2 입력 → 변경 완료 시 기존 토큰 전부 무효화 + 재로그인 유도 |
-| 마케팅 동의 철회 | 토글 → `Profile.marketing_agreed_at = None` |
+| 마케팅 동의 철회 | 토글 → `Profile.marketing_revoked_at` 기록 (철회 시각 보존, `dev/02 §2.2`) |
 | 회원 탈퇴 | 경고 모달(no-undo) → 비밀번호 재확인 → 익명화 처리 |
 | 휴면 전환 | — (자동 처리, 설계사 직접 전환 없음) |
 
@@ -411,29 +411,29 @@ signup → email_verified → login → onboarding_complete
 
 | Path | Method | Auth | 용도 |
 |---|---|---|---|
-| `/api/v1/accounts/register/` | POST | AllowAny | 회원가입 → 이메일 인증 메일 발송 |
-| `/api/v1/accounts/verify-email/` | GET | AllowAny | 이메일 인증 토큰 처리 |
-| `/api/v1/accounts/resend-verification/` | POST | AllowAny | 이메일 인증 메일 재발송 (쿨다운 60초) |
-| `/api/v1/accounts/login/` | POST | AllowAny | 로그인 → DRF Token + onboarding_required |
-| `/api/v1/accounts/logout/` | POST | Token | 로그아웃 → Token 삭제 |
-| `/api/v1/accounts/profile/` | GET | Token | 내 프로필 + 온보딩 상태 + 멤버십 |
-| `/api/v1/accounts/onboarding/attest/` | PATCH | Token | 위촉 자기신고 저장 → onboarding_completed_at 기록 |
-| `/api/v1/accounts/password/change/` | POST | Token | 비밀번호 변경 → 기존 토큰 전부 무효화 |
-| `/api/v1/accounts/password-reset/request/` | POST | AllowAny | 비밀번호 재설정 메일 발송 요청 |
-| `/api/v1/accounts/password-reset/confirm/` | POST | AllowAny | 새 비밀번호 저장 (토큰 1회용) |
-| `/api/v1/accounts/withdraw/` | DELETE | Token | 회원 탈퇴 (익명화) |
+| `/api/v1/auth/register/` | POST | AllowAny | 회원가입 → 이메일 인증 메일 발송 |
+| `/api/v1/auth/verify-email/` | GET | AllowAny | 이메일 인증 서명 토큰 처리 (TTL 24h, 1회용) |
+| `/api/v1/auth/resend-verification/` | POST | AllowAny | 이메일 인증 메일 재발송 (쿨다운 60초) |
+| `/api/v1/auth/login/` | POST | AllowAny | 로그인 → DRF Token + onboarding_required (5회 실패 → 423 잠금) |
+| `/api/v1/auth/logout/` | POST | Token | 로그아웃 → Token 삭제 |
+| `/api/v1/auth/profile/` | GET | Token | 내 프로필 + 온보딩 상태 + 멤버십 |
+| `/api/v1/auth/onboarding/attest/` | PATCH | Token | 위촉 자기신고 저장 → onboarding_completed_at 기록 |
+| `/api/v1/auth/password/change/` | POST | Token | 비밀번호 변경 → 기존 토큰 전부 무효화 |
+| `/api/v1/auth/password-reset/` | POST | AllowAny | 비밀번호 재설정 메일 발송 요청 (무조건 200) |
+| `/api/v1/auth/password-reset/confirm/` | POST | AllowAny | 새 비밀번호 저장 (서명 토큰 1회용, TTL 1h) |
+| `/api/v1/auth/withdraw/` | DELETE | Token | 회원 탈퇴 (익명화) |
 
 ### 7.2 주요 요청/응답 계약
 
-**POST `/api/v1/accounts/register/`**
+**POST `/api/v1/auth/register/`**
 ```json
 // 요청
 {
   "email": "agent@example.com",
   "password": "password123!",
   "password_confirm": "password123!",
-  "terms_agreed": true,
-  "privacy_agreed": true,
+  "tos_agreed": true,
+  "pp_agreed": true,
   "marketing_agreed": false
 }
 
@@ -448,7 +448,7 @@ signup → email_verified → login → onboarding_complete
 }
 ```
 
-**POST `/api/v1/accounts/login/`**
+**POST `/api/v1/auth/login/`**
 ```json
 // 요청
 {
@@ -475,14 +475,17 @@ signup → email_verified → login → onboarding_complete
 
 // 오류 403 — 이메일 미인증
 { "error": "EMAIL_NOT_VERIFIED" }
+
+// 오류 423 — 5회 실패 잠금 (Retry-After 헤더 포함)
+{ "error": "LOCKED", "retry_after": 600 }
 ```
 
-**PATCH `/api/v1/accounts/onboarding/attest/`**
+**PATCH `/api/v1/auth/onboarding/attest/`**
 ```json
 // 요청
 {
   "affiliation": "삼성생명",
-  "agent_type": "life",
+  "agent_type": 1,
   "license_self_declared": true,
   "career_years": 3,
   "license_no": "2021-xxxxx"
@@ -494,7 +497,9 @@ signup → email_verified → login → onboarding_complete
 }
 ```
 
-**POST `/api/v1/accounts/password-reset/request/`**
+> `agent_type` 전송값: 1=생명, 2=손해, 3=교차 (SmallInt). FE 드롭다운은 사람이 읽을 수 있는 레이블을 표시하고, 서버로는 정수를 전송한다.
+
+**POST `/api/v1/auth/password-reset/`**
 ```json
 // 요청
 { "email": "agent@example.com" }
@@ -503,11 +508,12 @@ signup → email_verified → login → onboarding_complete
 { "message": "해당 이메일로 재설정 링크를 발송했습니다." }
 ```
 
-**POST `/api/v1/accounts/password-reset/confirm/`**
+**POST `/api/v1/auth/password-reset/confirm/`**
 ```json
 // 요청
 {
-  "token": "uuid-token",
+  "uid": "<pk_b64>",
+  "token": "<signed_token>",
   "new_password": "newpass123!",
   "new_password_confirm": "newpass123!"
 }
@@ -515,7 +521,7 @@ signup → email_verified → login → onboarding_complete
 // 응답 200
 { "message": "비밀번호가 변경되었습니다. 다시 로그인하세요." }
 
-// 오류 400 — 만료 또는 이미 사용된 토큰
+// 오류 400 — 만료(1h) 또는 이미 사용된 토큰
 { "error": "INVALID_OR_EXPIRED_TOKEN" }
 ```
 
@@ -523,7 +529,7 @@ signup → email_verified → login → onboarding_complete
 
 - 최소 8자, 영문+숫자 조합 강제.
 - Django 내장 `AUTH_PASSWORD_VALIDATORS` 활용(길이·공통패턴·숫자전용 차단).
-- bcrypt 해시(Django 기본 PBKDF2 또는 `django-bcrypt`로 교체 — 합리적 기본값: PBKDF2 그대로 사용, 교체는 Sprint0에서 재검토).
+- **PBKDF2 해시 (Django 기본, 신규 의존성 0)** — 정본 확정. bcrypt 교체 검토는 취소.
 
 ---
 
@@ -543,10 +549,10 @@ signup → email_verified → login → onboarding_complete
 |---|---|---|---|
 | 1 | **`OwnedQuerySetMixin`/`IsOwner`** 전체 ViewSet 적용 목록 미확정 | 1곳 누락 = 타설계사 고객 유출 | ★Sprint0 blocking |
 | 2 | **`ref_code` 발급 체계** (생성 알고리즘·유일성·위변조 방지) 미설계 | 북극성 귀속 정확도 근간 | Day1 스키마만 동결, 발급 로직 Sprint0 |
-| 3 | **이메일 발송 인프라** — Django 이메일 백엔드(SMTP/SendGrid/SES) 미선정 | 가입·비밀번호 재설정 동작 전제 | Sprint0 선택 필요 |
-| 4 | **비밀번호 해시 알고리즘** — PBKDF2 vs bcrypt 최종 선택 미확정 | 보안 강도 | Sprint0 재검토 (합리적 기본값: PBKDF2) |
+| 3 | **이메일 발송 인프라** — Resend 확정 (`dev/20`) | ~~미선정 갭 해소~~ | 해소됨 |
+| 4 | **비밀번호 해시 알고리즘** — PBKDF2(Django 기본) 확정 | ~~bcrypt 교체 미확정~~ | 해소됨 |
 | 5 | **토큰 만료/리프레시 정책** — 베타 무기한, 정식 미정 | 세션 보안 | 정식 출시 전 재검토 |
-| 6 | **SET_NULL 유령행 admin 재배정** 동선 미명세 | 탈퇴 후 고객 비가시 | `dev/02` admin 영역 교차 |
+| 6 | **탈퇴 시 고객 삭제 정책** — `Customer.owner CASCADE` 확정(`dev/02 §3.1`). 탈퇴 설계사의 고객 개인정보 함께 삭제 (유예기간 정책은 미결) | 탈퇴 전 고객 인계 동선 | soft-delete 유예기간 정책 확정 필요 |
 | 7 | **마케팅 동의 철회 감사추적** — `Profile.marketing_agreed_at=null`만으로 충분한지, 별도 로그 필요한지 미확정 | 개인정보 컴플라이언스 | 정식 출시 전 확정 |
 | 8 | **위촉 자격 API 연동** — 베타 self-attestation 확정, 정식 재검토 | §97 기능 게이트 | 정식 출시 전 재검토 |
 | 9 | **콜드스타트 전환율 목표** — 베타 실측 후 확정 | KPI 기준 | PMF admin 교차 |
@@ -562,7 +568,7 @@ signup → email_verified → login → onboarding_complete
 - [ ] 화이트리스트 2개(admin/share_token) 외 `request.user` 없는 접근 0건 (코드리뷰 + grep 검증)
 - [ ] `is_dormant` 미들웨어 게이트 부재 확인 + 휴면 자동복구는 로그인 API에서만 처리
 - [ ] 동의 2종 분리: 가입 약관 ≠ 고객 국외이전 동의 (detect 412 게이트 별도 발화)
-- [ ] 비밀번호 찾기 이메일 → 24시간 만료 1회용 링크 → 재설정 완료 → 기존 Token 무효화
+- [ ] 비밀번호 찾기 이메일 → 1시간 만료 1회용 링크(서명 토큰, `PASSWORD_RESET_TOKEN_TTL_HOURS=1`) → 재설정 완료 → 기존 Token 무효화
 - [ ] 비밀번호 변경 완료 시 기존 Token 전부 무효화 + 재로그인 강제 확인
 - [ ] `onboarding_completed_at IS NULL` → `/onboarding` 강제 라우팅 (중단 재진입 보장)
 - [ ] 콜드스타트: 빈 상태 6화면 전부 단일 CTA(`/customer/create`)로 수렴

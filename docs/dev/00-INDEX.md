@@ -60,6 +60,7 @@
 | 21 | `21-promotion-orders.md` | 판촉물 샘플 카탈로그 + 주문제작 | 기능 | 개발 |
 | 22 | `22-notifications-reminders.md` | 알림 & 리마인더(5종 만기·생일·접촉) | 기능 | 개발 |
 | 23 | `23-billing-and-limits.md` | 요금제 & 사용량 한도(Freemium 월 카운터) | 기능·운영 | PM·BE |
+| 24 | `24-landing-marketing.md` | 랜딩(메인) 페이지 스펙 — 히어로·7섹션·CTA·푸터·정직성 고지 | 기능 | PM·디자인·FE |
 
 ---
 
@@ -68,6 +69,14 @@
 > **접근권한 표기**: `공개`(AllowAny) · `비인증만`(로그인 시 리다이렉트) · `설계사`(인증 필수, owner 스코프 자동) · `관리자`(is_admin) · `토큰`(공유링크 share_token 검증).
 > **가시성 표기**: 공유 / 비공개 / 소유자전용 / 소유자+관리자 / 공개읽기+관리자쓰기 — `dev/02 §0` 매트릭스 기준.
 > **라우트 별칭**: 공통 척추(dev/01)는 복수형 친화 별칭(`/customers`, `/community`, `/promotions`)을 쓰고, 각 기능 문서는 단수형 정본(`/customer`, `/board`, `/promotion`)을 쓴다. **정본 = 기능 문서 라우트**, 별칭은 "정본←별칭" 칸에 표기. FE는 별칭→정본 리다이렉트(또는 단일 채택) 1건 필요(§openGaps).
+
+### 3.0 랜딩 (마케팅 · 공개 · 비로그인)
+
+| 정본 라우트 | 화면 | 접근권한 | 가시성 | 모바일 | 정본 문서 |
+| --- | --- | --- | --- | --- | --- |
+| `/` | 랜딩(마케팅, 공개/비로그인, 히어로 "설계사님은 클로징만 준비하세요") | **공개**(AllowAny) | 공개읽기 | 모바일 우선, 히어로+CTA+기능소개 | **24** |
+
+> 로그인 후 대시보드는 `/home`(§3.2)으로 분리. 랜딩(`/`)은 SSG 정적 생성. 로그인 상태에서 접근 시 클라이언트 사이드 `useEffect` 로 `/home` 리다이렉트. 상세 스펙 `dev/24`.
 
 ### 3.1 인증·온보딩 (공개 / 비인증)
 
@@ -170,6 +179,7 @@
 | `/admin/promotion/samples` | 판촉물 샘플 CRUD + 폼 필드 빌더 | 관리자 | 공유(카탈로그 관리) | 미지원 | 21 |
 | `/admin/consent-logs` | ConsentLog READ-ONLY 열람(PII 마스킹) | 관리자 | 소유자전용(관리자 감사 열람) | 미지원 | 19, 16 |
 | `/admin/normalization` | UnmatchedLog 검수 큐 + NormalizationDict 1탭 매핑 | 관리자 | 공유(전역) + 관리자 검수 | 미지원 | 19, 12 |
+| `/admin/settings` | 운영 설정(요금제 Plan·한도, 약관 PolicyVersion, 기능 플래그·`FREE_TIER_UNLIMITED`) | 관리자 | 공개읽기+관리자쓰기(Plan/PolicyVersion) | 미지원 | 19, 23, 16 |
 
 ### 3.10 라우트 정합 메모 (별칭·중복 정리)
 
@@ -214,10 +224,10 @@
 | **account** | `11-auth-onboarding` | `/register`·`/login`·`/verify-email`·`/forgot-password`·`/reset-password`·`/onboarding`·`/settings/profile` | User, Profile, Token(DRF authtoken) | 소유자전용(본인+관리자) |
 | **legal-consent** | `16-legal-and-consent` | `/legal/*`·`/customer/:id/agree`·약관 동의 | ConsentLog, PolicyVersion, CustomerMedicalHistory | 공개읽기+관리자쓰기 / 소유자전용 |
 | **core-product** | `12-customer-crud-ocr` (+08,10,13) | `/customer*`·`/settings/baseline`·`/s/:token` | Customer, CustomerTag, FamilyMember, CustomerInsurance(+Detail), **PlannerBaseline**, NormalizationDict, UnmatchedLog, AnalysisCategory/SubCategory/Detail, ChartDetail, JobRiskCode | 소유자전용 / 공유(마스터) |
-| **notifications** | `22-notifications-reminders` | `/notifications`·`/settings/reminders` | Notification, ReminderSetting | 소유자전용 |
+| **notifications** | `22-notifications-reminders` | `/notifications`·`/settings/reminders` | Notification, ReminderRule | 소유자전용 |
 | **boards** | `17-boards-and-community` | `/board*`·`/notice*`·`/faq`·`/inquiry*` | Post, Comment, Like, Notice, Faq, Inquiry, InquiryReply, Report | 공유 / 공개읽기+관리자쓰기 / 비공개 |
 | **판촉물** | `21-promotion-orders` | `/promotion*` | PromotionSample, PromotionOrder, PromotionOrderStatusLog | 공유(카탈로그) / 소유자+관리자(주문) |
-| **billing** | `23-billing-and-limits` | `/settings/billing*` | Subscription/Plan, UsageCounter | 소유자+관리자 |
+| **billing** | `23-billing-and-limits` | `/settings/billing*` | Plan, Subscription, UsageMeter | 소유자+관리자(Plan은 공개읽기) |
 | **admin** | `19-admin-console` | `/admin*` | (위 엔티티의 관리자 운영 뷰: 신고 모더레이션·검수·동의 감사) | 전체(관리자 운영) |
 | **devops** | `20-devops-and-deploy` | (배포·환경변수·이메일 인프라) | (앱 외 인프라) | — |
 | **mobile** | `18-mobile-responsive` | 전 라우트의 모바일 명세 | (화면 단면 — 자체 엔티티 없음) | — |
@@ -246,7 +256,7 @@
 | # | 항목 | 제안 기본값 | 정본 문서 |
 | --- | --- | --- | --- |
 | G1 | 라우트 별칭 8쌍 단일화(§3.10) | 본 인덱스 §3 정본 라우트로 통일 + 별칭 308 리다이렉트 | 01, 11, 12, 17, 18, 19, 20 |
-| G2 | 공지/FAQ 비인증 공개 허용 여부 | 우선 **설계사 인증 필수**(비인증 공개는 v2 검토) | 17 |
+| G2 | ~~공지/FAQ 비인증 공개 허용 여부~~ | 해소: Notice·Faq=공개읽기(AllowAny GET)+관리자쓰기 확정(결정 17) | 17 |
 | G3 | 데이터 모델 정본(`dev/02`)과 본 인덱스 라우트 정합 재검증(엔티티명 1:1) | `dev/02` 재작성 직후 본 인덱스 §5 동기화 | 02 |
 | G4 | `EmailVerificationToken` 서술 동기화(별도 테이블 폐기 → Generator 상속) | `dev/11` 서술을 `dev/02` 정본에 맞춰 갱신 | 11 |
 | G5 | 모바일 미지원 관리자 콘솔의 운영자 모바일 긴급 열람 경로 | v2까지 미지원 유지, 긴급 시 데스크톱 접속 | 19 |
@@ -256,6 +266,7 @@
 ## 부록 A. 라우트 빠른 색인 (알파벳/경로순)
 
 ```
+/                              공개    랜딩(마케팅·비로그인) dev/24
 /admin                         관리자  대시보드            dev/19
 /admin-login                   비인증  Admin 로그인        dev/19
 /admin/announcements           관리자  공지 관리           dev/19,17
@@ -266,6 +277,7 @@
 /admin/normalization           관리자  정규화 검수 큐       dev/19,12
 /admin/orders                  관리자  주문 처리           dev/19,21
 /admin/promotion/samples       관리자  샘플 CRUD          dev/21
+/admin/settings                관리자  운영 설정(요금제·약관) dev/19,23,16
 /admin/users                   관리자  설계사 목록         dev/19
 /admin/users/:id               관리자  설계사 상세         dev/19,23
 /board                         설계사  게시판 피드(공유)    dev/17

@@ -330,7 +330,7 @@ BE: POST /api/v1/auth/password-reset/
   → /reset-password?token=<token>
        ↓
 BE: POST /api/v1/auth/password-reset/confirm/
-  → 토큰 검증 + 새 비밀번호 저장(bcrypt) + 토큰 무효화
+  → 토큰 검증 + 새 비밀번호 저장(PBKDF2, Django 기본) + 토큰 무효화
        ↓
 FE: /login 리다이렉트 + "비밀번호가 변경되었습니다" 토스트
 ```
@@ -543,7 +543,7 @@ BE: POST /api/v1/customers/{id}/consent/overseas/revoke/
 |---|---|---|
 | 인증 방식 | 이메일/비밀번호 | 카카오 OAuth 제거 — 카카오 콘솔 의존성·개인정보 위탁 최소화 |
 | 토큰 방식 | DRF Token (foliio ♻) | 심플하고 검증됨. 베타는 무기한 |
-| 비밀번호 해시 | bcrypt (Django 기본 PBKDF2 또는 argon2) | Django 기본값 사용 |
+| 비밀번호 해시 | PBKDF2 (Django 기본) | Django 기본값 사용 |
 | 이메일 인증 | 가입 후 24시간 유효 토큰 | is_active=False 게이트 |
 | 비밀번호 찾기 | 이메일 링크 (1시간 유효 토큰) | PasswordResetToken 모델 |
 | 로그인 실패 잠금 | 5회 실패 → 10분 잠금 | 합리적 기본값 |

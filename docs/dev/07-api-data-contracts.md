@@ -65,8 +65,8 @@ POST /insurance/detect/
   │    CustomerInsurance + CustomerInsuranceDetail 생성 → calculate()
   │    numpy_financial.fv 8케이스 분기 / 음수 guard max(0, assurance−renewal)
   │
-  └─⑥ 크레딧 차감 [◑ credit.py — kind='ai' 추가]
-       detect = insurance 차감 (베타 FREE_TIER_UNLIMITED 우회)
+  └─⑥ 크레딧 차감 [◑ credit.py — kind='ocr' 추가]
+       detect = ocr 차감 (베타 FREE_TIER_UNLIMITED 우회)
 ```
 
 ### 1.3 응답
@@ -533,7 +533,7 @@ Customer  [foliio 재활용 + 1필드 추가]
 | **◑ 부분** | `core/ocr/claude_parser.py:430 claude_parse` | **프롬프트만** (100+ 담보 트리 주입) | 매칭 happy path |
 | ◑ | `_add_coverage:700` | 3.5순위 import 1줄 + 4줄 삽입 | normalization happy + 학습루프 |
 | ◑ | `Customer` 모델 | `+consent_overseas_at` 1필드 | — |
-| ◑ | `membership/credit.py` | `+kind='ai'` | 402 shape |
+| ◑ | `membership/credit.py` | `+kind='ocr'` | 402 shape |
 | **✦ 신규** | `insurances/normalization.py` | `lookup()` 함수 | 단위테스트 |
 | ✦ | `customers/heatmap.py` | `heatmap_status()` + 그리드 빌드 | status 4상태 전수 (none/short/enough/neutral) |
 | ✦ | `NormalizationDict` / `UnmatchedLog` | 신규 모델 + seed | UNIQUE 제약 |
@@ -543,7 +543,7 @@ Customer  [foliio 재활용 + 1필드 추가]
 
 | API | 권한 | 크레딧 |
 |---|---|---|
-| `POST /insurance/detect/` | IsAuthenticated | `insurance` 차감 (kind='ai' 경유, 베타 우회) |
+| `POST /insurance/detect/` | IsAuthenticated | `ocr` 차감 (kind='ocr' 경유, 베타 우회) |
 | `GET /customer/:id/share/analysis/` | AllowAny + share_token | 무차감 |
 | `GET /customer/:id/heatmap/` | IsAuthenticated 또는 share_token | 무차감 |
 
@@ -584,7 +584,7 @@ makemigrations
 | — | insights 발화 규칙 상세 (우선순위·표기 상한·반올림 단위) | 고객 노출 카피 = 정직성 레드라인 | 천만원 단위 (추정) | ✓ | PM+디자인 |
 | — | 정규화 자동승격 임계 (hit_count≥N) | 자동 오매핑=§97 위반 | **admin_verified만** | ✗ | 개발+운영 |
 | — | ref_code 발급 체계 (생성·유일성·위변조 방지) | 귀속 정확도 근간 | Day1 스키마만, 로직 미설계 | ✗ | 개발+PM |
-| — | ai_credit 한도 숫자 | 공유뷰 발급 차감 여부 | 베타 90일 실측 (추정) | ✗ | PM |
+| — | ocr 한도 숫자 | 공유뷰 발급 차감 여부 | 베타 90일 실측 (추정) | ✗ | PM |
 | — | 공유뷰 PII 노출 범위 (고객명 마스킹 홍**/gender null/병력) | 개인정보 | 마스킹 규칙 미확정 | ✗ | PM+보안+QA |
 | — | OCR 추출률 85% 게이트 분모 (7필드 vs 100+, 필드 가중치) | PASS/FAIL 판정 불가 | 측정단위 미정 | ✗ | QA+개발 |
 

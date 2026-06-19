@@ -100,7 +100,7 @@
 
 **제출 후 동작:**
 - 성공(201) → 토스트 "주문이 접수되었습니다" + `/promotion/orders`로 이동.
-- 실패(402 크레딧 부족) → "이번 달 주문 한도를 초과했습니다" 인라인 에러.
+- 실패(402 Payment Required — 크레딧 kind=promotion 소진) → "이번 달 주문 한도를 모두 사용했어요" 인라인 에러 + 업그레이드 유도.
 
 ### 2.3 내 주문 목록 `/promotion/orders`
 
@@ -193,8 +193,8 @@ class PromotionOrder(models.Model):
     STATUS_PENDING   = 'pending'    # 예약 접수 — 설계사가 폼 제출 직후
     STATUS_REVIEWING = 'reviewing'  # 검토 중   — 관리자가 주문 확인
     STATUS_PRODUCING = 'producing'  # 제작 중   — 외부 인쇄소 발주 완료
-    STATUS_SHIPPED   = 'shipped'    # 발송      — 운송장 생성
-    STATUS_DONE      = 'done'       # 완료      — 수령 확인
+    STATUS_SHIPPED   = 'shipping'   # 발송      — 운송장 생성
+    STATUS_DONE      = 'completed'  # 완료      — 수령 확인
     STATUS_CANCELLED = 'cancelled'  # 취소      — 설계사 요청 또는 관리자 처리불가
 
     STATUS_CHOICES = [
@@ -424,7 +424,7 @@ class PromotionOrderStatusLog(models.Model):
 }
 ```
 
-잘못된 상태 전이 시 `400 {"detail": "'pending' → 'done' 전이는 허용되지 않습니다."}`.
+잘못된 상태 전이 시 `400 {"detail": "'pending' → 'completed' 전이는 허용되지 않습니다."}`.
 
 ---
 
@@ -445,18 +445,21 @@ class PromotionOrderStatusLog(models.Model):
 
 ## 6. 크레딧·한도 (추정)
 
-판촉물 주문은 **`promotion_credit`** 종류로 월 한도를 제한한다. foliio `_check_and_consume(user, kind='promotion')` ♻ 재사용.
+판촉물 주문은 **`promotion`** 크레딧 kind로 월 한도를 제한한다. foliio `_check_and_consume(user, kind='promotion')` ♻ 재사용. 정본 kind 집합: `ocr`·`ai_compare`·`analysis`·`promotion` (`dev/02` §16).
 
 | 멤버십 | 월 판촉물 주문 한도 | 비고 |
 |---|---|---|
 | 무료(Free) | 1건 | (추정 — 베타 실측 전 가설) |
 | 플러스(Plus) | 5건 | (추정) |
-| 프리미엄(Premium) | 무제한 | (추정) |
 
-- 베타 기간 중 `FREE_TIER_UNLIMITED=True` 설정 시 전 멤버십 무제한.
-- 한도 초과 시 `POST /promotion/orders/` → `402 {"reason": "CREDIT_EXHAUSTED", "kind": "promotion", "remaining": 0}`.
+- 베타 기간 중 `FREE_TIER_UNLIMITED=True` 설정 시 전 플랜 무제한.
+- 한도 초과 시 `POST /promotion/orders/` → **402 Payment Required**:
+  ```json
+  { "detail": "이번 달 한도를 모두 사용했어요.", "code": "credit_exhausted",
+    "kind": "promotion", "membership": "free", "limit": 1, "used": 1 }
+  ```
 
-> **(추정)** 한도 수치는 베타 90일 실측 후 조정. `dev/02` `Membership` 모델의 `promotion_credit` 필드 추가 확정 필요.
+> **(추정)** 한도 수치는 베타 90일 실측 후 조정. 한도는 `Plan.limit_promotion`(null=무제한) 필드로 관리 — `dev/02` §12.1 정본.
 
 ---
 
@@ -529,7 +532,7 @@ class PromotionOrderStatusLog(models.Model):
 - [ ] AC-O1 `POST /promotion/orders/` 성공 시 상태 `pending`, `status_logs` 1건 생성.
 - [ ] AC-O2 `GET /promotion/orders/` 응답에 본인 주문만 포함 (타 설계사 주문 0건 — 멀티테넌시 격리).
 - [ ] AC-O3 `pending` 상태 주문만 설계사가 취소(`DELETE`) 가능. `reviewing` 이후 취소 시도 시 `400`.
-- [ ] AC-O4 한도 초과 시 `402 CREDIT_EXHAUSTED` 반환.
+- [ ] AC-O4 한도 초과 시 `402 Payment Required` + `{"code": "credit_exhausted", "kind": "promotion"}` 반환.
 
 **상태 머신**
 - [ ] AC-S1 허용된 전이만 성공(`200`), 비허용 전이 시 `400`.
@@ -553,7 +556,7 @@ class PromotionOrderStatusLog(models.Model):
 | # | 갭 | 영향 | 상태 |
 |---|---|---|---|
 | G-1 | **파일 첨부 스토리지 정책 미확정** (S3 버킷·presigned URL 만료 시간·파일 크기 제한) | 로고 파일 업로드 필드 구현 불가 | 스토리지 정책 확정 선결 |
-| G-2 | **`promotion_credit` 한도 수치 미확정** (Free 1건 / Plus 5건 / Premium 무제한 모두 추정) | 크레딧 차감 로직 숫자 고정 불가 | 베타 실측 전 임시값 사용 |
+| G-2 | **`promotion` 크레딧 한도 수치 미확정** (`Plan.limit_promotion` 값: Free 1건 / Plus 5건 모두 추정) | 크레딧 차감 로직 숫자 고정 불가 | 베타 실측 전 임시값 사용 |
 | G-3 | **운송장 자동 연동 (택배사 API)** 미범위 | 설계사가 배송 추적을 인파 밖에서 해야 함 | MVP 이후(수동 입력으로 우회) |
 | G-4 | **광고심의 대상 여부** — 이름·연락처만 인쇄하는 경우 vs 보험 상품명 포함 시 기준 | 폼 가드레일 강도 결정 불가 | 법무 보수적 기본값(면책 고지)으로 우회 |
 | G-5 | **알림 트리거 타이밍** — 관리자가 상태를 바꿀 때 즉시 Notification 발송인지, 배치 발송인지 미확정 | Notification 구현 방식 | 즉시 발송 기본값(추정)으로 시작 |

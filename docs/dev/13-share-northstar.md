@@ -238,7 +238,7 @@ viewer_fp = 비식별 지문 (개인정보 아님 — 해시 기반)
 각 이벤트가 **어느 BE 흐름에서, 무엇을 입력으로** 발화되는지 계약. FE는 4번(clipboard_copy)만 트리거하고 나머지는 BE 권위.
 
 ```
-① ocr_upload          ← detect 6단계 ⑥ ai_credit 차감 직후 (성공 경로만)
+① ocr_upload          ← detect 6단계 ⑥ ocr 차감 직후 (성공 경로만)
                          meta: {customer_id, match_rate, source_breakdown}
 
 ② analysis_complete   ← calculate_total_analysis 반환 직후

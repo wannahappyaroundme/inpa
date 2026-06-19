@@ -145,7 +145,7 @@
 | **M5** | 컴플라이언스 가드레일 | 전 AI 응답 경유(판정) | `POST /ai/guardrail_check/` | `content_filter.py` → `ai_guardrail.py` ◑ | M (3~4일) |
 | **M6** | AI 카톡 메시지(목적 enum) | message-modal(칩→생성→복사) | `POST /ai/message/` (clipboard) | ✦ 신규 `message_prompts.py` | M (4~5일) |
 | **M7** | PII·국외이전 동의 | customer-agree(국외이전 동선) | `POST /customer/agree/` | `customer-agree` ◑ + ConsentLog ✦ | M (3~4일) |
-| **M8** | AI 크레딧 차감·과금 | header indicator | `GET /credit_status/` | `credit.py` ◑ (+ai_credit kind) | S (2~3일) |
+| **M8** | AI 크레딧 차감·과금 | header indicator | `GET /credit_status/` | `credit.py` ◑ (+ocr kind) | S (2~3일) |
 
 > effort 표기: S(2~3일) / M(3~5일) / L(5~8일) — 1인 개발 기준 **(추정)**. M1·M2·M4가 무게중심이며 셋 다 정규화 사전에 종속.
 
@@ -225,7 +225,7 @@ W4  ┌ M4 갈아타기 비교안내서 (compare ◑ — 좌기존/우제안, §
 W5  ┌ M6 AI 카톡 메시지 (message_prompts.py ✦ — 목적 enum 칩 → 생성 → 클립보드)
     │  - 자동발송 사칭 금지(복사 버튼만)
     ├ M5 가드레일 (ai_guardrail.py ◑ — §97/광고심의 룰셋 후처리)
-    └ M8 크레딧 차감 (credit.py ◑ + ai_credit kind, FREE_TIER_UNLIMITED 베타 우회)
+    └ M8 크레딧 차감 (credit.py ◑ + ocr kind, FREE_TIER_UNLIMITED 베타 우회)
 W6  ┌ 베타 10명 모집 + 온보딩 콜
     ├ 5분 핵심 루프 측정 (계측 이벤트로 funnel 확인)
     └ ★ 정성 인터뷰 5건 (실미팅 사용 여부) = Phase 1 게이트

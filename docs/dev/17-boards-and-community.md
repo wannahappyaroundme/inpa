@@ -24,8 +24,8 @@
 | 채널 | 성격 | 쓰기 권한 | 읽기 권한 |
 |---|---|---|---|
 | **게시판** | SNS형 피드 — 인파 설계사 커뮤니티 | 인증 설계사 전원 | 인증 설계사 전원 |
-| **공지사항** | 운영 공지 | 관리자만 | 전원(인증 불필요 허용 가능, 기본은 인증) |
-| **FAQ** | 자주 묻는 질문 | 관리자만 | 전원 |
+| **공지사항** | 운영 공지 | 관리자만 | **공개읽기(AllowAny GET)** — 비로그인 포함 |
+| **FAQ** | 자주 묻는 질문 | 관리자만 | **공개읽기(AllowAny GET)** — 비로그인 포함 |
 | **1:1 문의** | 비공개 고객지원 | 인증 설계사(본인 작성) | 작성자 본인 + 관리자 |
 
 ---
@@ -41,8 +41,8 @@
 | `PostLike` (좋아요) | 없음(공유) | 본인 좋아요 생성/취소 | 읽기(카운트) | 읽기 | ❌ |
 | `Report` (신고) | 없음 | 본인 신고 조회 | ❌ | 전체 조회·처리 | ❌ |
 | `PostAttachment` (첨부) | 없음(공유) | 자기 글 첨부 업로드 | 읽기 | 읽기·삭제 | ❌ |
-| `Notice` (공지) | 없음(공유) | 읽기 | 읽기 | 읽기·쓰기·수정·삭제 | 읽기(허용 가능) |
-| `Faq` (FAQ) | 없음(공유) | 읽기 | 읽기 | 읽기·쓰기·수정·삭제 | 읽기(허용 가능) |
+| `Notice` (공지) | 없음(공유) | 읽기 | 읽기 | 읽기·쓰기·수정·삭제 | **읽기(AllowAny — 공개읽기 확정)** |
+| `Faq` (FAQ) | 없음(공유) | 읽기 | 읽기 | 읽기·쓰기·수정·삭제 | **읽기(AllowAny — 공개읽기 확정)** |
 | `Inquiry` (1:1 문의) | **본인 FK** | 본인만 읽기·작성 | ❌ | 전체 읽기·답변 | ❌ |
 | `InquiryReply` (답변) | — | 본인 문의의 답변만 읽기 | ❌ | 작성·수정·삭제 | ❌ |
 
@@ -349,7 +349,7 @@ InquiryReply
 
 - 카드형 목록. `is_pinned=True` 상단 고정.
 - `is_published=False` (초안) — 관리자 패널에서만 보임.
-- 비인증 접근 허용 여부: **기본은 인증 필요**. 추후 공개 마케팅 공지가 필요하면 `is_public` 필드 확장 (추정).
+- **비인증 접근: AllowAny GET 확정** (공개읽기 + 관리자쓰기 — dev/02 §0 정본). 로그인 없이도 목록·상세 조회 가능. 쓰기(작성·수정·삭제)는 관리자 전용.
 
 ### 5.2 상세
 
@@ -405,8 +405,9 @@ InquiryReply
 
 ## 8. API 계약
 
-> 인증: `Authorization: Token <token>`. 이메일/비밀번호 로그인 후 발급된 DRF Token.
+> **인증: `Authorization: Token <token>` — DRF authtoken (이메일/비밀번호 로그인 후 발급).** 카카오 OAuth 전면 제거 확정. Token 없는 요청은 401(단, AllowAny 엔드포인트 제외).
 > 공유 테이블(Post/Comment/Notice/Faq)은 `owner` 필터 없음. 1:1 문의만 `owner` 필터.
+> Notice·Faq GET은 **AllowAny** — 비로그인 접근 허용. 쓰기(POST/PATCH/DELETE)는 IsAdmin 전용.
 
 ### 8.1 게시판
 
@@ -471,8 +472,8 @@ GET /api/v1/board/posts/?cursor=<base64>&category=꿀팁&q=암진단비
 
 | Method | Path | Auth | 용도 |
 |---|---|---|---|
-| GET | `/api/v1/board/notices/` | Token (AllowAny 검토 가능) | 공지 목록 |
-| GET | `/api/v1/board/notices/:id/` | Token | 공지 상세 |
+| GET | `/api/v1/board/notices/` | **AllowAny** (비로그인 포함) | 공지 목록 |
+| GET | `/api/v1/board/notices/:id/` | **AllowAny** | 공지 상세 |
 | POST | `/api/v1/board/notices/` | Token (IsAdmin) | 공지 작성 |
 | PATCH | `/api/v1/board/notices/:id/` | Token (IsAdmin) | 공지 수정 |
 | DELETE | `/api/v1/board/notices/:id/` | Token (IsAdmin) | 공지 삭제 |
@@ -481,8 +482,8 @@ GET /api/v1/board/posts/?cursor=<base64>&category=꿀팁&q=암진단비
 
 | Method | Path | Auth | 용도 |
 |---|---|---|---|
-| GET | `/api/v1/board/faqs/` | Token (AllowAny 검토 가능) | FAQ 목록 (카테고리 그룹) |
-| GET | `/api/v1/board/faqs/:id/` | Token | FAQ 상세 |
+| GET | `/api/v1/board/faqs/` | **AllowAny** (비로그인 포함) | FAQ 목록 (카테고리 그룹) |
+| GET | `/api/v1/board/faqs/:id/` | **AllowAny** | FAQ 상세 |
 | POST | `/api/v1/board/faqs/` | Token (IsAdmin) | 항목 생성 |
 | PATCH | `/api/v1/board/faqs/:id/` | Token (IsAdmin) | 항목 수정 |
 | DELETE | `/api/v1/board/faqs/:id/` | Token (IsAdmin) | 항목 삭제 |
@@ -618,8 +619,14 @@ POST /api/v1/board/posts/attachments/  { file_name, mime_type, file_size }
 
 **공지사항 / FAQ**
 - [ ] 관리자만 작성·수정·삭제 가능 (일반 설계사 403).
+- [ ] GET 목록·상세는 **AllowAny** — 비로그인 접근 200 반환, 쓰기는 401 또는 403.
 - [ ] `is_published=False` 초안은 관리자 패널에서만 노출.
 - [ ] FAQ 카테고리 아코디언 정렬 `order` 필드 기반.
+
+**알림 연동 (board_comment · board_like)**
+- [ ] 댓글 작성 시 → 원글 작성자에게 `Notification(notif_type='board_comment')` 인앱 알림 생성 (자기 글에 자기 댓글은 제외).
+- [ ] 좋아요 발생 시 → 원글 작성자에게 `Notification(notif_type='board_like')` 인앱 알림 생성 (자기 글 좋아요는 제외).
+- [ ] 두 type 모두 `ReminderRule` 대상 아님 — 즉시 이벤트 트리거(일배치 아님). `dev/02 §9.2` 정본.
 
 **1:1 문의**
 - [ ] 본인 문의 목록·상세 조회 정상 동작.
@@ -639,10 +646,10 @@ POST /api/v1/board/posts/attachments/  { file_name, mime_type, file_size }
 | # | 갭 | 영향 | 우선순위 |
 |---|---|---|---|
 | 1 | **게시판 카테고리 확정** — 꿀팁/질문/모집/정보공유 등 레이블 + 관리자 추가 가능 여부 | 필터 칩 UI, DB enum vs 자유 문자열 선택 | 개발 전 PM 결정 필요 |
-| 2 | **공지사항·FAQ 비인증 공개 여부** — 마케팅 공개 공지가 필요하면 `is_public` 필드 확장, 아니면 인증 필수로 고정 | API allowance, robots.txt | PM 결정 필요 |
+| 2 | ~~**공지사항·FAQ 비인증 공개 여부**~~ — **정본 확정(dev/02 §0)**: AllowAny GET(공개읽기). `is_public` 필드 확장 불필요. | — | **해소** |
 | 3 | **신고 자동 숨김 임계** — "신고 N건 이상 → 자동 숨김"이 필요한지 여부. 현재 기본값은 수동 처리 | 운영 부하 vs 자동화 | 베타 운영 후 실측 결정 |
 | 4 | **게시글 수정 이력 표시** — `updated_at != created_at`이면 "수정됨" 표기 여부 | 신뢰도 vs UX 복잡도 | 기본 표기 권장, PM 확인 |
 | 5 | **본인 글 좋아요 허용 여부** — 본인이 자기 글에 좋아요를 누를 수 있는지 | PostLike unique_together만으로는 차단 안 됨, 별도 검사 필요 | PM 결정 필요 |
 | 6 | **익명 게시 옵션** — 설계사 커뮤니티 특성상 민감한 질문(GA 갈등 등)을 익명으로 올리고 싶은 수요 가능 | author 노출 분기, 관리자는 실제 작성자 조회 가능해야 함 | 추후 기능, 베타 미포함 |
-| 7 | **알림 연동** — 댓글·좋아요 발생 시 작성자에게 인앱 알림. `Notification` 모델(dev/02) 확장 필요 | 알림 type 추가: `board_comment`, `board_like` | dev/02와 교차 설계 필요 |
+| 7 | ~~**알림 연동**~~ — **정본 확정(dev/02 §9.1)**: `Notification.notif_type`에 `board_comment`·`board_like` 추가 확정. 댓글/좋아요 발생 시 원글 작성자 인앱 알림(즉시 이벤트, 일배치 아님). `ReminderRule` 대상 아님. | — | **해소** |
 | 8 | **첨부 파일 S3 버킷 / CDN 설정** — 게시판 첨부와 증권 OCR 파일이 같은 버킷을 쓸지 분리할지 | 접근 제어 정책, 비용 | ops 결정 필요 |

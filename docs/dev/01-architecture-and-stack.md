@@ -419,23 +419,16 @@ Pretendard Variable은 `public/fonts/`에 로컬 호스팅. CDN 의존성 없음
          [BE] 토큰 검증(만료·1회용) → 비밀번호 교체 → Token 폐기 (모든 세션 강제 로그아웃)
 ```
 
-### 7.2 비밀번호 해시 — bcrypt
+### 7.2 비밀번호 해시 — PBKDF2 (Django 기본)
 
-Django 기본 `PBKDF2PasswordHasher` 대신 **bcrypt**를 사용한다. 설치 후 `settings/base.py`에 설정:
+**Django 기본 `PBKDF2PasswordHasher`를 그대로 사용한다.** 신규 의존성 0 — `bcrypt` / `django[bcrypt]` 설치 불필요. `PASSWORD_HASHERS` 설정을 별도로 추가하지 않으면 Django가 자동으로 PBKDF2SHA256을 사용한다.
 
 ```python
-# requirements.txt 에 추가 (foliio 재확인 필요, 없으면 1개 신규)
-bcrypt
-django[bcrypt]  # 또는 django-bcrypt
-
-# config/settings/base.py
-PASSWORD_HASHERS = [
-    'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
-    'django.contrib.auth.hashers.PBKDF2PasswordHasher',  # 기존 해시 폴백
-]
+# config/settings/base.py — 별도 설정 불필요 (Django 기본값 유지)
+# PASSWORD_HASHERS 미설정 시 Django 기본: PBKDF2PasswordHasher (SHA256, 반복횟수 Django 버전별 최신값)
 ```
 
-> bcrypt를 1순위로 두면 신규 비밀번호는 bcrypt로 해시, 기존 PBKDF2 해시는 폴백으로 검증. foliio 사용자가 없으므로 폴백 미사용이지만 안전하게 유지.
+> 신규 의존성 0으로 운영 복잡도를 낮춘다. foliio 사용자 데이터가 없는 신규 서비스이므로 기존 해시 폴백 불필요.
 
 ### 7.3 이메일 인증 토큰 (`accounts/tokens.py`)
 
@@ -654,7 +647,7 @@ Claude API (US) 호출
 
 | 항목 | 처리 |
 |---|---|
-| **비밀번호 해시** | bcrypt (§7.2) |
+| **비밀번호 해시** | PBKDF2 (Django 기본) (§7.2) |
 | **PII 필터** | foliio `content_filter.py` 정규식 재사용 (KR mobile/RRN/card/사업자번호) |
 | **시크릿 관리** | `.env` → IDC 서버 환경변수. `NEXT_PUBLIC_*`에 API 키 절대 금지 |
 | **settings 분리** | `config.settings.local` / `config.settings.idc`. 로컬 매 명령에 명시 필수 |
