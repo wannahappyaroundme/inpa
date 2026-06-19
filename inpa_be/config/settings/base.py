@@ -30,8 +30,13 @@ THIRD_PARTY_APPS = [
 LOCAL_APPS = [
     'inpa.accounts',
     'inpa.customers',
-    'inpa.analysis',     # 담보 분류 트리 + 정규화 사전 (공유 전역 마스터)
-    'inpa.insurances',   # 보험/계산 (소유자 전용 — customer__owner 경유)
+    'inpa.analysis',       # 담보 분류 트리 + 정규화 사전 (공유 전역 마스터)
+    'inpa.insurances',     # 보험/계산 (소유자 전용 — customer__owner 경유)
+    'inpa.notifications',  # 알림 센터 + 리마인더 설정 (소유자 전용, dev/22)
+    'inpa.billing',        # 요금제 · 구독 · 사용량 한도 (dev/23)
+    'inpa.boards',         # 게시판 & 커뮤니티 (혼합 가시성, dev/17)
+    'inpa.promotion',      # 판촉물 주문제작 (혼합 가시성: 샘플=공유/주문=소유자+관리자, dev/21)
+    'inpa.admin_console',  # 관리자 콘솔 (IsAdmin 전용 백오피스, dev/19)
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -136,3 +141,8 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ── 요금제 베타 스위치 (dev/23 §3, G4) ──────────────────────────────
+# True(베타) = 한도 체크 전부 우회(무차감). 정식 출시 시 False 로 flip.
+# 환경변수 FREE_TIER_UNLIMITED=true/false 로 런타임 제어.
+FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)

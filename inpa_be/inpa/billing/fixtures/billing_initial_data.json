@@ -1,0 +1,36 @@
+[
+  {
+    "model": "billing.plan",
+    "pk": 1,
+    "fields": {
+      "code": "free",
+      "display_name": "무료",
+      "price_krw": 0,
+      "description": "기본 무료 요금제. 월 횟수 제한 있음.",
+      "limit_ocr": 10,
+      "limit_ai_compare": 5,
+      "limit_analysis": 10,
+      "limit_promotion": 5,
+      "is_active": true,
+      "created_at": "2026-06-19T00:00:00Z",
+      "updated_at": "2026-06-19T00:00:00Z"
+    }
+  },
+  {
+    "model": "billing.plan",
+    "pk": 2,
+    "fields": {
+      "code": "plus",
+      "display_name": "Plus",
+      "price_krw": 29000,
+      "description": "헤비유저용 Plus 요금제. 대폭 확장된 월 한도.",
+      "limit_ocr": 200,
+      "limit_ai_compare": 100,
+      "limit_analysis": 200,
+      "limit_promotion": 100,
+      "is_active": true,
+      "created_at": "2026-06-19T00:00:00Z",
+      "updated_at": "2026-06-19T00:00:00Z"
+    }
+  }
+]

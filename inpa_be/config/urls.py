@@ -15,4 +15,9 @@ urlpatterns = [
     path('api/v1/', include('inpa.customers.urls')),
     path('api/v1/', include('inpa.analysis.urls')),
     path('api/v1/', include('inpa.insurances.urls')),
+    path('api/v1/', include('inpa.notifications.urls')),
+    path('api/v1/', include('inpa.billing.urls')),
+    path('api/v1/', include('inpa.boards.urls')),
+    path('api/v1/', include('inpa.promotion.urls')),
+    path('api/v1/', include('inpa.admin_console.urls')),
 ]
