@@ -1,0 +1,70 @@
+# 인파 (Inpa) — 기획·개발 문서 인덱스
+
+> **인파(Inpa)** = 인슈어 + 파트너. 위촉직 보험설계사가 **[발굴 → 분석 → 갈아타기 제안 → 성사]** 를 한 흐름으로 끝내는 **AI 영업 파트너**.
+> 분석=무료 미끼 / 콘텐츠=발굴 wedge / 리텐션=복리. foliio 코드 90% 재활용, **갈아타기 자동 비교안내서(§97 방패)** + **보험사별 담보명 정규화 사전(데이터 복리)** 가 해자.
+> 작성: 6역할(대표·사업관리·기획·마케터·디자이너·개발) 라운드테이블 토론 → 도출. 2026-06-18.
+
+---
+
+## 문서 (기획 7 + 개발 4)
+
+### 기획
+| 문서 | 내용 |
+|---|---|
+| [01-overview-vision.md](01-overview-vision.md) | 개요·비전·포지셔닝·6대 필러·북극성 |
+| [02-market-users.md](02-market-users.md) | 시장(TAM/SAM/SOM)·타겟(신입/중견)·3대 문제·경쟁 |
+| [03-product-features.md](03-product-features.md) | 기능 카탈로그·MVP 9개·우선순위 tier |
+| [04-ia-and-ux.md](04-ia-and-ux.md) | 사이트맵·페이지별 UX·와이어프레임·디자인 토큰 |
+| [05-ai-and-data.md](05-ai-and-data.md) | Claude 활용·담보 정규화·데이터·가드레일 |
+| [06-business-model.md](06-business-model.md) | Freemium·가격·유닛이코노믹스 |
+| [07-gtm-and-roadmap.md](07-gtm-and-roadmap.md) | 방문영업·마케팅·바이럴·로드맵·마일스톤 |
+
+### 개발 (`dev/`)
+| 문서 | 내용 |
+|---|---|
+| [dev/01-architecture-and-stack.md](dev/01-architecture-and-stack.md) | 아키텍처·스택·셋업·보안 |
+| [dev/02-data-model-and-api.md](dev/02-data-model-and-api.md) | DB 스키마·담보 트리·정규화 사전·API |
+| [dev/03-porting-map.md](dev/03-porting-map.md) | foliio → 인파 포팅 지도(파일별 등급) |
+| [dev/04-build-plan.md](dev/04-build-plan.md) | Phase·스프린트·게이트 |
+
+> `_brief.json` = 라운드테이블 원본 브리프(토론·결정·문서가이드). `_archive-foliio/` = 이전 'Foliio 영업지원 에디션' 명칭 기획 원본(보존).
+
+---
+
+## 핵심 결정 (라운드테이블 합의 12)
+
+- **정체성**: 분석툴이 아니라 **영업 OS** — KPI를 '분석 건수'에서 '발굴 액션'으로 바꾼 게 증거.
+- **북극성**: (미팅당 공유링크 발송수) × (열람률) × (소개 귀속 리드수). 곱셈 구조. 신뢰 KPI=share_token 열람(서버측정), 클립보드 복사는 발송 프록시 보조.
+- **BM**: Freemium 4-tier(Basic 0 / Plus 19,900 / Premium 89,900 / Super 견적). 무료=OCR·히트맵·**비교안내서 1건 생성**까지 / 발송·복수생성·AI메시지·워치독·귀속=Plus+. 워터마크 강제과금 금지. 정확 한도는 베타 90일 실측 후.
+- **해자 3종**: ①갈아타기 자동 비교안내서(§97 방패) ②담보명 정규화 사전(NormalizationDict, hit_count 복리) ③끊김없는 파이프라인. 3중 가드레일은 해자 아닌 **위생**.
+- **MVP = 발굴 wedge 9개(M0~M8)**: 공통 / 다건OCR / 정규화사전 / 히트맵3색 / 갈아타기 비교안내서 / 가드레일 / AI카톡메시지(클립보드) / 국외이전동의 / 크레딧.
+- **기준선 중립 모드**: 출처 확정 전 히트맵 enough/short 판정 보류, **none(0원 보유여부)만 회색** 표기.
+- **AI 라우팅**: 비교안내서·정규화학습=Opus(Prompt caching), 다건OCR=Haiku, 야간배치=Batches 50%.
+- **기술**: DB는 **MariaDB 유지**(PG 전환 보류), 신규 의존성 0(foliio 보유). 별도 repo `~/Desktop/inpa`.
+- **귀속 계측 Day1**: `share_token?ref=설계사코드` + 이벤트 스펙 첫 배포 전 확정(사후 복원 불가). 바이럴 루프 활성화는 Phase2.
+- **포팅 등급**: 그대로♻(PDF추출·8케이스·share_token·모델) / 개조◑(claude_parse·_add_coverage에 정규화 사전 삽입·동의동선) / 신규✦(ai_guardrail·normalization·heatmap·watchdog).
+- **정직성 레드라인**: 원탭 자동발송 금지→클립보드 복사 / '심의 안전배지' 금지→면책카피만 / DB명단 소싱 영구 제외.
+
+---
+
+## 출시 전 결정 대기 (법무·PM, 10건)
+
+가장 무거운 것 = **컴플라이언스 게이트가 AI 기능 전체 출시 가부를 쥠.**
+
+1. **[법무 Q1]** 표준 보장 기준선 출처·권위(금감원/보험연구원/자체)? → 히트맵 판정·진단 게이트.
+2. **[법무 Q2]** 병력 Claude API 국외이전 동의 — customer-agree 1탭 vs `consent_overseas_at`+ConsentLog 분리? → detect API 자체를 여는 조건.
+3. **[법무 Q3]** §97 비교안내 정확요건 6항목 + AI 추출 누락 책임 경계 → 발행 하드블록 근거.
+4. **[과금 Q7]** 무료 한도를 'AI 메시지'에 그을지 '비교안내서 발송'에 그을지 → 전환율 직결.
+5. **[법무 Q4]** 셀프진단 제3자 정보수집 1탭 동의 적법성 + share_token 만료/회수/noindex.
+6. **[측정 Q6]** 클립보드 복사→실발송 전환율 가정 검증.
+7. **[운영]** 정규화 사전 자동승격 임계(hit_count 5회+ 자동매핑 허용?) — 오류시 §97 리스크 vs 운영비용.
+8. **[가격]** Plus/Premium 4.5배 갭(신입 핵심기능 Premium 편중) → 중간티어/재배치 베타 후 재검토.
+9. **[결제]** 실 VAN TID·정기결제·부분취소는 B-main 이후(KICC 스테이징 선행).
+10. **[리퍼럴]** 더블사이드 보상 상한·셀프추천 차단 룰 과금 거버넌스와 합의.
+
+---
+
+## 토론에서 해소한 충돌 (요지)
+대표가 6역할 충돌 7건을 중재: ①무료 한도(분석은 풀고 행동은 막는다) ②국외이전 동의(별도 필드 전제) ③기준선(중립 모드) ④바이럴 시점(계측 Day1·캠페인 Phase2) ⑤모델 라우팅(Opus/Haiku 분리) ⑥북극성 계측(열람 신뢰·복사 프록시) ⑦DB(MariaDB 유지). 상세는 `_brief.json`의 `discussion`.
+
+> **다음**: `dev/04-build-plan.md` 기준으로 Phase 1(백엔드 뼈대 + 증권 OCR 포팅)부터 빌드 착수.

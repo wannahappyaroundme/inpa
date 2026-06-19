@@ -1,0 +1,40 @@
+{
+  "folders": [
+    {
+      "name": "📦 인파 (Inpa, 신규 프로젝트)",
+      "path": "."
+    },
+    {
+      "name": "🔎 foliio (포팅 참조용)",
+      "path": "../foliio"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.git": true,
+      "**/__pycache__": true,
+      "**/node_modules": true,
+      "**/.angular": true
+    },
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2,
+    "[python]": {
+      "editor.tabSize": 4,
+      "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "markdown.preview.breaks": true
+  },
+  "extensions": {
+    "recommendations": [
+      "angular.ng-template",
+      "dbaeumer.vscode-eslint",
+      "esbenp.prettier-vscode",
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "batisteo.vscode-django",
+      "charliermarsh.ruff",
+      "eamodio.gitlens",
+      "editorconfig.editorconfig"
+    ]
+  }
+}

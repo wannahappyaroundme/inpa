@@ -1,0 +1,45 @@
+/* 인파(Inpa) Design Tokens — SSOT (framework-agnostic CSS variables)
+   출처: 7-역할 디자인 라운드테이블 2026-06-18 + 사용자 레퍼런스(삼쩜삼/토스/럽맘) 반영 2026-06-19.
+   ⚠️ 블루 3종 역할 분리(엄수): 브랜드/CTA=--brand · 강조/인사이트=--accent-blue · 데이터=--proposal/--cov-*. 한 요소에 교차 금지.
+   Next.js+Tailwind: tailwind.config theme.extend.colors 에 매핑 / Angular: SCSS @use 브리지. */
+:root {
+  /* ── Brand ── */
+  --brand:        #1E40C4;  /* 1차 CTA · 헤더 · 로고 심볼 (딥인디고, 신뢰) */
+  --brand-ink:    #1B2A57;  /* 푸터 · 신뢰 앵커 · 앱아이콘 배경 (딥네이비) */
+
+  /* ── Accent (토스풍 서브 블루) ── 사용자 지정 */
+  --accent-blue:  #3182F6;  /* 강조 숫자/인사이트 · 진행바 · info · 링크 · 보조 CTA (밝고 친근) */
+  --accent-blue-2:#2563EB;  /* 진행바 진한 끝/hover */
+  --accent-tint:  #EAF2FE;  /* 강조 배경 틴트(히어로 배경·info 칩) */
+  --accent:       #F76707;  /* 액션 포인트(발굴 탭) — 1화면 1회만, 절제 */
+
+  /* ── Data semantics (히트맵·비교표 전용, 브랜드/액센트와 분리) ── */
+  --proposal:     #3B5BDB;  /* 제안 컬럼 · 제안선 */
+  --existing:     #12B5A4;  /* 기존 보유 (비교표 좌측, Before) */
+  --cov-enough:   #3B5BDB;  /* 히트맵: 충분 */
+  --cov-short:    #F59E0B;  /* 히트맵: 부족 (개선여지) */
+  --cov-none:     #ADB5BD;  /* 히트맵: 없음 (중립 회색) */
+
+  /* ── Status (amber≠red: 부족 vs 위험 의미 분리) ── */
+  --success: #2F9E44;
+  --danger:  #E03131;      /* 해지손해 · §97 불리점 · 부당승환 경고 */
+  --warning: #F59E0B;
+  --info:    #3182F6;
+
+  /* ── Neutral scale (무채색 70% 절제) ── */
+  --ink:     #16181D;
+  --ink-2:   #475569;
+  --ink-3:   #6B7280;
+  --muted:   #9CA3AF;
+  --line-2:  #CED4DA;
+  --line:    #E5E8EB;
+  --surface-2: #F7F8FA;
+  --surface: #FFFFFF;
+
+  /* ── Layout ── */
+  --header-h: 80px;
+  --radius:   12px;   /* 카드 둥근모서리 (예시처럼 부드럽게) */
+  --radius-lg:16px;
+  --grid:     8px;
+}
+@media (max-width: 768px) { :root { --header-h: 56px; } }

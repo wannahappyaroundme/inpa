@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/* ── 라이트(기본): 메인=흰색, 서브=표지판 파랑 ── */
+:root {
+  --surface: #FFFFFF; --surface-2: #F4F6FA;
+  --ink: #14171F; --ink-2: #475569; --ink-3: #6B7280; --muted: #9CA3AF;
+  --line: #E6E9EF; --line-2: #CDD3DD;
+
+  --brand: #0B57D0; --brand-ink: #0A3A86;          /* 표지판 파랑 = 메인 서브컬러 */
+  --accent-blue: #0B57D0; --accent-tint: #E8F0FE;
+  --proposal: #0B57D0; --existing: #12B5A4;
+
+  /* 담보 상태 = 신호등 + 안내 파랑 (범례 4색) */
+  --cov-over:   #0B57D0;  /* 넉넉(과보장) — 파랑 */
+  --cov-enough: #15803D;  /* 적정 — 초록 */
+  --cov-short:  #F59E0B;  /* 부족 — 노랑 */
+  --cov-none:   #DC2626;  /* 없음 — 빨강 */
+
+  --success: #15803D; --warning: #F59E0B; --danger: #DC2626;
+}
+
+/* ── 다크: 시스템 설정 따름 ── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #161A21; --surface-2: #0E1116;
+    --ink: #EDF0F5; --ink-2: #B6BDC8; --ink-3: #8A92A0; --muted: #6B7280;
+    --line: #272D38; --line-2: #353C49;
+
+    --brand: #4D8DF0; --brand-ink: #BBD2F7;
+    --accent-blue: #4D8DF0; --accent-tint: #16243C;
+    --proposal: #4D8DF0;
+
+    --cov-over:   #4D8DF0;
+    --cov-enough: #22C55E;
+    --cov-short:  #FBBF24;
+    --cov-none:   #F2555A;
+    --success: #22C55E; --warning: #FBBF24; --danger: #F2555A;
+  }
+}
+
+@theme inline {
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-accent: var(--accent-blue);
+  --color-accent-tint: var(--accent-tint);
+  --color-proposal: var(--proposal);
+  --color-existing: var(--existing);
+  --color-over: var(--cov-over);
+  --color-enough: var(--cov-enough);
+  --color-short: var(--cov-short);
+  --color-cnone: var(--cov-none);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink-2);
+  --color-ink3: var(--ink-3);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface-2);
+}
+
+html, body { background: var(--surface-2); color: var(--ink); }
+body {
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+    system-ui, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.tnum { font-variant-numeric: tabular-nums; }

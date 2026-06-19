@@ -1,0 +1,198 @@
+{
+  "oneLiner": "인파(Inpa) — 위촉직 보험설계사가 [발굴→분석→갈아타기 제안→성사]를 한 흐름으로 끝내는 AI 영업 파트너. 분석=무료 미끼/콘텐츠=발굴 wedge/리텐션=복리. foliio 코드 90% 재활용, 갈아타기 자동 비교안내서(§97 방패)+보험사별 담보명 정규화 사전(데이터 복리)이 해자. 컴플라이언스 게이트(병력 국외이전 동의·§97 정확요건·기준선 출처)가 출시 가부를 쥔다.",
+  "discussion": "6역할이 부딪힌 5개 축(가치·비용·디자인·기술·법무)을 대표가 중재해 합의에 도달했다.\n\n[충돌1 — 무료 한도를 어디에 긋나 (성장 vs 과금 vs 제품)]\n마케터는 비교안내서를 무료로 풀어 바이럴 미끼로 쓰자(미끼 효과 최대), 사업관리는 비교안내서가 핵심 차별점이라 Plus부터 과금하자(전환율 방어), 기획자는 'AI 메시지 생성/발송 횟수'에 한도를 긋자고 주장. → 합의: '분석은 풀고 행동은 막는다'를 원칙으로, 무료 라인을 (A)증권 OCR·히트맵·1건 비교안내서 *생성*까지는 무료 / (B)비교안내서 *발송·복수 생성·AI 메시지·워치독·귀속*은 Plus+로 확정. 비교안내서를 '1건 체험'으로 풀어 wedge는 보여주되 반복 발굴은 과금. 정확한 숫자(월 3건/10건 등)는 베타 90일 실측 후 토큰화(전부 '(추정)' 라벨 유지).\n\n[충돌2 — 병력 국외이전 동의가 1탭으로 되나 (법무 게이트, 전 기능 영향)]\nCTO·사업관리·기획·디자이너 모두 이 게이트를 '가장 단단한 폭탄'으로 지목. customer-agree(is_agree_term) 1필드로 커버 가능한지가 detect API 자체를 여는 조건. → 합의: 법무 자문 전까지 **별도 필드 consent_overseas_at + ConsentLog(누가·언제·범위·doc_version·ip) 분리**를 기본 전제로 설계(낙관 가정 금지). detect 호출 전 consent_overseas_at 확인→미동의 412/게이트. 막히면 fallback: OCR·히트맵(중립=보유여부 none만)부터 선출시.\n\n[충돌3 — 표준 보장 기준선의 출처·권위 (법무 vs 제품/디자인)]\n디자이너의 히트맵 🟡부족/🔴없음 판정, 기획의 M3 출시, 사업관리의 진단 리스크가 전부 이 데이터 출처에 종속. 자체 컨센서스로 '부족' 단정 시 부당권유 리스크. → 합의: **출처 확정 전까지 enough/short 판정 보류, none(보유=0원 여부)만 회색 중립 모드로 표기.** 임계값 코드(std_baseline*0.7)는 미리 짜두되 데이터 권위(금감원/보험연구원/자체+면책)는 Phase0 법무 선결 산출물로. UI는 출처주석 자리(ⓘ)만 확보.\n\n[충돌4 — 바이럴/리퍼럴 시점 (성장 vs 제품/컴플라이언스)]\n마케터는 초기 100명부터 리퍼럴 코드 귀속을 원함(발굴이 핵심가치인데 성장엔진을 미루나), 기획·CTO는 Phase2(100→1000 무기)로 미룸, 컴플라이언스는 무작위 발굴 금지·제3자 동의와 충돌 지적. → 합의: **귀속 인프라(share_token에 ?ref= 파라미터 + 이벤트 계측)는 Day1에 깐다**(사후 복원 불가). 단 바이럴 *루프 활성화*(셀프진단 인바운드·더블사이드 보상)는 Phase2. 즉 '계측은 1일차, 캠페인은 2단계'로 분리해 충돌 해소. 리퍼럴 보상 상한(연 3개월·셀프추천 차단)은 과금 거버넌스와 사전 합의.\n\n[충돌5 — M1 비교안내서 모델: Opus(정확) vs Haiku(원가)]\n사업관리는 §97 합법성 때문에 정확도 critical→Opus 권장하나 per-call 원가↑. → 합의: **M1 비교안내서·정규화 사전 학습 = Opus(실시간 경로, Prompt caching으로 사전을 system 블록 고정), M2~M4·M6 다건 OCR = Haiku + 야간 배치는 Batches 50% 할인.** count_tokens로 모델별 사전 측정(tiktoken 금지).\n\n[충돌6 — 북극성 계측: 클립보드 복사를 발송으로 셀까 (측정 vs 컴플라이언스 vs 제품)]\n원탭 자동발송이 카카오상 불가→클립보드 복사라 '발송' 시점 직접 추적 불가. → 합의: **북극성 = 공유링크 발송수 × 열람률 × 소개귀속.** 클립보드 복사는 '발송 의도(프록시)' 보조지표로만, 신뢰 KPI는 share_token 열람 이벤트(서버 측정 가능). AI 메시지 복사는 별도 보조 카운터.\n\n[충돌7 — DB: MariaDB 유지 vs PostgreSQL (제품 vs 기술)]\n정규화 사전 JSONB 활용도 고려 시 PG 유리하나 foliio 포팅 비용. → 합의: **MariaDB 유지**(포팅 비용 0, foliio 검증 자산 그대로). 정규화 사전은 관계형 모델(NormalizationDict)로 충분, JSONB 불필요. PG 전환은 비최적화 결정으로 보류.\n\n[합의된 비충돌 사항] 모든 역할이 동의: Freemium 4-tier(0/19,900/89,900/견적), 워터마크 강제과금 금지(가드레일은 전 티어 위생), DB명단 소싱 제외(합법 불가), 별도 repo ~/Desktop/inpa, '안전배지' 금지·면책카피만, 빌드 순서(공통→OCR+정규화→히트맵→비교표→메시지), 게이트 막히면 중립기능부터.\n\n[미해소로 남긴 것] Plus/Premium 가격 갭 4.5배(신입 핵심기능이 Premium에 몰림)는 마케터가 신입용 중간티어/기능 재배치를 제기했으나 베타 실측 후 재검토로 보류. 정규화 사전 자동승격 임계(hit_count 5회+ 자동매핑 허용 여부)도 운영 주체 미정으로 openQuestion에 남김.",
+  "decisions": [
+    "[정체성] 인파 = '보험설계사 곁의 AI 영업 파트너'. 분석=무료 미끼 / 갈아타기 비교안내서=발굴 wedge / 리텐션=복리. foliio 분석툴이 아니라 영업 OS로 정체성 전환 — 증거는 KPI 변경(분석 건수→발굴 액션).",
+    "[북극성 확정] North Star = (미팅당 공유링크 발송수) × (열람률) × (소개 귀속 리드수). 곱셈 구조. 가입자수·MAU·분석 건수는 허영지표로 강등. 신뢰 KPI는 share_token 열람 이벤트(서버 측정), 클립보드 복사는 발송 프록시 보조지표.",
+    "[BM 확정] Freemium 4-tier: Basic 무료 / Plus 19,900 / Premium 89,900 / Super 견적. 개인 결제(사내툴 아님). 무료 라인 = OCR·히트맵·비교안내서 1건 생성까지 무료, 발송·복수생성·AI메시지·워치독·귀속은 Plus+. 워터마크 강제과금 금지(가드레일 전 티어 공통). 정확 한도 숫자는 베타 90일 실측 후 토큰화.",
+    "[해자 3종 확정] ①갈아타기 자동 비교안내서(§97 방패, 범용AI 불가) ②보험사별 담보명 정규화 사전(NormalizationDict, hit_count 데이터 복리 플라이휠) ③끊김없는 파이프라인(증권→진단→갈아타기→멘트→링크). 3중 가드레일은 해자 아닌 위생.",
+    "[법무 게이트 = 출시 가부] Phase0(코드 0줄) 선결 5개: ①병력 국외이전 동의(consent_overseas_at 별도 필드+ConsentLog 전제, detect 전 412 게이트) ②§97 비교안내 정확요건(6항목 체크리스트, 미완료시 발행 하드블록) ③광고심의(안전배지 금지, 면책카피만) ④무자격모집(가입시 위촉확인) ⑤무작위발굴금지→동의기반 인바운드. 막히면 OCR·히트맵(none 중립)부터 선출시.",
+    "[기준선 중립 모드] 표준 보장 기준선 출처·권위 확정 전까지 히트맵은 enough/short 판정 보류, none(0원 보유여부)만 회색 중립 표기. 임계값 코드(std_baseline*0.7)는 사전 작성, 데이터 권위는 Phase0 법무 산출물.",
+    "[AI 라우팅·비용] M1 비교안내서·정규화 학습=Opus 4.8(실시간+Prompt caching으로 사전 system 고정), M2~M4·M6 다건 OCR=Haiku 4.5, 야간 배치=Batches 50% 할인. count_tokens로 모델별 측정(tiktoken 금지). 호출당 로깅+월 예산 캡+임박 알림.",
+    "[MVP = 발굴 wedge 9개] M0 공통 / M1 다건 OCR / M2 정규화 사전 / M3 히트맵 3색 / M4 갈아타기 비교안내서 / M5 가드레일 / M6 AI 카톡 메시지(클립보드) / M7 국외이전 동의 / M8 크레딧. 바이럴·리퍼럴·알림톡·워치독·브랜딩은 Phase 1.5+.",
+    "[기술 결정] DB는 MariaDB 유지(PG 전환 보류, 포팅비용 0). 신규 의존성 0개(anthropic/pdfplumber/PyMuPDF/numpy-financial/DRF/Pillow 모두 foliio 보유). 별도 repo ~/Desktop/inpa, foliio 포팅 참조.",
+    "[귀속 계측 Day1] share_token에 ?ref=<설계사코드> + 이벤트 스펙(ocr_upload/analysis_complete/share_link_create/share_clipboard_copy/share_view/referral_attributed)을 첫 배포 전 확정(사후 복원 불가). 바이럴 루프 활성화는 Phase2.",
+    "[포팅 등급] 그대로(♻): utils.py PDF추출, calculate.py 8케이스, share_token, cron 패턴, Customer/CustomerInsurance 모델, credit.py 골격. 개조(◑): claude_parse 프롬프트, _add_coverage(3·4순위 사이 정규화 사전 삽입), customer-agree→국외이전동의, content_filter→ai_guardrail. 신규(✦): ai_guardrail.py, normalization.py, heatmap.py, watchdog cron, NormalizationDict 모델, 목적 enum 프롬프트.",
+    "[정직성 레드라인] 원탭 자동발송 사칭 금지→클립보드 복사로 격하. '심의 안전/완료' 배지 절대 금지→'AI 1차 보조, 최종책임 설계사' 면책 고정. DB명단 소싱 비즈니스 영구 제외(합법 불가)."
+  ],
+  "discussion_note_unused": "placeholder",
+  "docs": [
+    {
+      "file": "01-overview-vision.md",
+      "title": "개요·비전·포지셔닝·6필러",
+      "mustInclude": [
+        "한 줄 비전: 위촉직 설계사가 [발굴→분석→갈아타기 제안→성사]를 한 흐름으로 끝내는 AI 영업 파트너",
+        "3축 정체성: 분석=무기(방아쇠)/콘텐츠=미끼/리텐션=복리 — 분석은 끝점이 아니라 영업 행동의 시작점",
+        "작명 근거: 인슈어+파트너, '당근=당신근처'식 실존단어+약어, 도구 아닌 동료 포지션(가격저항 완화)",
+        "포지셔닝 한 칸: B2C앱(소비자뷰)·GA시스템(폐쇄)·Canva(디자인only)·ChatGPT(데이터/컴플라이언스 없음)가 못 잇는 '증권→진단→갈아타기→멘트→링크' 파이프라인 독점 — 경쟁 비교표",
+        "Why Now 4개: 발굴이 진짜 병목(설득<발굴), 발굴1위=갈아타기인데 §97로 막힘→규제를 기능으로 뒤집기, foliio 검증 파이프라인 이전비용 낮음, Claude 단가 임계점 하락",
+        "해자 3종(모방 어려움) vs 가드레일(위생) 명확 구분 — 데이터 복리 플라이휠 구조 서술",
+        "6대 필러: 분석-콘텐츠 파이프라인/컴플라이언스 안전망/리텐션 엔진/리드 성장 루프(바이럴 귀속)/퍼스널 브랜딩/측정·과금 거버넌스",
+        "북극성 KPI = 미팅당 공유링크 발송수 × 열람률 × 소개귀속 — 지표 변경이 곧 정체성 변경의 증거",
+        "회사 리스크 표: 컴플라이언스 과신·AI 진단 오진·발송 인프라 거짓전제·입력노동 함정·AI비용 누수·콜드스타트, 각 안전원칙",
+        "가장 무서운 단일 폭탄 = 병력 국외이전 동의 게이트(AI 기능 전체 출시 가부) 명시"
+      ]
+    },
+    {
+      "file": "02-market-users.md",
+      "title": "시장·타겟·문제·경쟁",
+      "mustInclude": [
+        "타겟: 원수사 전속+GA 위촉직(개인사업자) 설계사, 개인 직접 결제(사내툴 아님). 1순위 신입(발굴 절박·고객0·틀 없음), 2순위 중견(관리·A/S·리텐션)",
+        "핵심 문제: 매달 quota 압박→신규 발굴이 진짜 병목. 발굴1위=DB영업(기존 가입자 갈아타기=승환)+지인·소개",
+        "부당승환(보험업법 §97)이 규제 1순위이자 wedge — 공포를 합법 방패 기능으로 뒤집는 논리",
+        "분석 가치 90% 증발 문제(설계사가 30분~1h 만든 분석이 본인 화면에만 머묾)",
+        "TAM 38만(생손보 협회공시)→SAM 12만(31%, 디지털친화+발굴절박 신입~중견)→SOM 2,400~3,600명(2~3%, ARR 7.2~10.8억) — 근거·ARPU 가정 명시, '서사 중심은 ARR 아닌 단위경제'",
+        "JTBD 4개: J1 발굴(quota는 오는데 만날 사람 없음)/J2 신뢰(보장 설명 틀 없음, 특히 신입)/J3 면책(§97 처벌 공포)/J4 복리(방치 고객 A/S)",
+        "경쟁 지형 4군 빈틈 분석(B2C앱/GA시스템/Canva/ChatGPT) — 우리만의 칸",
+        "생명vs손해 분리·원수사 관리공백+인수인계 실패=고아계약 구조(메모리 project_market_structure 반영)",
+        "모든 정량값 '(추정)' 라벨 — 베타 90일 실측 전 가설임을 명시"
+      ]
+    },
+    {
+      "file": "03-product-features.md",
+      "title": "기능 카탈로그·MVP",
+      "mustInclude": [
+        "영업 퍼널 8단계(발굴·접촉·니즈분석·제안·클로징·유지갱신·소개·브랜딩) 매핑 기능 카탈로그 + 재활용/개조/신규 등급",
+        "MVP 9개(M0~M8): 공통/다건OCR/정규화사전/히트맵3색/갈아타기비교안내서/가드레일/AI카톡메시지(클립보드)/국외이전동의/크레딧 — 화면·핵심API·재활용 출처 표",
+        "MVP 핵심 루프(5분 도달): 증권 일괄OCR→정규화→히트맵 공백스캐너→갈아타기 비교안내서→클립보드 카톡발송",
+        "MVP 의도적 제외: 바이럴루프·리퍼럴귀속·알림톡·워치독·퍼스널브랜딩→Phase1.5+ (이유: 발굴 wedge 검증 전 폭 넓히면 핵심루프 흐려짐)",
+        "컴플라이언스 게이트 막힐 시 fallback 순서: OCR(M1)→히트맵 none 중립(M3)→정규화(M2), 비교서·메시지는 §97·동의 확정 후 오픈",
+        "우선순위 Tier T0(MVP9)/T1(Phase1.5: 워치독·AI내러티브·니즈환기)/T2(Phase2: 바이럴·추천·셀프진단)/T3(브랜딩·알림톡·팀)",
+        "기준선 중립 모드: 출처 확정 전 히트맵 enough/short 보류, none만 표기",
+        "북극성 보조지표(AARRR+발굴특화) 표와 가드레일 지표(OCR 7필드 추출률≥85%, §97 필수항목 누락률=0%)"
+      ]
+    },
+    {
+      "file": "04-ia-and-ux.md",
+      "title": "사이트맵·페이지별 UX·와이어프레임",
+      "mustInclude": [
+        "하단 탭 5개: 홈(액션큐)/고객/발굴(FAB중앙)/분석/내정보 — foliio layout 재활용 라우팅 재배치",
+        "전체 페이지 목록 표(라우트·인증·credit 차감): /home /customer/create /customer/:id/agree /analysis /switch /gap /message /prospect/* /me/* + 고객뷰 /s/:token /check/:token",
+        "고객뷰(/s/:token, /check/:token) 글로벌 헤더·탭 숨김 + 설계사 퍼스널 브랜딩 노출(foliio share-view 패턴 재활용)",
+        "홈=액션큐: 만기D-30/동의미수신/생일/미열람 공유링크/인바운드 리드 우선순위 정렬, 사유별 원클릭 액션(갈아타기·메시지복사·연락처)",
+        "담보 한눈표 히트맵: 15+카테고리×세부담보 그리드 3색(🟢충분🟡부족🔴없음), 모바일 가로스크롤+카테고리 sticky+색각배려(명도/패턴), 동의 미수신시 블러+잠금",
+        "갈아타기 비교안내서: 좌(기존)·우(제안 인디고#3B5BDB), 불리점 자동경고(해지손실·면책리셋·예정이율·갱신전환), 필수 체크 미완료시 발행 하드블록, 면책고지 상시노출, 안전배지 금지",
+        "AI 메시지: 목적 enum 칩(니즈환기/만기/생일/공백/소개/리마인드)→생성→[복사], 자동발송 사칭 금지",
+        "credit 게이트 매핑: OCR등록=insurance_credit, 분석/비교/메시지=ai_credit, PDF/판촉물=download_credit, 0=∞(베타)",
+        "와이어프레임 3종(홈 액션큐·히트맵·비교안내서) ASCII",
+        "디자인 토큰: 인디고 제안색 #3B5BDB, 충족 3색(#37B24D/#F59F00/#E03131), 헤더 80/56px, 8pt그리드, foliio _variables.scss 확장 + 재활용 컴포넌트 목록"
+      ]
+    },
+    {
+      "file": "05-ai-and-data.md",
+      "title": "Claude 활용·담보 정규화·데이터",
+      "mustInclude": [
+        "담보 전체 체계 트리 15+ 카테고리/100+ 담보 (06 taxonomy 문서 §2·§3 기반): 사망·진단비(암/뇌/심장/중증희귀)·후유장해·수술·입원·실손·운전자·일배책·간병치매 등",
+        "보험사별 담보명 정규화 = 분석/OCR의 심장: 같은 담보도 보험사별 이름 다름(일반암진단비=삼성 급부금/교보 보험금) 예시 표",
+        "NormalizationDict 신규 모델: std_detail_id FK/company/raw_name(db_index)/source/confidence/hit_count/verified_by, UNIQUE(company,raw_name) — 쓸수록 두꺼워지는 데이터 복리의 물리적 구현체",
+        "데이터 복리 루프: OCR 미매칭 raw_name→unmatched_log→admin 1탭 매핑→사전 영구추가→다음부터 자동매칭, hit_count 빈도 우선순위",
+        "claude_parser _add_coverage 4단계(정확→키워드→detail키워드→fuzzy)의 3·4순위 사이에 정규화 사전 단계 삽입 — 정확한 포팅 지점",
+        "AI 라우팅: M1 비교안내서·정규화학습=Opus 4.8($5/$25, 정확도 critical)/M2~M6=Haiku 4.5($1/$5)/야간배치=Batches 50%할인",
+        "비용 절감 2단 레버: Prompt caching(정규화 사전 system 블록 고정+cache_control breakpoint, 읽기0.1×, 고객가변값은 breakpoint 뒤로) + Batches API. count_tokens 측정(tiktoken 금지)",
+        "히트맵 3색 status 판정 로직(none if 0 / short if <baseline*0.7 / enough), 기준선 출처 미확정시 neutral 회색 폴백",
+        "목적 enum 프롬프트 매핑(니즈환기/만기/생일/공백/소개/리마인드), ai_guardrail 보험업법 룰셋(단정표현·수익보장·비교과장 플래그) 후처리",
+        "AnalysisCategory/SubCategory/Detail/ChartDetail 4계층 foliio 모델 재활용 + 시드 30→100+ 담보 확장(seed_taxonomy command)"
+      ]
+    },
+    {
+      "file": "06-business-model.md",
+      "title": "Freemium·가격·유닛이코노믹스",
+      "mustInclude": [
+        "Freemium 4-tier 확정 표: Basic 무료/Plus 19,900/Premium 89,900/Super 견적, 각 티어 무료·유료 게이트 라인",
+        "핵심 레버 = 무료 한도를 어디에 긋나: 분석/OCR/히트맵/비교안내서 1건 생성 무료, 발송·복수생성·AI메시지·워치독·귀속은 Plus+. 워터마크 강제과금 금지(가드레일 전 티어 공통이어야 §97 방패 신뢰)",
+        "402 응답 shape {reason:CREDIT_EXHAUSTED,limit,remaining}→FE 업그레이드 모달, 베타 FREE_TIER_UNLIMITED=True→정식출시 False flip",
+        "Claude 단가 검증값(Opus 4.8 $5/$25, Sonnet 4.6 $3/$15, Haiku 4.5 $1/$5 per MTok) + per-call 원가를 수백원대로 낮추는 캐싱·Batches 논리",
+        "유닛이코노믹스(추정): ARPU 25,000(Plus/Premium 가중평균)/LTV 60만(24개월, quota=생존→리텐션 가설)/CAC 3~5만(지점군집+추천바이럴)/LTV-CAC 12~20x — 펀딩 서사 임계선",
+        "전환 퍼널 가설: 분석무료→업그레이드모달→Plus 8%/Premium 3%(베타 검증대상), 14일 풀언락 트라이얼로 aha 먼저 경험",
+        "앵커링: 업그레이드 모달 Premium 89,900 먼저→Plus '가장 인기', 연결제 2개월 무료(LTV 방어)",
+        "비용 거버넌스: 호출당 로깅+월 예산 캡+임박 알림, 보조지표='발송 액션당 AI 비용'",
+        "리퍼럴 보상 상한(연 3개월·셀프추천/유령계정 차단) 룰",
+        "모든 가격·한도·전환율 '(추정)' 라벨, SUPER_BETA_EXPIRY=2099-12-31, 정식 출시일 미확정",
+        "Plus/Premium 갭 4.5배 이슈(신입 핵심기능 Premium 편중) — 베타 후 중간티어/기능재배치 재검토 미결로 명시"
+      ]
+    },
+    {
+      "file": "07-gtm-and-roadmap.md",
+      "title": "영업·마케팅·로드맵",
+      "mustInclude": [
+        "오프라인 1:1 방문영업이 0→100 유일 채널: GA지점/원수사 사업단(지점장 15분 데모, 신입생산성=지점장KPI라 우군)·자격시험학원·합격자 단톡·리크루팅 설명회·설계사 오픈채팅",
+        "15분 지점 데모 스크립트(후크→실연: 본인 고객 증권으로 30초 히트맵→비교표→카톡문구→§97 공포→방패 전환→QR 가입)",
+        "오퍼: 평생 베타 멤버십(SUPER_BETA_EXPIRY 활용)+추천1명당 Premium 1개월 더블사이드, 콜드스타트 부트스트랩(첫 고객 5명 분석 온보딩콜 대행)",
+        "디지털 확산 100→1000(후행): 콘텐츠SEO(정규화 사전을 SEO자산화)·커뮤니티(foliio community 재활용)·퍼스널 브랜딩 'Powered by 인파' 워터마크 바이럴",
+        "바이럴 루프: share_token+?ref=<설계사코드>, 루프A(고객 분석공유→지인 셀프진단 귀속)·루프B(설계사 추천 더블사이드). 계측 Day1, 활성화 Phase2",
+        "이벤트 계측 스펙 표(ocr_upload/analysis_complete/share_link_create/share_clipboard_copy/share_view/selfdiag_start/referral_attributed)+계측위치 — 첫 배포 전 확정",
+        "북극성 클립보드 복사=발송 프록시 보조, 신뢰 KPI=share_token 열람(서버측정)",
+        "채널 우선순위 CAC 낮은 순: 인바운드 SEO→지인소개 바이럴→지점 군집 door-to-door",
+        "단계별 로드맵: Phase0(2주 게이트 확정)/Phase1 MVP 발굴wedge(6주, 마일스톤=베타 설계사 실제 미팅 사용 정성인터뷰 5건)/Phase1.5 리텐션·첫 유료전환(4주)/Phase2 성장루프(6주)/Phase3 브랜딩·알림톡·팀",
+        "브랜드: '설계사 곁의 AI 영업 파트너', 동료 톤, '파트너'가 무자격모집 오해 안 되게 '모집보조 도구·최종책임 설계사' 면책 일관 표기, 상표 출원 사전점검"
+      ]
+    },
+    {
+      "file": "dev/01-architecture-and-stack.md",
+      "title": "아키텍처·스택",
+      "mustInclude": [
+        "시스템 다이어그램: Angular17 SPA(share_token 공개뷰)→nginx→gunicorn/Django4.1 DRF→MariaDB, Claude API(US, 국외이전 동의 게이트)/pdfplumber→PyMuPDF/numpy_financial.fv",
+        "DB는 MariaDB 유지 결정(PG 전환 보류, 포팅비용 0, 정규화 사전은 관계형으로 충분)",
+        "신규 의존성 0개: anthropic/pdfplumber/PyMuPDF/numpy-financial/DRF/Pillow 모두 foliio 보유 — requirements.txt foliio 동일",
+        "재활용 등급표(♻그대로/◑개조/✦신규) 영역별: OCR추출·OCR파싱·담보매칭·보험료계산·크레딧·공유링크·동의·cron·가드레일",
+        "보안: detect 호출 전 consent_overseas_at 확인→미동의 412 게이트, ConsentLog(customer,type=overseas,agreed_at,ip,doc_version) 감사추적, PII content_filter 정규식 재사용, 시크릿 .env(키 environment.prod.ts 금지)",
+        "settings 분리(config.settings.local/idc) foliio 패턴, 로컬 DJANGO_SETTINGS_MODULE=config.settings.local 필수",
+        "별도 repo ~/Desktop/inpa, foliio 포팅 참조, AI 비용 거버넌스(호출당 로깅+예산캡)"
+      ]
+    },
+    {
+      "file": "dev/02-data-model-and-api.md",
+      "title": "데이터 모델·API",
+      "mustInclude": [
+        "Customer 모델 foliio 재활용(birth_day/gender/job_code JobRiskCode/mobile/medical_histories/share_token)+신규 1필드 consent_overseas_at(null=미동의 게이트)",
+        "NormalizationDict 신규 모델 전체 필드(std_detail_id FK/company/raw_name db_index/source/confidence/verified_by/hit_count/UNIQUE(company,raw_name))+unmatched_log 학습루프",
+        "AnalysisCategory/SubCategory/Detail/ChartDetail(chart_based_amount) 4계층 재활용+시드 30→100+ 확장, CustomerInsurance(portfolio_type 0/1/2, insurance_type 1생명/2손해, monthly_*premium)·Detail(calculate() numpy_financial.fv)",
+        "ConsentLog 모델(감사추적), Notification·cron 패턴 재활용(워치독 신규 command)",
+        "API 표: detect(♻+정규화, 미동의 412)/detect_batch(✦부분실패 partial_failed[])/analysis(♻ calculate_total_analysis)/heatmap(✦3색 enough-short-none)/compare(♻+◑ §97 비교안내 필드)/ai/message(✦목적enum,클립보드)/ai/guardrail_check(✦판정)/share/analysis(♻+열람 계측)",
+        "heatmap status 판정(none if actual==0 / short if <baseline*0.7 / enough), 기준선 출처 미확정시 neutral 회색",
+        "calculate_total_analysis 출력 구조(monthly_*/total_*, case_list[{name,total_premium,non_renewal_old_list[10],renewal_old_list[10]}], chart_list[{name,chart_based_amount}]) 재활용 — BE 무변경",
+        "credit.py ai_credit kind 추가, 402 응답 shape, FREE_TIER_UNLIMITED 베타 우회"
+      ]
+    },
+    {
+      "file": "dev/03-porting-map.md",
+      "title": "foliio→인파 포팅 지도",
+      "mustInclude": [
+        "[그대로 복사] core/utils.py(extract_text_from_pdf pdfplumber→PyMuPDF 암호화 authenticate)·customers/calculate.py(8케이스)·customers/models.py Customer(+consent_overseas_at)·insurances/models.py·membership/credit.py(+ai_credit)",
+        "[개조] claude_parser.py:466 _SYSTEM_PROMPT에 100+ 담보트리 주입 / claude_parser.py:700·724 _add_coverage 4단계→정규화사전 5단계(3순위 detail키워드 후·4순위 fuzzy 전 삽입) / customer-agree→국외이전 동의+로그 / content_filter.py→ai_guardrail.py 보험업법 룰셋",
+        "[신규] core/ai_guardrail.py(§97/광고심의 판정)·insurances/normalization.py(매칭 엔진)·ai/message_prompts.py(목적enum)·customers/heatmap.py(3색)·management/commands/watchdog.py(M4)·seed_taxonomy.py(100+담보+정규화사전 seed)",
+        "정확 라인 참조: claude_parser.py:430 claude_parse(text_lines,is_proposal)/utils.py:358 extract_text_from_pdf/calculate.py:245 calculate_total_analysis/credit.py:123 _check_and_consume — 포팅 지도 100% 검증됨",
+        "한화 fast-path→claude_parse→regex fallback 추출 경로 보존, 7→100+ 필드",
+        "detect API에 정규화 사전 결합 + 국외이전 동의 412 게이트 추가 지점",
+        "검증 기준선: foliio test_premium_calculation_8cases.py 골든테스트 그대로 가져와 회귀 가드, 정규화 사전 신규테스트(raw_name→표준담보 happy path+unmatched 학습루프)",
+        "기존 inpa/docs(00~08 Foliio 영업지원 에디션 명칭)는 인파 정체성으로 재작성 — 본 11종이 정본"
+      ]
+    },
+    {
+      "file": "dev/04-build-plan.md",
+      "title": "Phase·스프린트·게이트",
+      "mustInclude": [
+        "Phase0(코드 0줄, critical path 법무게이트): 표준 기준선 출처·면책 확정 / 국외이전 동의서 개정안+ConsentLog 구조 / §97 비교안내 정확요건 6항목 / 정규화 사전 v0(상위30담보×5사 시드)·ai_guardrail 면책카피 — 막히면 중립기능 선출시",
+        "Phase1 MVP 6주 스프린트 의존성 순서: W1-2 repo부트스트랩+M0공통+M1 OCR+M2정규화 / W3-4 M3히트맵+M4비교안내서+M7동의 / W5 M5가드레일+M6메시지+M8크레딧 / W6 베타10명+5분 루프검증",
+        "Phase1 게이트(정성): 비교안내서→카톡발송을 베타 설계사가 실제 미팅에 사용했는가 인터뷰 5건",
+        "빌드 의존성: 정규화 OCR이 모든 분석의 입력(선행)→히트맵→비교안내서→메시지",
+        "Phase1.5(4주): 워치독·AI내러티브·Plus 과금오픈, 마일스톤 첫 유료전환 / Phase2(6주): 바이럴귀속·추천코드·셀프진단, 마일스톤 소개귀속 리드 / Phase3+: 브랜딩·SEO·알림톡(심의후)·팀(Super)",
+        "검증/게이트 기준: foliio verify.sh 패턴(lint+test+build), 8케이스 골든테스트 회귀 가드, OCR 7필드 추출률≥85%, §97 필수항목 누락률=0%",
+        "귀속 계측(?ref=+이벤트 스펙) Day1 배포 전 확정 — 사후 복원 불가",
+        "fallback 경로: 컴플라이언스 게이트 막히면 OCR(M1)→히트맵 none 중립(M3)→정규화(M2)부터 선출시"
+      ]
+    }
+  ],
+  "openQuestions": [
+    "[법무 선결 Q1] 표준 보장 기준선의 출처·권위를 누가 정의하나(금감원/보험연구원/자체 컨센서스)? M3 히트맵 enough/short 판정·M2 진단 출시 게이트. 확정 전까지 none(중립 회색)만 표기. 면책 카피 동반 필요.",
+    "[법무 선결 Q2] 병력(민감정보) Claude API(미국, Anthropic Inc.) 국외이전 동의를 customer-agree 1탭으로 커버 가능한가, 아니면 consent_overseas_at 별도 필드+별도 동의서+ConsentLog 분리 필수인가? detect API 자체를 여는 조건 — 전 AI 기능 게이트.",
+    "[법무 선결 Q3] §97 비교안내 정확요건 6항목의 법적 확정 내용(불리점 완전성 보증 책임 경계 포함). AI 추출 누락분 책임을 어디까지 설계사 면책으로 한정하나 — UI 하드블록 룰의 근거.",
+    "[과금/성장 Q7] 무료 한도를 'AI 메시지 생성'에 그을지 '비교안내서 발송'에 그을지 — 전환율 직결 레버. 비교안내서 1건 무료 체험 vs 전부 Plus 게이트, 베타 A/B 설계 필요.",
+    "[컴플라이언스/성장 Q4] 셀프진단 인바운드(지인 제3자 정보수집)의 동의 1탭으로 법적 충분한가? share_token 만료·회수·robots noindex 정책 + 설계사 푸시 허용 범위(어디까지가 무작위 발굴 금지 위반인가) 준법 자문.",
+    "[측정 Q6] 클립보드 복사 기반 발송의 북극성 계측 신뢰도 — 복사 이벤트를 발송 프록시 보조로만 쓰고 share_token 열람을 신뢰 KPI로 확정했으나, 복사→실발송 전환율 가정 검증 필요.",
+    "[운영] 정규화 사전 unmatched raw_name→admin 1탭 매핑 루프의 운영 주체·검수 UI, hit_count 기반 자동승격 임계(동일 raw_name 5회+ admin검수 없이 자동매핑 허용 여부) — 자동매핑 오류시 §97 위반 리스크 vs 운영비용 트레이드오프.",
+    "[가격] Plus 19,900/Premium 89,900 갭 4.5배 — 신입 발굴 핵심기능(워치독·귀속)이 Premium 편중. 신입용 중간티어 신설 또는 기능 재배치를 베타 90일 실측 후 재검토.",
+    "[운영] 결제 실 VAN TID 교체·정기결제(구독)·부분취소는 B-main 이후 후속 — KICC 이지페이/이지톡페이 스테이징 검증 선행(메모리 project_payment_strategy/followup 참조).",
+    "[리퍼럴] 더블사이드 보상(추천1명당 Premium 1개월)의 상한(연 3개월)·셀프추천/유령계정 차단 룰을 과금 거버넌스와 최종 합의 — 무료 헤비기능 노출로 전환율 갉아먹기 방지."
+  ]
+}

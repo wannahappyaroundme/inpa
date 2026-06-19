@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="인파 Inpa">
+  <title>인파 (Inpa) — Twin-Arc</title>
+  <!-- 굵은 호: 기존 보장 (민트) -->
+  <path d="M6 34 Q24 14 42 34" fill="none" stroke="#12B5A4" stroke-width="6" stroke-linecap="round"/>
+  <!-- 가는 호: 인파의 제안 (인디고) — 기존을 덮되 가리지 않음 -->
+  <path d="M12 33 Q24 3 36 33" fill="none" stroke="#1E40C4" stroke-width="3.4" stroke-linecap="round"/>
+  <!-- 충족 도트 (i의 점 모티프) -->
+  <circle cx="24" cy="22" r="2.7" fill="#1E40C4"/>
+</svg>
