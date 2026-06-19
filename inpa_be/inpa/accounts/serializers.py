@@ -1,0 +1,92 @@
+"""계정 도메인 시리얼라이저 (dev/11 정본)."""
+from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
+from rest_framework import serializers
+
+from .models import Profile, User
+
+
+class RegisterSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, min_length=8)
+    password_confirm = serializers.CharField(write_only=True)
+    tos_agreed = serializers.BooleanField()
+    pp_agreed = serializers.BooleanField()
+    marketing_agreed = serializers.BooleanField(required=False, default=False)
+    affiliation = serializers.CharField(required=False, allow_blank=True)
+    agent_type = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError('이미 가입된 이메일입니다.')
+        return value.lower()
+
+    def validate(self, data):
+        if data['password'] != data['password_confirm']:
+            raise serializers.ValidationError({'password_confirm': '비밀번호가 일치하지 않습니다.'})
+        if not data.get('tos_agreed'):
+            raise serializers.ValidationError({'tos_agreed': '이용약관 동의는 필수입니다.'})
+        if not data.get('pp_agreed'):
+            raise serializers.ValidationError({'pp_agreed': '개인정보처리방침 동의는 필수입니다.'})
+        validate_password(data['password'])
+        return data
+
+    def create(self, data):
+        user = User.objects.create_user(email=data['email'], password=data['password'])
+        now = timezone.now()
+        Profile.objects.create(
+            user=user,
+            tos_agreed_at=now, tos_doc_version='v1',
+            pp_agreed_at=now, pp_doc_version='v1',
+            marketing_agreed_at=now if data.get('marketing_agreed') else None,
+            affiliation=(data.get('affiliation') or None),
+            agent_type=data.get('agent_type'),
+        )
+        return user
+
+
+class ProfileSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = Profile
+        fields = ('email', 'affiliation', 'agent_type', 'license_self_declared', 'license_no',
+                  'career_years', 'onboarding_completed_at', 'marketing_agreed_at', 'ref_code',
+                  'email_verified_at', 'is_admin', 'is_dormant')
+        read_only_fields = ('email', 'onboarding_completed_at', 'ref_code', 'email_verified_at',
+                            'is_admin', 'is_dormant')
+
+
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_new_password(self, value):
+        validate_password(value)
+        return value
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    old_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_new_password(self, value):
+        validate_password(value)
+        return value
+
+
+class OnboardingAttestSerializer(serializers.Serializer):
+    affiliation = serializers.CharField(required=False, allow_blank=True)
+    agent_type = serializers.IntegerField(required=False, allow_null=True)
+    license_self_declared = serializers.BooleanField(required=False, default=False)
+    career_years = serializers.IntegerField(required=False, allow_null=True)
