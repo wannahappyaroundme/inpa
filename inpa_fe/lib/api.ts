@@ -317,3 +317,56 @@ export async function deleteCustomer(id: number): Promise<void> {
     throw new ApiError(res.status, code, detail);
   }
 }
+
+// ─── Heatmap types ───────────────────────────────────────────────────────────
+
+export type HeatmapStatus = "neutral" | "shortage" | "adequate" | "over";
+
+export interface HeatmapBaseline {
+  min: number | null;
+  max: number | null;
+  unit: string | null;
+  baseline_source: string | null;
+}
+
+export interface HeatmapDetail {
+  detail_id: number;
+  name: string;
+  held_amount: number | null;
+  status: HeatmapStatus;
+  baseline: HeatmapBaseline | null;
+}
+
+export interface HeatmapSubCategory {
+  sub_category_id: number;
+  name: string;
+  details: HeatmapDetail[];
+}
+
+export interface HeatmapCategory {
+  category_id: number;
+  name: string;
+  insurance_type: string;
+  sub_categories: HeatmapSubCategory[];
+}
+
+export interface HeatmapSummary {
+  monthly_premiums: number | null;
+  total_premiums: number | null;
+  [key: string]: unknown;
+}
+
+export interface HeatmapResponse {
+  customer_id: number;
+  mode: "neutral" | "graded";
+  baseline_present: boolean;
+  insurance_count: number;
+  summary: HeatmapSummary;
+  chart_list: unknown[];
+  tree: HeatmapCategory[];
+}
+
+/** GET /api/v1/customers/<id>/heatmap/ — requires token */
+export async function getHeatmap(customerId: number): Promise<HeatmapResponse> {
+  return request<HeatmapResponse>("GET", `/customers/${customerId}/heatmap/`, undefined, true);
+}
