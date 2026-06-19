@@ -213,3 +213,107 @@ export interface ProfileResponse {
 export async function getProfile(): Promise<ProfileResponse> {
   return request<ProfileResponse>("GET", "/auth/profile/", undefined, true);
 }
+
+// ─── Customer types ──────────────────────────────────────────────────────────
+
+export interface CustomerTag {
+  id: number;
+  label: string;
+  color: string;
+  created_at: string;
+}
+
+/** 목록 카드용 경량 타입 (CustomerListSerializer 대응) */
+export interface CustomerListItem {
+  id: number;
+  name: string;
+  gender: string | null;
+  birth_day: string | null;          // "YYYY-MM-DD"
+  mobile_phone_number: string | null;
+  consent_overseas_at: string | null;
+  color: string | null;
+  tags: CustomerTag[];
+  family_count: number;
+  share_token: string | null;
+  created_at: string;
+}
+
+/** 상세 타입 (CustomerSerializer 대응) */
+export interface CustomerDetail extends CustomerListItem {
+  job_code: string | null;
+  memo: string | null;
+  is_agree_term: boolean;
+  share_expires_at: string | null;
+  share_sent_at: string | null;
+  user_view_at: string | null;
+  updated_at: string;
+  family_members: unknown[];
+  medical_histories: unknown[];
+}
+
+/** DRF 페이지네이션 래퍼 */
+export interface PaginatedResult<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+/** 고객 등록/수정 payload */
+export interface CustomerWritePayload {
+  name: string;
+  gender?: string;
+  birth_day?: string;
+  mobile_phone_number?: string;
+  job_code?: string;
+  memo?: string;
+  color?: string;
+  is_agree_term?: boolean;
+  tag_ids?: number[];
+}
+
+// ─── Customer endpoints ──────────────────────────────────────────────────────
+
+/** GET /api/v1/customers/?page=1&search=... */
+export async function listCustomers(
+  params: { page?: number; search?: string } = {}
+): Promise<PaginatedResult<CustomerListItem>> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set("page", String(params.page));
+  if (params.search) qs.set("search", params.search);
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return request<PaginatedResult<CustomerListItem>>("GET", `/customers/${query}`, undefined, true);
+}
+
+/** GET /api/v1/customers/{id}/ */
+export async function getCustomer(id: number): Promise<CustomerDetail> {
+  return request<CustomerDetail>("GET", `/customers/${id}/`, undefined, true);
+}
+
+/** POST /api/v1/customers/ */
+export async function createCustomer(payload: CustomerWritePayload): Promise<CustomerDetail> {
+  return request<CustomerDetail>("POST", "/customers/", payload, true);
+}
+
+/** PATCH /api/v1/customers/{id}/ */
+export async function updateCustomer(
+  id: number,
+  payload: Partial<CustomerWritePayload>
+): Promise<CustomerDetail> {
+  return request<CustomerDetail>("PATCH", `/customers/${id}/`, payload, true);
+}
+
+/** DELETE /api/v1/customers/{id}/ — 204 No Content → void */
+export async function deleteCustomer(id: number): Promise<void> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const tok = tokenStore.get();
+  if (tok) headers["Authorization"] = `Token ${tok}`;
+  const res = await fetch(`${API_BASE}/customers/${id}/`, { method: "DELETE", headers });
+  if (!res.ok) {
+    let data: Record<string, unknown> = {};
+    try { data = await res.json(); } catch { /* empty */ }
+    const code = (data["error"] as string) ?? String(res.status);
+    const detail = (data["detail"] as string) ?? res.statusText;
+    throw new ApiError(res.status, code, detail);
+  }
+}

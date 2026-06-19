@@ -30,6 +30,8 @@ THIRD_PARTY_APPS = [
 LOCAL_APPS = [
     'inpa.accounts',
     'inpa.customers',
+    'inpa.analysis',     # 담보 분류 트리 + 정규화 사전 (공유 전역 마스터)
+    'inpa.insurances',   # 보험/계산 (소유자 전용 — customer__owner 경유)
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -116,6 +118,12 @@ EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 EMAIL_USE_SSL = env.bool('EMAIL_USE_SSL', default=False)
 
 FRONTEND_BASE_URL = env('FRONTEND_BASE_URL', default='http://localhost:3000')
+
+# ── Claude API (보험증권 OCR 파싱 · 담보 정규화 — Phase 1.1) ───────
+# 하드코딩 금지: env(.env)에서만 주입. 비어 있으면 claude_parser 가 None 반환(OCR 비활성).
+ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', default='')
+# 벤더링한 foliio claude_parser 는 settings.CLAUDE_API_KEY 를 읽는다(무변경 보존) → 동일 키 별칭.
+CLAUDE_API_KEY = ANTHROPIC_API_KEY
 
 # ── CORS ─────────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=['http://localhost:3000'])

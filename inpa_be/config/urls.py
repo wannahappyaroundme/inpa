@@ -13,4 +13,6 @@ urlpatterns = [
     path('healthz/', health),
     path('api/v1/auth/', include('inpa.accounts.urls')),
     path('api/v1/', include('inpa.customers.urls')),
+    path('api/v1/', include('inpa.analysis.urls')),
+    path('api/v1/', include('inpa.insurances.urls')),
 ]
