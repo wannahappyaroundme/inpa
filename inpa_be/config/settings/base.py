@@ -29,6 +29,7 @@ THIRD_PARTY_APPS = [
 # inpa.* = foliio의 weapon 네임스페이스를 인파로 리네임한 앱 패키지
 LOCAL_APPS = [
     'inpa.accounts',
+    'inpa.customers',
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -91,6 +92,9 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    # 목록 응답은 {count, next, previous, results} 형태 (dev/12 §5.1 계약)
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
 }
 
 # ── 토큰 TTL / 로그인 잠금 (dev/02 §2.3, dev/11 정본) ────────────

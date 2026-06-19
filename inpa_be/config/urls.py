@@ -12,4 +12,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('healthz/', health),
     path('api/v1/auth/', include('inpa.accounts.urls')),
+    path('api/v1/', include('inpa.customers.urls')),
 ]
