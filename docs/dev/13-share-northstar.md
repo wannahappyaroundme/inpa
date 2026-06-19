@@ -1,8 +1,19 @@
 # 공유링크 & 북극성 계측
 
 > 인파(Inpa) 개발 기획서 — dev/13
-> 정본 교차: `dev/02-data-model-and-api.md`(모델·크레딧·§97), `dev/07-api-data-contracts.md`(detect 6단계·공유뷰·히트맵), `dev/09-compliance.md`(컴플라이언스 절대원칙)
-> 작성 2026-06-19. 이 문서가 잠그는 건 **공유링크의 생명주기**와 **북극성 6종 이벤트 스키마**. 둘 다 **Day1 동결 = 사후복원 불가**. 구현 코드가 아니라 계약·구조·흐름을 못박는다.
+> 정본 교차: `dev/02-data-model-and-api.md`(모델·크레딧·§97), `dev/07-api-data-contracts.md`(detect 6단계·공유뷰·히트맵), `dev/09-compliance.md`(컴플라이언스 절대원칙), `dev/12`(고객 CRUD·OCR)
+> 작성 2026-06-19. **v2 패치 2026-06-19: 이메일/비밀번호 인증 전환, 가시성 매트릭스 반영.**
+> 이 문서가 잠그는 건 **공유링크의 생명주기**와 **북극성 6종 이벤트 스키마**. 둘 다 **Day1 동결 = 사후복원 불가**. 구현 코드가 아니라 계약·구조·흐름을 못박는다.
+
+---
+
+## [v2 패치 요약]
+
+| 항목 | v1 | v2 (이번 패치) |
+|---|---|---|
+| 인증 방식 | 카카오 OAuth (`KakaoLoginView` ♻) | **이메일/비밀번호 전용** (카카오 OAuth 전면 제거) |
+| 가시성 분류 | 미명시 | **소유자 전용** 명시 (`share_link_create`·설계사 조회) vs **공개** (`share_view` — `AllowAny+token`) |
+| `referral_attributed` 귀속 트리거 | 카카오 신규 가입 (`KakaoLoginView`) | **이메일 신규 가입 완료** (`/auth/register/` + 이메일 인증 완료) |
 
 ---
 
@@ -242,8 +253,10 @@ viewer_fp = 비식별 지문 (개인정보 아님 — 해시 기반)
 ⑤ share_view ★        ← GET /share/analysis/ 200 응답 직전, viewer_fp 산출 후
                          중복가드(§3.3) 통과 시에만 적재. ref_code 동반 기록.
 
-⑥ referral_attributed★← 신규 카카오 가입(KakaoLoginView) 시 세션에 ref_code 보유 확인
+⑥ referral_attributed★← 신규 **이메일 가입 완료** (`/auth/register/` + 이메일 인증 완료) 시
+                         세션/쿠키에 ref_code 보유 확인
                          → sender_user 역산 적재. sender≠viewer 검증.
+                         (카카오 OAuth 제거로 `KakaoLoginView` 훅 대신 이메일 인증 완료 시점에 hook 이동)
 ```
 
 **컴플라이언스 못박기**: ④ clipboard_copy의 `channel='clipboard'`, `delivery='clipboard'`는 **자동발송이 아님을 계측 레벨에서 고정**. 인파는 카톡 자동발송을 하지 않는다(dev/09). "복사해서 설계사가 직접 붙여넣음"이 유일한 발송 경로 → 계측도 이를 사칭하면 안 된다.
