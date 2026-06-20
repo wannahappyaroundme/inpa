@@ -175,3 +175,47 @@ class UsageMeter(models.Model):
     def current_month(cls) -> str:
         """현재 연월 (YYYY-MM). lazy reset 비교 기준."""
         return timezone.now().strftime('%Y-%m')
+
+
+class ClaudeApiLog(models.Model):
+    """Claude API 호출당 토큰·비용 로깅 (관리자 전용 — dev/02 §14.2).
+
+    ★ owner FK 없음: 운영 로그(설계사 본인 조회 불가, 관리자 전체 조회).
+    월 예산 캡 집계·모델별 비용 추적·prompt caching 효율(cache_read 비율) 모니터링용.
+
+    필드:
+      - action: 호출 목적 (ocr_parse|compare_guide|message_gen 등). 자유 문자열.
+      - model:  실제 호출된 Claude 모델 ID (settings CLAUDE_MODEL_PARSE/BULK 정본).
+      - input_tokens / output_tokens: usage 기본 토큰.
+      - cache_read_input_tokens:     prompt caching 재사용 토큰(~0.1x 비용).
+      - cache_creation_input_tokens: prompt caching 신규 작성 토큰(~1.25x 비용).
+    """
+    ACTION_CHOICES = (
+        ('ocr_parse', '증권 OCR 파싱'),
+        ('compare_guide', '갈아타기 비교안내서'),
+        ('message_gen', '고객 메시지 생성'),
+    )
+
+    action = models.CharField('호출 목적', max_length=30)
+    model = models.CharField('Claude 모델', max_length=60)
+    input_tokens = models.PositiveIntegerField('입력 토큰', default=0)
+    output_tokens = models.PositiveIntegerField('출력 토큰', default=0)
+    cache_read_input_tokens = models.PositiveIntegerField(
+        '캐시 읽기 토큰', default=0, help_text='prompt caching 재사용(~0.1x 비용).')
+    cache_creation_input_tokens = models.PositiveIntegerField(
+        '캐시 작성 토큰', default=0, help_text='prompt caching 신규 작성(~1.25x 비용).')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'billing_claude_api_log'
+        verbose_name = 'Claude API 로그'
+        verbose_name_plural = 'Claude API 로그'
+        indexes = [
+            models.Index(fields=['action', 'created_at']),
+            models.Index(fields=['model', 'created_at']),
+        ]
+
+    def __str__(self):
+        return (f'{self.action} / {self.model} / '
+                f'in={self.input_tokens} out={self.output_tokens} '
+                f'cache_r={self.cache_read_input_tokens} @ {self.created_at:%Y-%m-%d}')

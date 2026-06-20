@@ -7,7 +7,7 @@
 """
 from django.contrib import admin
 
-from .models import Plan, Subscription, UsageMeter
+from .models import ClaudeApiLog, Plan, Subscription, UsageMeter
 
 
 @admin.register(Plan)
@@ -62,3 +62,29 @@ class UsageMeterAdmin(admin.ModelAdmin):
     search_fields = ['user__email']
     ordering = ['-year_month', '-count']
     readonly_fields = ['updated_at']
+
+
+@admin.register(ClaudeApiLog)
+class ClaudeApiLogAdmin(admin.ModelAdmin):
+    """Claude API 비용 로그 — 관리자 전용 읽기 (dev/02 §14.2).
+
+    owner FK 없음(운영 로그). 월 예산 캡 집계·모델별 비용·캐시 효율 모니터링.
+    추가/수정 불가(시스템 기록), 삭제만 관리자 재량.
+    """
+    list_display = [
+        'created_at', 'action', 'model',
+        'input_tokens', 'output_tokens',
+        'cache_read_input_tokens', 'cache_creation_input_tokens',
+    ]
+    list_filter = ['action', 'model']
+    ordering = ['-created_at']
+    readonly_fields = [
+        'action', 'model', 'input_tokens', 'output_tokens',
+        'cache_read_input_tokens', 'cache_creation_input_tokens', 'created_at',
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

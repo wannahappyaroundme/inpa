@@ -37,6 +37,7 @@ LOCAL_APPS = [
     'inpa.boards',         # 게시판 & 커뮤니티 (혼합 가시성, dev/17)
     'inpa.promotion',      # 판촉물 주문제작 (혼합 가시성: 샘플=공유/주문=소유자+관리자, dev/21)
     'inpa.admin_console',  # 관리자 콘솔 (IsAdmin 전용 백오피스, dev/19)
+    'inpa.analytics',      # ★ 북극성 계측 + 공유뷰 (NorthStarEvent Day1 동결, dev/13)
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -129,6 +130,14 @@ FRONTEND_BASE_URL = env('FRONTEND_BASE_URL', default='http://localhost:3000')
 ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', default='')
 # 벤더링한 foliio claude_parser 는 settings.CLAUDE_API_KEY 를 읽는다(무변경 보존) → 동일 키 별칭.
 CLAUDE_API_KEY = ANTHROPIC_API_KEY
+
+# ── Claude 모델 정본 (BE 비용 거버넌스) ────────────────────────────
+# 추측 금지·하드코딩 금지: 모델 ID는 settings(env)에서만 주입.
+#  - 정확도-critical(증권 OCR 파싱·담보 정규화·갈아타기 비교) = Opus 4.8
+#  - 대량·저비용(다건 OCR·메시지 생성) = Haiku 4.5
+# 과거 하드코딩 'claude-sonnet-4-20250514' 는 제거됨(claude_parser 가 settings 에서 읽음).
+CLAUDE_MODEL_PARSE = env('CLAUDE_MODEL_PARSE', default='claude-opus-4-8')
+CLAUDE_MODEL_BULK = env('CLAUDE_MODEL_BULK', default='claude-haiku-4-5')
 
 # ── CORS ─────────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=['http://localhost:3000'])

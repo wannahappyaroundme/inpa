@@ -17,12 +17,14 @@
 
 순수 계산 — Claude API 불필요.
 """
+from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, ChartDetail
+from inpa.billing.credit import LimitExceeded, check_and_consume
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer, PlannerBaseline
 
@@ -37,6 +39,27 @@ _PRODUCT_GROUP_TO_INSURANCE_TYPE = {
     PlannerBaseline.PRODUCT_GROUP_INDEMNITY: 2,
     PlannerBaseline.PRODUCT_GROUP_ANNUITY: 2,
 }
+
+
+def _credit_exhausted_response(exc: LimitExceeded, user) -> Response:
+    """LimitExceeded → 402 Payment Required (dev/02 §16 shape).
+
+    FE는 402 + code='credit_exhausted' 수신 시 UpgradeGuideModal 표시.
+    """
+    from inpa.billing.models import Subscription
+    sub = Subscription.objects.select_related('plan').filter(user=user).first()
+    membership = sub.plan.code if sub else 'free'
+    return Response(
+        {
+            'detail': f'이번 달 한도({exc.limit}건)를 모두 사용했어요.',
+            'code': 'credit_exhausted',
+            'kind': exc.action,
+            'membership': membership,
+            'limit': exc.limit,
+            'used': exc.current,
+        },
+        status=status.HTTP_402_PAYMENT_REQUIRED,
+    )
 
 
 def _age_band(birth_day):
@@ -98,6 +121,13 @@ class CustomerHeatmapView(APIView):
 
     def get(self, request, customer_pk):
         customer = self._get_customer(customer_pk)
+
+        # ── 0) 크레딧 차감 (kind='analysis') — 한눈표/히트맵 진입. 한도 초과 시 402 ──
+        #    베타 FREE_TIER_UNLIMITED=True 면 통과(무차감).
+        try:
+            check_and_consume(request.user, 'analysis')
+        except LimitExceeded as exc:
+            return _credit_exhausted_response(exc, request.user)
 
         # ── 1) 보험 목록 (customer__owner 경유 소유자 전용 → customer 필터로 격리 완결) ──
         insurance_list = list(

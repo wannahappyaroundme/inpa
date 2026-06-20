@@ -1,13 +1,21 @@
 """
 Claude API 기반 보험증권 파싱 모듈.
 
-pdfplumber로 추출한 텍스트를 Claude Sonnet에게 보내 구조화 JSON을 받고,
-기존 Ocr_Data 형태로 변환하여 반환한다.
-실패 시 None을 반환 → 호출자(views.py)가 기존 regex 파싱으로 폴백.
+pdfplumber로 추출한 텍스트를 Claude(모델 정본=settings.CLAUDE_MODEL_PARSE,
+기본 Opus 4.8 — 정확도-critical)에게 보내 구조화 JSON을 받고, 기존 Ocr_Data
+형태로 변환하여 반환한다. 실패 시 None을 반환 → 호출자(views.py)가 기존 regex
+파싱으로 폴백.
+
+비용 거버넌스:
+  - 모델 ID 하드코딩 금지 — settings(env)에서만 주입.
+  - 대형 담보 분류 프롬프트(_COVERAGE_CATEGORIES)는 system 블록에 prompt caching
+    (cache_control ephemeral) 적용 → 반복 호출 시 입력 토큰 비용 절감.
+  - Anthropic 클라이언트 max_retries=3 (SDK 지수 백오프).
+  - 호출 usage 는 claude_parse 가 (ocr_data, usage) 튜플로 노출 → 호출자가
+    billing.credit.log_claude_usage 로 ClaudeApiLog 기록.
 """
 import json
 import re
-import time
 import traceback
 
 from django.conf import settings
@@ -363,8 +371,6 @@ _COVERAGE_CATEGORIES = """
 
 _USER_PROMPT_TEMPLATE = """아래는 보험증권 PDF에서 추출된 텍스트입니다. 이 텍스트를 분석하여 JSON으로 반환하세요.
 
-{coverage_categories}
-
 ## 반환 JSON 스키마
 
 ```json
@@ -458,59 +464,70 @@ def claude_parse(text_lines, is_proposal=False, normalizer=None):
     if len(full_text) > 30000:
         full_text = full_text[:30000]
 
-    user_prompt = _USER_PROMPT_TEMPLATE.format(
-        coverage_categories=_COVERAGE_CATEGORIES,
-        text=full_text
-    )
+    user_prompt = _USER_PROMPT_TEMPLATE.format(text=full_text)
 
     # 텍스트 길이에 따라 타임아웃 조정
     timeout_seconds = 120.0 if len(full_text) > 20000 else 90.0
-    max_retries = 1  # 최대 1회 재시도
 
-    system_prompt = _SYSTEM_PROMPT + (_PROPOSAL_PROMPT_ADDENDUM if is_proposal else '')
+    # 모델 정본: settings 에서만 (하드코딩 금지). 정확도-critical = Opus 4.8.
+    model_id = getattr(settings, 'CLAUDE_MODEL_PARSE', 'claude-opus-4-8')
 
-    for attempt in range(max_retries + 1):
-        try:
-            client = anthropic.Anthropic(api_key=api_key, timeout=timeout_seconds)
-            message = client.messages.create(
-                model='claude-sonnet-4-20250514',
-                max_tokens=4096,
-                system=system_prompt,
-                messages=[
-                    {'role': 'user', 'content': user_prompt}
-                ]
-            )
+    # system 블록 구성 — 안정 prefix(가이드 본문 + 담보 분류 규칙)에 prompt caching
+    # (cache_control ephemeral) 적용. _COVERAGE_CATEGORIES 는 대형·반복 본문이므로
+    # 마지막 안정 블록에 breakpoint 를 둬 system 전체를 캐시한다.
+    # 변동 부분(가입제안서 모드)은 캐시 가능 블록보다 뒤에 둔다.
+    system_blocks = [
+        {
+            'type': 'text',
+            'text': _SYSTEM_PROMPT + '\n' + _COVERAGE_CATEGORIES,
+            'cache_control': {'type': 'ephemeral'},
+        },
+    ]
+    if is_proposal:
+        system_blocks.append({'type': 'text', 'text': _PROPOSAL_PROMPT_ADDENDUM})
 
-            # 응답에서 JSON 추출
-            response_text = message.content[0].text.strip()
-            parsed = _extract_json(response_text)
-            if not parsed:
-                print(f'[claude_parser] Failed to parse JSON from response: {response_text[:200]}')
-                return None
+    # Anthropic 클라이언트: max_retries=3 (SDK 지수 백오프). 추가 수동 재시도는 두지 않는다.
+    client = anthropic.Anthropic(
+        api_key=api_key, timeout=timeout_seconds, max_retries=3)
 
-            # JSON → Ocr_Data 변환
-            ocr_data = _convert_to_ocr_data(parsed, normalizer=normalizer)
-            if ocr_data:
-                ocr_data.parsing_method = 'claude_proposal' if is_proposal else 'claude'
-                cov_count = len(parsed.get('coverages', []))
-                unmatched_count = len(parsed.get('unmatched_coverages', []))
-                print(f'[claude_parser] Success: {parsed.get("company_name", "?")} / '
-                      f'{parsed.get("product_name", "?")} / '
-                      f'{cov_count} coverages, {unmatched_count} unmatched')
-            return ocr_data
+    try:
+        message = client.messages.create(
+            model=model_id,
+            max_tokens=4096,
+            system=system_blocks,
+            messages=[
+                {'role': 'user', 'content': user_prompt}
+            ]
+        )
 
-        except (anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
-            if attempt < max_retries:
-                wait_time = 3 * (attempt + 1)
-                print(f'[claude_parser] Timeout/connection error (attempt {attempt + 1}), retrying in {wait_time}s: {e}')
-                time.sleep(wait_time)
-                continue
-            print(f'[claude_parser] API timeout after {max_retries + 1} attempts: {e}')
+        # 응답에서 JSON 추출
+        response_text = message.content[0].text.strip()
+        parsed = _extract_json(response_text)
+        if not parsed:
+            print(f'[claude_parser] Failed to parse JSON from response: {response_text[:200]}')
             return None
-        except Exception as e:
-            print(f'[claude_parser] API error: {e}')
-            traceback.print_exc()
-            return None
+
+        # JSON → Ocr_Data 변환
+        ocr_data = _convert_to_ocr_data(parsed, normalizer=normalizer)
+        if ocr_data:
+            ocr_data.parsing_method = 'claude_proposal' if is_proposal else 'claude'
+            # 비용 로깅용 메타(호출자가 billing.log_claude_usage 로 ClaudeApiLog 기록).
+            ocr_data._claude_usage = getattr(message, 'usage', None)
+            ocr_data._claude_model = model_id
+            cov_count = len(parsed.get('coverages', []))
+            unmatched_count = len(parsed.get('unmatched_coverages', []))
+            print(f'[claude_parser] Success: {parsed.get("company_name", "?")} / '
+                  f'{parsed.get("product_name", "?")} / '
+                  f'{cov_count} coverages, {unmatched_count} unmatched')
+        return ocr_data
+
+    except (anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
+        print(f'[claude_parser] API timeout/connection error (after SDK retries): {e}')
+        return None
+    except Exception as e:
+        print(f'[claude_parser] API error: {e}')
+        traceback.print_exc()
+        return None
 
 
 def _extract_json(text):

@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from inpa.analysis.models import (
     AnalysisCategory, AnalysisDetail, AnalysisSubCategory, NormalizationDict,
 )
+from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
 from inpa.core.ocr.claude_parser import claude_parse
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer
@@ -45,6 +46,28 @@ from .serializers import CustomerInsuranceSerializerForDetail
 
 # 최대 업로드 크기 (foliio 동일 정책)
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+def _credit_exhausted_response(exc: LimitExceeded, user) -> Response:
+    """LimitExceeded → 402 Payment Required (dev/02 §16 shape).
+
+    FE는 402 + code='credit_exhausted' 수신 시 UpgradeGuideModal 표시.
+    기능 자체를 차단하는 UI 는 사용하지 않는다(정직성 레드라인).
+    """
+    from inpa.billing.models import Subscription
+    sub = Subscription.objects.select_related('plan').filter(user=user).first()
+    membership = sub.plan.code if sub else 'free'
+    return Response(
+        {
+            'detail': f'이번 달 한도({exc.limit}건)를 모두 사용했어요.',
+            'code': 'credit_exhausted',
+            'kind': exc.action,
+            'membership': membership,
+            'limit': exc.limit,
+            'used': exc.current,
+        },
+        status=status.HTTP_402_PAYMENT_REQUIRED,
+    )
 
 # CustomerInsurance.insurance_type (1=생명/2=손해) ↔ Ocr_Data head dict 키
 _LIFE_TYPE = 1
@@ -313,7 +336,15 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
                 {'code': 'OCR_UNAVAILABLE', 'detail': 'OCR 분석이 현재 비활성화되어 있습니다.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        # ── 5) Claude 파싱 (정규화 훅 주입) ──
+        # ── 5) 크레딧 차감 (kind='ocr') — Claude 호출 직전. 한도 초과 시 402 ──
+        #    검증(동의·파일)을 모두 통과한 뒤 차감해, 입력 오류가 크레딧을 소모하지 않게 한다.
+        #    베타 FREE_TIER_UNLIMITED=True 면 통과(무차감).
+        try:
+            check_and_consume(request.user, 'ocr')
+        except LimitExceeded as exc:
+            return _credit_exhausted_response(exc, request.user)
+
+        # ── 6) Claude 파싱 (정규화 훅 주입) ──
         ocr_data = claude_parse(lines, normalizer=_build_normalizer())
         if ocr_data is None:
             return Response(
@@ -321,7 +352,14 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
                  'detail': '증권을 인식하지 못했습니다. 직접 입력해 주세요.'},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-        # ── 6) 포트폴리오 + 담보 생성 (트랜잭션) + 계산 엔진 ──
+        # ── 6.1) Claude usage → ClaudeApiLog (관리자 비용 로깅) ──
+        log_claude_usage(
+            action='ocr_parse',
+            model=getattr(ocr_data, '_claude_model', ''),
+            usage=getattr(ocr_data, '_claude_usage', None),
+        )
+
+        # ── 7) 포트폴리오 + 담보 생성 (트랜잭션) + 계산 엔진 ──
         with transaction.atomic():
             ci, created_cases = _persist_ocr(customer, ocr_data)
 

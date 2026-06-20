@@ -8,6 +8,9 @@ import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   getHeatmap,
   listCustomers,
+  uploadInsuranceOcr,
+  createConsentLog,
+  ApiError,
   type HeatmapResponse,
   type HeatmapDetail,
   type HeatmapStatus,
@@ -143,6 +146,14 @@ function AnalysisPageInner() {
   const [graded, setGraded] = useState(true);
   const [filter, setFilter] = useState<FilterKey>("all");
 
+  // ── OCR 업로드 상태 ─────────────────────────────────────────────────────
+  // 업로드 흐름: idle → uploading → 412(동의 필요) → consent_modal → uploading → success/error
+  type OcrPhase = "idle" | "uploading" | "consent_required" | "success" | "error";
+  const [ocrPhase, setOcrPhase] = useState<OcrPhase>("idle");
+  const [ocrError, setOcrError] = useState<string | null>(null);
+  const [ocrFile, setOcrFile] = useState<File | null>(null);
+  const [consentLoading, setConsentLoading] = useState(false);
+
   // ── 고객 목록 로드 ──────────────────────────
   useEffect(() => {
     if (!ready) return;
@@ -193,6 +204,66 @@ function AnalysisPageInner() {
     router.replace(`/analysis?customer=${id}`);
   }
 
+  // ── OCR 파일 선택 → 업로드 시도 ──────────────────────────────────────
+  async function handleOcrFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || selectedId === null) return;
+    // input 초기화 (동일 파일 재선택 허용)
+    e.target.value = "";
+    setOcrFile(file);
+    await runOcrUpload(selectedId, file);
+  }
+
+  async function runOcrUpload(customerId: number, file: File) {
+    setOcrPhase("uploading");
+    setOcrError(null);
+    try {
+      await uploadInsuranceOcr(customerId, file);
+      setOcrPhase("success");
+      // 히트맵 새로고침
+      await fetchHeatmap(customerId);
+      // 잠깐 후 idle 복귀
+      setTimeout(() => setOcrPhase("idle"), 2000);
+    } catch (e: unknown) {
+      if (e instanceof ApiError && e.status === 412) {
+        // 국외이전 동의 필요 → 동의 모달
+        setOcrPhase("consent_required");
+      } else {
+        const msg =
+          e instanceof Error ? e.message : "증권 업로드 중 오류가 발생했어요.";
+        setOcrError(msg);
+        setOcrPhase("error");
+      }
+    }
+  }
+
+  // 동의 확인 후 재업로드
+  async function handleConsentAgree() {
+    if (selectedId === null || ocrFile === null) return;
+    setConsentLoading(true);
+    try {
+      await createConsentLog(selectedId, {
+        scope: "overseas_medical",
+        purpose: "증권 OCR 분석(Claude API, 미국 소재) — 보험정보 국외이전",
+        doc_version: "1.0",
+      });
+      // 동의 완료 → 재업로드
+      setOcrPhase("uploading");
+      await runOcrUpload(selectedId, ocrFile);
+    } catch {
+      setOcrError("동의 처리 중 오류가 발생했어요. 다시 시도해 주세요.");
+      setOcrPhase("error");
+    } finally {
+      setConsentLoading(false);
+    }
+  }
+
+  function handleConsentDismiss() {
+    setOcrPhase("idle");
+    setOcrFile(null);
+    setOcrError(null);
+  }
+
   if (!ready) return null;
 
   // 선택된 고객 정보
@@ -226,25 +297,51 @@ function AnalysisPageInner() {
             <div className="text-[13px] text-ink3">담보 한눈표 · 설계사 도구</div>
             <h1 className="text-[22px] font-extrabold text-ink">보장 분석</h1>
           </div>
-          {/* 고객 드롭다운 */}
-          {customersLoading ? (
-            <div className="h-9 w-40 rounded-xl bg-line animate-pulse" />
-          ) : customers.length > 0 ? (
-            <select
-              value={selectedId ?? ""}
-              onChange={(e) => handleCustomerChange(Number(e.target.value))}
-              className="rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none focus:border-brand"
-            >
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className="text-[13px] text-ink3">고객 없음</span>
-          )}
+          <div className="flex items-center gap-2">
+            {/* 고객 드롭다운 */}
+            {customersLoading ? (
+              <div className="h-9 w-40 rounded-xl bg-line animate-pulse" />
+            ) : customers.length > 0 ? (
+              <select
+                value={selectedId ?? ""}
+                onChange={(e) => handleCustomerChange(Number(e.target.value))}
+                className="rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none focus:border-brand"
+              >
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-[13px] text-ink3">고객 없음</span>
+            )}
+            {/* 증권 OCR 업로드 버튼 (고객 선택 후 노출) */}
+            {selectedId !== null && (
+              <OcrUploadButton
+                selectedId={selectedId}
+                ocrPhase={ocrPhase}
+                onFileChange={handleOcrFileChange}
+              />
+            )}
+          </div>
         </div>
+
+        {/* ── OCR 상태 배너 ── */}
+        <OcrStatusBanner
+          phase={ocrPhase}
+          errorMsg={ocrError}
+          onDismiss={() => { setOcrPhase("idle"); setOcrError(null); }}
+        />
+
+        {/* ── 국외이전 동의 모달 ── */}
+        {ocrPhase === "consent_required" && (
+          <ConsentModal
+            onAgree={handleConsentAgree}
+            onDismiss={handleConsentDismiss}
+            loading={consentLoading}
+          />
+        )}
 
         {/* ── neutral 모드 안내 배너 ── */}
         {heatmap?.mode === "neutral" && (
@@ -352,9 +449,11 @@ function AnalysisPageInner() {
           <div className="mt-6 rounded-xl border border-dashed border-line px-4 py-12 text-center">
             <p className="text-[15px] font-semibold text-ink2">증권이 아직 없어요</p>
             <p className="mt-1 text-[13px] text-ink3">증권을 등록하면 보장 공백이 보여요.</p>
-            <button className="mt-4 rounded-xl bg-brand text-white text-[13px] font-bold px-5 py-2.5">
-              증권 등록
-            </button>
+            <OcrUploadButton
+              selectedId={selectedId}
+              ocrPhase={ocrPhase}
+              onFileChange={handleOcrFileChange}
+            />
           </div>
         )}
 
@@ -557,5 +656,151 @@ function LegendItem({
       {label}
       <span className="text-[10px] text-muted">({pattern})</span>
     </span>
+  );
+}
+
+// ── OcrUploadButton ────────────────────────────────────────────────────────
+// hidden file input + label 패턴 — button 클릭 → input 포커스
+type OcrPhase = "idle" | "uploading" | "consent_required" | "success" | "error";
+
+function OcrUploadButton({
+  selectedId,
+  ocrPhase,
+  onFileChange,
+}: {
+  selectedId: number | null;
+  ocrPhase: OcrPhase;
+  onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const disabled = selectedId === null || ocrPhase === "uploading" || ocrPhase === "consent_required";
+  const inputId = "ocr-file-input";
+
+  return (
+    <>
+      <input
+        id={inputId}
+        type="file"
+        accept=".pdf"
+        className="sr-only"
+        disabled={disabled}
+        onChange={onFileChange}
+        aria-label="증권 PDF 업로드"
+      />
+      <label
+        htmlFor={inputId}
+        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[13px] font-semibold transition cursor-pointer select-none ${
+          disabled
+            ? "border-line text-ink3 bg-surface2 cursor-not-allowed"
+            : "border-brand text-brand bg-surface hover:bg-accent-tint active:scale-[0.98]"
+        }`}
+        aria-disabled={disabled}
+      >
+        {ocrPhase === "uploading" ? (
+          <>
+            <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+            분석 중…
+          </>
+        ) : ocrPhase === "success" ? (
+          "완료!"
+        ) : (
+          "증권 등록"
+        )}
+      </label>
+    </>
+  );
+}
+
+// ── OcrStatusBanner ────────────────────────────────────────────────────────
+
+function OcrStatusBanner({
+  phase,
+  errorMsg,
+  onDismiss,
+}: {
+  phase: OcrPhase;
+  errorMsg: string | null;
+  onDismiss: () => void;
+}) {
+  if (phase !== "error") return null;
+  return (
+    <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+      <span className="mt-0.5 text-[15px]" aria-hidden>!</span>
+      <p className="flex-1 text-[13px] text-red-700 leading-5">
+        {errorMsg ?? "증권 업로드 중 오류가 발생했어요. 다시 시도해 주세요."}
+      </p>
+      <button
+        onClick={onDismiss}
+        className="shrink-0 text-[12px] font-semibold text-red-500"
+        aria-label="오류 닫기"
+      >
+        닫기
+      </button>
+    </div>
+  );
+}
+
+// ── ConsentModal ── 국외이전 동의 (컴플라이언스 게이트) ────────────────────
+// ⚠️ 이 모달은 법적 동의를 받는 흐름. 자동 동의 처리 금지. 사용자가 직접 확인 후 버튼 클릭.
+
+function ConsentModal({
+  onAgree,
+  onDismiss,
+  loading,
+}: {
+  onAgree: () => void;
+  onDismiss: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="consent-modal-title"
+    >
+      <div className="w-full sm:max-w-md bg-surface rounded-t-3xl sm:rounded-2xl px-6 pt-6 pb-8 shadow-xl">
+        <h2
+          id="consent-modal-title"
+          className="text-[18px] font-extrabold text-ink"
+        >
+          보험정보 국외이전 동의
+        </h2>
+        <p className="mt-3 text-[14px] text-ink2 leading-6">
+          증권 OCR 분석을 위해 고객의 보험 정보를{" "}
+          <b className="font-semibold text-ink">Claude AI(미국 소재)</b>로 처리합니다.
+          고객의 동의를 받은 경우에만 진행하세요.
+        </p>
+
+        {/* 동의 범위 요약 */}
+        <ul className="mt-4 space-y-1.5 text-[13px] text-ink3 leading-5">
+          <li>수집·이전 항목: 증권의 보험정보(담보·보험료 등)</li>
+          <li>이전 국가·수탁자: 미국 Anthropic(Claude API)</li>
+          <li>이전 목적: AI 기반 증권 파싱 및 담보 정규화</li>
+          <li>보유 기간: 처리 후 즉시 삭제</li>
+        </ul>
+
+        {/* AI 면책 — 정직성 레드라인 */}
+        <p className="mt-3 text-[12px] text-muted">
+          처리 결과는 AI 초안이며, 최종 확인과 책임은 설계사에게 있습니다.
+        </p>
+
+        <div className="mt-5 flex flex-col gap-2.5">
+          <button
+            onClick={onAgree}
+            disabled={loading}
+            className="w-full rounded-2xl bg-brand text-white text-[15px] font-bold py-3.5 disabled:opacity-60 transition"
+          >
+            {loading ? "처리 중…" : "동의하고 분석 시작"}
+          </button>
+          <button
+            onClick={onDismiss}
+            disabled={loading}
+            className="w-full rounded-2xl border border-line bg-surface text-[14px] font-semibold text-ink2 py-3 disabled:opacity-60 transition"
+          >
+            취소
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

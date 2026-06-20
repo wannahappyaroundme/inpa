@@ -1140,3 +1140,174 @@ export async function adminListConsentLogs(
     true
   );
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// 증권 OCR 업로드 — multipart POST (auth required)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface OcrUploadResponse {
+  code: string;
+  parsing_method: string;
+  created_cases: number;
+  insurance: unknown;
+}
+
+/**
+ * POST /api/v1/customers/<customerId>/insurances/ocr/
+ * multipart/form-data: file=PDF
+ * 412 CONSENT_OVERSEAS_REQUIRED → 국외이전 동의 필요
+ */
+export async function uploadInsuranceOcr(
+  customerId: number,
+  file: File
+): Promise<OcrUploadResponse> {
+  const tok = tokenStore.get();
+  const headers: Record<string, string> = {};
+  if (tok) headers["Authorization"] = `Token ${tok}`;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(
+    `${API_BASE}/customers/${customerId}/insurances/ocr/`,
+    { method: "POST", headers, body: formData }
+  );
+
+  let data: Record<string, unknown> = {};
+  try {
+    data = await res.json();
+  } catch {
+    // empty body
+  }
+
+  if (!res.ok) {
+    const code =
+      (data["code"] as string) ??
+      (data["error"] as string) ??
+      String(res.status);
+    const detail =
+      (data["detail"] as string) ??
+      (data["message"] as string) ??
+      res.statusText;
+    throw new ApiError(res.status, code, detail);
+  }
+
+  return data as unknown as OcrUploadResponse;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 동의 로그 생성 — 국외이전 동의 (customers.ConsentLogViewSet)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface ConsentLogCreatePayload {
+  scope: string;
+  purpose?: string;
+  doc_version?: string;
+}
+
+export interface ConsentLogCreateResponse {
+  id: number;
+  scope: string;
+  agreed_at: string;
+}
+
+/**
+ * POST /api/v1/customers/<customerId>/consents/
+ * scope: 'overseas_medical' → Customer.consent_overseas_at 스냅샷 동기화
+ */
+export async function createConsentLog(
+  customerId: number,
+  payload: ConsentLogCreatePayload
+): Promise<ConsentLogCreateResponse> {
+  return request<ConsentLogCreateResponse>(
+    "POST",
+    `/customers/${customerId}/consents/`,
+    payload,
+    true
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 공유뷰 — 고객 공개 링크 (NoAuth, GET /api/v1/s/<token>/)
+// ════════════════════════════════════════════════════════════════════════════
+
+/** 공유뷰에서 노출되는 담보 항목 (사실만 — 판정 없음) */
+export interface ShareCoverage {
+  name: string;
+  amount: number | null;
+  amount_text: string;
+}
+
+/** 납입 현황 요약 */
+export interface SharePaymentSummary {
+  monthly_premiums: number | null;
+  paid_amount: number | null;
+  remaining_amount: number | null;
+  pay_progress: number | null; // 0~100
+  expiry_text: string | null;
+  product_name: string | null;
+}
+
+/** GET /api/v1/s/<token>/ 응답 전체 */
+export interface ShareViewResponse {
+  customer_name: string;
+  planner_name: string;
+  planner_contact: string | null;
+  payment_summary: SharePaymentSummary;
+  coverages: ShareCoverage[];
+  is_expired: boolean;
+}
+
+/**
+ * GET /api/v1/s/<token>/
+ * 인증 불필요 — 고객이 공유 링크로 접근.
+ * BE가 share_view 이벤트를 적재(별도 호출 불필요).
+ * 만료/존재 없음 → 404
+ */
+export async function getShareView(token: string): Promise<ShareViewResponse> {
+  const res = await fetch(`${API_BASE}/s/${token}/`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+  });
+
+  let data: Record<string, unknown> = {};
+  try {
+    data = await res.json();
+  } catch {
+    // empty body
+  }
+
+  if (!res.ok) {
+    const code =
+      (data["code"] as string) ??
+      (data["error"] as string) ??
+      String(res.status);
+    const detail =
+      (data["detail"] as string) ??
+      (data["message"] as string) ??
+      res.statusText;
+    throw new ApiError(res.status, code, detail);
+  }
+
+  return data as unknown as ShareViewResponse;
+}
+
+/** 공유뷰 이벤트 종류 */
+export type ShareEventType = "clipboard_copy" | "cta_click" | "share_view";
+
+/**
+ * POST /api/v1/s/<token>/event/
+ * 인증 불필요. 클립보드 복사 등 이벤트 적재.
+ */
+export async function postShareEvent(
+  token: string,
+  event_type: ShareEventType
+): Promise<void> {
+  await fetch(`${API_BASE}/s/${token}/event/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event_type }),
+  });
+  // 이벤트 적재 실패는 무시 (non-critical)
+}

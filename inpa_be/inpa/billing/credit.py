@@ -113,3 +113,42 @@ def _get_free_plan():
             'billing.Plan(code="free") 시드 데이터가 없습니다. '
             'python manage.py loaddata billing_initial_data 를 실행하세요.'
         )
+
+
+def log_claude_usage(action: str, model: str, usage) -> None:
+    """Claude 호출 후 usage 를 ClaudeApiLog 에 1건 기록 (관리자 전용 비용 로깅).
+
+    Anthropic SDK message.usage 객체(또는 dict)를 받아 토큰 필드를 안전 추출한다.
+    로깅 실패가 본 기능(OCR/비교/메시지)을 깨뜨리지 않도록 모든 예외를 격리한다.
+
+    Args:
+        action: 'ocr_parse' | 'compare_guide' | 'message_gen' 등.
+        model:  실제 호출된 모델 ID (settings 정본).
+        usage:  message.usage (input_tokens/output_tokens/
+                cache_read_input_tokens/cache_creation_input_tokens).
+    """
+    try:
+        from .models import ClaudeApiLog  # 순환 import 방지
+
+        def _g(name):
+            if usage is None:
+                return 0
+            if isinstance(usage, dict):
+                val = usage.get(name, 0)
+            else:
+                val = getattr(usage, name, 0)
+            # 실제 usage 는 int. mock/None/비숫자는 0 으로 안전 처리.
+            if not isinstance(val, (int, float)):
+                return 0
+            return int(val)
+
+        ClaudeApiLog.objects.create(
+            action=action,
+            model=model,
+            input_tokens=_g('input_tokens'),
+            output_tokens=_g('output_tokens'),
+            cache_read_input_tokens=_g('cache_read_input_tokens'),
+            cache_creation_input_tokens=_g('cache_creation_input_tokens'),
+        )
+    except Exception as exc:  # 로깅 실패는 본 기능을 막지 않는다
+        print(f'[billing] log_claude_usage failed: {exc}')
