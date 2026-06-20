@@ -393,6 +393,102 @@ export async function getHeatmap(customerId: number): Promise<HeatmapResponse> {
   return request<HeatmapResponse>("GET", `/customers/${customerId}/heatmap/`, undefined, true);
 }
 
+// ─── 설계사 기준선 (PlannerBaseline) ─────────────────────────────────────────
+// ★ 준법 통제점 (dev/10): baseline_source 가 null 이면 분석은 neutral 강제.
+//   기준을 설정하면(source='planner') 부족/적정/넉넉 판정 권위·최종책임은 설계사.
+// BE 계약: customers/urls.py → router.register('planner-baselines', ...)
+//   → /api/v1/planner-baselines/  (ModelViewSet, IsOwner)
+// 필드 출처: customers/serializers.py PlannerBaselineSerializer + models.py PlannerBaseline.
+
+/** 상품군 (PlannerBaseline.PRODUCT_GROUP_CHOICES) */
+export type ProductGroup = 1 | 2 | 3 | 4; // 1=생명 2=손해 3=실손 4=연금저축
+
+/** 성별 (PlannerBaseline.GENDER_TYPE) — null=성별 무관 공통 밴드 */
+export type BaselineGender = 1 | 2 | null; // 1=남 2=여
+
+/** 금액 단위 (PlannerBaseline.unit) */
+export type BaselineUnit = 1 | 2 | 3; // 1=만원 2=원 3=구좌
+
+/**
+ * 기준선 1행. DRF DecimalField 는 JSON 직렬화 시 문자열로 내려온다
+ * (recommend_min/max). null 가능.
+ * baseline_source: 'planner'(직접) | 'preset:<id>'(프리셋 채택) | null(미설정→neutral).
+ */
+export interface PlannerBaseline {
+  id: number;
+  coverage_key: string;
+  product_group: ProductGroup;
+  age_band: string; // '20s'|'30s'|'40s'|'50s'|'60s+'
+  gender: BaselineGender;
+  recommend_min: string | null;
+  recommend_max: string | null;
+  unit: BaselineUnit;
+  baseline_source: string | null;
+  preset_origin: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 생성/수정 payload — read_only(id/created_at/updated_at) 제외 */
+export interface PlannerBaselineWritePayload {
+  coverage_key: string;
+  product_group: ProductGroup;
+  age_band: string;
+  gender?: BaselineGender;
+  recommend_min?: string | number | null;
+  recommend_max?: string | number | null;
+  unit?: BaselineUnit;
+  baseline_source?: string | null;
+  preset_origin?: string | null;
+  is_active?: boolean;
+}
+
+/** GET /api/v1/planner-baselines/?product_group=&age_band=&gender= — {count, next, previous, results} */
+export async function listBaselines(
+  params: {
+    page?: number;
+    product_group?: ProductGroup;
+    age_band?: string;
+    gender?: BaselineGender;
+  } = {}
+): Promise<PaginatedResult<PlannerBaseline>> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set("page", String(params.page));
+  if (params.product_group) qs.set("product_group", String(params.product_group));
+  if (params.age_band) qs.set("age_band", params.age_band);
+  if (params.gender !== undefined && params.gender !== null) {
+    qs.set("gender", String(params.gender));
+  }
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return request<PaginatedResult<PlannerBaseline>>(
+    "GET",
+    `/planner-baselines/${query}`,
+    undefined,
+    true
+  );
+}
+
+/** POST /api/v1/planner-baselines/ — 직접 입력은 baseline_source='planner' 로 보냄 */
+export async function createBaseline(
+  payload: PlannerBaselineWritePayload
+): Promise<PlannerBaseline> {
+  return request<PlannerBaseline>("POST", "/planner-baselines/", payload, true);
+}
+
+/** PATCH /api/v1/planner-baselines/{id}/ */
+export async function updateBaseline(
+  id: number,
+  payload: Partial<PlannerBaselineWritePayload>
+): Promise<PlannerBaseline> {
+  return request<PlannerBaseline>("PATCH", `/planner-baselines/${id}/`, payload, true);
+}
+
+/** DELETE /api/v1/planner-baselines/{id}/ — 204 No Content → void */
+export async function deleteBaseline(id: number): Promise<void> {
+  return requestVoid("DELETE", `/planner-baselines/${id}/`);
+}
+
 // ─── DELETE helper (204 No Content → void) ─────────────────────────────────────
 
 async function requestVoid(method: string, path: string, auth = true): Promise<void> {

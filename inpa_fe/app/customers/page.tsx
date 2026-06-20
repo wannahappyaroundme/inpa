@@ -156,9 +156,9 @@ export default function CustomersPage() {
                 </div>
               </div>
 
-              {/* 분석 링크 */}
+              {/* 고객 상세(분석 탭) 링크 — 한 동선 IA */}
               <Link
-                href={`/analysis?customer=${c.id}`}
+                href={`/customer/${c.id}?tab=analysis`}
                 className="text-[12px] font-semibold text-brand shrink-0"
               >
                 분석 ›

@@ -20,6 +20,7 @@ export type NavKey =
   | "analysis"
   | "board"
   | "promotion"
+  | "settings"
   | "notifications"
   | "admin";
 
@@ -56,6 +57,7 @@ export function AppNav({ active }: { active?: NavKey }) {
     { key: "home", href: "/home", label: "대시보드" },
     { key: "customers", href: "/customers", label: "고객" },
     { key: "analysis", href: "/analysis", label: "분석" },
+    { key: "settings", href: "/settings/baseline", label: "기준" },
     { key: "board", href: "/board", label: "게시판" },
     { key: "promotion", href: "/promotion", label: "판촉물" },
   ];
