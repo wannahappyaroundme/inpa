@@ -10,6 +10,7 @@ mysqlclient==2.2.0
 
 # AI / OCR / 계산 (Phase 1.1 foliio vendoring 시 사용)
 anthropic
+pdfplumber==0.11.8       # 증권 PDF 텍스트 추출 (claude_parser 선행 — 운영 OCR 필수)
 numpy==1.24.4
 numpy-financial==1.0.0
 python-dateutil
