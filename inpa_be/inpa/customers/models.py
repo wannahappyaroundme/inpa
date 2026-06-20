@@ -56,6 +56,11 @@ class Customer(models.Model):
     # ── 공유/알림 계측 ─────────────────────────────────────────────
     share_sent_at = models.DateTimeField('공유 발송 시각', null=True, blank=True, default=None)
 
+    # ── 셀프진단 리드(발굴 입구) ───────────────────────────────────
+    # 잠재고객이 ?ref 셀프진단으로 유입돼 자동 생성된 리드. null = 설계사가 직접 등록한 고객.
+    lead_source = models.CharField('리드 출처', max_length=30, null=True, blank=True, default=None)
+    lead_created_at = models.DateTimeField('리드 생성 시각', null=True, blank=True, default=None)
+
     # ── 태그 (설계사 자유 분류) ────────────────────────────────────
     tags = models.ManyToManyField('CustomerTag', blank=True, related_name='customers')
 

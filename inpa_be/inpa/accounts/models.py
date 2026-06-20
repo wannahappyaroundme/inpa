@@ -41,6 +41,12 @@ class Profile(models.Model):
         (AGENT_LIFE, '생명'), (AGENT_NONLIFE, '손해'), (AGENT_BOTH, '교차'),
     ]
 
+    # 위촉 형태 (전속=원수사 / GA=대리점). 다사 비교안내서 노출 분기의 토대.
+    AFFILIATION_EXCLUSIVE, AFFILIATION_GA = 1, 2
+    AFFILIATION_TYPE_CHOICES = [
+        (AFFILIATION_EXCLUSIVE, '전속'), (AFFILIATION_GA, 'GA'),
+    ]
+
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                 related_name='profile')
 
@@ -73,6 +79,17 @@ class Profile(models.Model):
 
     # ── 북극성 귀속 ────────────────────────────────────────
     ref_code = models.CharField(max_length=20, unique=True, null=True, blank=True)
+
+    # ── Day-1 스키마 훅 (자리만 예약 — 사후 복원 불가 항목. 본체 기능은 후속) ──
+    # 전속/GA 분기(전속은 다사 비교 숨김·자사 업셀 모드). null=미신고.
+    affiliation_type = models.SmallIntegerField(null=True, blank=True, choices=AFFILIATION_TYPE_CHOICES)
+    # 지점장/매니저 — 동의 기반 코칭 뷰의 토대. SET_NULL+nullable이라 owner 격리 무손상.
+    manager = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                null=True, blank=True, related_name='managed_agents')
+    # 익명 코호트 벤치마크(기준선 권위·데이터 해자) 수집 동의. 기본 거부.
+    cohort_opt_in = models.BooleanField(default=False)
+    # 지점장(manager)에게 내 KPI 집계 공유 동의. 기본 거부 → 동의 없으면 지점 대시보드 미포함.
+    manager_share_opt_in = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'accounts_profile'

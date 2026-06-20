@@ -30,6 +30,10 @@ class NotifType(models.TextChoices):
     CONSULT_REMINDER = 'consult_reminder', '상담 약속'
     TASK_DUE = 'task_due', '할 일 마감'
     SHARE_UNREAD = 'share_unread', '미열람 공유'
+    # ── 환수 레이더(A/S) — /churn-radar/sync-alerts/ on-demand 생성(cron 아님). ──
+    UNPAID_D_ALERT = 'unpaid_d_alert', '미납 임박'
+    # ── 셀프진단 인바운드 리드(발굴 입구) — 잠재고객 진단 완료 시 설계사에게. ──
+    SELF_DIAGNOSIS_LEAD = 'self_diagnosis_lead', '셀프진단 리드'
     # ── 게시판 즉시 이벤트 (dev/02 §9.1 확정, ReminderRule 대상 아님) ──
     BOARD_COMMENT = 'board_comment', '게시글 댓글'
     BOARD_LIKE = 'board_like', '게시글 좋아요'

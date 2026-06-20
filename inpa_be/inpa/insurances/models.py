@@ -224,6 +224,14 @@ class CustomerInsurance(models.Model):
     refund_type = models.SmallIntegerField('환급타입', choices=REFUND_TYPE, default=1)
     percent_cancellation_refund = models.IntegerField('혜약 환급금 퍼센트', default=None, null=True, blank=True)
 
+    # ── 환수 레이더(A/S) — 수기입력 MVP. OCR 추출 불가 항목이라 설계사가 직접 입력. ──
+    # 정확한 환수액은 회사 전산 권위 → 화면·계산 모두 '추정' 라벨 강제. owner 전용.
+    PAYMENT_STATUS = ((1, '정상'), (2, '연체'), (3, '납입중단'))
+    current_payment_period = models.IntegerField('현재 납입회차', default=None, null=True, blank=True)
+    payment_status = models.SmallIntegerField('납입상태', choices=PAYMENT_STATUS, default=None, null=True, blank=True)
+    next_payment_date = models.DateField('다음 납입일', default=None, null=True, blank=True)
+    expected_recovery_amount = models.IntegerField('예상 환수액(추정)', default=None, null=True, blank=True)
+
     renewal_growth_rate = models.FloatField('갱신 증가율', default=None, null=True, blank=True)
     renewal_special_expiry_date = models.CharField('갱신특약 만기일 날짜', max_length=10, default=None, null=True, blank=True)
     renewal_special_expiry = models.IntegerField('갱신특약 만기일', default=None, null=True, blank=True)
