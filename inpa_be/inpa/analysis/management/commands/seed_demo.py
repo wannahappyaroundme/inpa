@@ -61,6 +61,9 @@ DEMO_PLANNER_PASSWORD = 'demoPass123!'        # 로그인 비번 (데모 전용)
 # 보유로 모든 고객이 graded 가 되므로, neutral 모드는 baseline 없는 별도 owner 로만 보일 수 있다).
 DEMO_NEUTRAL_PLANNER_EMAIL = 'demo-neutral@inpa.local'
 DEMO_NEUTRAL_PLANNER_PASSWORD = 'demoPass123!'
+# 지점장 데모 — 소속 설계사(demo·neutral)의 동의 KPI 집계를 보는 매니저.
+DEMO_MANAGER_EMAIL = 'demo-manager@inpa.local'
+DEMO_MANAGER_PASSWORD = 'demoPass123!'
 DEMO_CATALOG_TAG = '[DEMO]'                   # 카탈로그 계층 정리용 라벨 prefix
 DEMO_COMPANY_CODES = range(900, 910)          # NormalizationDict 데모 보험사 코드 대역
 
@@ -208,10 +211,13 @@ class Command(BaseCommand):
         samples = self._seed_promotion_samples()
         self._seed_promotion_orders(planner, samples)
         self._seed_billing(planner)
+        manager = self._seed_manager(planner, neutral_planner)  # 13) 지점장 + 동의 연결
+        self._seed_lead_and_alerts(planner, customers)          # 14) 셀프진단 리드 + 환수 알림
 
         self.stdout.write(self.style.SUCCESS('=== seed_demo 완료 ==='))
         self.stdout.write(f'  [메인] 로그인 이메일 : {DEMO_PLANNER_EMAIL}')
         self.stdout.write(f'  [메인] 로그인 비번   : {DEMO_PLANNER_PASSWORD}')
+        self.stdout.write(f'  [지점장] 로그인 이메일: {DEMO_MANAGER_EMAIL} / 비번 {DEMO_MANAGER_PASSWORD}')
         self.stdout.write(f'  [메인] 고객 id 목록  : {[c.id for c in customers]}')
         self.stdout.write(f'  graded 고객 id      : {graded_customer.id} '
                           f'(이름={graded_customer.name}, owner={planner.email})')
@@ -230,7 +236,8 @@ class Command(BaseCommand):
         """
         # 설계사 → CASCADE 로 고객/포트폴리오/baseline/태그/알림/주문 연쇄 삭제
         User.objects.filter(
-            email__in=[DEMO_PLANNER_EMAIL, DEMO_NEUTRAL_PLANNER_EMAIL]).delete()
+            email__in=[DEMO_PLANNER_EMAIL, DEMO_NEUTRAL_PLANNER_EMAIL,
+                       DEMO_MANAGER_EMAIL]).delete()
 
         # 정규화 사전(데모 보험사 코드 대역)
         NormalizationDict.objects.filter(company__in=list(DEMO_COMPANY_CODES)).delete()
@@ -334,6 +341,7 @@ class Command(BaseCommand):
             onboarding_completed_at=now,
             agent_type=Profile.AGENT_NONLIFE,             # 손해 설계사
             affiliation='[DEMO] 인파데모대리점',
+            affiliation_type=Profile.AFFILIATION_GA,      # GA(다사 비교 풀가동)
             license_self_declared=True,
         )
         self.stdout.write(f'  [4] 데모 설계사: {user.email} (is_active=True, email_verified)')
@@ -367,9 +375,13 @@ class Command(BaseCommand):
         calculate_total_analysis 가 표준 담보 leaf 에 assurance_amount 를 합산한다.
         """
         # 고객 idx 0(김영수): graded 대상. 사망/암/뇌/심장 담보 보유(부족·충분·과다 섞이게).
+        #   + 환수 레이더 시연: 연체·13회차 전·환수예상액 → 홈/환수레이더에 위험으로 표시.
         self._make_portfolio(
             customers[0], catalog_by_std_name, name='[DEMO]종합보장보험(보유)',
             contract_date='2018.04.01', expiry_date='2055.04.01',
+            churn={'period': 8, 'status': 2,  # 8회차, 연체 → pre_13 위험
+                   'next_date': timezone.now().date() - datetime.timedelta(days=3),
+                   'recovery': 1_200_000, 'refund': 200_000},
             coverages=[
                 # (표준담보명, 보장금액(원), 납입타입, 보장타입, 보장기간)
                 ('일반사망', 50_000_000, 1, 1, '100'),        # baseline 1억 → shortage 유도
@@ -377,6 +389,17 @@ class Command(BaseCommand):
                 ('뇌졸중진단비', 50_000_000, 1, 1, '100'),    # baseline ~3천 → over 유도
                 ('급성심근경색진단비', 20_000_000, 1, 1, '100'),
                 ('질병입원일당', 30_000, 1, 1, '100'),
+            ])
+        # 고객 idx 0 에 '제안' 포트폴리오(portfolio_type=2) → 갈아타기 verdict 시연(보장 개선·보험료↑).
+        self._make_portfolio(
+            customers[0], catalog_by_std_name, name='[DEMO]리모델링 제안',
+            contract_date='2026.01.01', expiry_date='2061.01.01',
+            portfolio_type=2, monthly=110000,
+            coverages=[
+                ('일반사망', 100_000_000, 1, 1, '100'),       # 5천만→1억(개선)
+                ('암진단비', 50_000_000, 1, 1, '100'),
+                ('뇌졸중진단비', 30_000_000, 1, 1, '100'),
+                ('급성심근경색진단비', 30_000_000, 1, 1, '100'),
             ])
         # 고객 idx 1(이지은): 보유 보험은 있으나 매칭되는 baseline 없음 →
         #   메인 설계사가 owner 스코프 baseline 보유라 mode 는 'graded' 이지만,
@@ -394,16 +417,24 @@ class Command(BaseCommand):
                           '(held_amount>0)')
 
     def _make_portfolio(self, customer, catalog_by_std_name, name,
-                        contract_date, expiry_date, coverages):
+                        contract_date, expiry_date, coverages,
+                        portfolio_type=1, monthly=80000, churn=None):
+        churn = churn or {}
         ci = CustomerInsurance.objects.create(
             customer=customer, insurance_type=2, name=name,
-            portfolio_type=1,                              # 1=보유(갈아타기 좌측)
+            portfolio_type=portfolio_type,                # 1=보유(좌측) / 2=제안(우측)
             payment_period_type=1, payment_period=20,
             warranty_period_type=1, warranty_period=100,
             contract_date=contract_date, expiry_date=expiry_date,
-            monthly_premiums=80000, monthly_assurance_premium=80000,
+            monthly_premiums=monthly, monthly_assurance_premium=monthly,
             insured_name=customer.name, contractor_name=customer.name,
-            is_same_insured=True)
+            is_same_insured=True,
+            # 환수 레이더(A/S) 수기 필드 — 데모용. 없으면 None.
+            current_payment_period=churn.get('period'),
+            payment_status=churn.get('status'),
+            next_payment_date=churn.get('next_date'),
+            expected_recovery_amount=churn.get('recovery'),
+            cancellation_refund=churn.get('refund'))
         for std_name, amount, pp_type, w_type, w_period in coverages:
             idet = catalog_by_std_name.get(std_name)
             if idet is None:
@@ -719,6 +750,48 @@ class Command(BaseCommand):
 
         unread = sum(1 for *_, is_read in notifs if not is_read)
         self.stdout.write(f'  [10] 알림: {created}개 생성 (미읽음 {unread}개)')
+
+    # ── 13) 지점장 + 동의 연결 ────────────────────────────────────────────
+    def _seed_manager(self, planner, neutral_planner):
+        """지점장 데모 — demo·neutral 설계사를 소속 + KPI 공유 동의 연결.
+
+        demo-manager@inpa.local 로 로그인하면 지점 KPI 대시보드(집계만) 시연 가능.
+        """
+        now = timezone.now()
+        manager = User.objects.create_user(
+            email=DEMO_MANAGER_EMAIL, password=DEMO_MANAGER_PASSWORD)
+        manager.is_active = True
+        manager.save(update_fields=['is_active'])
+        Profile.objects.create(
+            user=manager, email_verified_at=now, onboarding_completed_at=now,
+            agent_type=Profile.AGENT_BOTH, affiliation='[DEMO] 인파데모지점',
+            affiliation_type=Profile.AFFILIATION_GA, license_self_declared=True)
+        # 소속 설계사 연결 + KPI 공유 동의(매니저 대시보드에 노출되려면 동의 필수)
+        Profile.objects.filter(user__in=[planner, neutral_planner]).update(
+            manager=manager, manager_share_opt_in=True)
+        self.stdout.write(f'  [13] 지점장: {manager.email} (소속 설계사 2명 동의 연결)')
+        return manager
+
+    # ── 14) 셀프진단 리드 + 환수 알림 ─────────────────────────────────────
+    def _seed_lead_and_alerts(self, planner, customers):
+        """셀프진단으로 유입된 리드 1건 + 그 알림, 그리고 환수 위험 알림(고객 0)."""
+        now = timezone.now()
+        lead = Customer.objects.create(
+            owner=planner, name='[DEMO]셀프진단 잠재고객', birth_day='1992.07.07', gender=2,
+            mobile_phone_number='010-1234-5678', is_agree_term=True,
+            consent_overseas_at=now, lead_source='self_diagnosis', lead_created_at=now,
+            memo='[DEMO] 셀프진단 링크로 유입된 리드')
+        Notification.objects.create(
+            owner=planner, notif_type=NotifType.SELF_DIAGNOSIS_LEAD,
+            title='새 셀프진단 리드', customer=lead,
+            body='[DEMO] 잠재고객이 셀프진단을 완료했어요. CRM에서 확인하세요.')
+        # 환수 위험 알림(고객 0 = 연체) — 홈 sync 없이도 벨에 보이도록 시드.
+        Notification.objects.create(
+            owner=planner, notif_type=NotifType.UNPAID_D_ALERT,
+            title=f'{customers[0].name}님 환수 위험', customer=customers[0],
+            target_date=now.date(),
+            body='[DEMO] 종합보장보험 연체 · 납입일 경과. 환수(차지백) 전 확인하세요.')
+        self.stdout.write(f'  [14] 셀프진단 리드 1건 + 리드/환수 알림 2건 (lead id={lead.id})')
 
     # ── 11) 판촉물 샘플 + demo 주문 ────────────────────────────────────────
     def _seed_promotion_samples(self):
