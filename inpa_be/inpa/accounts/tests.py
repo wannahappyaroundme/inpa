@@ -75,3 +75,52 @@ class AuthFlowTests(TestCase):
         r = self.c.post('/api/v1/auth/password-reset/', {'email': self.reg['email']}, format='json')
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(mail.outbox), 2)  # 가입메일 + 재설정메일
+
+
+def _verified_planner(email):
+    from django.utils import timezone
+    user = User.objects.create_user(email=email, password='inpaPass123!')
+    user.is_active = True
+    user.save(update_fields=['is_active'])
+    Profile.objects.create(user=user, email_verified_at=timezone.now())
+    c = APIClient()
+    c.force_authenticate(user=user)
+    return user, c
+
+
+class ManagerDashboardTests(TestCase):
+    """지점장 대시보드 — 동의(manager_share_opt_in)한 소속 설계사만 집계, PII 비노출."""
+
+    def setUp(self):
+        self.manager, self.mc = _verified_planner('manager@test.com')
+        self.agent_yes, _ = _verified_planner('agent-yes@test.com')
+        self.agent_no, _ = _verified_planner('agent-no@test.com')
+        # 둘 다 매니저에 배정, 한 명만 공유 동의
+        Profile.objects.filter(user=self.agent_yes).update(
+            manager=self.manager, manager_share_opt_in=True)
+        Profile.objects.filter(user=self.agent_no).update(
+            manager=self.manager, manager_share_opt_in=False)
+
+    def test_only_consented_agent_included(self):
+        from inpa.customers.models import Customer
+        Customer.objects.create(owner=self.agent_yes, name='고객A', birth_day='1990.01.01', gender=1)
+        Customer.objects.create(owner=self.agent_no, name='고객B', birth_day='1990.01.01', gender=1)
+        body = self.mc.get('/api/v1/manager/dashboard/').json()
+        self.assertEqual(body['agent_count'], 1)  # 동의한 1명만
+        self.assertEqual(body['totals']['customer_count'], 1)
+        # 개별 고객 PII 미노출 — 집계 수치만
+        raw = str(body)
+        self.assertNotIn('고객A', raw)
+        self.assertNotIn('고객B', raw)
+
+    def test_non_manager_sees_empty(self):
+        _, lone = _verified_planner('lone@test.com')
+        body = lone.get('/api/v1/manager/dashboard/').json()
+        self.assertEqual(body['agent_count'], 0)
+        self.assertEqual(body['agents'], [])
+
+    def test_profile_exposes_mode_fields(self):
+        body = self.mc.get('/api/v1/auth/profile/').json()
+        for k in ('affiliation_type', 'manager_share_opt_in', 'managed_agents_count', 'manager_email'):
+            self.assertIn(k, body)
+        self.assertEqual(body['managed_agents_count'], 2)  # 배정 총원(동의 무관)

@@ -27,6 +27,16 @@ from .tokens import (
 )
 
 
+# ── 지점장 연결 헬퍼 (이메일 → User). 본인 지정/없는 이메일은 무시(미연결). ──
+def _link_manager(profile, manager_email):
+    if not manager_email:
+        return
+    mgr = User.objects.filter(email=manager_email).first()
+    if mgr and mgr != profile.user:
+        profile.manager = mgr
+        profile.save(update_fields=['manager'])
+
+
 # ── 이메일 발송 헬퍼 (로컬=콘솔, 운영=Resend SMTP) ────────────────
 def _send_verify_email(user):
     token = make_email_verify_token(user)
@@ -212,7 +222,9 @@ class ProfileView(APIView):
         serializer = ProfileSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(serializer.data)
+        # 지점장 연결(이메일→User). 본인 지정 금지. 없는 이메일은 조용히 무시(미연결).
+        _link_manager(profile, request.data.get('manager_email'))
+        return Response(ProfileSerializer(profile).data)
 
 
 class WithdrawView(APIView):
@@ -240,9 +252,12 @@ class OnboardingAttestView(APIView):
             profile.affiliation = data['affiliation'] or None
         if 'agent_type' in data:
             profile.agent_type = data['agent_type']
+        if data.get('affiliation_type'):
+            profile.affiliation_type = data['affiliation_type']
         if 'career_years' in data:
             profile.career_years = data['career_years']
         profile.license_self_declared = data.get('license_self_declared', profile.license_self_declared)
         profile.onboarding_completed_at = timezone.now()
         profile.save()
+        _link_manager(profile, data.get('manager_email'))
         return Response(ProfileSerializer(profile).data)

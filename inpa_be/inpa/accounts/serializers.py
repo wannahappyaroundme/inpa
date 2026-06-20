@@ -47,14 +47,25 @@ class RegisterSerializer(serializers.Serializer):
 
 class ProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source='user.email', read_only=True)
+    managed_agents_count = serializers.SerializerMethodField()
+    manager_email = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
-        fields = ('email', 'affiliation', 'agent_type', 'license_self_declared', 'license_no',
-                  'career_years', 'onboarding_completed_at', 'marketing_agreed_at', 'ref_code',
+        fields = ('email', 'affiliation', 'agent_type', 'affiliation_type',
+                  'cohort_opt_in', 'manager_share_opt_in', 'manager_email', 'managed_agents_count',
+                  'license_self_declared', 'license_no', 'career_years',
+                  'onboarding_completed_at', 'marketing_agreed_at', 'ref_code',
                   'email_verified_at', 'is_admin', 'is_dormant')
         read_only_fields = ('email', 'onboarding_completed_at', 'ref_code', 'email_verified_at',
-                            'is_admin', 'is_dormant')
+                            'is_admin', 'is_dormant', 'manager_email', 'managed_agents_count')
+
+    def get_managed_agents_count(self, obj):
+        # 이 사용자(매니저)에게 배정된 소속 설계사 수(메뉴 노출 게이트용 — 동의 여부 무관 총원).
+        return obj.user.managed_agents.count()
+
+    def get_manager_email(self, obj):
+        return obj.manager.email if obj.manager_id else None
 
 
 class LoginSerializer(serializers.Serializer):
@@ -88,5 +99,7 @@ class PasswordChangeSerializer(serializers.Serializer):
 class OnboardingAttestSerializer(serializers.Serializer):
     affiliation = serializers.CharField(required=False, allow_blank=True)
     agent_type = serializers.IntegerField(required=False, allow_null=True)
+    affiliation_type = serializers.IntegerField(required=False, allow_null=True)  # 1=전속 2=GA
+    manager_email = serializers.EmailField(required=False, allow_blank=True)
     license_self_declared = serializers.BooleanField(required=False, default=False)
     career_years = serializers.IntegerField(required=False, allow_null=True)
