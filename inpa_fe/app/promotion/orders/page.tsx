@@ -70,8 +70,21 @@ export default function MyOrdersPage() {
 
         {/* 에러 */}
         {error && (
-          <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
-            {error}
+          <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                listMyOrders()
+                  .then((res) => setOrders(res.results))
+                  .catch(() => setError("주문 목록을 불러오지 못했어요. 잠시 후 다시 시도하세요."))
+                  .finally(() => setLoading(false));
+              }}
+              className="ml-3 font-semibold underline shrink-0"
+            >
+              재시도
+            </button>
           </div>
         )}
 

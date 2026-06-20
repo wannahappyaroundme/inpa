@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const NAV = [
   { href: "/admin",              label: "대시보드",       icon: "📊" },
@@ -18,6 +18,7 @@ const NAV = [
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <div className="min-h-dvh flex">
@@ -66,7 +67,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <span className="text-[15px] font-extrabold text-brand-ink flex-1">인파 Admin</span>
           <select
             className="text-[13px] border border-line rounded-lg px-2 py-1.5 bg-surface text-ink"
-            onChange={(e) => { window.location.href = e.target.value; }}
+            onChange={(e) => router.push(e.target.value)}
             value={NAV.find((n) =>
               n.href === "/admin" ? pathname === "/admin" : pathname.startsWith(n.href)
             )?.href ?? "/admin"}

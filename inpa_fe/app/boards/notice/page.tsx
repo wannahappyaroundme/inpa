@@ -46,7 +46,9 @@ export default function NoticePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function load() {
+    setLoading(true);
+    setError(null);
     listNotices()
       .then((list) => {
         // 발행된 것만 표시, 핀 고정 먼저
@@ -59,7 +61,10 @@ export default function NoticePage() {
       })
       .catch(() => setError("공지사항을 불러오지 못했어요. 잠시 후 다시 시도하세요."))
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, []);
 
   return (
     <div className="min-h-dvh">
@@ -73,8 +78,9 @@ export default function NoticePage() {
         )}
 
         {error && (
-          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
-            {error}
+          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={load} className="ml-3 font-semibold underline shrink-0">재시도</button>
           </div>
         )}
 

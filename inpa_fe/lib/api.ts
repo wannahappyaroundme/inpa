@@ -1405,6 +1405,96 @@ export async function getShareView(token: string): Promise<ShareViewResponse> {
   return data as unknown as ShareViewResponse;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 갈아타기(비교) — GET/POST /api/v1/customers/<id>/compare/
+// 정직성 레드라인:
+//  - publishable 은 BE 권위. FE 는 절대 true 로 위조하지 않는다.
+//  - guide_enabled=false 면 guide_draft 를 표시하지 않는다(가짜 데이터 금지).
+//  - disclaimer 는 응답 값 그대로 노출(면책 생략 불가).
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface CompareRow {
+  coverage: string;
+  current_amount: number | null;
+  proposed_amount: number | null;
+  delta: number | null;
+}
+
+export interface CompareSide {
+  monthly_premiums: number | null;
+  total_premiums: number | null;
+}
+
+export interface CompareResponse {
+  mode: "neutral" | "graded";
+  current: CompareSide;
+  proposed: CompareSide;
+  rows: CompareRow[];
+  guide_draft: string | null;
+  guide_enabled: boolean;
+  /** 항상 false — BE 권위. FE 절대 override 불가 */
+  publishable: false;
+  publish_blocked_reason: string;
+  disclaimer: string;
+}
+
+/** GET /api/v1/customers/<id>/compare/ */
+export async function compareCustomer(id: number): Promise<CompareResponse> {
+  return request<CompareResponse>("GET", `/customers/${id}/compare/`, undefined, true);
+}
+
+/** POST /api/v1/customers/<id>/compare/ — 발행 요청(publishable=false 라 항상 차단됨) */
+export async function publishCompare(id: number): Promise<CompareResponse> {
+  return request<CompareResponse>("POST", `/customers/${id}/compare/`, undefined, true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 고객 이력 — GET /api/v1/customers/<id>/history/
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface HistoryEvent {
+  type: string;
+  label: string;
+  at: string; // ISO 8601
+  meta: Record<string, unknown>;
+}
+
+export interface CustomerHistoryResponse {
+  events: HistoryEvent[];
+}
+
+/** GET /api/v1/customers/<id>/history/ */
+export async function getCustomerHistory(id: number): Promise<CustomerHistoryResponse> {
+  return request<CustomerHistoryResponse>("GET", `/customers/${id}/history/`, undefined, true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 기준선 프리셋 적용 — POST /api/v1/planner-baselines/apply-preset/
+// 준법 통제: preset_origin='v0_starter' 는 출처 미확정 → 경고 모달 확인 후만 적용
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface ApplyPresetPayload {
+  product_group: number;
+}
+
+export interface ApplyPresetResponse {
+  created: number;
+  preset_origin: "v0_starter";
+  note: string;
+}
+
+/** POST /api/v1/planner-baselines/apply-preset/ */
+export async function applyBaselinePreset(
+  product_group: number
+): Promise<ApplyPresetResponse> {
+  return request<ApplyPresetResponse>(
+    "POST",
+    "/planner-baselines/apply-preset/",
+    { product_group } satisfies ApplyPresetPayload,
+    true
+  );
+}
+
 /** 공유뷰 이벤트 종류 */
 export type ShareEventType = "clipboard_copy" | "cta_click" | "share_view";
 

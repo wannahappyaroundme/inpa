@@ -6,7 +6,9 @@
   (c) owner 격리 — 설계사 A가 B 고객의 heatmap에 접근하면 404.
 + graded 모드(살아있는 baseline 있을 때 shortage/adequate/over 판정) 보강.
 """
-from django.test import TestCase
+from unittest import mock
+
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -250,4 +252,179 @@ class HeatmapOwnerIsolationTests(TestCase):
     def test_unauthenticated_blocked(self):
         c = APIClient()
         r = c.get(f'/api/v1/customers/{self.cust_b.id}/heatmap/')
+        self.assertEqual(r.status_code, 401)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 갈아타기(승환) 비교 — 보유(portfolio_type=1) vs 제안(portfolio_type=2)
+# ★ 준법 게이트: AI 비활성 시 guide null / 발행 403 하드블록 / owner 격리.
+# ──────────────────────────────────────────────────────────────────────
+def _make_portfolio_typed(customer, catalog_detail, assurance_amount,
+                          portfolio_type, monthly=50000):
+    """portfolio_type 지정 포트폴리오 1건 + 담보 케이스 1건(비갱신)."""
+    ci = CustomerInsurance.objects.create(
+        customer=customer, insurance_type=2, name='비교보험',
+        portfolio_type=portfolio_type, payment_period_type=1, payment_period=20,
+        monthly_premiums=monthly, monthly_assurance_premium=monthly,
+    )
+    CustomerInsuranceDetail.objects.create(
+        insurance=ci, detail=catalog_detail,
+        assurance_amount=assurance_amount, premium=10000,
+        payment_period_type=1, payment_period=20,
+        warranty_period_type=1, warranty_period='100',
+    )
+    ci.set_renewal_month()
+    ci.calculate()
+    ci.save()
+    return ci
+
+
+class CompareFactsTests(TestCase):
+    """비교표(사실)는 ★AI 없이 지금 완전 동작 — 보유/제안 담보별 금액 + delta + summary."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('compare-facts@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='비교고객', birth_day='1990.01.01', gender=1)
+        self.det = _build_std_tree()  # 표준 담보 '사망보장'
+        self.idet = _catalog_detail_linked_to(self.det)
+
+    def _get(self):
+        return self.client.get(f'/api/v1/customers/{self.customer.id}/compare/')
+
+    def test_rows_and_delta_pure_data(self):
+        """보유 5천만 vs 제안 1억 → row delta=+5천만, AI 비활성이어도 동작."""
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1,
+                              monthly=40000)
+        _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2,
+                              monthly=60000)
+        r = self._get()
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        row = next(x for x in body['rows'] if x['coverage'] == '사망보장')
+        self.assertEqual(row['current_amount'], 50000000)
+        self.assertEqual(row['proposed_amount'], 100000000)
+        self.assertEqual(row['delta'], 50000000)
+        # summary 사실 집계
+        self.assertEqual(body['current']['monthly_premiums'], 40000)
+        self.assertEqual(body['proposed']['monthly_premiums'], 60000)
+
+    def test_summary_null_when_side_empty(self):
+        """제안 보험이 0건이면 proposed.monthly_premiums=null (미보유 구분)."""
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1)
+        r = self._get()
+        body = r.json()
+        self.assertIsNone(body['proposed']['monthly_premiums'])
+        self.assertIsNone(body['proposed']['total_premiums'])
+        # 보유 한쪽만 있는 담보 → proposed_amount null, delta null
+        row = next(x for x in body['rows'] if x['coverage'] == '사망보장')
+        self.assertEqual(row['current_amount'], 50000000)
+        self.assertIsNone(row['proposed_amount'])
+        self.assertIsNone(row['delta'])
+
+    def test_contract_shape_and_disclaimer(self):
+        """계약 키 전부 존재 + publishable 항상 false + 면책 고정."""
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1)
+        body = self._get().json()
+        for key in ('mode', 'current', 'proposed', 'rows', 'guide_draft',
+                    'guide_enabled', 'publishable', 'publish_blocked_reason',
+                    'disclaimer'):
+            self.assertIn(key, body)
+        self.assertFalse(body['publishable'])
+        self.assertEqual(body['publish_blocked_reason'], '§97 법무 확정 전 발행 금지')
+        self.assertIn('AI', body['disclaimer'])
+
+    @override_settings(COMPARE_AI_ENABLED=False)
+    def test_ai_disabled_guide_null(self):
+        """★ COMPARE_AI_ENABLED=False → guide_draft=null, guide_enabled=false."""
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1)
+        _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2)
+        body = self._get().json()
+        self.assertIsNone(body['guide_draft'])
+        self.assertFalse(body['guide_enabled'])
+
+
+class CompareAiGateTests(TestCase):
+    """AI 비교안내서 초안 — COMPARE_AI_ENABLED=True 일 때만 생성(Claude mock)."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('compare-ai@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='AI고객', birth_day='1990.01.01', gender=1)
+        self.det = _build_std_tree()
+        self.idet = _catalog_detail_linked_to(self.det)
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1)
+        _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2)
+
+    @override_settings(COMPARE_AI_ENABLED=True)
+    @mock.patch('inpa.analysis.compare._generate_guide_draft')
+    def test_ai_enabled_returns_guide(self, mock_gen):
+        """게이트 ON + Claude 성공(mock) → guide_draft 채워지고 guide_enabled=true."""
+        mock_gen.return_value = ('§97 6요건 초안 본문', {'input_tokens': 10,
+                                                       'output_tokens': 20})
+        body = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/compare/').json()
+        self.assertEqual(body['guide_draft'], '§97 6요건 초안 본문')
+        self.assertTrue(body['guide_enabled'])
+        mock_gen.assert_called_once()
+
+    @override_settings(COMPARE_AI_ENABLED=True)
+    @mock.patch('inpa.analysis.compare._generate_guide_draft')
+    def test_ai_enabled_but_claude_fails_guide_null(self, mock_gen):
+        """게이트 ON 이어도 Claude 실패(None) → guide null (비교표는 그대로 동작)."""
+        mock_gen.return_value = (None, None)
+        body = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/compare/').json()
+        self.assertIsNone(body['guide_draft'])
+        self.assertFalse(body['guide_enabled'])
+        # 비교표(사실)는 여전히 존재
+        self.assertTrue(any(x['coverage'] == '사망보장' for x in body['rows']))
+
+
+class ComparePublishHardblockTests(TestCase):
+    """★ 발행 하드블록 — COMPARE_PUBLISH_ENABLED=False → 403, publishable 항상 false."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('compare-pub@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='발행고객', birth_day='1990.01.01')
+
+    @override_settings(COMPARE_PUBLISH_ENABLED=False)
+    def test_publish_blocked_403(self):
+        r = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/publish/')
+        self.assertEqual(r.status_code, 403)
+        body = r.json()
+        self.assertFalse(body['publishable'])
+        self.assertEqual(body['publish_blocked_reason'], '§97 법무 확정 전 발행 금지')
+
+
+class CompareOwnerIsolationTests(TestCase):
+    """★ owner 격리 — A는 B 고객의 compare/publish 에 접근 불가(404)."""
+
+    def setUp(self):
+        self.user_a, self.client_a = _make_planner('a@compare.com')
+        self.user_b, self.client_b = _make_planner('b@compare.com')
+        self.cust_b = Customer.objects.create(
+            owner=self.user_b, name='B고객', birth_day='1988.08.08')
+        det = _build_std_tree()
+        idet = _catalog_detail_linked_to(det)
+        _make_portfolio_typed(self.cust_b, idet, 70000000, portfolio_type=1)
+
+    def test_a_cannot_get_b_compare(self):
+        r = self.client_a.get(f'/api/v1/customers/{self.cust_b.id}/compare/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_a_cannot_publish_b_compare(self):
+        r = self.client_a.post(
+            f'/api/v1/customers/{self.cust_b.id}/compare/publish/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_owner_can_get_own_compare(self):
+        r = self.client_b.get(f'/api/v1/customers/{self.cust_b.id}/compare/')
+        self.assertEqual(r.status_code, 200)
+
+    def test_unauthenticated_blocked(self):
+        c = APIClient()
+        r = c.get(f'/api/v1/customers/{self.cust_b.id}/compare/')
         self.assertEqual(r.status_code, 401)

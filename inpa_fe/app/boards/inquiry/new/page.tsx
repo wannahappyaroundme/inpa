@@ -56,7 +56,7 @@ export default function InquiryNewPage() {
 
   return (
     <div className="min-h-dvh">
-      <AppNav />
+      <AppNav active="board" />
       <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6">
         <div className="flex items-center justify-between mb-5">
           <button onClick={() => router.back()} className="text-[13px] text-ink3 flex items-center gap-1 hover:text-ink transition">

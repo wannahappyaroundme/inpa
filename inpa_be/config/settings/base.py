@@ -155,3 +155,12 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # True(베타) = 한도 체크 전부 우회(무차감). 정식 출시 시 False 로 flip.
 # 환경변수 FREE_TIER_UNLIMITED=true/false 로 런타임 제어.
 FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
+
+# ── 갈아타기(승환) 비교 게이트 (dev/09 중개금지 · dev/02 §16 · §97) ──────
+# ★ 컴플라이언스 게이트 — 우회 금지. 둘 다 기본 False (보수적 기본값).
+#   COMPARE_AI_ENABLED=True 여야만 AI 비교안내서 초안 생성(check_and_consume+Claude).
+#     False면 비교표(순수 데이터)는 동작하되 guide_draft=null·guide_enabled=false.
+#   COMPARE_PUBLISH_ENABLED=False 이면 고객 발송(publish)을 403 으로 하드블록한다.
+#     §97(부당승환) 법무 확정 전까지 비교안내서 발행 금지 — 정식 출시 전 재검토.
+COMPARE_AI_ENABLED = env.bool('COMPARE_AI_ENABLED', default=False)
+COMPARE_PUBLISH_ENABLED = env.bool('COMPARE_PUBLISH_ENABLED', default=False)

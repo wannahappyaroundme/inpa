@@ -58,7 +58,7 @@ export default function InquiryDetailPage() {
   if (loading) {
     return (
       <div className="min-h-dvh">
-        <AppNav />
+        <AppNav active="board" />
         <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
           <div className="py-12 text-center text-[14px] text-ink3">불러오는 중...</div>
         </main>
@@ -69,7 +69,7 @@ export default function InquiryDetailPage() {
   if (error || !inquiry) {
     return (
       <div className="min-h-dvh">
-        <AppNav />
+        <AppNav active="board" />
         <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
           <button onClick={() => router.back()} className="text-[13px] text-ink3 mb-4">‹ 뒤로</button>
           <div className="py-12 text-center">
@@ -85,7 +85,7 @@ export default function InquiryDetailPage() {
 
   return (
     <div className="min-h-dvh">
-      <AppNav />
+      <AppNav active="board" />
       <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
         <button onClick={() => router.back()} className="text-[13px] text-ink3 flex items-center gap-1 hover:text-ink transition mb-5">
           ‹ 내 문의 목록

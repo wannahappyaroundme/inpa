@@ -78,8 +78,20 @@ export default function AdminDashboardPage() {
       <h1 className="text-[22px] font-extrabold text-ink mb-6">대시보드</h1>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
-          {error}
+        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between">
+          <span>{error}</span>
+          <button
+            onClick={() => {
+              setLoading(true);
+              adminGetStats()
+                .then((s) => { setStats(s); setError(null); })
+                .catch(() => setError("통계를 불러오지 못했어요."))
+                .finally(() => setLoading(false));
+            }}
+            className="ml-3 font-semibold underline shrink-0"
+          >
+            재시도
+          </button>
         </div>
       )}
 

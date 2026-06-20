@@ -35,10 +35,14 @@ import {
 import {
   getCustomer,
   getHeatmap,
+  compareCustomer,
+  getCustomerHistory,
   ApiError,
   type CustomerDetail,
   type HeatmapResponse,
   type HeatmapDetail,
+  type CompareResponse,
+  type HistoryEvent,
 } from "@/lib/api";
 
 type TabKey = "analysis" | "switch" | "gap" | "history";
@@ -268,7 +272,7 @@ function CustomerDetailInner() {
                   ocr={ocr}
                 />
               )}
-              {activeTab === "switch" && <SwitchTab />}
+              {activeTab === "switch" && <SwitchTab customerId={customerId} />}
               {activeTab === "gap" && (
                 <GapTab
                   heatmap={heatmap}
@@ -277,7 +281,7 @@ function CustomerDetailInner() {
                   onRetry={() => fetchHeatmap(customerId)}
                 />
               )}
-              {activeTab === "history" && <HistoryTab />}
+              {activeTab === "history" && <HistoryTab customerId={customerId} />}
             </div>
           </>
         )}
@@ -477,29 +481,213 @@ function AnalysisTab({
   );
 }
 
-// ── 갈아타기 탭 ── §97 컴플라이언스 게이트 placeholder (가짜 데이터 금지) ────
-function SwitchTab() {
+// ── 갈아타기 탭 ── compareCustomer 실연결. 정직성 레드라인 전면 적용 ──────────
+function SwitchTab({ customerId }: { customerId: number }) {
+  const [data, setData] = useState<CompareResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [publishTooltip, setPublishTooltip] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    compareCustomer(customerId)
+      .then((d) => setData(d))
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : "비교 데이터를 불러오지 못했어요.");
+      })
+      .finally(() => setLoading(false));
+  }, [customerId]);
+
+  // 발행 버튼 — publishable=false 이므로 항상 disabled
+  async function handlePublish() {
+    if (!data || data.publishable !== false) return;
+    setPublishing(false); // 절대 실행 안 됨 — 타입 명시 목적
+    void publishing; // lint 억제
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-12 rounded-xl bg-line animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
+        <p className="text-[14px] text-ink3">{error ?? "데이터 없음"}</p>
+        <button
+          onClick={() => {
+            setLoading(true);
+            setError(null);
+            compareCustomer(customerId)
+              .then((d) => setData(d))
+              .catch((e: unknown) => setError(e instanceof Error ? e.message : "오류"))
+              .finally(() => setLoading(false));
+          }}
+          className="mt-3 text-[13px] font-semibold text-brand"
+        >
+          다시 시도
+        </button>
+      </div>
+    );
+  }
+
+  // 보험료 포맷
+  function fmtPrem(v: number | null) {
+    if (v === null) return "—";
+    return new Intl.NumberFormat("ko-KR").format(v) + "원";
+  }
+  function fmtDelta(d: number | null) {
+    if (d === null) return "—";
+    const sign = d > 0 ? "+" : "";
+    return sign + new Intl.NumberFormat("ko-KR").format(d);
+  }
+
   return (
-    <div className="rounded-2xl border border-dashed border-line bg-surface2 px-5 py-10 text-center">
-      <span className="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-3 py-1 text-[12px] font-bold text-amber-700">
-        준비 중 · 컴플라이언스 게이트
-      </span>
-      <h3 className="mt-4 text-[16px] font-bold text-ink">
-        갈아타기 비교안내서
-      </h3>
-      <p className="mx-auto mt-2 max-w-md text-[13px] leading-6 text-ink2">
-        갈아타기(승환) 비교안내서는 <b className="text-ink">보험업법 §97 부당승환</b>{" "}
-        관련 법적 요건이 확정되어야 제공할 수 있어요. 현재 비교안내 기능은
-        <b className="text-ink"> 법무 게이트 + 백엔드 미구현</b> 상태라 화면을 열지 않습니다.
-      </p>
-      <ul className="mx-auto mt-4 max-w-md space-y-1.5 text-left text-[12px] text-ink3 leading-5">
-        <li>· 게이트 사유 ①: §97 비교안내 법적 요건(필수 고지·불리점 표기) 미확정</li>
-        <li>· 게이트 사유 ②: 비교 산출 백엔드(compare API) 미구현</li>
-        <li>· 우회 금지: 가짜·예시 비교 데이터로 화면을 채우지 않습니다(정직성 레드라인)</li>
-      </ul>
-      <p className="mx-auto mt-4 max-w-md text-[11px] text-muted leading-5">
-        제공 시에도 결과물은 AI 초안이며, 비교안내의 최종 확인·책임은 설계사에게 있습니다.
-      </p>
+    <div>
+      {/* AI 초안 면책 — 항상 노출, 접기 불가 */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4">
+        <p className="text-[12px] leading-5 text-amber-800">
+          <b className="font-semibold">AI 초안 · 최종 확인 및 책임은 설계사에게 있습니다.</b>
+          {" "}{data.disclaimer}
+        </p>
+      </div>
+
+      {/* 보험료 요약 */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="rounded-xl border border-line bg-surface2 px-4 py-3">
+          <div className="text-[11px] font-semibold text-ink3">현재 월 보험료</div>
+          <div className="mt-1 text-[16px] font-bold text-ink tnum">
+            {fmtPrem(data.current.monthly_premiums)}
+          </div>
+          <div className="mt-0.5 text-[11px] text-ink3 tnum">
+            총납 {fmtPrem(data.current.total_premiums)}
+          </div>
+        </div>
+        <div className="rounded-xl border border-line bg-surface2 px-4 py-3">
+          <div className="text-[11px] font-semibold text-ink3">제안 월 보험료</div>
+          <div className="mt-1 text-[16px] font-bold text-ink tnum">
+            {fmtPrem(data.proposed.monthly_premiums)}
+          </div>
+          <div className="mt-0.5 text-[11px] text-ink3 tnum">
+            총납 {fmtPrem(data.proposed.total_premiums)}
+          </div>
+        </div>
+      </div>
+
+      {/* 담보 비교표 */}
+      {data.rows.length > 0 ? (
+        <div className="rounded-xl border border-line overflow-hidden">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="bg-surface2 border-b border-line">
+                <th className="px-3 py-2.5 text-left font-semibold text-ink2">담보</th>
+                <th className="px-3 py-2.5 text-right font-semibold text-ink2">현재</th>
+                <th className="px-3 py-2.5 text-right font-semibold text-ink2">제안</th>
+                <th className="px-3 py-2.5 text-right font-semibold text-ink2">증감</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((row, i) => (
+                <tr key={i} className="border-b border-line last:border-0">
+                  <td className="px-3 py-2.5 text-ink font-medium">{row.coverage}</td>
+                  <td className="px-3 py-2.5 text-right text-ink3 tnum">
+                    {row.current_amount !== null
+                      ? new Intl.NumberFormat("ko-KR").format(row.current_amount)
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-ink3 tnum">
+                    {row.proposed_amount !== null
+                      ? new Intl.NumberFormat("ko-KR").format(row.proposed_amount)
+                      : "—"}
+                  </td>
+                  <td
+                    className={`px-3 py-2.5 text-right tnum font-semibold ${
+                      row.delta === null
+                        ? "text-ink3"
+                        : row.delta > 0
+                        ? "text-enough"
+                        : row.delta < 0
+                        ? "text-short"
+                        : "text-ink3"
+                    }`}
+                  >
+                    {fmtDelta(row.delta)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-line px-4 py-10 text-center">
+          <p className="text-[14px] text-ink3">비교할 담보 데이터가 없어요.</p>
+        </div>
+      )}
+
+      {/* AI 비교안내서 — guide_enabled=false 면 법무 게이트 안내만 */}
+      <div className="mt-5">
+        {data.guide_enabled ? (
+          <div className="rounded-xl border border-line bg-surface2 px-4 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-[14px] font-bold text-ink">AI 비교안내서 초안</h4>
+              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                AI 초안
+              </span>
+            </div>
+            <pre className="text-[13px] text-ink2 leading-6 whitespace-pre-wrap font-sans">
+              {data.guide_draft}
+            </pre>
+            <p className="mt-3 text-[11px] text-muted leading-5">
+              이 초안은 AI가 생성한 참고 자료입니다. 최종 내용 확인 및 고객 안내 책임은 설계사에게 있습니다.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50 px-4 py-5 text-center">
+            <p className="text-[13px] font-semibold text-amber-800">
+              AI 비교안내서는 §97 법무 확정 후 활성화됩니다
+            </p>
+            <p className="mt-1.5 text-[12px] text-amber-700 leading-5">
+              갈아타기(승환) 비교안내는 보험업법 §97 부당승환 관련 법적 요건이 확정되어야 제공돼요.
+              가짜 데이터로 화면을 채우지 않습니다(정직성 레드라인).
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* 발행 버튼 — publishable=false 이므로 항상 disabled + 차단 사유 tooltip */}
+      <div className="mt-4 relative">
+        <div
+          className="inline-block w-full"
+          onMouseEnter={() => setPublishTooltip(true)}
+          onMouseLeave={() => setPublishTooltip(false)}
+          onFocus={() => setPublishTooltip(true)}
+          onBlur={() => setPublishTooltip(false)}
+        >
+          <button
+            disabled
+            aria-disabled="true"
+            onClick={handlePublish}
+            className="w-full rounded-2xl bg-surface2 border border-line text-[14px] font-bold text-ink3 py-3.5 cursor-not-allowed opacity-60"
+          >
+            비교안내서 발행
+          </button>
+        </div>
+        {publishTooltip && data.publish_blocked_reason && (
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 rounded-xl bg-ink/90 px-3 py-2 text-[12px] text-white leading-5 text-center z-10 pointer-events-none">
+            {data.publish_blocked_reason}
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-center text-muted">
+          발행 기능은 법무·백엔드 게이트 통과 전까지 비활성입니다.
+        </p>
+      </div>
     </div>
   );
 }
@@ -613,20 +801,147 @@ function GapTab({
   );
 }
 
-// ── 이력 탭 ── 공유 열람/접점 이력 placeholder (데이터 소스 준비 시 연결) ────
-function HistoryTab() {
+// ── 이력 탭 ── getCustomerHistory 실연결. 타입별 아이콘·시각 표시 ─────────────
+function HistoryTab({ customerId }: { customerId: number }) {
+  const [events, setEvents] = useState<HistoryEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    getCustomerHistory(customerId)
+      .then((d) => setEvents(d.events ?? []))
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : "이력을 불러오지 못했어요.");
+      })
+      .finally(() => setLoading(false));
+  }, [customerId]);
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-14 rounded-xl bg-line animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
+        <p className="text-[14px] text-ink3">{error}</p>
+        <button
+          onClick={() => {
+            setLoading(true);
+            setError(null);
+            getCustomerHistory(customerId)
+              .then((d) => setEvents(d.events ?? []))
+              .catch((e: unknown) => setError(e instanceof Error ? e.message : "오류"))
+              .finally(() => setLoading(false));
+          }}
+          className="mt-3 text-[13px] font-semibold text-brand"
+        >
+          다시 시도
+        </button>
+      </div>
+    );
+  }
+
+  if (events.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-line px-4 py-12 text-center">
+        <p className="text-[15px] font-semibold text-ink2">접점 이력이 없어요</p>
+        <p className="mt-1 text-[13px] text-ink3">
+          공유 열람·상담·메시지 등 이력이 생기면 이곳에 표시됩니다.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-2xl border border-dashed border-line bg-surface2 px-5 py-12 text-center">
-      <h3 className="text-[16px] font-bold text-ink">접점 이력</h3>
-      <p className="mx-auto mt-2 max-w-md text-[13px] leading-6 text-ink2">
-        공유 링크 열람·상담·메시지 등 고객 접점 이력을 모아 볼 자리예요. 이력
-        데이터 소스가 연결되면 이곳에 시간순으로 표시됩니다.
-      </p>
-      <p className="mt-3 text-[12px] text-muted">
-        지금은 연결된 이력 데이터가 없어요(빈 상태).
-      </p>
+    <div>
+      <h3 className="text-[15px] font-bold text-ink mb-4">
+        접점 이력{" "}
+        <span className="text-ink3 font-normal tnum">{events.length}건</span>
+      </h3>
+      <ol className="relative border-l-2 border-line ml-2 space-y-0">
+        {events.map((ev, i) => (
+          <li key={i} className="pl-6 pb-5 relative">
+            {/* 타임라인 도트 (이벤트 타입별 색) */}
+            <span
+              className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-surface ${historyDotColor(ev.type)}`}
+              aria-hidden
+            />
+            <div className="flex items-start gap-2">
+              <span className="text-[16px] shrink-0" aria-hidden>
+                {historyIcon(ev.type)}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-[14px] font-semibold text-ink">{ev.label}</span>
+                  <span className="text-[11px] text-ink3 tnum shrink-0">
+                    {fmtEventAt(ev.at)}
+                  </span>
+                </div>
+                {ev.meta && Object.keys(ev.meta).length > 0 && (
+                  <p className="mt-0.5 text-[12px] text-ink3 leading-5 truncate">
+                    {Object.entries(ev.meta)
+                      .slice(0, 2)
+                      .map(([k, v]) => `${k}: ${String(v)}`)
+                      .join(" · ")}
+                  </p>
+                )}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
+}
+
+/** 이벤트 타입 → 아이콘 문자 */
+function historyIcon(type: string): string {
+  switch (type) {
+    case "share_view":     return "👁";
+    case "ocr_upload":     return "📄";
+    case "analysis":       return "📊";
+    case "compare":        return "⚖️";
+    case "message":        return "💬";
+    case "consult":        return "🤝";
+    case "created":        return "✅";
+    default:               return "•";
+  }
+}
+
+/** 이벤트 타입 → 타임라인 도트 Tailwind 색 */
+function historyDotColor(type: string): string {
+  switch (type) {
+    case "share_view":  return "bg-indigo-400";
+    case "ocr_upload":  return "bg-brand";
+    case "analysis":    return "bg-enough";
+    case "compare":     return "bg-amber-400";
+    case "message":     return "bg-sky-400";
+    case "consult":     return "bg-green-500";
+    default:            return "bg-line";
+  }
+}
+
+/** ISO → 읽기 쉬운 날짜·시각 */
+function fmtEventAt(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("ko-KR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
 }
 
 // ── 공통 NotFound 셸 ──────────────────────────────────────────────────────

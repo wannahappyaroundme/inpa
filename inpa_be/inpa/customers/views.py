@@ -9,7 +9,8 @@
   CustomerMedicalHistory 생성을 412(PRECONDITION_FAILED)로 물리 차단. UI 숨김은 방어가 아니다.
 """
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -19,6 +20,10 @@ from inpa.core.permissions import IsEmailVerified, IsOwner
 from .models import (
     ConsentLog, Customer, CustomerMedicalHistory, CustomerTag, FamilyMember,
     PlannerBaseline,
+)
+from .presets import (
+    BASELINE_SOURCE_PRESET, PRESET_NOTE, PRESET_ORIGIN_V0, PRESET_V0,
+    iter_preset_rows,
 )
 from .serializers import (
     ConsentLogSerializer, CustomerListSerializer, CustomerSerializer,
@@ -135,8 +140,81 @@ class ConsentLogViewSet(_CustomerScopedViewSet):
 class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
     """설계사 기준선 CRUD — 소유자 전용. /api/v1/planner-baselines/
 
-    ★ 준법 통제점. baseline_source가 null이면 분석은 neutral 강제(다음 라운드).
+    ★ 준법 통제점. baseline_source가 null이면 분석은 neutral 강제.
     """
     permission_classes = [IsAuthenticated, IsEmailVerified, IsOwner]
     serializer_class = PlannerBaselineSerializer
     queryset = PlannerBaseline.objects.all()
+
+    @action(detail=False, methods=['post'], url_path='apply-preset')
+    def apply_preset(self, request):
+        """v0 스타터 프리셋을 요청 설계사(owner)에게 일괄 생성.
+
+        POST /api/v1/planner-baselines/apply-preset/  {product_group:int}
+
+        ★ V0 스타터 데이터 한계(정직성 레드라인):
+          - 프리셋 수치(recommend_min/max)는 약관·금감원 출처와 대조 검증되지 않은 v0 가설값.
+          - 적용 시 baseline_source='preset' 이 되어 분석 mode 가 neutral → graded 로 켜진다.
+            따라서 응답 note 로 '검토 후 사용'을 항상 고지한다.
+
+        멱등: 동일 owner 의 UNIQUE 스코프(owner·coverage_key·product_group·age_band·gender)가
+          이미 있으면 건너뛴다(덮어쓰지 않음 — 설계사가 수정한 값을 프리셋이 훼손하지 않도록).
+          → 재호출 시 created=0.
+
+        응답: {created:int, preset_origin:'v0_starter', note:str}
+        """
+        # ── product_group 검증 ──────────────────────────────────────────
+        raw = request.data.get('product_group')
+        if raw is None:
+            raise ValidationError({'product_group': 'product_group(상품군)은 필수입니다.'})
+        try:
+            product_group = int(raw)
+        except (TypeError, ValueError):
+            raise ValidationError({'product_group': '정수 상품군 코드여야 합니다.'})
+
+        valid_groups = dict(PlannerBaseline.PRODUCT_GROUP_CHOICES)
+        if product_group not in valid_groups:
+            raise ValidationError({
+                'product_group': f'알 수 없는 상품군입니다. 허용: {sorted(valid_groups)}'})
+
+        owner = request.user
+
+        # ── 이미 보유한 스코프 키 집합 (멱등 — 중복 생성 회피) ───────────────
+        # UNIQUE(owner, coverage_key, product_group, age_band, gender) 와 동일 키.
+        existing = set(
+            PlannerBaseline.objects
+            .filter(owner=owner, product_group=product_group)
+            .values_list('coverage_key', 'age_band', 'gender')
+        )
+
+        to_create = []
+        for coverage_key, age_band, gender, recommend_min, recommend_max in \
+                iter_preset_rows(product_group):
+            if (coverage_key, age_band, gender) in existing:
+                continue  # 이미 있음 — 설계사 값/이전 적용 보존
+            to_create.append(PlannerBaseline(
+                owner=owner,
+                coverage_key=coverage_key,
+                product_group=product_group,
+                age_band=age_band,
+                gender=gender,
+                recommend_min=recommend_min,
+                recommend_max=recommend_max,
+                unit=1,  # 만원 (STANDARD_TREE 단위)
+                baseline_source=BASELINE_SOURCE_PRESET,  # ★ graded 게이트 ON
+                preset_origin=PRESET_ORIGIN_V0,
+                is_active=True,
+            ))
+
+        if to_create:
+            # ignore_conflicts: 동시성 경합 시에도 UNIQUE 충돌을 안전하게 흡수(멱등 보강).
+            PlannerBaseline.objects.bulk_create(to_create, ignore_conflicts=True)
+
+        return Response(
+            {
+                'created': len(to_create),
+                'preset_origin': PRESET_ORIGIN_V0,
+                'note': PRESET_NOTE,
+            },
+            status=status.HTTP_201_CREATED,
+        )

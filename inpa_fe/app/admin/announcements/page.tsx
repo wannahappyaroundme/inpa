@@ -123,7 +123,7 @@ export default function AdminAnnouncementsPage() {
         <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>
       )}
 
-      <div className="flex gap-5">
+      <div className="flex flex-col lg:flex-row gap-5">
         {/* 목록 */}
         <div className="flex-1 min-w-0">
           {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}

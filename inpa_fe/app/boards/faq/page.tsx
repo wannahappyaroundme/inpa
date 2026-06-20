@@ -38,10 +38,11 @@ function FaqAccordionItem({ faq }: { faq: FaqItem }) {
     <div className="border-b border-line last:border-b-0">
       <button
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="w-full flex items-center justify-between py-4 text-left gap-3"
       >
         <span className="text-[14px] font-semibold text-ink leading-5">{faq.question}</span>
-        <span className={`text-ink3 text-[18px] shrink-0 transition-transform ${open ? "rotate-180" : ""}`}>
+        <span aria-hidden className={`text-ink3 text-[18px] shrink-0 transition-transform ${open ? "rotate-180" : ""}`}>
           ˅
         </span>
       </button>

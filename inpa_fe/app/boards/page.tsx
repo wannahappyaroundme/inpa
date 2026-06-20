@@ -11,6 +11,7 @@ import {
   listNotices,
   toggleLike,
   reportContent,
+  deletePost,
   type PostFeedItem,
   type NoticeItem,
   type ReportReason,
@@ -194,8 +195,10 @@ function PostCard({
             onClick={() => setMenuOpen((v) => !v)}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-ink3 hover:bg-surface2 text-[18px]"
             aria-label="더보기"
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
           >
-            ⋯
+            <span aria-hidden>⋯</span>
           </button>
           {menuOpen && (
             <div className="absolute right-0 top-9 z-20 w-32 rounded-xl bg-surface border border-line shadow-lg py-1">
@@ -250,9 +253,10 @@ function PostCard({
       <div className="mt-3 pt-3 border-t border-line flex items-center gap-4 text-[12px] text-ink3">
         <button
           onClick={() => onLike(post.id)}
+          aria-label={`좋아요 ${post.like_count}개`}
           className="flex items-center gap-1 hover:text-brand transition"
         >
-          <span>♡</span>
+          <span aria-hidden>♡</span>
           <span className="tnum">{post.like_count}</span>
         </button>
         <Link href={`/boards/${post.id}`} className="flex items-center gap-1 hover:text-brand transition">
@@ -332,9 +336,7 @@ function BoardFeedContent() {
     setLoading(true);
     setError(null);
     try {
-      const params: Parameters<typeof listPosts>[0] = {};
-      if (cat !== "전체") params.cursor = undefined;
-      const res = await listPosts(params);
+      const res = await listPosts({});
       const pinned = res.results.filter((p) => p.is_pinned);
       const normal = res.results.filter((p) => !p.is_pinned);
       const filtered = normal.filter((p) => {
@@ -399,7 +401,6 @@ function BoardFeedContent() {
   async function handleDelete(postId: number) {
     if (!confirm("이 게시글을 삭제할까요?")) return;
     try {
-      const { deletePost } = await import("@/lib/api");
       await deletePost(postId);
       setPosts((prev) => prev.filter((p) => p.id !== postId));
     } catch {
@@ -546,9 +547,10 @@ export default function BoardsPage() {
           <h1 className="text-[22px] font-extrabold text-ink">게시판</h1>
           <Link
             href="/boards/new"
+            aria-label="새 글쓰기"
             className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2.5"
           >
-            ✎ 글쓰기
+            <span aria-hidden>✎</span> 글쓰기
           </Link>
         </div>
         <Suspense fallback={<div className="py-12 text-center text-[14px] text-ink3">불러오는 중...</div>}>

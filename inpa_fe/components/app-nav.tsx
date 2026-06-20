@@ -58,7 +58,7 @@ export function AppNav({ active }: { active?: NavKey }) {
     { key: "customers", href: "/customers", label: "고객" },
     { key: "analysis", href: "/analysis", label: "분석" },
     { key: "settings", href: "/settings/baseline", label: "기준" },
-    { key: "board", href: "/board", label: "게시판" },
+    { key: "board", href: "/boards", label: "게시판" },
     { key: "promotion", href: "/promotion", label: "판촉물" },
   ];
 

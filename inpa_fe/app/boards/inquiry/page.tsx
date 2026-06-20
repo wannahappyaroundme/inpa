@@ -31,19 +31,23 @@ export default function InquiryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function loadInquiries() {
     if (!ready) return;
+    setLoading(true);
+    setError(null);
     listInquiries()
       .then(setInquiries)
       .catch(() => setError("문의 목록을 불러오지 못했어요."))
       .finally(() => setLoading(false));
-  }, [ready]);
+  }
+
+  useEffect(() => { loadInquiries(); }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ready) return null;
 
   return (
     <div className="min-h-dvh">
-      <AppNav />
+      <AppNav active="board" />
       <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
         <div className="flex items-center justify-between mb-5">
           <h1 className="text-[22px] font-extrabold text-ink">1:1 문의</h1>
@@ -58,7 +62,10 @@ export default function InquiryPage() {
         {loading && <div className="py-12 text-center text-[14px] text-ink3">불러오는 중...</div>}
 
         {error && (
-          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>
+          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={loadInquiries} className="ml-3 font-semibold underline shrink-0">재시도</button>
+          </div>
         )}
 
         {!loading && !error && inquiries.length === 0 && (

@@ -117,6 +117,7 @@ function NotifCard({
         onClick={handleClick}
         role="button"
         tabIndex={0}
+        aria-label={item.title}
         onKeyDown={(e) => e.key === "Enter" && handleClick()}
       >
         <div className="flex items-start gap-3">
@@ -311,10 +312,15 @@ function NotificationsContent() {
 
         {/* 에러 */}
         {error && (
-          <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between">
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between"
+          >
             <span>{error}</span>
             <button
               onClick={() => fetchPage(1, true)}
+              aria-label="알림 다시 불러오기"
               className="ml-3 font-semibold underline"
             >
               재시도

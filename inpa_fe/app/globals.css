@@ -57,8 +57,18 @@
   --color-ink3: var(--ink-3);
   --color-muted: var(--muted);
   --color-line: var(--line);
+  --color-line-2: var(--line-2);
   --color-surface: var(--surface);
   --color-surface2: var(--surface-2);
+}
+
+/* 스크롤바 숨김 유틸리티 (모바일 칩 스크롤 등) */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 html, body { background: var(--surface-2); color: var(--ink); }

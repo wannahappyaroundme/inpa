@@ -19,8 +19,9 @@ from inpa.accounts.models import Profile, User
 from inpa.analysis.models import (
     AnalysisCategory, AnalysisDetail, AnalysisSubCategory,
 )
+from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
-from inpa.customers.models import Customer
+from inpa.customers.models import ConsentLog, Customer
 from inpa.insurances.models import (
     CustomerInsurance, CustomerInsuranceDetail, InsuranceCategory,
     InsuranceDetail, InsuranceSubCategory,
@@ -296,3 +297,104 @@ class ShareFullFlowTests(TestCase):
             event_type=NorthStarEvent.SHARE_VIEW, share_token=token).exists())
         self.assertTrue(NorthStarEvent.objects.filter(
             event_type=NorthStarEvent.CLIPBOARD_COPY, share_token=token).exists())
+
+
+class CustomerHistoryTests(TestCase):
+    """고객 이력 타임라인 — GET /api/v1/customers/<id>/history/.
+
+    검증:
+      1) 3개 소스(NorthStarEvent·ConsentLog·CustomerInsurance) 병합 + 시간 역순
+      2) 표준 형태 {type, label, at, meta} + clipboard_copy='복사'(자동발송 사칭 금지)
+      3) owner 격리 — A는 B 고객 이력 조회 불가(404)
+      4) 데이터 없으면 빈 배열 / 인증 게이트
+    """
+
+    def setUp(self):
+        self.user, self.client = _make_planner('history@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='이력고객', birth_day='1985.05.05', gender=1)
+
+    def _url(self, customer_id=None):
+        return f'/api/v1/customers/{customer_id or self.customer.id}/history/'
+
+    def test_history_merges_three_sources_time_desc(self):
+        """NorthStarEvent + ConsentLog + CustomerInsurance 병합 → 시간 역순."""
+        # ① NorthStarEvent (ocr_upload, clipboard_copy)
+        log_event(NorthStarEvent.OCR_UPLOAD, customer=self.customer,
+                  sender=self.user, channel='web')
+        log_event(NorthStarEvent.CLIPBOARD_COPY, customer=self.customer,
+                  sender=self.user, channel='clipboard',
+                  payload={'delivery': 'clipboard'})
+        # ② ConsentLog (동의 + 철회)
+        log = ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+            doc_version='OVERSEAS-v1.0')
+        log.revoked_at = timezone.now()
+        log.save(update_fields=['revoked_at'])
+        # ③ CustomerInsurance (보유 증권 등록)
+        CustomerInsurance.objects.create(
+            customer=self.customer, insurance_type=2, name='보유보험',
+            portfolio_type=1)
+
+        r = self.client.get(self._url())
+        self.assertEqual(r.status_code, 200)
+        events = r.json()['events']
+        # 2(northstar) + 2(consent 동의+철회) + 1(insurance) = 5
+        self.assertEqual(len(events), 5)
+        # 표준 형태 키 보장
+        for e in events:
+            self.assertEqual(set(e.keys()), {'type', 'label', 'at', 'meta'})
+        # 시간 역순(at desc) — 인접쌍 비교
+        ats = [e['at'] for e in events]
+        self.assertEqual(ats, sorted(ats, reverse=True))
+        # 소스별 타입 존재
+        types = {e['type'] for e in events}
+        self.assertIn('ocr_upload', types)
+        self.assertIn('clipboard_copy', types)
+        self.assertIn('consent_agreed', types)
+        self.assertIn('consent_revoked', types)
+        self.assertIn('insurance_registered', types)
+
+    def test_clipboard_copy_labeled_copy_not_send(self):
+        """★ 자동발송 사칭 금지 — clipboard_copy 라벨은 '복사'(발송 단정 없음)."""
+        log_event(NorthStarEvent.CLIPBOARD_COPY, customer=self.customer,
+                  sender=self.user, channel='clipboard')
+        events = self.client.get(self._url()).json()['events']
+        copy_ev = next(e for e in events if e['type'] == 'clipboard_copy')
+        self.assertIn('복사', copy_ev['label'])
+        self.assertNotIn('발송', copy_ev['label'])
+
+    def test_history_empty_when_no_events(self):
+        """이벤트 없으면 빈 배열(200)."""
+        r = self.client.get(self._url())
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['events'], [])
+
+    def test_history_owner_isolation(self):
+        """★ A는 B 고객 이력 조회 불가 → 404(존재 은폐)."""
+        _, client_b = _make_planner('history-b@test.com')
+        # B 고객에 이벤트 적재(있어도 A는 못 봄)
+        log_event(NorthStarEvent.OCR_UPLOAD, customer=self.customer,
+                  sender=self.user, channel='web')
+        r = client_b.get(self._url())
+        self.assertEqual(r.status_code, 404)
+
+    def test_history_only_this_customer_events(self):
+        """다른 고객 이벤트는 섞이지 않는다(고객 단위 격리)."""
+        other = Customer.objects.create(
+            owner=self.user, name='다른고객', birth_day='1990.01.01')
+        log_event(NorthStarEvent.OCR_UPLOAD, customer=other,
+                  sender=self.user, channel='web')
+        log_event(NorthStarEvent.OCR_UPLOAD, customer=self.customer,
+                  sender=self.user, channel='web')
+        events = self.client.get(self._url()).json()['events']
+        self.assertEqual(len(events), 1)  # self.customer 것만
+
+    def test_history_unknown_customer_404(self):
+        r = self.client.get(self._url(customer_id=999999))
+        self.assertEqual(r.status_code, 404)
+
+    def test_history_requires_auth(self):
+        c = APIClient()
+        r = c.get(self._url())
+        self.assertEqual(r.status_code, 401)
