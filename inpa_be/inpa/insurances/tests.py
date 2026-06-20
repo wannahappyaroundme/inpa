@@ -434,6 +434,8 @@ class SelfDiagnosisGateTests(TestCase):
     """셀프진단 인바운드 — 동의 게이트 + ref 검증(OCR 이전 단계)."""
 
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()  # ScopedRateThrottle 카운터 격리(테스트 간섭 방지)
         self.planner, _ = _make_planner('refplanner@test.com')
         self.ref = self.planner.profile.ref_code
         self.public = APIClient()  # 비로그인

@@ -16,7 +16,12 @@ from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+
+# 무인증 경로 — 비용/남용 방어 상수.
+SELF_DIAG_MAX_BYTES = 5 * 1024 * 1024     # 5MB (인증 OCR 50MB보다 강하게)
+SELF_DIAG_DAILY_CAP_PER_REF = 30          # 설계사(refcode) 1명당 하루 셀프진단 리드 상한
 
 from inpa.accounts.models import Profile
 from inpa.analytics.events import log_event
@@ -26,9 +31,7 @@ from inpa.core.ocr.claude_parser import claude_parse
 from inpa.customers.models import ConsentLog, Customer
 from inpa.notifications.models import NotifType, Notification
 
-from .views import (
-    _MAX_UPLOAD_BYTES, _build_normalizer, _extract_pdf_lines, _persist_ocr,
-)
+from .views import _build_normalizer, _extract_pdf_lines, _persist_ocr
 
 
 def _truthy(v):
@@ -39,6 +42,9 @@ class SelfDiagnosisView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
     parser_classes = [MultiPartParser, FormParser]
+    # ★ IP당 5건/시간 throttle(무인증 비용폭탄·DoS 방어). refcode 일일상한은 아래 DB 카운트로 2중.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'self_diagnosis'
 
     def post(self, request, refcode):
         # 1) refcode → 설계사 resolve (없으면 404 = 존재 은폐)
@@ -47,6 +53,15 @@ class SelfDiagnosisView(APIView):
             return Response({'code': 'INVALID_REF', 'detail': '유효하지 않은 링크입니다.'},
                             status=status.HTTP_404_NOT_FOUND)
         planner = profile.user
+
+        # 1.5) ★ refcode 일일상한 (워커 무관 DB 카운트 — throttle의 워커별 한계 보완)
+        today = timezone.now().date()
+        todays_leads = Customer.objects.filter(
+            owner=planner, lead_source='self_diagnosis', lead_created_at__date=today).count()
+        if todays_leads >= SELF_DIAG_DAILY_CAP_PER_REF:
+            return Response(
+                {'code': 'DAILY_LIMIT', 'detail': '오늘 이 링크의 진단 한도를 초과했습니다. 내일 다시 시도해 주세요.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         # 2) ★ 제3자 동의 게이트 (Claude 호출 전 물리 차단)
         consent_overseas = _truthy(request.data.get('consent_overseas'))
@@ -62,8 +77,8 @@ class SelfDiagnosisView(APIView):
         if upload is None:
             return Response({'code': 'FILE_REQUIRED', 'detail': 'file(PDF) 업로드가 필요합니다.'},
                             status=status.HTTP_400_BAD_REQUEST)
-        if upload.size > _MAX_UPLOAD_BYTES:
-            return Response({'code': 'FILE_TOO_LARGE', 'detail': '50MB 이하의 PDF만 업로드 가능합니다.'},
+        if upload.size > SELF_DIAG_MAX_BYTES:
+            return Response({'code': 'FILE_TOO_LARGE', 'detail': '5MB 이하의 PDF만 업로드 가능합니다.'},
                             status=status.HTTP_400_BAD_REQUEST)
         if not upload.name.lower().endswith('.pdf'):
             return Response({'code': 'IMAGE_PDF', 'detail': '전자 PDF 형식 파일로 부탁드립니다.'},
@@ -94,12 +109,19 @@ class SelfDiagnosisView(APIView):
         name = (request.data.get('name') or '').strip() or '셀프진단 잠재고객'
         phone = (request.data.get('phone') or '').strip()
         with transaction.atomic():
-            customer = Customer.objects.create(
-                owner=planner, name=name[:20], mobile_phone_number=phone[:15],
-                is_agree_term=True,                    # 담당 설계사 전달 동의
-                consent_overseas_at=timezone.now(),    # 국외이전 동의 → OCR 게이트 충족
-                lead_source='self_diagnosis', lead_created_at=timezone.now(),
-            )
+            # 같은 phone+설계사 셀프진단 리드가 이미 있으면 재사용(CRM 중복 오염 방지).
+            customer = None
+            if phone:
+                customer = Customer.objects.filter(
+                    owner=planner, lead_source='self_diagnosis',
+                    mobile_phone_number=phone[:15]).first()
+            if customer is None:
+                customer = Customer.objects.create(
+                    owner=planner, name=name[:20], mobile_phone_number=phone[:15],
+                    is_agree_term=True,                    # 담당 설계사 전달 동의
+                    consent_overseas_at=timezone.now(),    # 국외이전 동의 → OCR 게이트 충족
+                    lead_source='self_diagnosis', lead_created_at=timezone.now(),
+                )
             ConsentLog.objects.create(
                 customer=customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
                 purpose='셀프진단 증권 OCR 국외이전(Claude, 미국)', ip=ip)

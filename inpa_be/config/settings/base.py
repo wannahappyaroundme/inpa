@@ -103,6 +103,11 @@ REST_FRAMEWORK = {
     # 목록 응답은 {count, next, previous, results} 형태 (dev/12 §5.1 계약)
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    # 무인증 경로(셀프진단) 남용·비용폭탄 방어용 throttle rate. ScopedRateThrottle 가 뷰별로 사용.
+    # ★ LocMemCache(워커별)라 정확상한은 아님 — DB 일일상한과 병행. Redis 도입 시 강화(soon).
+    'DEFAULT_THROTTLE_RATES': {
+        'self_diagnosis': '5/hour',
+    },
 }
 
 # ── 토큰 TTL / 로그인 잠금 (dev/02 §2.3, dev/11 정본) ────────────

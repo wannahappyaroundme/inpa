@@ -6,6 +6,17 @@
 const API_BASE =
   (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api/v1").replace(/\/$/, "");
 
+// 운영(브라우저가 localhost가 아닌데 API가 localhost로 폴백) = NEXT_PUBLIC_API_BASE 미설정.
+// 빌드타임 인라인이라 배포 전 Vercel 환경변수 설정 + 재배포 필요. 조용한 전면장애를 콘솔로 경고.
+if (typeof window !== "undefined" &&
+    API_BASE.includes("localhost") &&
+    !window.location.hostname.match(/^(localhost|127\.0\.0\.1)$/)) {
+  console.error(
+    "[인파] NEXT_PUBLIC_API_BASE 미설정 — API가 localhost를 가리킵니다. " +
+    "Vercel 환경변수에 백엔드 URL을 넣고 재배포하세요."
+  );
+}
+
 // ─── Error class ────────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
