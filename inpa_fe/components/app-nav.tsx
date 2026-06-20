@@ -21,6 +21,7 @@ export type NavKey =
   | "board"
   | "promotion"
   | "settings"
+  | "manager"
   | "notifications"
   | "admin";
 
@@ -36,21 +37,27 @@ function BellIcon() {
 export function AppNav({ active }: { active?: NavKey }) {
   const [unread, setUnread] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isManager, setIsManager] = useState(false);
   const [initial, setInitial] = useState("이");
 
   useEffect(() => {
     if (!tokenStore.get()) return;
-    // 미읽음 카운트 (벨 배지) — 실패해도 0 유지
-    getUnreadCount()
-      .then((r) => setUnread(r.unread_count))
-      .catch(() => setUnread(0));
-    // 프로필 — 관리자 여부 + 이니셜
+    // 미읽음 카운트 (벨 배지) — 60초 폴링(환수 알림 등 반영). 실패해도 0 유지.
+    const poll = () =>
+      getUnreadCount()
+        .then((r) => setUnread(r.unread_count))
+        .catch(() => { /* 무시 */ });
+    poll();
+    const timer = setInterval(poll, 60000);
+    // 프로필 — 관리자/매니저 여부 + 이니셜
     getProfile()
       .then((p) => {
         setIsAdmin(p.is_admin);
+        setIsManager((p.managed_agents_count ?? 0) > 0);
         if (p.email) setInitial(p.email[0].toUpperCase());
       })
       .catch(() => { /* 토큰 만료 등 — 무시 */ });
+    return () => clearInterval(timer);
   }, []);
 
   const items: { key: NavKey; href: string; label: string }[] = [
@@ -82,6 +89,16 @@ export function AppNav({ active }: { active?: NavKey }) {
                 {it.label}
               </Link>
             ))}
+            {isManager && (
+              <Link
+                href="/manager"
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-[13px] sm:text-[14px] font-semibold transition whitespace-nowrap ${
+                  active === "manager" ? "text-brand bg-accent-tint" : "text-ink2 hover:bg-surface2"
+                }`}
+              >
+                지점 KPI
+              </Link>
+            )}
             {isAdmin && (
               <Link
                 href="/admin"

@@ -204,6 +204,12 @@ export interface ProfileResponse {
   email: string;
   affiliation: string | null;
   agent_type: number | null;
+  /** 1=전속(원수사) 2=GA. null=미신고 */
+  affiliation_type: number | null;
+  cohort_opt_in: boolean;
+  manager_share_opt_in: boolean;
+  manager_email: string | null;
+  managed_agents_count: number;
   license_self_declared: boolean;
   license_no: string | null;
   career_years: number | null;
@@ -220,11 +226,24 @@ export async function getProfile(): Promise<ProfileResponse> {
   return request<ProfileResponse>("GET", "/auth/profile/", undefined, true);
 }
 
+/** PATCH /api/v1/auth/profile/ — 모드·동의·매니저 연결 변경 */
+export interface ProfileUpdatePayload {
+  affiliation_type?: number | null;
+  cohort_opt_in?: boolean;
+  manager_share_opt_in?: boolean;
+  manager_email?: string;
+}
+export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
+  return request<ProfileResponse>("PATCH", "/auth/profile/", payload, true);
+}
+
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
 export interface OnboardingAttestPayload {
   affiliation?: string;
   agent_type?: number | null;
+  affiliation_type?: number | null;
+  manager_email?: string;
   license_self_declared?: boolean;
   career_years?: number | null;
 }
@@ -234,6 +253,50 @@ export async function attestOnboarding(
   payload: OnboardingAttestPayload = {}
 ): Promise<ProfileResponse> {
   return request<ProfileResponse>("POST", "/auth/onboarding/attest/", payload, true);
+}
+
+// ─── 지점장 대시보드 (동의한 소속 설계사 KPI 집계만) ───────────────────────────
+export interface ManagerAgentKpi {
+  name_masked: string;
+  customer_count: number;
+  churn_risk_count: number;
+  share_view_count: number;
+}
+export interface ManagerDashboardResponse {
+  agent_count: number;
+  agents: ManagerAgentKpi[];
+  totals: { customer_count: number; churn_risk_count: number; share_view_count: number };
+}
+export async function getManagerDashboard(): Promise<ManagerDashboardResponse> {
+  return request<ManagerDashboardResponse>("GET", "/manager/dashboard/", undefined, true);
+}
+
+// ─── 환수 위험 → 인앱 알림 동기화 (cron 아님, 홈 진입 시 호출) ───────────────────
+export async function syncChurnAlerts(): Promise<{ created: number }> {
+  return request<{ created: number }>("POST", "/churn-radar/sync-alerts/", {}, true);
+}
+
+// ─── 셀프진단 인바운드 (공개, 비로그인) ─────────────────────────────────────────
+export interface SelfDiagnosisResult {
+  customer: { name_masked: string; gender: number | null; birth_year: number | null };
+  mode: string;
+  summary: { monthly_premiums: number | null; total_premiums: number | null };
+  tree: ShareCategory[];
+  disclaimer: string;
+  lead_created?: boolean;
+}
+/** POST /api/v1/d/<refcode>/ — multipart: file, consent_overseas, consent_share, name?, phone? */
+export async function postSelfDiagnosis(refcode: string, form: FormData): Promise<SelfDiagnosisResult> {
+  const res = await fetch(`${API_BASE}/d/${encodeURIComponent(refcode)}/`, {
+    method: "POST",
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(res.status, (data as { code?: string }).code ?? "ERROR",
+      (data as { detail?: string }).detail ?? "진단에 실패했어요.");
+  }
+  return data as SelfDiagnosisResult;
 }
 
 // ─── Customer types ──────────────────────────────────────────────────────────
@@ -929,6 +992,8 @@ export type NotifType =
   | "consult_reminder"
   | "task_due"
   | "share_unread"
+  | "unpaid_d_alert"
+  | "self_diagnosis_lead"
   | "board_comment"
   | "board_like";
 
@@ -1425,11 +1490,31 @@ export interface CompareSide {
   total_premiums: number | null;
 }
 
+/** 갈아타기 유의사항(설계사 내부면 전용). amount=null 이면 정성 경고. */
+export interface SwitchWarning {
+  type: "cancellation_loss" | "exemption_reset" | "rate_change" | string;
+  label: string;
+  detail: string;
+  amount: number | null;
+}
+
+/** KEEP/SWITCH/NEUTRAL 판정 — ★ 설계사 내부 의사결정 근거. 고객에게 노출 금지(§97). */
+export interface SwitchVerdict {
+  decision: "KEEP" | "SWITCH" | "NEUTRAL";
+  reason: string;
+  /** 1년 기준 추정 순손익(원). 양수=이득, 음수=손해, null=계산 불가 */
+  customer_net_benefit_estimate: number | null;
+  disclaimer: string;
+}
+
 export interface CompareResponse {
   mode: "neutral" | "graded";
   current: CompareSide;
   proposed: CompareSide;
   rows: CompareRow[];
+  /** ★ 설계사 내부 전용 — 고객 공유뷰에는 BE가 절대 전송하지 않음(누수 회귀 테스트로 강제) */
+  verdict: SwitchVerdict;
+  switch_warnings: SwitchWarning[];
   guide_draft: string | null;
   guide_enabled: boolean;
   /** 항상 false — BE 권위. FE 절대 override 불가 */
@@ -1446,6 +1531,55 @@ export async function compareCustomer(id: number): Promise<CompareResponse> {
 /** POST /api/v1/customers/<id>/compare/ — 발행 요청(publishable=false 라 항상 차단됨) */
 export async function publishCompare(id: number): Promise<CompareResponse> {
   return request<CompareResponse>("POST", `/customers/${id}/compare/`, undefined, true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 환수 레이더(A/S) — GET /api/v1/churn-radar/  ·  PATCH /api/v1/insurances/<id>/churn/
+// ★ 보유 정책만 / owner 전용 / 수기입력 추정. 정확액은 보험사·회사 전산 권위.
+// ════════════════════════════════════════════════════════════════════════════
+
+export type PersistencyStage = "unknown" | "pre_13" | "pre_25" | "safe";
+
+export interface ChurnRadarItem {
+  insurance_id: number;
+  customer_id: number;
+  customer_name: string;
+  insurance_name: string | null;
+  current_payment_period: number | null;
+  /** 1=정상 2=연체 3=납입중단 */
+  payment_status: number | null;
+  next_payment_date: string | null; // YYYY-MM-DD
+  expected_recovery_amount: number | null;
+  persistency_stage: PersistencyStage;
+  is_at_risk: boolean;
+  risk_reason: string;
+}
+
+export interface ChurnRadarResponse {
+  risk_count: number;
+  expected_recovery_total: number;
+  items: ChurnRadarItem[];
+  disclaimer: string;
+}
+
+export interface ChurnInputPayload {
+  current_payment_period?: number | null;
+  payment_status?: number | null;
+  next_payment_date?: string | null; // YYYY-MM-DD
+  expected_recovery_amount?: number | null;
+}
+
+/** GET /api/v1/churn-radar/ — 환수 위험 집계 + 보유정책 리스트 */
+export async function getChurnRadar(): Promise<ChurnRadarResponse> {
+  return request<ChurnRadarResponse>("GET", "/churn-radar/", undefined, true);
+}
+
+/** PATCH /api/v1/insurances/<id>/churn/ — 환수 4개 필드 수기 저장 */
+export async function updateInsuranceChurn(
+  insuranceId: number,
+  payload: ChurnInputPayload,
+): Promise<ChurnRadarItem> {
+  return request<ChurnRadarItem>("PATCH", `/insurances/${insuranceId}/churn/`, payload, true);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
