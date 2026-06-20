@@ -4,7 +4,8 @@
 > **작성일**: 2026-06-19
 > **대상 독자**: PM(대표, 비개발자) — 마우스 클릭만으로 따라 할 수 있게 작성.
 > **정본 아키텍처**: `dev/20-devops-and-deploy.md` (이 문서는 그 실행판이다.)
-> **배포 그림**: FE = Vercel (GitHub 자동배포) / BE + DB = Railway (BE Web 서비스 + MySQL 플러그인) / CI = GitHub Actions(검증만).
+> **배포 그림(무료 $0)**: FE = Vercel (GitHub 자동배포) / BE = Render (무료 Web) / DB = Neon (무료 PostgreSQL) / CI = GitHub Actions(검증만).
+> **갱신(2026-06-21)**: Railway 무료 티어 폐지로 **BE=Render·DB=Neon(무료)** 로 전환. DB는 MariaDB→**PostgreSQL**(Django ORM이라 코드 영향 없음, 로컬은 SQLite 유지).
 
 ---
 
@@ -18,7 +19,7 @@
                    │
                    ├──▶ Vercel  : inpa_fe (프론트) 자동 배포 → 사용자가 보는 화면
                    │
-                   └──▶ Railway : inpa_be (백엔드) + MySQL DB 자동 배포 → 데이터·AI 처리
+                   └──▶ Render  : inpa_be (백엔드) 자동 배포 ──▶ Neon (PostgreSQL DB)
 ```
 
 - **시크릿(비밀번호·API 키)은 코드에 절대 안 넣는다.** 항상 Vercel·Railway 대시보드의 "환경변수"에 넣는다.

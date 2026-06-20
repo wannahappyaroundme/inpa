@@ -33,6 +33,13 @@ CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])  # noqa: F40
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])  # noqa: F405
 CORS_ALLOW_CREDENTIALS = True
 
+# Render 무료 티어: 플랫폼이 주입하는 외부 도메인을 ALLOWED_HOSTS/CSRF에 자동 포함
+# (사용자가 도메인을 수기 입력하지 않아도 502/400 안 나게). 커스텀 도메인은 env로 추가.
+_render_host = env('RENDER_EXTERNAL_HOSTNAME', default='')  # noqa: F405
+if _render_host:
+    ALLOWED_HOSTS = list(ALLOWED_HOSTS) + [_render_host]
+    CSRF_TRUSTED_ORIGINS = list(CSRF_TRUSTED_ORIGINS) + [f'https://{_render_host}']
+
 # ── DB ───────────────────────────────────────────────────────────
 # DATABASE_URL=mysql://user:pass@host:3306/db (Railway MySQL 플러그인 주입, django-environ 파싱)
 DATABASES = {

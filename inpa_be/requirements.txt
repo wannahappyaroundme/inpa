@@ -5,8 +5,9 @@ djangorestframework==3.16.1
 django-environ==0.11.2
 django-cors-headers==4.3.1
 
-# DB 드라이버 (운영=MariaDB. 로컬은 SQLite라 설치 불필요)
-mysqlclient==2.2.0
+# DB 드라이버 (운영=PostgreSQL: Neon/Render 무료 티어. 로컬은 SQLite).
+# django-environ env.db() 가 DATABASE_URL(postgres://...) 파싱 → psycopg2 사용.
+psycopg2-binary==2.9.9
 
 # AI / OCR / 계산 (Phase 1.1 foliio vendoring 시 사용)
 anthropic

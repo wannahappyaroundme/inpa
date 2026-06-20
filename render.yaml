@@ -1,0 +1,40 @@
+# Render Blueprint — 인파 백엔드(inpa_be) 무료 배포.
+# DB는 Neon(무료 PostgreSQL) 외부 사용 → DATABASE_URL만 붙이면 됨(Render 무료 DB는 만료 정책이 있어 Neon 권장).
+# 사용법: Render → New → Blueprint → 이 저장소 선택 → sync:false 변수(DATABASE_URL 등) 입력.
+services:
+  - type: web
+    name: inpa-be
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: inpa_be          # ★ FE/BE 한 저장소 — 백엔드 경로 지정(미설정 시 빌드 실패)
+    healthCheckPath: /healthz/
+    # 빌드: 의존성 설치 + 정적파일 수집(whitenoise). collectstatic 은 prod.py 를 로드하므로
+    #       빌드용 더미 SECRET_KEY/DATABASE_URL 주입(런타임엔 아래 envVars 의 실제 값 사용).
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      DATABASE_URL=postgres://build:build@localhost:5432/build
+      SECRET_KEY=build-only-not-a-secret
+      python manage.py collectstatic --noinput
+    # 시작: 마이그레이션(멱등) 후 gunicorn. $PORT 는 Render 주입.
+    startCommand: >-
+      python manage.py migrate --noinput &&
+      gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: SECRET_KEY
+        generateValue: true          # Render 가 강한 랜덤키 자동 생성(가드 통과)
+      - key: DATABASE_URL
+        sync: false                  # Neon 연결 문자열(postgres://...) 직접 입력
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false                  # https://<vercel-fe-도메인>
+      - key: ANTHROPIC_API_KEY
+        sync: false                  # Claude 키(비우면 OCR/AI만 비활성)
+      - key: FRONTEND_BASE_URL
+        sync: false                  # https://<vercel-fe-도메인> (이메일 링크용)
+      # ALLOWED_HOSTS·CSRF 는 Render 가 RENDER_EXTERNAL_HOSTNAME 주입 → prod.py 가 자동 포함.
+      # 커스텀 도메인 붙이면 ALLOWED_HOSTS·CSRF_TRUSTED_ORIGINS 를 여기에 추가.
+      # 이메일(Resend) 쓸 때: EMAIL_BACKEND/EMAIL_HOST/EMAIL_PORT/EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/EMAIL_USE_SSL/DEFAULT_FROM_EMAIL 추가.
