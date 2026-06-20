@@ -304,3 +304,157 @@ class NormalizationHookTests(TestCase):
         normalizer = _build_normalizer()
         self.assertIsNone(normalizer('알수없는담보명', 2))
         self.assertIsNone(normalizer('삼성헬스케어암진단', 7))  # 다른 보험사 → 미스
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 환수 레이더(A/S) — GET /churn-radar/ 집계 + PATCH /insurances/<pk>/churn/
+# ★ 보유(portfolio_type=1)만 / owner 전용 / 수기입력 추정.
+# ──────────────────────────────────────────────────────────────────────
+import datetime as _dt
+
+
+def _make_held(customer, *, status=None, period=None, next_days=None, recovery=None):
+    """보유(portfolio_type=1) 계약 1건 + 환수 필드 수기값."""
+    nxt = None
+    if next_days is not None:
+        nxt = _dt.date.today() + _dt.timedelta(days=next_days)
+    return CustomerInsurance.objects.create(
+        customer=customer, insurance_type=2, name='보유보험', portfolio_type=1,
+        payment_status=status, current_payment_period=period,
+        next_payment_date=nxt, expected_recovery_amount=recovery,
+    )
+
+
+class ChurnRadarTests(TestCase):
+    """환수 레이더 집계 + 수기입력 + owner 격리."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('churn@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='환수고객', birth_day='1988.03.03', gender=1)
+
+    def test_radar_empty(self):
+        body = self.client.get('/api/v1/churn-radar/').json()
+        self.assertEqual(body['risk_count'], 0)
+        self.assertEqual(body['expected_recovery_total'], 0)
+        self.assertEqual(body['items'], [])
+
+    def test_overdue_flagged_at_risk(self):
+        """연체 + 13회차 전 → 위험, 환수예상액 합산, persistency=pre_13."""
+        _make_held(self.customer, status=2, period=5, recovery=1_200_000)
+        body = self.client.get('/api/v1/churn-radar/').json()
+        self.assertEqual(body['risk_count'], 1)
+        self.assertEqual(body['expected_recovery_total'], 1_200_000)
+        item = body['items'][0]
+        self.assertTrue(item['is_at_risk'])
+        self.assertEqual(item['persistency_stage'], 'pre_13')
+        self.assertIn('연체', item['risk_reason'])
+
+    def test_due_soon_flagged(self):
+        """다음 납입일 D-3 → 위험(미납 임박)."""
+        _make_held(self.customer, status=1, period=10, next_days=3)
+        body = self.client.get('/api/v1/churn-radar/').json()
+        self.assertEqual(body['risk_count'], 1)
+        self.assertIn('D-3', body['items'][0]['risk_reason'])
+
+    def test_safe_period_not_at_risk(self):
+        """연체여도 25회차 이상이면 환수 구간 밖 → 위험 아님."""
+        _make_held(self.customer, status=2, period=30)
+        body = self.client.get('/api/v1/churn-radar/').json()
+        self.assertEqual(body['risk_count'], 0)
+        self.assertEqual(body['items'][0]['persistency_stage'], 'safe')
+
+    def test_proposed_excluded(self):
+        """제안(portfolio_type=2)은 환수 대상 아님 → 리스트 제외."""
+        CustomerInsurance.objects.create(
+            customer=self.customer, insurance_type=2, name='제안보험',
+            portfolio_type=2, payment_status=2, current_payment_period=3)
+        body = self.client.get('/api/v1/churn-radar/').json()
+        self.assertEqual(body['items'], [])
+
+    def test_patch_updates_churn_fields(self):
+        ci = _make_held(self.customer)
+        r = self.client.patch(
+            f'/api/v1/insurances/{ci.id}/churn/',
+            {'current_payment_period': 8, 'payment_status': 2,
+             'next_payment_date': '2026-07-01', 'expected_recovery_amount': 900000},
+            format='json')
+        self.assertEqual(r.status_code, 200)
+        ci.refresh_from_db()
+        self.assertEqual(ci.current_payment_period, 8)
+        self.assertEqual(ci.payment_status, 2)
+        self.assertEqual(ci.next_payment_date, _dt.date(2026, 7, 1))
+        self.assertEqual(ci.expected_recovery_amount, 900000)
+
+    def test_patch_rejects_bad_status(self):
+        ci = _make_held(self.customer)
+        r = self.client.patch(f'/api/v1/insurances/{ci.id}/churn/',
+                              {'payment_status': 9}, format='json')
+        self.assertEqual(r.status_code, 400)
+
+    def test_owner_isolation_radar_and_patch(self):
+        """A의 보유계약은 B의 레이더에 안 보이고, B가 PATCH하면 404."""
+        ci = _make_held(self.customer, status=2, period=4)
+        _, client_b = _make_planner('churn-b@test.com')
+        body_b = client_b.get('/api/v1/churn-radar/').json()
+        self.assertEqual(body_b['items'], [])
+        r = client_b.patch(f'/api/v1/insurances/{ci.id}/churn/',
+                           {'current_payment_period': 1}, format='json')
+        self.assertEqual(r.status_code, 404)
+
+
+class ChurnSyncAlertsTests(TestCase):
+    """환수 위험 → 인앱 Notification 생성(dedup)."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('sync@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='동기화고객', birth_day='1990.01.01', gender=1)
+
+    def test_creates_and_dedups(self):
+        from inpa.notifications.models import Notification, NotifType
+        _make_held(self.customer, status=2, period=5)  # 위험
+        r1 = self.client.post('/api/v1/churn-radar/sync-alerts/')
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r1.json()['created'], 1)
+        # 재호출 → 당일 dedup(고객당 1건)
+        r2 = self.client.post('/api/v1/churn-radar/sync-alerts/')
+        self.assertEqual(r2.json()['created'], 0)
+        self.assertEqual(
+            Notification.objects.filter(
+                owner=self.user, notif_type=NotifType.UNPAID_D_ALERT).count(), 1)
+
+    def test_no_risk_no_alert(self):
+        _make_held(self.customer, status=1, period=30)  # 안전
+        r = self.client.post('/api/v1/churn-radar/sync-alerts/')
+        self.assertEqual(r.json()['created'], 0)
+
+
+class SelfDiagnosisGateTests(TestCase):
+    """셀프진단 인바운드 — 동의 게이트 + ref 검증(OCR 이전 단계)."""
+
+    def setUp(self):
+        self.planner, _ = _make_planner('refplanner@test.com')
+        self.ref = self.planner.profile.ref_code
+        self.public = APIClient()  # 비로그인
+
+    def test_invalid_ref_404(self):
+        r = self.public.post('/api/v1/d/NOPECODE/', {}, format='multipart')
+        self.assertEqual(r.status_code, 404)
+
+    def test_missing_consent_412(self):
+        """동의 없이는 412 — Claude(OCR) 호출 전 물리 차단."""
+        r = self.public.post(f'/api/v1/d/{self.ref}/', {'consent_overseas': 'true'}, format='multipart')
+        self.assertEqual(r.status_code, 412)
+        self.assertEqual(r.json()['code'], 'CONSENT_REQUIRED')
+
+    def test_consent_then_file_required(self):
+        """동의 2건 충족 시 게이트 통과 → 다음 단계(파일 필수 400)로 진행."""
+        from inpa.customers.models import Customer
+        r = self.public.post(
+            f'/api/v1/d/{self.ref}/',
+            {'consent_overseas': 'true', 'consent_share': 'true'}, format='multipart')
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['code'], 'FILE_REQUIRED')
+        # 동의/파일 전이라 리드 생성 안 됨(부작용 없음)
+        self.assertEqual(Customer.objects.filter(lead_source='self_diagnosis').count(), 0)
