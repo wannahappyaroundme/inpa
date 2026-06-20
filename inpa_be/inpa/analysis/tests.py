@@ -343,6 +343,38 @@ class CompareFactsTests(TestCase):
         self.assertIsNone(body['guide_draft'])
         self.assertFalse(body['guide_enabled'])
 
+    # ── 갈아타기 KEEP/SWITCH 판정 (설계사 내부면 전용, 결정론) ──
+    def test_verdict_keys_present(self):
+        """verdict + switch_warnings 키 존재 + decision 은 3값 중 하나."""
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1, monthly=40000)
+        _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2, monthly=60000)
+        body = self._get().json()
+        self.assertIn('verdict', body)
+        self.assertIn('switch_warnings', body)
+        for k in ('decision', 'reason', 'customer_net_benefit_estimate', 'disclaimer'):
+            self.assertIn(k, body['verdict'])
+        self.assertIn(body['verdict']['decision'], ('KEEP', 'SWITCH', 'NEUTRAL'))
+
+    def test_verdict_neutral_when_no_proposed(self):
+        """제안(갈아타기 대상) 없음 → NEUTRAL."""
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1)
+        body = self._get().json()
+        self.assertEqual(body['verdict']['decision'], 'NEUTRAL')
+
+    def test_verdict_switch_when_cheaper_and_improved(self):
+        """더 싸고(월6만→4만) 보장 개선(5천만→1억) → SWITCH 검토."""
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1, monthly=60000)
+        _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2, monthly=40000)
+        body = self._get().json()
+        self.assertEqual(body['verdict']['decision'], 'SWITCH')
+
+    def test_verdict_keep_when_pricier_no_improvement(self):
+        """더 비싸고(월4만→8만) 보장 동일 → KEEP(유지 유리)."""
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1, monthly=40000)
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=2, monthly=80000)
+        body = self._get().json()
+        self.assertEqual(body['verdict']['decision'], 'KEEP')
+
 
 class CompareAiGateTests(TestCase):
     """AI 비교안내서 초안 — COMPARE_AI_ENABLED=True 일 때만 생성(Claude mock)."""

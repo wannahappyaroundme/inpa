@@ -124,6 +124,17 @@ class ShareViewTests(TestCase):
     def _url(self):
         return f'/api/v1/s/{self.customer.share_token}/'
 
+    def test_share_view_excludes_planner_verdict(self):
+        """★ 회귀 가드(§97): 설계사 내부 판정(verdict·switch_warnings)은 고객 공유뷰에 절대 누수 금지."""
+        import json
+        body = self.public.get(self._url()).json()
+        self.assertNotIn('verdict', body)
+        self.assertNotIn('switch_warnings', body)
+        # 중첩 누수까지 차단 — 직렬화 전체 문자열에 키가 없어야 한다.
+        raw = json.dumps(body, ensure_ascii=False)
+        self.assertNotIn('verdict', raw)
+        self.assertNotIn('switch_warnings', raw)
+
     def test_share_view_returns_200_neutral(self):
         r = self.public.get(self._url())
         self.assertEqual(r.status_code, 200)

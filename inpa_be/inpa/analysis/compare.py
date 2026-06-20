@@ -29,6 +29,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from inpa.analysis.switch_verdict import compute_verdict
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer, PlannerBaseline
@@ -239,6 +240,8 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
         mode, current:{monthly_premiums, total_premiums},
         proposed:{monthly_premiums, total_premiums},
         rows:[{coverage, current_amount, proposed_amount, delta}],
+        verdict:{decision(KEEP|SWITCH|NEUTRAL), reason, customer_net_benefit_estimate, disclaimer},
+        switch_warnings:[{type, label, detail, amount}],   # ★ 설계사 내부 전용(공유뷰 누수 금지)
         guide_draft, guide_enabled, publishable(=false),
         publish_blocked_reason, disclaimer
       }
@@ -258,6 +261,11 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
         proposed_summary, proposed_amounts = _aggregate_side(proposed_list)
         rows = _build_rows(current_amounts, proposed_amounts)
         mode = _mode_for_customer(customer)
+
+        # ── 갈아타기 KEEP/SWITCH 판정 (★ 설계사 내부면 전용 — 고객 공유뷰엔 절대 미노출) ──
+        # 결정론 계산(Claude 호출 없음). switch_warnings(해지손실 등) + 보수적 verdict.
+        verdict = compute_verdict(
+            current_list, proposed_list, current_summary, proposed_summary, rows)
 
         # ── AI 비교안내서 초안 — COMPARE_AI_ENABLED=True 일 때만 ────────────
         guide_draft = None
@@ -287,6 +295,14 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
             'rows': rows,
             'guide_draft': guide_draft,
             'guide_enabled': guide_enabled,
+            # ── 설계사 내부 판정(planner_internal) — 공유뷰 누수 금지 ──
+            'verdict': {
+                'decision': verdict['decision'],
+                'reason': verdict['reason'],
+                'customer_net_benefit_estimate': verdict['customer_net_benefit_estimate'],
+                'disclaimer': verdict['disclaimer'],
+            },
+            'switch_warnings': verdict['switch_warnings'],
             # ★ 발행은 항상 차단 — 고객 발송 하드블록(§97 법무 확정 전).
             'publishable': False,
             'publish_blocked_reason': PUBLISH_BLOCKED_REASON,
