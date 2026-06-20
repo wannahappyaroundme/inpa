@@ -1327,31 +1327,47 @@ export async function createConsentLog(
 // 공유뷰 — 고객 공개 링크 (NoAuth, GET /api/v1/s/<token>/)
 // ════════════════════════════════════════════════════════════════════════════
 
-/** 공유뷰에서 노출되는 담보 항목 (사실만 — 판정 없음) */
-export interface ShareCoverage {
+/** 공유뷰 담보 한 칸 (사실만 — 공개 공유는 neutral, 판정 라벨 없음) */
+export interface ShareCoverageDetail {
+  detail_id: number;
   name: string;
-  amount: number | null;
-  amount_text: string;
+  held_amount: number | null;
+  status: string;
+  baseline: unknown | null;
+}
+export interface ShareSubCategory {
+  sub_category_id: number;
+  name: string;
+  details: ShareCoverageDetail[];
+}
+export interface ShareCategory {
+  category_id: number;
+  name: string;
+  insurance_type: number;
+  sub_categories: ShareSubCategory[];
 }
 
-/** 납입 현황 요약 */
-export interface SharePaymentSummary {
+/** 마스킹된 고객 (PII 최소) */
+export interface ShareCustomer {
+  name_masked: string;
+  gender: number | null;
+  birth_year: number | null;
+}
+
+/** 납입/보험료 합계 (사실) */
+export interface ShareSummary {
   monthly_premiums: number | null;
-  paid_amount: number | null;
-  remaining_amount: number | null;
-  pay_progress: number | null; // 0~100
-  expiry_text: string | null;
-  product_name: string | null;
+  total_premiums: number | null;
+  [key: string]: number | null;
 }
 
-/** GET /api/v1/s/<token>/ 응답 전체 */
+/** GET /api/v1/s/<token>/ 응답 전체 (BE 실제 형태) */
 export interface ShareViewResponse {
-  customer_name: string;
-  planner_name: string;
-  planner_contact: string | null;
-  payment_summary: SharePaymentSummary;
-  coverages: ShareCoverage[];
-  is_expired: boolean;
+  customer: ShareCustomer;
+  mode: "neutral" | "graded";
+  summary: ShareSummary;
+  tree: ShareCategory[];
+  disclaimer: string;
 }
 
 /**
