@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { PwaRegister } from "@/components/pwa-register";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://inpa.kr";
 const TITLE = "인파(Inpa) — 설계사님은 클로징만 준비하세요";
@@ -30,6 +31,16 @@ export const metadata: Metadata = {
     description: DESCRIPTION,
     // twitter:image는 opengraph-image 를 재사용 (Next 자동 매핑)
   },
+  // PWA: app/manifest.ts 가 <link rel="manifest"> 자동 주입. iOS 홈화면 앱 설정.
+  appleWebApp: {
+    capable: true,
+    title: "인파",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#1B2A57",
 };
 
 export default function RootLayout({
@@ -46,7 +57,10 @@ export default function RootLayout({
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css"
         />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <PwaRegister />
+        {children}
+      </body>
     </html>
   );
 }
