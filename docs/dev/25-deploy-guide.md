@@ -113,15 +113,28 @@ git push -u origin main
 ### c-3. BE 환경변수 입력 (Variables 탭)
 > 아래 이름을 **정확히 그대로** 입력. 값은 본인 것으로. (시크릿은 여기에만, 코드/`.env`에는 절대 안 넣음.)
 
+> **★ 코드 안전판(이미 적용됨 — 사고 방지용):**
+> - `railway.json`·`nixpacks.toml`이 **`DJANGO_SETTINGS_MODULE=config.settings.prod`를 강제** → 변수를 깜빡해도 `local`(SQLite/DEBUG)로 조용히 뜨는 사고 차단. (그래도 명시 입력 권장)
+> - **`SECRET_KEY` 미설정 시 서버가 일부러 부팅 거부**(`prod.py` 가드, `ImproperlyConfigured`) → 데모키로 토큰 서명되는 사고 차단. **= SECRET_KEY는 필수.**
+> - `inpa_be/.railwayignore`가 **로컬 `.env`(실제 키)·sqlite의 업로드를 차단** → 시크릿은 반드시 아래 Variables에 직접 입력.
+> - `DEBUG`는 `prod.py`가 항상 `False`로 강제 → **별도 입력 불필요.**
+
+**필수 (이게 없으면 서버가 안 뜨거나 FE↔BE 전면 차단):**
+
 | Name (정확히) | Value 예시 | 설명 |
 |---|---|---|
-| `DJANGO_SETTINGS_MODULE` | `config.settings.prod` | 운영 설정 사용 (★ 필수) |
-| `SECRET_KEY` | `<랜덤 50자 이상>` | Django 서명 키. 아래 생성법 참고 |
-| `DEBUG` | `False` | 운영은 반드시 False |
+| `SECRET_KEY` | `<랜덤 50자 이상>` | Django 서명 키. **미설정 시 부팅 거부**. 아래 생성법 |
+| `DATABASE_URL` | (c-2에서 참조로 자동) | MySQL 연결 문자열 |
 | `ALLOWED_HOSTS` | `inpa-be.up.railway.app` | 콤마로 여러 개. 커스텀 도메인 생기면 추가 |
 | `CSRF_TRUSTED_ORIGINS` | `https://inpa-be.up.railway.app` | https 포함 전체 URL. admin 로그인용 |
-| `DATABASE_URL` | (c-2에서 참조로 자동) | MySQL 연결 문자열 |
-| `CORS_ALLOWED_ORIGINS` | `https://inpa-xxxx.vercel.app` | (b-4) 프론트 주소. https 포함 |
+| `CORS_ALLOWED_ORIGINS` | `https://inpa-xxxx.vercel.app` | (b-4) 프론트 주소. https 포함, 와일드카드 ❌ |
+| `DJANGO_SETTINGS_MODULE` | `config.settings.prod` | 코드가 이미 강제하나 명시 권장 |
+
+**곧/선택 (없어도 서버는 뜸):**
+
+| Name (정확히) | Value 예시 | 설명 |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | `sk-ant-xxxx` | Claude 키(시크릿). `.railwayignore`로 .env 안 올라가니 **여기 직접 입력**. 비우면 OCR/AI만 비활성, 서버는 정상 |
 | `FRONTEND_BASE_URL` | `https://inpa-xxxx.vercel.app` | 이메일 링크 생성용 (프론트 주소) |
 | `EMAIL_BACKEND` | `django.core.mail.backends.smtp.EmailBackend` | 운영 이메일 발송 |
 | `EMAIL_HOST` | `smtp.resend.com` | Resend SMTP |
@@ -130,23 +143,27 @@ git push -u origin main
 | `EMAIL_HOST_PASSWORD` | `re_xxxxxxxx` | Resend API 키 (시크릿) |
 | `EMAIL_USE_SSL` | `True` | 465 포트는 SSL |
 | `DEFAULT_FROM_EMAIL` | `noreply@inpa.kr` | 발신 주소 (도메인 인증 후) |
-| `ANTHROPIC_API_KEY` | `sk-ant-xxxx` | Claude API 키 (시크릿). 비우면 OCR 기능만 비활성, 서버는 정상 |
+| `SENTRY_DSN` | `https://...@sentry.io/...` | 에러 관측(선택). 있으면 `prod.py`가 자동 init |
 
 > **SECRET_KEY 생성법**: 터미널에서
 > `python3 -c "import secrets; print(secrets.token_urlsafe(64))"`
-> 출력된 문자열을 값으로 붙여넣기.
+> 출력된 문자열을 값으로 붙여넣기. (★ 채팅·문서에 남기지 말 것)
+
+> **★ 비용 안전망 (필수 — 코드 밖 최후 방어선):** 셀프진단(`/d/<ref>`)은 무인증 공개 경로다. 코드에 throttle(IP 5건/시간)+refcode 일일상한(30)+5MB 제한을 넣었지만, **Anthropic 콘솔에서 월 spend limit + 사용량 알림**을 반드시 설정해 Claude 비용 폭주의 최종 상한을 건다. (베타는 `FREE_TIER_UNLIMITED=True`라 인증 사용자도 무차감 — 콘솔 상한이 유일한 비용 캡)
 
 - **성공 신호**: 저장하면 Railway가 자동으로 재배포를 시작한다(Deployments 탭에 새 빌드).
 - **흔한 오류**:
-  - 배포는 됐는데 502/접속 안 됨 → `ALLOWED_HOSTS`에 Railway 도메인이 빠짐. c-3 표대로 추가.
-  - `ANTHROPIC_API_KEY`를 비워도 서버는 뜬다(증권 OCR만 비활성). 키는 나중에 넣어도 됨.
+  - 배포가 `ImproperlyConfigured: SECRET_KEY ...`로 실패 → `SECRET_KEY` 미입력. 위 생성법으로 넣고 재배포.
+  - 배포는 됐는데 502/접속 안 됨 → `ALLOWED_HOSTS`에 Railway 도메인이 빠짐. 표대로 추가.
+  - FE에서 `CORS` 빨간 에러 → `CORS_ALLOWED_ORIGINS`에 정확한 Vercel 주소(https 포함).
+  - `ANTHROPIC_API_KEY`를 비워도 서버는 뜬다(증권 OCR/AI만 비활성). 키는 나중에 넣어도 됨.
 
 ### c-4. 공개 도메인 켜기
 1. BE 서비스 → **Settings** → **Networking** → **Generate Domain** 클릭.
 2. 생기는 주소(`https://inpa-be.up.railway.app`)를 메모 = **BE 주소**.
 3. 이 주소를 기준으로:
-   - (b-3) Vercel `NEXT_PUBLIC_API_BASE` = `이 주소 + /api/v1` 로 **교체**(Vercel → Project → Settings → Environment Variables → 수정 후 재배포).
-   - (c-3) `ALLOWED_HOSTS`·`CSRF_TRUSTED_ORIGINS`에도 이 도메인이 들어가 있는지 확인.
+   - (b-3) Vercel `NEXT_PUBLIC_API_BASE` = `이 주소 + /api/v1` 로 **교체**(Vercel → Project → Settings → Environment Variables → 수정 후 **반드시 재배포** — 빌드타임 값이라 기존 빌드엔 반영 안 됨).
+   - (c-3) `ALLOWED_HOSTS`·`CSRF_TRUSTED_ORIGINS`에 이 **BE 도메인**이, `CORS_ALLOWED_ORIGINS`에 실제 **Vercel 주소**가 들어갔는지 확인 후 BE 재배포.
 
 ---
 
@@ -188,6 +205,7 @@ python manage.py createsuperuser
 ### e-1. 백엔드 헬스체크
 - 브라우저 주소창에 **`https://<BE주소>/healthz/`** 입력.
 - **성공 신호**: `{"status": "ok", "service": "inpa-be"}` 가 보임.
+- **prod로 떴는지 확인**: 개발자도구 Network에서 응답 헤더에 `Strict-Transport-Security`가 있으면 prod 설정으로 뜬 증거. 또 일부러 없는 URL(`/nope/`)을 열어 **상세 스택트레이스가 안 보이면** `DEBUG=False` 정상.
 - 실패(502/타임아웃) → (c-3) `ALLOWED_HOSTS`·`DATABASE_URL` 점검, Deployments 로그 확인.
 
 ### e-2. 프론트 화면
@@ -197,6 +215,7 @@ python manage.py createsuperuser
 ### e-3. FE ↔ BE 통신 (CORS)
 - 프론트에서 로그인/회원가입 등 데이터를 부르는 화면을 연다.
 - 브라우저 **개발자도구(F12) → Console**에 `CORS` 빨간 에러가 없어야 한다.
+- **Network 탭에서 API 요청이 Railway 도메인으로** 가는지 확인. `localhost:8000`으로 가면 Vercel `NEXT_PUBLIC_API_BASE` 미반영 → 값 입력 후 **재배포**. (콘솔에 "NEXT_PUBLIC_API_BASE 미설정" 경고도 뜸)
 - 에러 있으면 → (c-3) `CORS_ALLOWED_ORIGINS`에 **정확한 프론트 주소(https 포함)**가 있는지 확인 후 BE 재배포.
 
 ### e-4. 회원가입 → 이메일 인증 (happy path)
@@ -212,6 +231,7 @@ python manage.py createsuperuser
 ## 부록 A. 시크릿 관리 원칙 (꼭 지키기)
 - 비밀 값(`SECRET_KEY`, `EMAIL_HOST_PASSWORD`, `ANTHROPIC_API_KEY`, `DATABASE_URL`)은 **Vercel/Railway 대시보드 환경변수에만**.
 - `.env` 파일은 로컬 개발 전용이며 **GitHub에 올라가지 않는다**(`.gitignore` 처리됨). 공유는 값 없는 `*.env.example`로.
+- **`railway up`은 `.gitignore`가 아니라 `.railwayignore`를 본다** → `inpa_be/.railwayignore`에 `.env`를 넣어 실제 키 업로드를 차단해 둠. (대시보드 Variables가 정본)
 - 키가 실수로 노출되면: **즉시 해당 플랫폼에서 키 재발급(로테이션)** → 환경변수 교체 → 재배포.
 
 ## 부록 B. 롤백 (문제 생기면 되돌리기)
@@ -222,9 +242,11 @@ python manage.py createsuperuser
 ## 부록 C. 환경변수 한눈표 (어디에 무엇을)
 | 변수 | 위치 | 시크릿? |
 |---|---|---|
-| `NEXT_PUBLIC_API_BASE` | Vercel | 공개 OK |
-| `DJANGO_SETTINGS_MODULE` `DEBUG` `ALLOWED_HOSTS` `CSRF_TRUSTED_ORIGINS` `CORS_ALLOWED_ORIGINS` `FRONTEND_BASE_URL` `EMAIL_HOST` `EMAIL_PORT` `EMAIL_HOST_USER` `EMAIL_USE_SSL` `DEFAULT_FROM_EMAIL` | Railway | 공개 OK |
+| `NEXT_PUBLIC_API_BASE` `NEXT_PUBLIC_SITE_URL` | Vercel | 공개 OK (빌드타임 인라인 — 변경 시 재배포) |
+| `DJANGO_SETTINGS_MODULE` `ALLOWED_HOSTS` `CSRF_TRUSTED_ORIGINS` `CORS_ALLOWED_ORIGINS` `FRONTEND_BASE_URL` `EMAIL_HOST` `EMAIL_PORT` `EMAIL_HOST_USER` `EMAIL_USE_SSL` `DEFAULT_FROM_EMAIL` `SENTRY_DSN` | Railway | 공개 OK |
 | `SECRET_KEY` `DATABASE_URL` `EMAIL_HOST_PASSWORD` `ANTHROPIC_API_KEY` | Railway | **시크릿** |
+
+> `DEBUG`는 `config.settings.prod`가 항상 `False`로 강제 → 환경변수 불필요. `DJANGO_SETTINGS_MODULE`도 `railway.json`/`nixpacks.toml`이 prod로 강제(명시 권장).
 
 ---
 
