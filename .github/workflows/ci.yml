@@ -4,9 +4,9 @@ name: CI
 # 실제 배포는 Vercel(FE)·Railway(BE)가 GitHub 연동으로 자동 수행 → 여기선 검증만 한다.
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
 
 jobs:
   # ── job1: 백엔드 (Django check + test, 로컬 설정=SQLite) ──────────

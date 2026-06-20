@@ -1,0 +1,60 @@
+name: Deploy
+
+# FE → Vercel / BE → Railway 를 GitHub Actions 로 배포.
+# ★ 시크릿(아래)이 GitHub repo Secrets 에 있어야 실제 배포됨. 없으면 각 job 이 안전하게 '건너뜀'(녹색).
+#   FE:  VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
+#   BE:  RAILWAY_TOKEN  (선택: RAILWAY_SERVICE — 기본 'inpa-be')
+# 트리거: master push (CI 통과 후 자동) + 수동 실행(Actions 탭 → Run workflow).
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  # ── FE → Vercel ──────────────────────────────────────────────
+  deploy-frontend:
+    name: Deploy Frontend (Vercel)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Deploy inpa_fe to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::notice title=FE 배포 건너뜀::VERCEL_TOKEN 시크릿 미설정 — Vercel 배포 skip"
+            exit 0
+          fi
+          npm i -g vercel@latest
+          cd inpa_fe
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+  # ── BE → Railway ─────────────────────────────────────────────
+  deploy-backend:
+    name: Deploy Backend (Railway)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Deploy inpa_be to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::notice title=BE 배포 건너뜀::RAILWAY_TOKEN 시크릿 미설정 — Railway 배포 skip"
+            exit 0
+          fi
+          npm i -g @railway/cli
+          cd inpa_be
+          # nixpacks.toml/railway.json 가 build(collectstatic)·preDeploy(migrate)·start(gunicorn) 처리
+          railway up --service "${RAILWAY_SERVICE:-inpa-be}" --detach
