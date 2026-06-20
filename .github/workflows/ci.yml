@@ -26,10 +26,7 @@ jobs:
           cache: 'pip'
           cache-dependency-path: inpa_be/requirements.txt
 
-      # mysqlclient(운영 드라이버) 컴파일에 필요한 시스템 라이브러리.
-      - name: Install MySQL client headers
-        run: sudo apt-get update && sudo apt-get install -y default-libmysqlclient-dev pkg-config
-
+      # DB 드라이버 = psycopg2-binary(휠, 시스템 라이브러리 불필요). 운영=Postgres(Neon)/로컬=SQLite.
       - name: Install dependencies
         run: pip install -r inpa_be/requirements.txt
 

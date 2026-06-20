@@ -14,7 +14,7 @@
 ## 스택 (2026-06-19 확정 — Claude Code 개발 최적)
 - **FE: Next.js + TypeScript + Tailwind** (Angular 대신 — Claude Code 개발 속도·디자인 토큰 매핑 유리. foliio 랜딩도 Next.js 16).
 - **BE: Django 4.1 + DRF + Python** — foliio의 `core/ocr/claude_parser`·`customers/calculate.py`(8케이스, numpy_financial)·담보 정규화 로직을 **그대로 재사용**(재포팅 위험 회피 = 핵심 자산).
-- DB: MariaDB(PG 보류) / AI: Claude API(비교안내서·정규화=Opus 4.8 / 다건OCR=Haiku / 야간=Batches).
+- DB: **PostgreSQL**(운영=Neon 무료, 로컬=SQLite) — 2026-06-21 Railway 무료티어 폐지로 MariaDB→PG 전환(Django ORM이라 코드 영향 0, `psycopg2-binary`). / AI: Claude API(비교안내서·정규화=Opus 4.8 / 다건OCR=Haiku / 야간=Batches).
 - **재사용=Python 백엔드 / 신규=Next.js 프론트**(3축 화면은 어차피 신규). Angular 컴포넌트는 재구현.
 - 디자인 토큰: `design/tokens/inpa-tokens.css`(:root CSS변수) → Tailwind config 매핑. 로고: `design/logo/*.svg`.
 - CPO=CTO 겸임(사용자 결정). 외부 법무 자문 계약 없음 → 컴플라이언스 게이트는 보수적 기본값+공개 가이드(협회·금감원)로 자체 처리, 유료 정식출시 전 재검토.
@@ -22,7 +22,7 @@
 ## 확정 결정 (2026-06-19 세션)
 - **인증 = 이메일/비밀번호 전용** (카카오 OAuth 폐기). 회원가입→이메일 인증→로그인→비번찾기(이메일 토큰). 비번 해시 PBKDF2(Django 기본). 토큰은 별도 테이블 없이 Django 서명 토큰.
 - **데이터 가시성**: 게시판(SNS 피드)·공지·FAQ·판촉물 샘플 = **공유**(전 설계사). 그 외(고객·동의·보험·분석·비교·캘린더·KPI·알림·기준) = **소유자 전용**(OwnedQuerySetMixin+IsOwner). 1:1문의=작성자+관리자. 판촉물 주문=소유자+관리자. `Customer.owner on_delete=CASCADE`.
-- **배포 = GitHub 자동배포**: FE→Vercel, BE→Render(또는 Railway), DB 매니지드 MariaDB, CI=GitHub Actions(gitleaks·commitlint). 이메일=Resend.
+- **배포 = GitHub 자동배포(무료 $0)**: FE→Vercel, BE→Render(무료, `render.yaml`), DB→Neon(무료 PostgreSQL), CI=GitHub Actions(gitleaks·commitlint). 이메일=Resend. (Railway는 무료티어 폐지로 제외)
 - **랜딩페이지**(`/`, 공개): 히어로 "**설계사님은 클로징만 준비하세요**".
 - **판촉물** = 샘플 사진 + 구글폼식 입력 + 예약 → 운영팀 수동 주문제작(자동발송 없음). (구 'promotion 14종 자동생성' 모델 폐기)
 - 한도(Freemium): 베타 무제한(`FREE_TIER_UNLIMITED`), 수치·결제는 정식 전. planner_baseline 프리셋: 베타는 직접입력만.
