@@ -25,6 +25,8 @@ const NOTIF_META: Record<
   consult_reminder:  { icon: "💬", colorClass: "text-brand",                              label: "상담 약속" },
   task_due:          { icon: "✅", colorClass: "text-success",                            label: "할 일 마감" },
   share_unread:      { icon: "📨", colorClass: "text-ink3",                               label: "미열람 공유" },
+  unpaid_d_alert:    { icon: "⚠️",  colorClass: "text-rose-600 dark:text-rose-400",        label: "환수 위험" },
+  self_diagnosis_lead: { icon: "🎯", colorClass: "text-brand",                            label: "셀프진단 리드" },
   board_comment:     { icon: "💬", colorClass: "text-brand",                              label: "댓글" },
   board_like:        { icon: "❤️",  colorClass: "text-danger",                            label: "좋아요" },
 };

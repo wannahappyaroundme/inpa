@@ -6,7 +6,7 @@ import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { calendar, calendarEvents, eventMeta, todayTasks, type EventType } from "@/lib/mock";
 import { useAuthGuard } from "@/lib/useAuthGuard";
-import { listCustomers, getProfile, type ProfileResponse } from "@/lib/api";
+import { listCustomers, getProfile, getChurnRadar, syncChurnAlerts, type ProfileResponse, type ChurnRadarResponse } from "@/lib/api";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -17,6 +17,7 @@ export default function HomePage() {
   const [sel, setSel] = useState(calendar.today);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [customerCount, setCustomerCount] = useState<number | null>(null);
+  const [churn, setChurn] = useState<ChurnRadarResponse | null>(null);
 
   const first = new Date(calendar.year, calendar.month - 1, 1).getDay();
   const days = new Date(calendar.year, calendar.month, 0).getDate();
@@ -41,6 +42,12 @@ export default function HomePage() {
     listCustomers({ page: 1 })
       .then((res) => setCustomerCount(res.count))
       .catch(() => setCustomerCount(null));
+    // 환수 위험을 인앱 알림으로 동기화(조용히, dedup) → 그 다음 레이더 집계 로드.
+    syncChurnAlerts().catch(() => { /* 무시 */ }).finally(() => {
+      getChurnRadar()
+        .then((res) => setChurn(res))
+        .catch(() => setChurn(null));
+    });
   }, [ready, router]);
 
   if (!ready) return null;
@@ -97,6 +104,34 @@ export default function HomePage() {
             </Card>
           ))}
         </div>
+
+        {/* 환수 레이더(A/S) — 보유계약 납입/유지율 위험. 클릭 시 수기입력·점검 */}
+        <button
+          onClick={() => router.push("/churn-radar")}
+          className={`mt-4 w-full text-left rounded-2xl border px-4 py-3.5 flex items-center gap-3 transition active:scale-[0.997] ${
+            churn && churn.risk_count > 0
+              ? "border-rose-200 bg-rose-50 hover:bg-rose-100"
+              : "border-line bg-surface2 hover:bg-surface"
+          }`}
+        >
+          <span className="text-[22px]">{churn && churn.risk_count > 0 ? "⚠️" : "🛡️"}</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[14px] font-bold text-ink">
+              환수 레이더
+              {churn && churn.risk_count > 0 && (
+                <span className="ml-2 text-rose-700">위험 {churn.risk_count}건</span>
+              )}
+            </div>
+            <div className="text-[12px] text-ink3 mt-0.5">
+              {churn === null
+                ? "보유계약 납입상태·유지율(13/25회차)을 점검하세요"
+                : churn.risk_count > 0
+                ? `예상 환수액(추정) ₩${new Intl.NumberFormat("ko-KR").format(churn.expected_recovery_total)} · 지금 확인`
+                : "현재 환수 위험 없음 · 납입정보 입력·점검"}
+            </div>
+          </div>
+          <span className="text-ink3 text-[18px] shrink-0">›</span>
+        </button>
 
         {/* 캘린더 + 오늘 일정 */}
         <div className="mt-5 lg:grid lg:grid-cols-3 lg:gap-5">

@@ -37,12 +37,14 @@ import {
   getHeatmap,
   compareCustomer,
   getCustomerHistory,
+  getProfile,
   ApiError,
   type CustomerDetail,
   type HeatmapResponse,
   type HeatmapDetail,
   type CompareResponse,
   type HistoryEvent,
+  type ProfileResponse,
 } from "@/lib/api";
 
 type TabKey = "analysis" | "switch" | "gap" | "history";
@@ -102,10 +104,19 @@ function CustomerDetailInner() {
   const customerId = Number(params.id);
   const idValid = Number.isFinite(customerId) && customerId > 0;
 
-  // 탭 상태 (URL ?tab= 동기화)
+  // 위촉 형태 — 전속(1)이면 갈아타기(다사) 탭 숨김 + 공백 탭을 자사 업셀로 분기.
+  const [profile, setProfile] = useState<ProfileResponse | null>(null);
+  useEffect(() => {
+    getProfile().then(setProfile).catch(() => setProfile(null));
+  }, []);
+  const isExclusive = profile?.affiliation_type === 1;
+  const visibleTabs = isExclusive ? TABS.filter((t) => t.key !== "switch") : TABS;
+
+  // 탭 상태 (URL ?tab= 동기화). 전속이 switch 진입 시 분석으로 폴백.
   const tabParam = searchParams.get("tab") as TabKey | null;
-  const activeTab: TabKey =
+  let activeTab: TabKey =
     tabParam && TABS.some((t) => t.key === tabParam) ? tabParam : "analysis";
+  if (activeTab === "switch" && isExclusive) activeTab = "analysis";
 
   // 고객 상세
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
@@ -236,7 +247,7 @@ function CustomerDetailInner() {
               aria-label="고객 상세 탭"
               className="mt-5 flex gap-1 border-b border-line overflow-x-auto"
             >
-              {TABS.map((t) => (
+              {visibleTabs.map((t) => (
                 <button
                   key={t.key}
                   role="tab"
@@ -279,6 +290,7 @@ function CustomerDetailInner() {
                   loading={heatmapLoading}
                   error={heatmapError}
                   onRetry={() => fetchHeatmap(customerId)}
+                  isExclusive={isExclusive}
                 />
               )}
               {activeTab === "history" && <HistoryTab customerId={customerId} />}
@@ -559,6 +571,52 @@ function SwitchTab({ customerId }: { customerId: number }) {
         </p>
       </div>
 
+      {/* ── 갈아타기 판정 (★ 설계사 내부 의사결정 근거 — 고객에게 노출되지 않음) ── */}
+      {data.verdict && (() => {
+        const v = data.verdict;
+        const map = {
+          KEEP: { label: "유지가 유리 (추정)", cls: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "🟢" },
+          SWITCH: { label: "갈아타기 검토", cls: "bg-blue-50 border-blue-200 text-blue-900", dot: "🔵" },
+          NEUTRAL: { label: "중립 — 상황 판단", cls: "bg-surface2 border-line text-ink2", dot: "⚪" },
+        } as const;
+        const m = map[v.decision] ?? map.NEUTRAL;
+        const net = v.customer_net_benefit_estimate;
+        return (
+          <div className={`rounded-xl border px-4 py-3.5 mb-4 ${m.cls}`}>
+            <div className="flex items-center gap-2">
+              <span className="text-[14px] font-extrabold">{m.dot} {m.label}</span>
+              <span className="ml-auto text-[10px] font-semibold rounded-full bg-white/60 px-2 py-0.5">
+                설계사 검토용 · 비공개
+              </span>
+            </div>
+            <p className="mt-1.5 text-[13px] leading-5">{v.reason}</p>
+            {net !== null && (
+              <p className="mt-1 text-[12px] tnum font-semibold">
+                1년 기준 추정 순손익: {net >= 0 ? "+" : ""}
+                {new Intl.NumberFormat("ko-KR").format(net)}원
+              </p>
+            )}
+            {data.switch_warnings && data.switch_warnings.length > 0 && (
+              <ul className="mt-2.5 space-y-1 border-t border-black/10 pt-2">
+                {data.switch_warnings.map((w, i) => (
+                  <li key={i} className="text-[12px] leading-5 flex gap-1.5">
+                    <span>⚠️</span>
+                    <span>
+                      <b className="font-semibold">{w.label}</b>
+                      {w.amount !== null && (
+                        <> · {new Intl.NumberFormat("ko-KR").format(w.amount)}원</>
+                      )}
+                      <span className="opacity-80"> — {w.detail}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-[10.5px] leading-4 opacity-70">{v.disclaimer}</p>
+          </div>
+        );
+      })()}
+
       {/* 보험료 요약 */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="rounded-xl border border-line bg-surface2 px-4 py-3">
@@ -698,11 +756,13 @@ function GapTab({
   loading,
   error,
   onRetry,
+  isExclusive = false,
 }: {
   heatmap: HeatmapResponse | null;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  isExclusive?: boolean;
 }) {
   if (loading) {
     return (
@@ -750,7 +810,7 @@ function GapTab({
     <div>
       <div className="flex items-baseline justify-between">
         <h3 className="text-[15px] font-bold text-ink">
-          보장 공백{" "}
+          {isExclusive ? "🎯 자사 보장공백" : "보장 공백"}{" "}
           <span className="text-ink3 tnum">{gaps.length}</span>
         </h3>
         <span className="text-[12px] text-ink3">보유 0 담보</span>
@@ -758,7 +818,9 @@ function GapTab({
 
       {/* graded 일 때만 '부족' 단정 가능, neutral 이면 '미보유' 사실만 */}
       <p className="mt-1.5 text-[12px] leading-5 text-ink3">
-        {heatmap.mode === "graded"
+        {isExclusive
+          ? "보유하지 않은 담보예요. 자사 상품으로 채울 수 있는 보장 기회를 검토하세요(판정·최종책임은 설계사)."
+          : heatmap.mode === "graded"
           ? "보유 금액이 0인 담보예요. 부족 여부 판정은 설정한 기준에 따른 결과이며, 권유·최종책임은 설계사에게 있습니다."
           : "보유 금액이 0인 담보(객관적 사실)만 모았어요. 기준 미설정(중립)이라 부족·충분은 단정하지 않습니다."}
       </p>

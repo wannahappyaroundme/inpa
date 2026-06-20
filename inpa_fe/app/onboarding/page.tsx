@@ -70,6 +70,9 @@ export default function OnboardingPage() {
   const ready = useAuthGuard();
   const router = useRouter();
   const [step, setStep] = useState(0);
+  const [phase, setPhase] = useState<"tour" | "setup">("tour");
+  const [affiliationType, setAffiliationType] = useState<number | null>(null);
+  const [managerEmail, setManagerEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,7 +85,10 @@ export default function OnboardingPage() {
     setError(null);
     setSaving(true);
     try {
-      await attestOnboarding();
+      await attestOnboarding({
+        affiliation_type: affiliationType,
+        manager_email: managerEmail.trim() || undefined,
+      });
       router.replace("/home");
     } catch (err) {
       const msg =
@@ -94,7 +100,7 @@ export default function OnboardingPage() {
 
   function next() {
     if (isLast) {
-      finish();
+      setPhase("setup"); // 투어 끝 → 위촉 형태 설정
     } else {
       setStep((s) => Math.min(s + 1, STEPS.length - 1));
     }
@@ -122,14 +128,58 @@ export default function OnboardingPage() {
           </button>
         </div>
 
-        {/* 투어 카드 */}
+        {/* 투어 카드 / 위촉 형태 설정 */}
         <div className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-sm p-7">
-          <div className="text-[52px] leading-none mb-4">{current.emoji}</div>
-          <h1 className="text-[22px] font-extrabold text-[var(--ink)] leading-tight">
-            {current.title}
-          </h1>
-          <p className="mt-2 text-[15px] font-semibold text-[var(--brand)]">{current.desc}</p>
-          <p className="mt-3 text-[14px] leading-6 text-[var(--ink-2)]">{current.detail}</p>
+          {phase === "tour" ? (
+            <>
+              <div className="text-[52px] leading-none mb-4">{current.emoji}</div>
+              <h1 className="text-[22px] font-extrabold text-[var(--ink)] leading-tight">
+                {current.title}
+              </h1>
+              <p className="mt-2 text-[15px] font-semibold text-[var(--brand)]">{current.desc}</p>
+              <p className="mt-3 text-[14px] leading-6 text-[var(--ink-2)]">{current.detail}</p>
+            </>
+          ) : (
+            <>
+              <div className="text-[52px] leading-none mb-4">🪪</div>
+              <h1 className="text-[22px] font-extrabold text-[var(--ink)] leading-tight">
+                위촉 형태를 알려주세요
+              </h1>
+              <p className="mt-2 text-[14px] leading-6 text-[var(--ink-2)]">
+                전속(원수사 소속)이면 다사 갈아타기 비교 대신 <b>자사 보장공백</b> 중심으로 화면이 맞춰져요.
+                나중에 설정에서 바꿀 수 있어요.
+              </p>
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                {[
+                  { v: 2, label: "GA / 대리점", desc: "여러 보험사 비교·갈아타기" },
+                  { v: 1, label: "전속(원수사)", desc: "자사 상품 중심" },
+                ].map((o) => (
+                  <button
+                    key={o.v}
+                    onClick={() => setAffiliationType(o.v)}
+                    className={`text-left rounded-xl border px-4 py-3 transition ${
+                      affiliationType === o.v
+                        ? "border-[var(--brand)] bg-[var(--accent-tint)]"
+                        : "border-[var(--line)] hover:bg-[var(--surface-2)]"
+                    }`}
+                  >
+                    <div className="text-[14px] font-bold text-[var(--ink)]">{o.label}</div>
+                    <div className="text-[12px] text-[var(--ink-3)] mt-0.5">{o.desc}</div>
+                  </button>
+                ))}
+              </div>
+              <label className="mt-4 block">
+                <span className="text-[13px] text-[var(--ink-3)]">지점장 이메일 (선택 — KPI 공유 시)</span>
+                <input
+                  type="email"
+                  value={managerEmail}
+                  onChange={(e) => setManagerEmail(e.target.value)}
+                  placeholder="manager@example.com"
+                  className="mt-1 w-full rounded-xl border border-[var(--line)] px-3 py-2.5 text-[14px]"
+                />
+              </label>
+            </>
+          )}
 
           {error && (
             <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
@@ -137,12 +187,14 @@ export default function OnboardingPage() {
             </div>
           )}
 
-          <div className="mt-7">
-            <StepDots current={step} total={STEPS.length} />
-          </div>
+          {phase === "tour" && (
+            <div className="mt-7">
+              <StepDots current={step} total={STEPS.length} />
+            </div>
+          )}
 
           <div className="mt-6 flex items-center gap-3">
-            {step > 0 && (
+            {phase === "tour" && step > 0 && (
               <button
                 onClick={() => setStep((s) => Math.max(s - 1, 0))}
                 disabled={saving}
@@ -151,8 +203,17 @@ export default function OnboardingPage() {
                 이전
               </button>
             )}
+            {phase === "setup" && (
+              <button
+                onClick={() => setPhase("tour")}
+                disabled={saving}
+                className="flex-1 py-3 rounded-xl border border-[var(--line)] text-[14px] font-semibold text-[var(--ink-2)] min-h-[48px] hover:bg-[var(--surface-2)] transition disabled:opacity-50"
+              >
+                이전
+              </button>
+            )}
             <button
-              onClick={next}
+              onClick={phase === "tour" ? next : finish}
               disabled={saving}
               className="flex-[2] py-3 rounded-xl bg-[var(--brand)] text-white font-bold text-[15px] min-h-[48px] hover:opacity-90 transition disabled:opacity-60 flex items-center justify-center gap-2"
             >
@@ -161,7 +222,7 @@ export default function OnboardingPage() {
                   <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   시작하는 중...
                 </>
-              ) : isLast ? (
+              ) : phase === "setup" ? (
                 "인파 시작하기"
               ) : (
                 "다음"

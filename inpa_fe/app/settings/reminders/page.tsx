@@ -58,6 +58,8 @@ const DEFAULT_DAYS: Record<NotifType, number> = {
   consult_reminder: 1,
   task_due: 1,
   share_unread: 0,
+  unpaid_d_alert: 0,        // 스케줄 대상 아님(환수는 on-demand). 자리값.
+  self_diagnosis_lead: 0,   // 즉시 이벤트. 자리값.
   board_comment: 0,
   board_like: 0,
 };
