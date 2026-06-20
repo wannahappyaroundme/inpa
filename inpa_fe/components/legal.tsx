@@ -1,0 +1,98 @@
+import Link from "next/link";
+import type { ReactNode } from "react";
+
+// 확정 전 항목(법인명·CPO 등) 표시 — 노란 칩으로 "채워야 함"을 분명히.
+export function TBD({ children }: { children: ReactNode }) {
+  return (
+    <mark className="bg-amber-100 text-amber-900 rounded px-1 py-0.5 text-[0.92em] font-medium">
+      [{children} — 확정 후 기재]
+    </mark>
+  );
+}
+
+// 조항 블록
+export function Article({ n, title, children }: { n?: number; title: string; children: ReactNode }) {
+  return (
+    <section>
+      <h2 className="text-[16px] font-bold text-[var(--ink)] mb-1.5">
+        {n ? `제${n}조 ` : ""}{title}
+      </h2>
+      <div className="space-y-2">{children}</div>
+    </section>
+  );
+}
+
+// 공용 법무 페이지 셸 (공개·비로그인). 헤더/초안 고지/푸터 + prose 스타일.
+export function LegalPage({
+  title,
+  effective,
+  children,
+}: {
+  title: string;
+  effective: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-h-dvh bg-[var(--surface-2)]">
+      <header className="sticky top-0 z-10 border-b border-[var(--line)] bg-[var(--surface)]/95 backdrop-blur">
+        <div className="mx-auto max-w-3xl px-5 h-14 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2">
+            <svg viewBox="0 0 48 48" width="24" height="24" aria-hidden>
+              <path d="M6 34 Q24 14 42 34" fill="none" stroke="#12B5A4" strokeWidth="6" strokeLinecap="round" />
+              <path d="M12 33 Q24 3 36 33" fill="none" stroke="var(--brand)" strokeWidth="3.4" strokeLinecap="round" />
+              <circle cx="24" cy="22" r="2.7" fill="var(--brand)" />
+            </svg>
+            <span className="font-extrabold text-[var(--brand-ink)] text-[16px]">인파</span>
+          </Link>
+          <Link href="/" className="text-[13px] text-[var(--ink-3)] hover:text-[var(--brand)]">← 홈으로</Link>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-3xl px-5 py-8">
+        <h1 className="text-[26px] font-extrabold text-[var(--ink)]">{title}</h1>
+        <p className="mt-1 text-[13px] text-[var(--ink-3)]">{effective}</p>
+
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800 leading-6">
+          본 문서는 <b>초안(시행 전)</b>입니다. 법인 정보·시행일 확정 및 법무 검토 후 정식 게시됩니다.
+          인파는 보험을 중개·권유하지 않으며, AI 산출물은 보조 초안입니다.
+        </div>
+
+        <article className="mt-6 space-y-6 text-[14px] leading-7 text-[var(--ink-2)]">
+          {children}
+        </article>
+
+        <footer className="mt-12 pt-6 border-t border-[var(--line)] text-[12px] text-[var(--ink-3)]">
+          <Link href="/legal/terms" className="hover:text-[var(--brand)]">이용약관</Link>
+          {" · "}
+          <Link href="/legal/privacy" className="hover:text-[var(--brand)]">개인정보처리방침</Link>
+        </footer>
+      </main>
+    </div>
+  );
+}
+
+// 표 헬퍼
+export function LegalTable({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[13px] border-collapse">
+        <thead>
+          <tr className="bg-[var(--surface-2)]">
+            {head.map((h, i) => (
+              <th key={i} className="border border-[var(--line)] px-2.5 py-2 text-left font-semibold text-[var(--ink)]">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              {r.map((c, j) => (
+                <td key={j} className="border border-[var(--line)] px-2.5 py-2 align-top text-[var(--ink-2)]">{c}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
