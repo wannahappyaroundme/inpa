@@ -10,8 +10,10 @@ nixPkgs = ['python311', 'gcc', 'libmysqlclient', 'pkg-config']
 cmds = ['pip install -r requirements.txt']
 
 [phases.build]
-# 정적파일을 whitenoise 가 서빙할 수 있게 수집. prod 설정·더미 DATABASE_URL 로 build 시 DB 접속 회피.
-cmds = ['DJANGO_SETTINGS_MODULE=config.settings.prod DATABASE_URL=mysql://build:build@localhost:3306/build python manage.py collectstatic --noinput']
+# 정적파일을 whitenoise 가 서빙할 수 있게 수집. prod 설정·더미 DATABASE_URL·빌드용 더미 SECRET_KEY 로
+# build 시 DB 접속·SECRET_KEY 가드 회피(런타임엔 Railway Variables 의 실제 SECRET_KEY 사용).
+cmds = ['DJANGO_SETTINGS_MODULE=config.settings.prod DATABASE_URL=mysql://build:build@localhost:3306/build SECRET_KEY=build-only-not-a-secret python manage.py collectstatic --noinput']
 
 [start]
-cmd = 'gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120'
+# DJANGO_SETTINGS_MODULE 명시 — Variables 누락 시에도 local(SQLite/DEBUG)로 뜨는 사고 방지.
+cmd = 'DJANGO_SETTINGS_MODULE=config.settings.prod gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120'

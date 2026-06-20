@@ -1,0 +1,13 @@
+# ★ railway up 업로드 제외 — .gitignore가 아니라 이 파일을 본다.
+# 실제 시크릿(.env)·로컬 DB·캐시가 운영 빌드 컨텍스트에 올라가지 않도록 차단.
+.env
+.env.*
+!.env.example
+*.sqlite3
+db.sqlite3
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.DS_Store

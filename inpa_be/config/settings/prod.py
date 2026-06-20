@@ -4,9 +4,20 @@ Railway(BE+MySQL/MariaDB) 환경변수 주입을 전제로 한다.
 모든 호스트/오리진/시크릿은 코드에 하드코딩하지 않고 env에서 읽는다.
 base.py / local.py 는 건드리지 않는다(로컬 테스트 보호) — whitenoise 미들웨어는 이 파일에만 추가.
 """
+from django.core.exceptions import ImproperlyConfigured
+
 from .base import *  # noqa: F401,F403
 
 DEBUG = False
+
+# ── 안전판: 운영에서 데모 SECRET_KEY 로 토큰 서명되는 사고 차단 (fail-loud) ──
+# Railway Variables 에 SECRET_KEY 미설정 시 base 의 데모 default 가 들어오는데,
+# 그 상태로 gunicorn 이 뜨면 토큰 위조가 가능해진다. 빌드(collectstatic)는 더미키를 주입하므로 통과.
+if SECRET_KEY == 'dev-insecure-change-me':  # noqa: F405
+    raise ImproperlyConfigured(
+        'SECRET_KEY 가 설정되지 않았습니다. Railway Variables 에 SECRET_KEY 를 넣어주세요. '
+        "(생성: python3 -c \"import secrets; print(secrets.token_urlsafe(64))\")"
+    )
 
 # ── 호스트 / 오리진 (전부 env 주입) ───────────────────────────────
 # Railway 도메인·커스텀 도메인을 콤마로 구분해 ALLOWED_HOSTS 에 넣는다.
@@ -48,3 +59,16 @@ SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# ── 에러 관측 (Sentry) — SENTRY_DSN 있을 때만 활성. 없으면 조용히 패스. ──
+_SENTRY_DSN = env('SENTRY_DSN', default='')  # noqa: F405
+if _SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        integrations=[DjangoIntegration()],
+        traces_sample_rate=0.1,
+        send_default_pii=False,  # 개인정보 비전송(컴플라이언스)
+        environment='production',
+    )

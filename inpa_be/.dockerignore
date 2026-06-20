@@ -1,0 +1,12 @@
+# Docker/Nixpacks 빌드 컨텍스트 제외 — 시크릿·로컬 DB·캐시 차단.
+.env
+.env.*
+!.env.example
+*.sqlite3
+db.sqlite3
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
