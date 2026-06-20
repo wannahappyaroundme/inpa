@@ -6,6 +6,9 @@
   --ink: #14171F; --ink-2: #475569; --ink-3: #6B7280; --muted: #9CA3AF;
   --line: #E6E9EF; --line-2: #CDD3DD;
 
+  /* 랜딩 헤더 높이 — 버튼(44px) 위아래로 충분한 여백 확보(상하 ~10px). 미정의 시 헤더가 버튼에 붙어 답답함. */
+  --header-h: 64px;
+
   --brand: #0B57D0; --brand-ink: #0A3A86;          /* 표지판 파랑 = 메인 서브컬러 */
   --accent-blue: #0B57D0; --accent-tint: #E8F0FE;
   --proposal: #0B57D0; --existing: #12B5A4;
