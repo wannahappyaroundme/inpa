@@ -105,15 +105,55 @@ function HeroSection() {
             </div>
           </div>
 
-          {/* Right: UI Mockup Placeholder */}
+          {/* Right: 제품 미리보기 (CSS 목업 — 실제 화면 모티프, 외부 이미지 의존 없음) */}
           <div className="flex-1 w-full max-w-md md:max-w-none">
-            <div className="rounded-[var(--radius-lg)] bg-[var(--surface)] border border-[var(--line)] shadow-md p-6 text-center text-[13px] text-[var(--muted)] min-h-[200px] flex flex-col items-center justify-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-[var(--accent-tint)] flex items-center justify-center">
-                <Logo size={28} />
+            <div className="rounded-[var(--radius-lg)] bg-[var(--surface)] border border-[var(--line)] shadow-md overflow-hidden">
+              {/* 윈도우 바 */}
+              <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-[var(--line)] bg-[var(--surface-2)]">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--cov-none)" }} />
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--cov-short)" }} />
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--cov-enough)" }} />
+                <span className="ml-2 text-[11px] font-semibold text-[var(--ink-3)]">김영수님 · 보장 한눈표</span>
               </div>
-              <span>히트맵 · 비교안내서 UI 목업</span>
-              <span className="text-[11px]">이미지 자산 확정 후 교체 예정</span>
+              <div className="p-4">
+                {/* 미니 히트맵 (24칸) */}
+                <div className="grid grid-cols-6 gap-1.5">
+                  {(["line","line","enough","line","short","line",
+                     "line","enough","line","over","line","line",
+                     "short","line","line","enough","line","none",
+                     "line","line","enough","line","short","line"] as const).map((k, i) => (
+                    <span
+                      key={i}
+                      className="aspect-square rounded-[4px]"
+                      style={{ background: k === "line" ? "var(--line)" : `var(--cov-${k})` }}
+                    />
+                  ))}
+                </div>
+                {/* 갈아타기 판정 카드 */}
+                <div className="mt-4 rounded-xl border border-[var(--line)] p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[12px] font-bold text-[var(--ink)]">갈아타기 분석</span>
+                    <span
+                      className="text-[11px] font-bold rounded-full px-2 py-0.5"
+                      style={{ color: "var(--cov-enough)", background: "var(--accent-tint)" }}
+                    >
+                      🟢 유지가 유리
+                    </span>
+                  </div>
+                  <div className="mt-2.5 space-y-1.5 text-[12px]">
+                    <div className="flex justify-between">
+                      <span className="text-[var(--ink-3)]">해지 손실(추정)</span>
+                      <span className="font-semibold text-[var(--ink)] tnum">-1,200,000원</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[var(--ink-3)]">면책기간 리셋</span>
+                      <span className="font-semibold text-[var(--cov-short)]">재적용 위험</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
+            <p className="mt-2 text-center text-[11px] text-[var(--muted)]">실제 화면 미리보기</p>
           </div>
         </div>
       </div>
