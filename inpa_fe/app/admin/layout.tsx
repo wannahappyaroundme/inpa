@@ -13,6 +13,7 @@ const NAV = [
   { href: "/admin/orders",       label: "판촉물 주문",     icon: "📦" },
   { href: "/admin/consent-logs", label: "동의 로그",       icon: "🔑" },
   { href: "/admin/normalization",label: "정규화 매핑",     icon: "🗂️" },
+  { href: "/admin/milestones",   label: "마일스톤",        icon: "🎯" },
   { href: "/admin/settings",     label: "설정",           icon: "⚙️" },
 ];
 
