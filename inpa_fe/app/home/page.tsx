@@ -6,9 +6,20 @@ import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { calendar, calendarEvents, eventMeta, todayTasks, type EventType } from "@/lib/mock";
 import { useAuthGuard } from "@/lib/useAuthGuard";
-import { listCustomers, getProfile, getChurnRadar, syncChurnAlerts, type ProfileResponse, type ChurnRadarResponse } from "@/lib/api";
+import { listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings, type ProfileResponse, type ChurnRadarResponse, type Meeting } from "@/lib/api";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
+
+function fmtMeeting(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("ko-KR", {
+      month: "numeric", day: "numeric", weekday: "short",
+      hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
 
 // 설계사 대시보드. KPI 한 줄(내 고객 수=실API) + 캘린더(일정/업무) + 오늘 할 일.
 export default function HomePage() {
@@ -18,6 +29,7 @@ export default function HomePage() {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [customerCount, setCustomerCount] = useState<number | null>(null);
   const [churn, setChurn] = useState<ChurnRadarResponse | null>(null);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
 
   const first = new Date(calendar.year, calendar.month - 1, 1).getDay();
   const days = new Date(calendar.year, calendar.month, 0).getDate();
@@ -42,6 +54,9 @@ export default function HomePage() {
     listCustomers({ page: 1 })
       .then((res) => setCustomerCount(res.count))
       .catch(() => setCustomerCount(null));
+    listMeetings(true)
+      .then((res) => setMeetings(res.results))
+      .catch(() => setMeetings([]));
     // 환수 위험을 인앱 알림으로 동기화(조용히, dedup) → 그 다음 레이더 집계 로드.
     syncChurnAlerts().catch(() => { /* 무시 */ }).finally(() => {
       getChurnRadar()
@@ -132,6 +147,30 @@ export default function HomePage() {
           </div>
           <span className="text-ink3 text-[18px] shrink-0">›</span>
         </button>
+
+        {/* 다가오는 미팅(예약 확정) — 실데이터 */}
+        {meetings.length > 0 && (
+          <Card className="mt-4 p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[14px] font-bold text-ink">다가오는 미팅</div>
+              <button onClick={() => router.push("/settings/meetings")} className="text-[12px] font-semibold text-brand">
+                관리 →
+              </button>
+            </div>
+            <div className="divide-y divide-line">
+              {meetings.slice(0, 4).map((m) => (
+                <div key={m.id} className="py-2">
+                  <div className="text-[13px] font-semibold text-ink">
+                    {fmtMeeting(m.start_at)} · {m.customer_name}
+                  </div>
+                  <div className="text-[12px] text-ink3">
+                    {m.method_display}{m.location_detail ? ` · ${m.location_detail}` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
         {/* 캘린더 + 오늘 일정 */}
         <div className="mt-5 lg:grid lg:grid-cols-3 lg:gap-5">

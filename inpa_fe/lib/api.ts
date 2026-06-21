@@ -224,6 +224,9 @@ export interface ProfileResponse {
   license_self_declared: boolean;
   license_no: string | null;
   career_years: number | null;
+  booking_msg_template: string;
+  booking_location: string;
+  booking_default_duration: number;
   onboarding_completed_at: string | null;
   marketing_agreed_at: string | null;
   ref_code: string | null;
@@ -243,6 +246,9 @@ export interface ProfileUpdatePayload {
   cohort_opt_in?: boolean;
   manager_share_opt_in?: boolean;
   manager_email?: string;
+  booking_msg_template?: string;
+  booking_location?: string;
+  booking_default_duration?: number;
 }
 export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
   return request<ProfileResponse>("PATCH", "/auth/profile/", payload, true);
@@ -1458,6 +1464,117 @@ export async function submitConsent(
       (data as { detail?: string }).detail ?? "동의 처리에 실패했어요.");
   }
   return data as { consented: boolean; consented_at: string };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 미팅 예약(Calendly식) — 슬롯(설계사)/미팅/예약링크 + 공개 예약 페이지
+// ════════════════════════════════════════════════════════════════════════════
+
+export type MeetingMethod = "in_person" | "phone" | "video";
+export type MeetingSlotStatus = "open" | "booked" | "canceled";
+
+export interface MeetingSlot {
+  id: number;
+  start_at: string;
+  duration_min: number;
+  status: MeetingSlotStatus;
+  created_at: string;
+}
+
+export interface Meeting {
+  id: number;
+  customer: number | null;
+  customer_name: string;
+  slot: number | null;
+  start_at: string;
+  duration_min: number;
+  method: MeetingMethod;
+  method_display: string;
+  location_detail: string;
+  customer_note: string;
+  status: "confirmed" | "canceled";
+  created_at: string;
+}
+
+export interface BookingRequestResponse {
+  token: string;
+  booking_url: string;
+  message: string;
+}
+
+export interface PublicBookingInfo {
+  customer: { name_masked: string };
+  planner: { affiliation: string; location: string };
+  methods: { key: MeetingMethod; label: string }[];
+  slots: { id: number; start_at: string; duration_min: number }[];
+  disclaimer: string;
+}
+
+/** GET /api/v1/meeting-slots/ — 내 슬롯 목록(인증) */
+export async function listMeetingSlots(
+  upcoming = false
+): Promise<PaginatedResult<MeetingSlot>> {
+  const q = upcoming ? "?upcoming=true" : "";
+  return request<PaginatedResult<MeetingSlot>>("GET", `/meeting-slots/${q}`, undefined, true);
+}
+
+/** POST /api/v1/meeting-slots/ — 슬롯 추가(인증). start_at은 ISO(+09:00) */
+export async function createMeetingSlot(payload: {
+  start_at: string;
+  duration_min?: number;
+}): Promise<MeetingSlot> {
+  return request<MeetingSlot>("POST", "/meeting-slots/", payload, true);
+}
+
+/** DELETE /api/v1/meeting-slots/<id>/ — 슬롯 삭제(인증, booked면 403) */
+export async function deleteMeetingSlot(id: number): Promise<void> {
+  await requestVoid("DELETE", `/meeting-slots/${id}/`, true);
+}
+
+/** GET /api/v1/meetings/ — 내 미팅 목록(인증) */
+export async function listMeetings(upcoming = false): Promise<PaginatedResult<Meeting>> {
+  const q = upcoming ? "?upcoming=true" : "";
+  return request<PaginatedResult<Meeting>>("GET", `/meetings/${q}`, undefined, true);
+}
+
+/** POST /api/v1/meetings/<id>/cancel/ — 미팅 취소(인증) */
+export async function cancelMeeting(id: number): Promise<Meeting> {
+  return request<Meeting>("POST", `/meetings/${id}/cancel/`, undefined, true);
+}
+
+/** POST /api/v1/customers/<id>/booking-requests/ — 예약 링크 생성(인증) */
+export async function createBookingRequest(customerId: number): Promise<BookingRequestResponse> {
+  return request<BookingRequestResponse>(
+    "POST", `/customers/${customerId}/booking-requests/`, undefined, true);
+}
+
+/** GET /api/v1/b/<token>/ — 고객이 보는 예약 페이지(공개, 비인증) */
+export async function getBookingInfo(token: string): Promise<PublicBookingInfo> {
+  const res = await fetch(`${API_BASE}/b/${encodeURIComponent(token)}/`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(res.status, (data as { code?: string }).code ?? "ERROR",
+      (data as { detail?: string }).detail ?? "예약 페이지를 열 수 없어요.");
+  }
+  return data as PublicBookingInfo;
+}
+
+/** POST /api/v1/b/<token>/ — 고객이 슬롯 예약 제출(공개, 비인증). 409=이미 예약됨 */
+export async function submitBooking(
+  token: string,
+  payload: { slot_id: number; method: MeetingMethod; note?: string }
+): Promise<{ confirmed: boolean; start_at: string; method: MeetingMethod; location_detail: string }> {
+  const res = await fetch(`${API_BASE}/b/${encodeURIComponent(token)}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(res.status, (data as { code?: string }).code ?? "ERROR",
+      (data as { detail?: string }).detail ?? "예약에 실패했어요.");
+  }
+  return data as { confirmed: boolean; start_at: string; method: MeetingMethod; location_detail: string };
 }
 
 // ════════════════════════════════════════════════════════════════════════════

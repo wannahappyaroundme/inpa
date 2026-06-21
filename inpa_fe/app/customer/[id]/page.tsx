@@ -32,6 +32,7 @@ import {
   OcrStatusBanner,
   ConsentModal,
 } from "@/components/ocr-upload";
+import { BookingModal } from "@/components/booking-modal";
 import {
   getCustomer,
   getHeatmap,
@@ -374,12 +375,20 @@ function AnalysisTab({
   onFilterChange: (f: FilterKey) => void;
   ocr: OcrCtl;
 }) {
+  const [bookingOpen, setBookingOpen] = useState(false);
   return (
     <div>
       {/* 증권 OCR 업로드 입구 (분석 탭으로 이동) */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-[13px] text-ink3">담보 한눈표 · 설계사 도구</div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setBookingOpen(true)}
+            className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
+          >
+            미팅 예약 링크
+          </button>
           <button
             type="button"
             onClick={ocr.openConsent}
@@ -394,6 +403,9 @@ function AnalysisTab({
           />
         </div>
       </div>
+      {bookingOpen && (
+        <BookingModal customerId={customerId} onClose={() => setBookingOpen(false)} />
+      )}
 
       <OcrStatusBanner
         phase={ocr.phase}
