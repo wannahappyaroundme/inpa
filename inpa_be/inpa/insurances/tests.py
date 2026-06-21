@@ -97,14 +97,14 @@ class ConsentGateTests(TestCase):
         with mock.patch('inpa.insurances.views.claude_parse', return_value=_fake_ocr_data()) as m_parse, \
                 mock.patch('inpa.insurances.views._extract_pdf_lines',
                            return_value=(['삼성화재 종합보험 암진단 5천만원'], None)), \
-                override_settings(ANTHROPIC_API_KEY='sk-ant-test'):
+                override_settings(ANTHROPIC_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False):
             r = self.client.post(
                 _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
         self.assertEqual(r.status_code, 201, r.content)
         m_parse.assert_called_once()
 
 
-@override_settings(ANTHROPIC_API_KEY='sk-ant-test')
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
 class OcrParsePersistTests(TestCase):
     """(b) Claude mock → 파싱 → CustomerInsurance + Detail 생성."""
 
@@ -191,7 +191,7 @@ class OcrParsePersistTests(TestCase):
         m_parse.assert_not_called()
 
 
-@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test')
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
 class AnthropicClientMockTests(TestCase):
     """(b 보강) anthropic.Anthropic SDK 자체를 mock → 실제 claude_parse 파이프라인 통과.
 
@@ -253,7 +253,7 @@ class AnthropicClientMockTests(TestCase):
         self.assertEqual(case.detail.name, '일반암')
 
 
-@override_settings(ANTHROPIC_API_KEY='sk-ant-test')
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
 class OwnerIsolationTests(TestCase):
     """(c) ★ owner 격리 — A 는 B 고객에 OCR 업로드 불가."""
 
@@ -274,7 +274,7 @@ class OwnerIsolationTests(TestCase):
         self.assertEqual(CustomerInsurance.objects.count(), 0)
 
 
-@override_settings(ANTHROPIC_API_KEY='sk-ant-test')
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
 class NormalizationHookTests(TestCase):
     """정규화 훅(NormalizationDict) — 보험사별 담보 원문명 → 표준 담보 매핑 + hit_count++."""
 
@@ -460,3 +460,21 @@ class SelfDiagnosisGateTests(TestCase):
         self.assertEqual(r.json()['code'], 'FILE_REQUIRED')
         # 동의/파일 전이라 리드 생성 안 됨(부작용 없음)
         self.assertEqual(Customer.objects.filter(lead_source='self_diagnosis').count(), 0)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 정확도 다중검사(verify.py) — 네트워크 없이 핵심 로직만(JSON 파싱·키없음 격리)
+# ──────────────────────────────────────────────────────────────────────
+class VerifyUnitTests(TestCase):
+    def test_parse_json_variants(self):
+        from inpa.insurances.verify import _parse_json
+        self.assertEqual(_parse_json('{"confidence":"high"}')["confidence"], "high")
+        self.assertEqual(_parse_json('```json\n{"confidence":"low"}\n```')["confidence"], "low")
+        self.assertEqual(_parse_json('설명...\n{"confidence":"medium","issues":[]}\n끝')["confidence"], "medium")
+        self.assertIsNone(_parse_json("not json at all"))
+
+    @override_settings(ANTHROPIC_API_KEY='', CLAUDE_API_KEY='')
+    def test_verify_returns_none_without_key(self):
+        from inpa.insurances.verify import verify_extraction
+        # 키 없으면 ci 접근 전에 None 반환(파싱 결과 안 깨뜨림 — 격리 보장)
+        self.assertIsNone(verify_extraction(["삼성생명 종합보험"], None))

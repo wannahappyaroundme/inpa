@@ -169,3 +169,9 @@ FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
 #     §97(부당승환) 법무 확정 전까지 비교안내서 발행 금지 — 정식 출시 전 재검토.
 COMPARE_AI_ENABLED = env.bool('COMPARE_AI_ENABLED', default=False)
 COMPARE_PUBLISH_ENABLED = env.bool('COMPARE_PUBLISH_ENABLED', default=False)
+
+# ── 증권 파싱 정확도 다중검사(Claude 교차검증) — 인증 OCR 경로 전용 ──────────
+# True 면 OCR 파싱 후 Claude(Opus)로 '원문 ↔ 파싱결과'를 교차검증해 누락·금액오인식·오분류를
+# 잡아 CustomerInsurance.verification 에 저장(설계사 확인용). 정확도 최우선이라 기본 True.
+# 비용 민감 시 OCR_VERIFY_ENABLED=false 로 끔. (무인증 셀프진단은 비용 폭주 방지 위해 미적용)
+OCR_VERIFY_ENABLED = env.bool('OCR_VERIFY_ENABLED', default=True)

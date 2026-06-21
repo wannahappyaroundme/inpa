@@ -363,10 +363,20 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
         with transaction.atomic():
             ci, created_cases = _persist_ocr(customer, ocr_data)
 
+        # ── 7.1) 정확도 다중검사 — Claude 교차검증(원문↔파싱). 실패는 격리. ──
+        if getattr(settings, 'OCR_VERIFY_ENABLED', False):
+            from inpa.insurances.verify import verify_extraction
+            verification = verify_extraction(lines, ci)
+            if verification is not None:
+                ci.verification = verification
+                ci.save(update_fields=['verification', 'updated_at'])
+                log_claude_usage('ocr_verify', getattr(settings, 'CLAUDE_MODEL_PARSE', ''), None)
+
         data = CustomerInsuranceSerializerForDetail(ci).data
         return Response(
             {'code': 'OK',
              'parsing_method': getattr(ocr_data, 'parsing_method', 'claude'),
              'created_cases': created_cases,
+             'verification': getattr(ci, 'verification', None),
              'insurance': data},
             status=status.HTTP_201_CREATED)

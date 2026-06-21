@@ -232,6 +232,10 @@ class CustomerInsurance(models.Model):
     next_payment_date = models.DateField('다음 납입일', default=None, null=True, blank=True)
     expected_recovery_amount = models.IntegerField('예상 환수액(추정)', default=None, null=True, blank=True)
 
+    # ── 파싱 정확도 다중검사 결과(Claude 교차검증) — verify.py 산출. null=미검증. ──
+    # {checked, confidence(high|medium|low), issues[], missing[], note} — 설계사 확인용 플래그.
+    verification = models.JSONField('파싱 검증 결과', default=None, null=True, blank=True)
+
     renewal_growth_rate = models.FloatField('갱신 증가율', default=None, null=True, blank=True)
     renewal_special_expiry_date = models.CharField('갱신특약 만기일 날짜', max_length=10, default=None, null=True, blank=True)
     renewal_special_expiry = models.IntegerField('갱신특약 만기일', default=None, null=True, blank=True)
