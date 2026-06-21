@@ -1578,6 +1578,35 @@ export async function submitBooking(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// 대시보드 월별 목표 — 수동 설정(목표) + 실적(계산). GET/PATCH /api/v1/dashboard/
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface DashboardSummary {
+  year_month: string;
+  target_meetings: number;
+  target_premium: number;
+  target_income: number;
+  actual_meetings: number;
+  actual_premium: number;
+  actual_new_customers: number;
+}
+
+/** GET /api/v1/dashboard/?month=YYYY-MM (기본 현재월) — 목표+실적(인증) */
+export async function getDashboard(month?: string): Promise<DashboardSummary> {
+  const q = month ? `?month=${encodeURIComponent(month)}` : "";
+  return request<DashboardSummary>("GET", `/dashboard/${q}`, undefined, true);
+}
+
+/** PATCH /api/v1/dashboard/ — 목표 갱신(인증). 음수는 400 */
+export async function updateDashboardGoal(
+  payload: { target_meetings?: number; target_premium?: number; target_income?: number },
+  month?: string
+): Promise<DashboardSummary> {
+  const q = month ? `?month=${encodeURIComponent(month)}` : "";
+  return request<DashboardSummary>("PATCH", `/dashboard/${q}`, payload, true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // 공유뷰 — 고객 공개 링크 (NoAuth, GET /api/v1/s/<token>/)
 // ════════════════════════════════════════════════════════════════════════════
 

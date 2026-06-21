@@ -6,9 +6,36 @@ import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { calendar, calendarEvents, eventMeta, todayTasks, type EventType } from "@/lib/mock";
 import { useAuthGuard } from "@/lib/useAuthGuard";
-import { listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings, type ProfileResponse, type ChurnRadarResponse, type Meeting } from "@/lib/api";
+import { listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings, getDashboard, updateDashboardGoal, type ProfileResponse, type ChurnRadarResponse, type Meeting, type DashboardSummary } from "@/lib/api";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
+const krw = new Intl.NumberFormat("ko-KR");
+function fmtWonShort(v: number): string {
+  if (v >= 100_000_000) return `${krw.format(Math.round((v / 100_000_000) * 10) / 10)}억`;
+  if (v >= 10_000) return `${krw.format(Math.round(v / 10_000))}만`;
+  return krw.format(v);
+}
+function pct(actual: number, target: number): number {
+  return target > 0 ? Math.min(100, Math.round((actual / target) * 100)) : 0;
+}
+
+function GoalRow({ label, actual, target, unit, won }: { label: string; actual: number; target: number; unit?: string; won?: boolean }) {
+  const p = pct(actual, target);
+  const fmt = (v: number) => (won ? fmtWonShort(v) : krw.format(v));
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-[13px] text-ink2">{label}</span>
+        <span className="text-[13px] text-ink3 tnum">
+          <b className="text-ink text-[15px]">{fmt(actual)}</b> / {target > 0 ? fmt(target) : "—"}{unit ? ` ${unit}` : won ? "원" : ""}
+        </span>
+      </div>
+      <div className="h-2 rounded-full bg-surface2 overflow-hidden">
+        <div className="h-full bg-brand rounded-full transition-all" style={{ width: `${p}%` }} />
+      </div>
+    </div>
+  );
+}
 
 function fmtMeeting(iso: string): string {
   try {
@@ -30,6 +57,12 @@ export default function HomePage() {
   const [customerCount, setCustomerCount] = useState<number | null>(null);
   const [churn, setChurn] = useState<ChurnRadarResponse | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [dash, setDash] = useState<DashboardSummary | null>(null);
+  const [editGoal, setEditGoal] = useState(false);
+  const [gMeet, setGMeet] = useState(0);
+  const [gPrem, setGPrem] = useState(0);
+  const [gInc, setGInc] = useState(0);
+  const [goalSaving, setGoalSaving] = useState(false);
 
   const first = new Date(calendar.year, calendar.month - 1, 1).getDay();
   const days = new Date(calendar.year, calendar.month, 0).getDate();
@@ -57,6 +90,12 @@ export default function HomePage() {
     listMeetings(true)
       .then((res) => setMeetings(res.results))
       .catch(() => setMeetings([]));
+    getDashboard()
+      .then((d) => {
+        setDash(d);
+        setGMeet(d.target_meetings); setGPrem(d.target_premium); setGInc(d.target_income);
+      })
+      .catch(() => setDash(null));
     // 환수 위험을 인앱 알림으로 동기화(조용히, dedup) → 그 다음 레이더 집계 로드.
     syncChurnAlerts().catch(() => { /* 무시 */ }).finally(() => {
       getChurnRadar()
@@ -64,6 +103,19 @@ export default function HomePage() {
         .catch(() => setChurn(null));
     });
   }, [ready, router]);
+
+  async function saveGoal() {
+    setGoalSaving(true);
+    try {
+      const d = await updateDashboardGoal({ target_meetings: gMeet, target_premium: gPrem, target_income: gInc });
+      setDash(d);
+      setEditGoal(false);
+    } catch {
+      /* 무시 — 재시도 가능 */
+    } finally {
+      setGoalSaving(false);
+    }
+  }
 
   if (!ready) return null;
 
@@ -119,6 +171,61 @@ export default function HomePage() {
             </Card>
           ))}
         </div>
+
+        {/* 이번 달 목표 — 수동 설정 + 실적 진행률 */}
+        {dash && (
+          <Card className="mt-4 p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[15px] font-bold text-ink">이번 달 목표</div>
+              {editGoal ? (
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setEditGoal(false); setGMeet(dash.target_meetings); setGPrem(dash.target_premium); setGInc(dash.target_income); }}
+                    className="text-[13px] text-ink3"
+                  >
+                    취소
+                  </button>
+                  <button onClick={saveGoal} disabled={goalSaving} className="text-[13px] font-bold text-brand disabled:opacity-60">저장</button>
+                </div>
+              ) : (
+                <button onClick={() => setEditGoal(true)} className="text-[13px] font-semibold text-brand">목표 수정</button>
+              )}
+            </div>
+
+            {editGoal ? (
+              <div className="space-y-3">
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-[13px] text-ink2">만날 고객 (명)</span>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => setGMeet((v) => Math.max(0, v - 1))} className="w-7 h-7 rounded-lg border border-line text-ink2">−</button>
+                    <input type="number" min={0} value={gMeet} onChange={(e) => setGMeet(Math.max(0, Number(e.target.value) || 0))} className="w-16 text-center rounded-lg border border-line py-1.5 text-[14px] tnum" />
+                    <button onClick={() => setGMeet((v) => v + 1)} className="w-7 h-7 rounded-lg border border-line text-ink2">+</button>
+                  </div>
+                </label>
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-[13px] text-ink2">가입 보험료 (원)</span>
+                  <input type="number" min={0} step={10000} value={gPrem} onChange={(e) => setGPrem(Math.max(0, Number(e.target.value) || 0))} className="w-40 text-right rounded-lg border border-line px-2 py-1.5 text-[14px] tnum" />
+                </label>
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-[13px] text-ink2">예상 월급 (원)</span>
+                  <input type="number" min={0} step={10000} value={gInc} onChange={(e) => setGInc(Math.max(0, Number(e.target.value) || 0))} className="w-40 text-right rounded-lg border border-line px-2 py-1.5 text-[14px] tnum" />
+                </label>
+                <p className="text-[11px] text-ink3 leading-4">예상 월급은 수동 입력값이에요(추후 자동 연동 예정). 만날 고객·가입 보험료는 실적이 자동 반영됩니다.</p>
+              </div>
+            ) : (
+              <div className="space-y-3.5">
+                <GoalRow label="만날 고객" actual={dash.actual_meetings} target={dash.target_meetings} unit="명" />
+                <GoalRow label="가입 보험료" actual={dash.actual_premium} target={dash.target_premium} won />
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] text-ink2">예상 월급</span>
+                  <span className="text-[15px] font-extrabold tnum text-accent">
+                    {dash.target_income > 0 ? `${fmtWonShort(dash.target_income)}원` : "—"}
+                  </span>
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
 
         {/* 환수 레이더(A/S) — 보유계약 납입/유지율 위험. 클릭 시 수기입력·점검 */}
         <button
