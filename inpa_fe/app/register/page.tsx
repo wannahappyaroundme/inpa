@@ -8,9 +8,8 @@ import { register, tokenStore, ApiError } from "@/lib/api";
 function Logo() {
   return (
     <svg viewBox="0 0 48 48" width="36" height="36" aria-label="인파" role="img">
-      <path d="M6 34 Q24 14 42 34" fill="none" stroke="#12B5A4" strokeWidth="6" strokeLinecap="round" />
-      <path d="M12 33 Q24 3 36 33" fill="none" stroke="var(--brand)" strokeWidth="3.4" strokeLinecap="round" />
-      <circle cx="24" cy="22" r="2.7" fill="var(--brand)" />
+      <path d="M16.5 41 V15.5 H25 A7 7 0 0 1 25 29.5 H16.5" fill="none" stroke="#1E40C4" strokeWidth="7.6" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="16.5" cy="5.05" r="3.9" fill="#DC2626" />
     </svg>
   );
 }

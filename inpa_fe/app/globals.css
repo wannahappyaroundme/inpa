@@ -22,6 +22,22 @@
   --success: #15803D; --warning: #F59E0B; --danger: #DC2626;
 }
 
+/* 인파 로고 신호(ping) — 빨간 점에서 방사형으로 퍼지며 옅어짐(InpaMark live). */
+@keyframes inpaPing {
+  0%   { transform: scale(1);   opacity: 0.5; }
+  80%  { opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+.inpa-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: inpaPing 1.7s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+.inpa-ping-2 { animation-delay: 0.85s; }
+@media (prefers-reduced-motion: reduce) {
+  .inpa-ping { display: none; }
+}
+
 /* ── 다크: 시스템 설정 따름 ── */
 @media (prefers-color-scheme: dark) {
   :root {

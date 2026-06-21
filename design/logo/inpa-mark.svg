@@ -1,0 +1,7 @@
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="inpa">
+  <!-- iP 모노그램 — P의 세로획 = i의 기둥, 위의 빨간 점 = i의 점. 흰 배경/파란 P/빨간 점(신호등). -->
+  <path d="M16.5 41 V15.5 H25 A7 7 0 0 1 25 29.5 H16.5"
+        fill="none" stroke="#1E40C4" stroke-width="7.6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="16.5" cy="5.05" r="3.9" fill="#DC2626"/>
+</svg>

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>인파 로고 — iP 모노그램</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+  :root{ --navy:#1B2A57; --blue:#1E40C4; --red:#DC2626; --line:#E6E9EF; --ink:#14171F; --ink3:#6B7280; }
+  *{box-sizing:border-box}
+  body{font-family:'Pretendard Variable',system-ui,sans-serif;margin:0;background:#F4F6FA;color:var(--ink);padding:40px 20px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:26px;font-weight:800;margin:0 0 6px}
+  .sub{color:var(--ink3);font-size:14px;margin:0 0 28px;line-height:1.6}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:22px}
+  .card.pick{border-color:var(--blue);box-shadow:0 0 0 2px rgba(30,64,196,.12)}
+  .card h2{font-size:15px;font-weight:700;margin:0 0 4px}
+  .badge{display:inline-block;background:var(--blue);color:#fff;font-size:11px;font-weight:700;border-radius:999px;padding:2px 8px;margin-left:6px}
+  .card .desc{font-size:12.5px;color:var(--ink3);margin:0 0 16px;line-height:1.5;min-height:34px}
+  .hero{display:flex;align-items:center;justify-content:center;gap:26px;height:140px;background:#fff;border:1px dashed var(--line);border-radius:14px}
+  .row{display:flex;align-items:center;gap:14px;margin-top:16px;flex-wrap:wrap}
+  .row .lbl{font-size:11px;color:var(--ink3);width:64px;flex-shrink:0}
+  .favs{display:flex;align-items:flex-end;gap:14px}
+  .fav{display:flex;flex-direction:column;align-items:center;gap:4px}
+  .fav span{font-size:10px;color:var(--ink3)}
+  .lockup{display:flex;align-items:center;gap:9px}
+  .lockup .word{font-size:26px;font-weight:800;letter-spacing:-1.5px;color:var(--navy)}
+  .onnavy{background:var(--navy);border-color:var(--navy)}
+  .appicon{width:84px;height:84px;border-radius:20px;display:flex;align-items:center;justify-content:center}
+  .note{margin-top:28px;font-size:13px;color:var(--ink3);line-height:1.7;background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px}
+  .pill{display:inline-block;background:#EAF2FE;color:var(--blue);font-weight:700;font-size:12px;border-radius:999px;padding:3px 10px}
+  /* 신호(ping) — 빨간 점에서 방사형으로 퍼지며 옅어짐 */
+  @keyframes inpaPing{0%{transform:scale(1);opacity:.5}80%{opacity:0}100%{transform:scale(2.6);opacity:0}}
+  .inpa-ping{transform-box:fill-box;transform-origin:center;animation:inpaPing 1.7s cubic-bezier(0,.2,.8,1) infinite}
+  .inpa-ping-2{animation-delay:.85s}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>인파 로고 — iP 모노그램</h1>
+  <p class="sub">
+    <span class="pill">컨셉</span> P의 세로획 = i의 기둥, 위의 <b style="color:var(--red)">빨간 점</b> = i의 점 → <b>iP</b>가 한 글자로.
+    흰 배경 · <b style="color:var(--blue)">파란 P</b> · <b style="color:var(--red)">빨간 신호등 점</b>. <b>1번(라운드) 확정</b> — 인터랙션·분석·로딩엔 점이 신호처럼 퍼지는 라이브 버전.
+  </p>
+  <div class="grid" id="grid"></div>
+  <div class="note">
+    <b>적용 완료</b> — 헤더(랜딩·앱)·로그인/가입/비번찾기·온보딩·법무·앱아이콘·파비콘·PWA 매니페스트의 옛 트윈아크 로고를 모두 이 iP로 교체했고, 옛 로고 자산은 삭제했습니다.
+    라이브 신호 버전은 <code>&lt;InpaMark live /&gt;</code>(<code>components/inpa-logo.tsx</code>)로 로딩·분석 화면에 넣습니다. (이 페이지: <code>design/logo/preview.html</code>)
+  </div>
+</div>
+<script>
+function pPath(stroke,width,cap){
+  return `<path d="M16.5 41 V15.5 H25 A7 7 0 0 1 25 29.5 H16.5" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-linecap="${cap}" stroke-linejoin="round"/>`;
+}
+function dotMarkup(v,color,live){
+  const ping = live ? `<circle class="inpa-ping" cx="16.5" cy="5.05" r="3.9" fill="${color}"/><circle class="inpa-ping inpa-ping-2" cx="16.5" cy="5.05" r="3.9" fill="${color}"/>` : '';
+  let solid;
+  if(v.dot==='square') solid = `<rect x="12.9" y="1.45" width="7.2" height="7.2" rx="2.2" fill="${color}"/>`;
+  else if(v.dot==='glow') solid = `<circle cx="16.5" cy="5.05" r="6.6" fill="${color}" opacity="0.16"/><circle cx="16.5" cy="5.05" r="3.9" fill="${color}"/>`;
+  else solid = `<circle cx="16.5" cy="5.05" r="3.9" fill="${color}"/>`;
+  return ping + solid;
+}
+function symbol(v,pColor,dotColor,live){
+  return `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">${pPath(pColor,v.w,v.cap)}${dotMarkup(v,dotColor,live)}</svg>`;
+}
+const VARS=[
+  {name:'1. 라운드', pick:true, desc:'둥근 획 + 둥근 빨간 점. 따뜻한 도우미 톤. (확정 — 전 화면 적용됨)', w:7.6, cap:'round', dot:'circle'},
+  {name:'2. 모던', desc:'살짝 얇은 획 + 둥근 사각 점. 깔끔한 핀테크 톤.', w:6.8, cap:'butt', dot:'square'},
+  {name:'3. 시그널', desc:'빨간 점 빛 번짐 강조 — 신호등/램프 느낌.', w:7.6, cap:'round', dot:'glow'},
+];
+const grid=document.getElementById('grid');
+VARS.forEach(v=>{
+  const symW=symbol(v,'#1E40C4','#DC2626',false);
+  const symLive=symbol(v,'#1E40C4','#DC2626',true);
+  const symWhite=symbol(v,'#FFFFFF','#FF5A4D',false);
+  const card=document.createElement('div');
+  card.className='card'+(v.pick?' pick':'');
+  card.innerHTML=`
+    <h2>${v.name}${v.pick?'<span class="badge">✓ 선택</span>':''}</h2>
+    <div class="desc">${v.desc}</div>
+    <div class="hero">
+      <div style="width:96px;height:96px">${symW}</div>
+      <div style="text-align:center"><div style="width:72px;height:72px;margin:0 auto">${symLive}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px">신호(라이브)</div></div>
+    </div>
+    <div class="row"><span class="lbl">파비콘</span><div class="favs">
+      ${[16,24,32,48].map(s=>`<div class="fav"><div style="width:${s}px;height:${s}px">${symW}</div><span>${s}px</span></div>`).join('')}
+    </div></div>
+    <div class="row"><span class="lbl">워드마크</span><div class="lockup"><div style="width:30px;height:30px">${symW}</div><span class="word">inpa</span></div></div>
+    <div class="row"><span class="lbl">앱아이콘</span>
+      <div class="appicon" style="background:#fff;border:1px solid var(--line)"><div style="width:52px;height:52px">${symW}</div></div>
+      <div class="appicon onnavy"><div style="width:52px;height:52px">${symWhite}</div></div>
+    </div>`;
+  grid.appendChild(card);
+});
+</script>
+</body>
+</html>
