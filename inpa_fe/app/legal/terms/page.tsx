@@ -80,8 +80,16 @@ export default function TermsPage() {
         </ol>
       </Article>
 
+      <Article n={9} title="준거법 및 분쟁 해결">
+        <ol className="list-decimal pl-5 space-y-1">
+          <Li>이 약관과 서비스 이용에 관한 분쟁은 대한민국 법을 준거법으로 합니다.</Li>
+          <Li>회사와 이용자 간 분쟁은 상호 신의에 따라 협의로 해결하며, 협의가 어려울 경우 관계 법령상 절차(개인정보 분쟁조정위원회·소비자분쟁조정 등)를 거칠 수 있습니다.</Li>
+          <Li>소송이 제기될 경우 관할은 민사소송법에 따른 법원으로 합니다.</Li>
+        </ol>
+      </Article>
+
       <Article title="회사 정보 · 문의">
-        <p>상호 <TBD>법인명</TBD> · 대표자 <TBD>대표자명</TBD> · 사업자등록번호 <TBD>사업자등록번호</TBD> · 주소 <TBD>주소</TBD> · 고객센터 <TBD>이메일</TBD></p>
+        <p>상호 <TBD>법인명</TBD> · 대표자 <TBD>대표자명</TBD> · 사업자등록번호 <TBD>사업자등록번호</TBD> · 통신판매업신고 <TBD>신고번호</TBD> · 주소 <TBD>주소</TBD> · 고객센터 <TBD>이메일</TBD></p>
       </Article>
     </LegalPage>
   );
