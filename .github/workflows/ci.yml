@@ -1,7 +1,7 @@
 name: CI
 
 # main 으로의 push / PR 에서만 품질 게이트 실행.
-# 실제 배포는 Vercel(FE)·Railway(BE)가 GitHub 연동으로 자동 수행 → 여기선 검증만 한다.
+# 실제 배포는 Vercel(FE)·Render(BE)가 GitHub 연동으로 자동 수행 → 여기선 검증만 한다.
 on:
   push:
     branches: [main, master]
