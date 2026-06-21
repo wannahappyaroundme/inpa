@@ -175,3 +175,10 @@ COMPARE_PUBLISH_ENABLED = env.bool('COMPARE_PUBLISH_ENABLED', default=False)
 # 잡아 CustomerInsurance.verification 에 저장(설계사 확인용). 정확도 최우선이라 기본 True.
 # 비용 민감 시 OCR_VERIFY_ENABLED=false 로 끔. (무인증 셀프진단은 비용 폭주 방지 위해 미적용)
 OCR_VERIFY_ENABLED = env.bool('OCR_VERIFY_ENABLED', default=True)
+
+# ── 병력(민감정보) 수집 베타 게이트 (council 2026-06-21 P0-3) ────────────────
+# False(기본) = 베타에서 병력 등록(CustomerMedicalHistory create)을 API 단에서 물리 차단.
+# 병력=민감정보. 국외이전 동의 적법요건·외부 법무 의견서 확정 전까지 '수집 자체'를 막는다.
+# AI 분석은 증권 텍스트만 사용(병력은 Claude로 전송되지 않음)하므로 미수집과 무관하게 동작.
+# 정식 출시 전(법무 검토 완료 후) True 로 flip. UI 숨김은 방어가 아니므로 BE에서 차단.
+ANALYZE_MEDICAL_ENABLED = env.bool('ANALYZE_MEDICAL_ENABLED', default=False)

@@ -8,6 +8,7 @@
 ★ 병력 등록 게이트(dev/12 §0 원칙 2): Customer.consent_overseas_at(국외이전 동의) 없으면
   CustomerMedicalHistory 생성을 412(PRECONDITION_FAILED)로 물리 차단. UI 숨김은 방어가 아니다.
 """
+from django.conf import settings
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -98,6 +99,8 @@ class FamilyMemberViewSet(_CustomerScopedViewSet):
 class CustomerMedicalHistoryViewSet(_CustomerScopedViewSet):
     """병력 CRUD — /api/v1/customers/{customer_pk}/medical/
 
+    ★ 베타 게이트(council 2026-06-21 P0-3): settings.ANALYZE_MEDICAL_ENABLED=False면
+      병력 등록 자체를 403으로 차단(베타 미수집). 법무 검토 완료 후 True로 flip.
     ★ 동의 게이트: 부모 Customer.consent_overseas_at이 없으면 등록(create)을 412로 거부.
       병력 = 민감정보 = 국외이전 동의 대상(dev/12 §0 원칙 2).
     """
@@ -105,6 +108,12 @@ class CustomerMedicalHistoryViewSet(_CustomerScopedViewSet):
     queryset = CustomerMedicalHistory.objects.all()
 
     def create(self, request, *args, **kwargs):
+        if not getattr(settings, 'ANALYZE_MEDICAL_ENABLED', False):
+            return Response(
+                {'code': 'MEDICAL_DISABLED_BETA',
+                 'detail': '베타 기간에는 병력(민감정보)을 수집하지 않습니다. '
+                           '민감정보 처리는 법무 검토 완료 후 활성화됩니다.'},
+                status=status.HTTP_403_FORBIDDEN)
         customer = self.get_customer()
         if customer.consent_overseas_at is None:
             return Response(

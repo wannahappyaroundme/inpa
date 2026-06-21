@@ -7,7 +7,7 @@
 """
 from django.utils import timezone
 from rest_framework.test import APIClient
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from inpa.accounts.models import Profile, User
 
@@ -84,8 +84,12 @@ class OwnerIsolationTests(TestCase):
         self.assertEqual(r.status_code, 400)
 
 
+@override_settings(ANALYZE_MEDICAL_ENABLED=True)
 class MedicalConsentGateTests(TestCase):
-    """★ 병력 동의 게이트 — consent_overseas_at 없으면 병력 등록 412 차단."""
+    """★ 병력 동의 게이트 — consent_overseas_at 없으면 병력 등록 412 차단.
+
+    (베타 게이트 ANALYZE_MEDICAL_ENABLED는 True로 켜고 동의게이트 자체를 검증.)
+    """
 
     def setUp(self):
         self.user, self.client = _make_planner('planner@test.com')
@@ -140,6 +144,45 @@ class MedicalConsentGateTests(TestCase):
         r_del = self.client.delete(
             f'/api/v1/customers/{self.customer.id}/consents/{log_id}/')
         self.assertEqual(r_del.status_code, 405)
+
+
+@override_settings(ANALYZE_MEDICAL_ENABLED=False)
+class BetaMedicalDisabledTests(TestCase):
+    """★ 베타 게이트(council 2026-06-21 P0-3) — ANALYZE_MEDICAL_ENABLED=False면
+    국외이전 동의가 있어도 병력 등록을 403으로 차단(베타 미수집)."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('beta@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='홍길동', mobile_phone_number='010-0000-0000',
+            consent_overseas_at=timezone.now())  # 동의가 있어도 차단되어야 함
+
+    def test_medical_blocked_in_beta(self):
+        r = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/medical/',
+            {'disease_name': '고혈압', 'is_inpatient': False}, format='json')
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.json()['code'], 'MEDICAL_DISABLED_BETA')
+        self.assertEqual(CustomerMedicalHistory.objects.count(), 0)
+
+
+class ConsentLogRetentionTests(TestCase):
+    """★ 동의기록 보존(council 2026-06-21 P0-5) — 고객 삭제(파기) 후에도
+    ConsentLog는 SET_NULL로 남는다(처리방침상 동의기록 5년 보관)."""
+
+    def test_consent_log_survives_customer_delete(self):
+        user, _ = _make_planner('retain@test.com')
+        customer = Customer.objects.create(owner=user, name='파기대상',
+                                           mobile_phone_number='010-9999-8888')
+        log = ConsentLog.objects.create(
+            customer=customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+            doc_version='OVERSEAS-v1.0')
+        log_id = log.id
+        customer.delete()  # 고객 파기
+        # 동의기록은 남고, customer 링크만 null
+        self.assertTrue(ConsentLog.objects.filter(id=log_id).exists())
+        log.refresh_from_db()
+        self.assertIsNone(log.customer_id)
 
 
 class AuthGateTests(TestCase):

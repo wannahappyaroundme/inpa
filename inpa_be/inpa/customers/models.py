@@ -203,6 +203,11 @@ class ConsentLog(models.Model):
     consent_overseas_at = "지금 동의 상태인가" 스냅샷, ConsentLog = "언제·어떤 버전·누가·어디서"
     불변 감사 로그. 둘 다 필요(dev/02 §4.1). INSERT만 허용, UPDATE/DELETE 금지.
     철회는 삭제가 아니라 revoked_at 기록.
+
+    ★ on_delete=SET_NULL(council 2026-06-21 P0-5): 고객 삭제(파기) 시에도 동의 증거는
+      보존한다(처리방침상 동의기록 5년 보관). CASCADE면 고객 삭제로 감사기록이 함께
+      소멸해 append-only 원칙과 모순됨. 고객이 null이 된 로그는 owner 쿼리에서 빠지고
+      관리자 감사 용도로만 남는다.
     """
     SCOPE_OVERSEAS_MEDICAL = 'overseas_medical'
     SCOPE_MEDICAL_SENSITIVE = 'medical_sensitive'
@@ -213,7 +218,7 @@ class ConsentLog(models.Model):
         (SCOPE_MARKETING, '마케팅 수신'),
     )
 
-    customer = models.ForeignKey('Customer', on_delete=models.CASCADE, related_name='consent_logs')
+    customer = models.ForeignKey('Customer', on_delete=models.SET_NULL, null=True, blank=True, related_name='consent_logs')
     scope = models.CharField('동의 범위', max_length=50, choices=SCOPE_CHOICES)
     purpose = models.CharField('처리 목적', max_length=200, default='', blank=True)
     doc_version = models.CharField('약관 버전', max_length=30, blank=True, default='')  # PolicyVersion.version 참조
