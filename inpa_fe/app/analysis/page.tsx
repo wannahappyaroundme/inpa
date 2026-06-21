@@ -174,7 +174,10 @@ function AnalysisPageInner() {
 
         {ocr.phase === "consent_required" && (
           <ConsentModal
-            onAgree={() => ocr.agreeAndRetry(selectedId)}
+            onGenerate={() => ocr.generateConsentLink(selectedId)}
+            consentUrl={ocr.consentUrl}
+            consentCopied={ocr.consentCopied}
+            onCopy={ocr.copyConsentUrl}
             onDismiss={ocr.dismissConsent}
             loading={ocr.consentLoading}
           />

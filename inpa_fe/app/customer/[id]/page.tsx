@@ -379,11 +379,20 @@ function AnalysisTab({
       {/* 증권 OCR 업로드 입구 (분석 탭으로 이동) */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-[13px] text-ink3">담보 한눈표 · 설계사 도구</div>
-        <OcrUploadButton
-          customerId={customerId}
-          phase={ocr.phase}
-          onFileChange={ocr.onFileChange}
-        />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={ocr.openConsent}
+            className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
+          >
+            고객 동의 링크
+          </button>
+          <OcrUploadButton
+            customerId={customerId}
+            phase={ocr.phase}
+            onFileChange={ocr.onFileChange}
+          />
+        </div>
       </div>
 
       <OcrStatusBanner
@@ -393,7 +402,10 @@ function AnalysisTab({
       />
       {ocr.phase === "consent_required" && (
         <ConsentModal
-          onAgree={() => ocr.agreeAndRetry(customerId)}
+          onGenerate={() => ocr.generateConsentLink(customerId)}
+          consentUrl={ocr.consentUrl}
+          consentCopied={ocr.consentCopied}
+          onCopy={ocr.copyConsentUrl}
           onDismiss={ocr.dismissConsent}
           loading={ocr.consentLoading}
         />

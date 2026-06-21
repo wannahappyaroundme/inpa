@@ -1290,6 +1290,8 @@ export interface AdminConsentLogItem {
   customer_name_masked: string;
   owner_email: string | null;
   scope: string;
+  subject: string; // 'customer_self' | 'planner_attested'
+  subject_display: string;
   purpose: string;
   doc_version: string;
   agreed_at: string;
@@ -1397,6 +1399,65 @@ export async function createConsentLog(
     payload,
     true
   );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// P3c — 고객 본인 국외이전 동의 (설계사가 링크 생성 → 고객 본인이 /c/<token>에서 동의)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface ConsentRequestResponse {
+  token: string;
+  consent_url: string;
+  already_consented: boolean;
+}
+
+/** POST /api/v1/customers/<id>/consent-requests/ — 설계사가 동의 요청 링크 생성(인증) */
+export async function createConsentRequest(
+  customerId: number
+): Promise<ConsentRequestResponse> {
+  return request<ConsentRequestResponse>(
+    "POST",
+    `/customers/${customerId}/consent-requests/`,
+    undefined,
+    true
+  );
+}
+
+export interface ConsentDisclosure {
+  customer: { name_masked: string };
+  planner: { affiliation: string };
+  already_consented: boolean;
+  scope_text: string;
+  purpose_text: string;
+  disclaimer: string;
+}
+
+/** GET /api/v1/c/<token>/ — 고객 본인이 보는 동의 고지 (공개, 비인증) */
+export async function getConsentDisclosure(token: string): Promise<ConsentDisclosure> {
+  const res = await fetch(`${API_BASE}/c/${encodeURIComponent(token)}/`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(res.status, (data as { code?: string }).code ?? "ERROR",
+      (data as { detail?: string }).detail ?? "링크를 열 수 없어요.");
+  }
+  return data as ConsentDisclosure;
+}
+
+/** POST /api/v1/c/<token>/ — 고객 본인 국외이전 동의 제출 (공개, 비인증) */
+export async function submitConsent(
+  token: string
+): Promise<{ consented: boolean; consented_at: string }> {
+  const res = await fetch(`${API_BASE}/c/${encodeURIComponent(token)}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ consent_overseas: true }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(res.status, (data as { code?: string }).code ?? "ERROR",
+      (data as { detail?: string }).detail ?? "동의 처리에 실패했어요.");
+  }
+  return data as { consented: boolean; consented_at: string };
 }
 
 // ════════════════════════════════════════════════════════════════════════════

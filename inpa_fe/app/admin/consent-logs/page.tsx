@@ -67,6 +67,7 @@ function ConsentLogsContent() {
                     <th className="text-left px-4 py-3 font-semibold">고객명(마스킹)</th>
                     <th className="text-left px-4 py-3 font-semibold">설계사 이메일</th>
                     <th className="text-left px-4 py-3 font-semibold">동의 종류</th>
+                    <th className="text-left px-4 py-3 font-semibold">동의 주체</th>
                     <th className="text-left px-4 py-3 font-semibold">동의일</th>
                     <th className="text-left px-4 py-3 font-semibold">버전</th>
                     <th className="text-left px-4 py-3 font-semibold">철회</th>
@@ -75,7 +76,7 @@ function ConsentLogsContent() {
                 <tbody className="divide-y divide-line">
                   {data.results.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-ink3">
+                      <td colSpan={7} className="px-4 py-8 text-center text-ink3">
                         로그가 없어요.
                       </td>
                     </tr>
@@ -85,6 +86,11 @@ function ConsentLogsContent() {
                       <td className="px-4 py-3 font-medium text-ink">{log.customer_name_masked}</td>
                       <td className="px-4 py-3 text-ink3">{log.owner_email ?? "—"}</td>
                       <td className="px-4 py-3 text-ink">{log.scope}</td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${log.subject === "customer_self" ? "bg-success text-white" : "bg-surface2 text-ink3"}`}>
+                          {log.subject_display}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-ink3 tnum">{fmt(log.agreed_at)}</td>
                       <td className="px-4 py-3 text-ink3">{log.doc_version}</td>
                       <td className="px-4 py-3">

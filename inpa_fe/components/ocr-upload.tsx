@@ -17,7 +17,7 @@ import { InpaMark } from "@/components/inpa-logo";
 const SCAN_STAGES = ["증권 스캔 중…", "내용 인식 중…", "담보 분류 중…", "보장 분석 중…"];
 import {
   uploadInsuranceOcr,
-  createConsentLog,
+  createConsentRequest,
   ApiError,
 } from "@/lib/api";
 
@@ -39,6 +39,8 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void) {
   const [error, setError] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [consentLoading, setConsentLoading] = useState(false);
+  const [consentUrl, setConsentUrl] = useState<string | null>(null);
+  const [consentCopied, setConsentCopied] = useState(false);
 
   const runUpload = useCallback(
     async (customerId: number, file: File) => {
@@ -79,33 +81,46 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void) {
     [runUpload]
   );
 
-  /** 동의 확인 후 재업로드 (사용자가 직접 버튼 클릭) */
-  const agreeAndRetry = useCallback(
-    async (customerId: number | null) => {
-      if (customerId === null || pendingFile === null) return;
-      setConsentLoading(true);
-      try {
-        await createConsentLog(customerId, {
-          scope: "overseas_medical",
-          purpose:
-            "증권 OCR 분석(Claude API, 미국 소재) — 보험정보 국외이전",
-          doc_version: "1.0",
-        });
-        setPhase("uploading");
-        await runUpload(customerId, pendingFile);
-      } catch {
-        setError("동의 처리 중 오류가 발생했어요. 다시 시도해 주세요.");
-        setPhase("error");
-      } finally {
-        setConsentLoading(false);
-      }
-    },
-    [pendingFile, runUpload]
-  );
+  /** ★ P3c: 설계사 대리동의 폐기 → 고객 본인 동의 요청 링크 생성(설계사는 전달만). */
+  const generateConsentLink = useCallback(async (customerId: number | null) => {
+    if (customerId === null) return;
+    setConsentLoading(true);
+    setError(null);
+    try {
+      const res = await createConsentRequest(customerId);
+      setConsentUrl(res.consent_url);
+    } catch {
+      setError("동의 링크 생성 중 오류가 발생했어요. 다시 시도해 주세요.");
+    } finally {
+      setConsentLoading(false);
+    }
+  }, []);
+
+  /** 업로드 시도 전에도(헤더 등) 동의 모달을 직접 열 수 있게. */
+  const openConsent = useCallback(() => {
+    setConsentUrl(null);
+    setConsentCopied(false);
+    setError(null);
+    setPhase("consent_required");
+  }, []);
+
+  /** 동의 링크 클립보드 복사 (자동발송 없음 — 정직성 레드라인). */
+  const copyConsentUrl = useCallback(async () => {
+    if (!consentUrl) return;
+    try {
+      await navigator.clipboard.writeText(consentUrl);
+      setConsentCopied(true);
+      setTimeout(() => setConsentCopied(false), 2000);
+    } catch {
+      /* 미지원 환경 무시 */
+    }
+  }, [consentUrl]);
 
   const dismissConsent = useCallback(() => {
     setPhase("idle");
     setPendingFile(null);
+    setConsentUrl(null);
+    setConsentCopied(false);
     setError(null);
   }, []);
 
@@ -118,8 +133,12 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void) {
     phase,
     error,
     consentLoading,
+    consentUrl,
+    consentCopied,
     onFileChange,
-    agreeAndRetry,
+    generateConsentLink,
+    openConsent,
+    copyConsentUrl,
     dismissConsent,
     clearError,
   };
@@ -226,15 +245,22 @@ export function OcrStatusBanner({
   );
 }
 
-// ── ConsentModal ── 국외이전 동의 (컴플라이언스 게이트) ──────────────────────
-// ⚠️ 법적 동의 흐름. 자동 동의 처리 금지. 사용자가 직접 확인 후 버튼 클릭.
+// ── ConsentModal ── 고객 본인 국외이전 동의 요청 (P3c 컴플라이언스 게이트) ────────
+// ⚠️ 설계사 대리동의 불가. 고객이 본인 기기에서 /c/<token> 으로 직접 동의해야 분석 가능.
+//    설계사는 '동의 요청 링크'를 만들어 전달(클립보드 복사/카톡)만 한다 — 자동발송 없음.
 
 export function ConsentModal({
-  onAgree,
+  onGenerate,
+  consentUrl,
+  consentCopied,
+  onCopy,
   onDismiss,
   loading,
 }: {
-  onAgree: () => void;
+  onGenerate: () => void;
+  consentUrl: string | null;
+  consentCopied: boolean;
+  onCopy: () => void;
   onDismiss: () => void;
   loading: boolean;
 }) {
@@ -250,12 +276,13 @@ export function ConsentModal({
           id="consent-modal-title"
           className="text-[18px] font-extrabold text-ink"
         >
-          보험정보 국외이전 동의
+          고객 본인 동의가 필요해요
         </h2>
         <p className="mt-3 text-[14px] text-ink2 leading-6">
-          증권 OCR 분석을 위해 고객의 보험 정보를{" "}
+          증권 분석을 위해 보험 정보가{" "}
           <b className="font-semibold text-ink">Claude AI(미국 소재)</b>로
-          처리합니다. 고객의 동의를 받은 경우에만 진행하세요.
+          국외이전됩니다. 법적으로 <b className="font-semibold text-ink">고객 본인</b>이 직접
+          동의해야 분석을 시작할 수 있어요. 아래 동의 요청 링크를 만들어 고객에게 보내세요.
         </p>
 
         {/* 동의 범위 요약 */}
@@ -272,19 +299,47 @@ export function ConsentModal({
         </p>
 
         <div className="mt-5 flex flex-col gap-2.5">
-          <button
-            onClick={onAgree}
-            disabled={loading}
-            className="w-full rounded-2xl bg-brand text-white text-[15px] font-bold py-3.5 disabled:opacity-60 transition"
-          >
-            {loading ? "처리 중…" : "동의하고 분석 시작"}
-          </button>
+          {!consentUrl ? (
+            <button
+              onClick={onGenerate}
+              disabled={loading}
+              className="w-full rounded-2xl bg-brand text-white text-[15px] font-bold py-3.5 disabled:opacity-60 transition"
+            >
+              {loading ? "링크 생성 중…" : "동의 요청 링크 만들기"}
+            </button>
+          ) : (
+            <>
+              <div className="rounded-xl border border-line bg-surface2 px-3 py-2.5 text-[12px] text-ink2 break-all select-all">
+                {consentUrl}
+              </div>
+              <div className="flex gap-2.5">
+                <button
+                  onClick={onCopy}
+                  className="flex-1 rounded-2xl bg-brand text-white text-[15px] font-bold py-3.5 transition"
+                >
+                  {consentCopied ? "복사됐어요!" : "링크 복사하기"}
+                </button>
+                <a
+                  href={consentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-2xl border border-line bg-surface text-[14px] font-semibold text-ink2 px-4 py-3.5 flex items-center"
+                >
+                  미리보기 ↗
+                </a>
+              </div>
+              <p className="text-[12px] text-ink3 leading-5">
+                고객이 링크에서 동의를 완료하면, 다시{" "}
+                <b className="font-semibold text-ink2">[증권 등록]</b>을 눌러 분석을 시작하세요.
+              </p>
+            </>
+          )}
           <button
             onClick={onDismiss}
             disabled={loading}
             className="w-full rounded-2xl border border-line bg-surface text-[14px] font-semibold text-ink2 py-3 disabled:opacity-60 transition"
           >
-            취소
+            닫기
           </button>
         </div>
       </div>
