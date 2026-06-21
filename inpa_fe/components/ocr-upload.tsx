@@ -10,6 +10,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState, useCallback } from "react";
+import { InpaMark } from "@/components/inpa-logo";
 import {
   uploadInsuranceOcr,
   createConsentLog,
@@ -163,7 +164,7 @@ export function OcrUploadButton({
       >
         {phase === "uploading" ? (
           <>
-            <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+            <InpaMark live size={16} title="분석 중" />
             분석 중…
           </>
         ) : phase === "success" ? (
