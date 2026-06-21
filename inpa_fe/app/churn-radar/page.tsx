@@ -165,7 +165,7 @@ export default function ChurnRadarPage() {
             <Card className="px-4 py-10 text-center">
               <p className="text-[14px] text-ink3">보유 보험이 아직 없어요.</p>
               <p className="mt-1 text-[12px] text-ink3">
-                고객 상세에서 증권 OCR로 보험을 먼저 등록하면 여기서 납입·환수를 관리할 수 있어요.
+                고객 상세에서 증권을 올려 보험을 먼저 등록하면 여기서 납입·환수를 관리할 수 있어요.
               </p>
             </Card>
           ) : (

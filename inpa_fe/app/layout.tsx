@@ -5,7 +5,7 @@ import { PwaRegister } from "@/components/pwa-register";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://inpa.kr";
 const TITLE = "인파(Inpa) — 설계사님은 클로징만 준비하세요";
 const DESCRIPTION =
-  "새 고객 발굴 → 증권 OCR → 보장 분석 → 갈아타기 비교까지 한 동선으로. 보험설계사의 AI 영업 파트너, 인파(Inpa).";
+  "새 고객 발굴 → 증권 분석 → 보장 한눈에 → 갈아타기 비교까지 한 동선으로. 보험설계사의 AI 영업 파트너, 인파(Inpa).";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

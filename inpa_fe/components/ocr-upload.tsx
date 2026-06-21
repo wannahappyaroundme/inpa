@@ -9,8 +9,12 @@
 //    AI 면책 문구 고정: "처리 결과는 AI 초안이며, 최종 확인과 책임은 설계사".
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { InpaMark } from "@/components/inpa-logo";
+
+// 처리 단계 — 사용자에게 'OCR' 같은 기능어 대신 알아듣기 쉬운 진행 표현.
+// 실제 파이프라인: pdfplumber 텍스트 추출 → Claude 인식/구조화 → 담보 정규화/분석.
+const SCAN_STAGES = ["증권 스캔 중…", "내용 인식 중…", "담보 분류 중…", "보장 분석 중…"];
 import {
   uploadInsuranceOcr,
   createConsentLog,
@@ -142,6 +146,20 @@ export function OcrUploadButton({
   const disabled =
     customerId === null || phase === "uploading" || phase === "consent_required";
 
+  // 처리 중 단계 순환(스캔→인식→분류→분석). 마지막 단계에서 정지(완료까지 유지).
+  const [stage, setStage] = useState(0);
+  useEffect(() => {
+    if (phase !== "uploading") {
+      setStage(0);
+      return;
+    }
+    const id = setInterval(
+      () => setStage((s) => Math.min(s + 1, SCAN_STAGES.length - 1)),
+      1100
+    );
+    return () => clearInterval(id);
+  }, [phase]);
+
   return (
     <>
       <input
@@ -164,8 +182,8 @@ export function OcrUploadButton({
       >
         {phase === "uploading" ? (
           <>
-            <InpaMark live size={16} title="분석 중" />
-            분석 중…
+            <InpaMark live size={16} title="처리 중" />
+            {SCAN_STAGES[stage]}
           </>
         ) : phase === "success" ? (
           "완료!"

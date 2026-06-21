@@ -29,7 +29,7 @@ export default function TermsPage() {
         <p>1. 회사는 다음 기능을 제공합니다:</p>
         <ul className="list-disc pl-6 space-y-0.5">
           <Li>고객 정보 및 보험증권 등록·관리</Li>
-          <Li>보험증권 OCR 분석 및 담보 정규화</Li>
+          <Li>보험증권 텍스트 추출·분석 및 담보 정규화</Li>
           <Li>담보 현황 시각화(히트맵)</Li>
           <Li>보장 현황 공유(고객 열람 링크)</Li>
           <Li>커뮤니티(게시판·공지)·판촉물 관리</Li>

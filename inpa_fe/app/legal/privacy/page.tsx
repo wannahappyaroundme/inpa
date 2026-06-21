@@ -42,7 +42,7 @@ export default function PrivacyPage() {
       <Article n={2} title="개인정보 처리 목적">
         <ol className="list-decimal pl-5 space-y-1">
           <Li><b>설계사 서비스 제공</b>: 계정 관리, 고객 데이터 분석, 담보 시각화</Li>
-          <Li><b>AI 분석</b>: 보험증권 OCR, 담보 정규화, 히트맵 생성(Claude API 이용)</Li>
+          <Li><b>AI 분석</b>: 보험증권 텍스트 추출·담보 정규화, 히트맵 생성(Claude API 이용)</Li>
           <Li><b>서비스 개선</b>: 담보명 정규화 사전 학습(익명화된 매핑 데이터 활용)</Li>
           <Li><b>공지·고객지원</b>: 공지사항 발송, 1:1 문의 응대</Li>
         </ol>
@@ -73,7 +73,7 @@ export default function PrivacyPage() {
           rows={[
             ["수신자", "Anthropic, Inc."],
             ["소재 국가", "미국 (United States)"],
-            ["전송 목적", "보험증권 OCR 및 담보 분석 AI 처리"],
+            ["전송 목적", "보험증권 텍스트 추출 및 담보 분석 AI 처리"],
             ["전송 항목", "증권 텍스트(병력 포함 가능)"],
             ["전송 시점·방법", "분석 요청 시 HTTPS 전송"],
             ["보유 기간", "Anthropic 처리 완료 즉시(응답 후 별도 저장 없음)"],

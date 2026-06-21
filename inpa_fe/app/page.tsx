@@ -234,7 +234,7 @@ function DifferentiatorsSection() {
             <p className="text-[13px] text-white/70 leading-relaxed">
               &apos;암진단급부금&apos;, &apos;일반암진단비&apos;, &apos;암진단 특약&apos; — 회사마다 다른 이름을
               100개 이상의 표준 담보로 자동 정규화합니다.
-              OCR이 쌓일수록 매칭 정확도가 높아지는 학습 구조입니다.
+              증권 데이터가 쌓일수록 매칭 정확도가 높아지는 학습 구조입니다.
             </p>
           </div>
         </div>
@@ -321,7 +321,7 @@ function PricingSection() {
             <div className="text-[13px] font-semibold text-[var(--ink-3)] uppercase tracking-wide">무료 플랜</div>
             <div className="text-[32px] font-extrabold text-[var(--ink)]">0원</div>
             <ul className="flex flex-col gap-2 text-[13px] text-[var(--ink-2)]">
-              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>증권 OCR 월 N건 (베타 확정)</li>
+              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>증권 분석 월 N건 (베타 확정)</li>
               <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>비교안내서 월 1건 체험</li>
               <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>보장 히트맵 조회 무제한</li>
               <li className="flex gap-2"><span className="text-[var(--muted)]">–</span>AI 분석·메시지 제한</li>
@@ -343,7 +343,7 @@ function PricingSection() {
             </div>
             <div className="text-[22px] font-extrabold text-[var(--ink)]">추후 공개</div>
             <ul className="flex flex-col gap-2 text-[13px] text-[var(--ink-2)]">
-              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>증권 OCR 더 많이</li>
+              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>증권 분석 더 많이</li>
               <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>비교안내서 복수 발행</li>
               <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>AI 분석·메시지 제한 완화</li>
               <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>판촉물 주문 제한 완화</li>
