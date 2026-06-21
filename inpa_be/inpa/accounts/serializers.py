@@ -55,6 +55,7 @@ class ProfileSerializer(serializers.ModelSerializer):
         fields = ('email', 'affiliation', 'agent_type', 'affiliation_type',
                   'cohort_opt_in', 'manager_share_opt_in', 'manager_email', 'managed_agents_count',
                   'license_self_declared', 'license_no', 'career_years',
+                  'booking_msg_template', 'booking_location', 'booking_default_duration',
                   'onboarding_completed_at', 'marketing_agreed_at', 'ref_code',
                   'email_verified_at', 'is_admin', 'is_dormant')
         read_only_fields = ('email', 'onboarding_completed_at', 'ref_code', 'email_verified_at',

@@ -38,6 +38,7 @@ LOCAL_APPS = [
     'inpa.promotion',      # 판촉물 주문제작 (혼합 가시성: 샘플=공유/주문=소유자+관리자, dev/21)
     'inpa.admin_console',  # 관리자 콘솔 (IsAdmin 전용 백오피스, dev/19)
     'inpa.analytics',      # ★ 북극성 계측 + 공유뷰 (NorthStarEvent Day1 동결, dev/13)
+    'inpa.booking',        # 미팅 예약 (Calendly식 내장 — 슬롯/미팅, 공개 /b/<token>, owner 전용)
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -108,6 +109,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'self_diagnosis': '5/hour',
         'consent_public': '10/hour',  # 고객 본인 동의 공개 경로(P3c) — 남용 방어
+        'booking_public': '20/hour',  # 미팅 예약 공개 경로 — 슬롯 조회+예약(읽기 잦음)
     },
 }
 
@@ -191,3 +193,11 @@ ANALYZE_MEDICAL_ENABLED = env.bool('ANALYZE_MEDICAL_ENABLED', default=False)
 # 이 플래그는 '향후 설계사 대리 fallback 자체를 둘지' 예약 스위치 — 현재 코드 경로상
 # 대리동의 unlock은 어차피 없으므로 기본 False. 정식 출시 검토 시 재확정.
 REQUIRE_CUSTOMER_SELF_CONSENT = env.bool('REQUIRE_CUSTOMER_SELF_CONSENT', default=False)
+
+# ── 미팅 예약(Calendly식 내장) 게이트 ────────────────────────────────────────
+# BOOKING_ENABLED=False면 예약 인증 API 403 + 공개 /b/<token> 404(존재 은폐).
+# BOOKING_EMAIL_ENABLED: 자동 이메일 발송(정직성 레드라인=복사붙여넣기만) — 예약만, 미구현(기본 False).
+# 토큰 TTL은 동의 링크와 동일 패턴(72h).
+BOOKING_ENABLED = env.bool('BOOKING_ENABLED', default=True)
+BOOKING_EMAIL_ENABLED = env.bool('BOOKING_EMAIL_ENABLED', default=False)
+BOOKING_TOKEN_TTL_HOURS = env.int('BOOKING_TOKEN_TTL_HOURS', default=72)

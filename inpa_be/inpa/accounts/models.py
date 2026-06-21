@@ -91,6 +91,14 @@ class Profile(models.Model):
     # 지점장(manager)에게 내 KPI 집계 공유 동의. 기본 거부 → 동의 없으면 지점 대시보드 미포함.
     manager_share_opt_in = models.BooleanField(default=False)
 
+    # ── 미팅 예약(Calendly식) 설정 ──────────────────────────────────────
+    # 예약 링크와 함께 고객에게 보낼 메시지 템플릿({고객명}{설계사명}{링크}). 빈 값이면 기본 템플릿.
+    booking_msg_template = models.TextField('미팅 예약 메시지 템플릿', blank=True, default='')
+    # 대면 미팅 기본 장소(주소/카페 등). 확정 시 Meeting.location_detail로 스냅샷.
+    booking_location = models.CharField('대면 기본 장소', max_length=200, blank=True, default='')
+    # 슬롯 생성 시 기본 소요시간(분).
+    booking_default_duration = models.PositiveSmallIntegerField('기본 미팅 시간(분)', default=30)
+
     class Meta:
         db_table = 'accounts_profile'
 

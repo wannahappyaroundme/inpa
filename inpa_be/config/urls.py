@@ -24,4 +24,5 @@ urlpatterns = [
     path('api/v1/', include('inpa.promotion.urls')),
     path('api/v1/', include('inpa.admin_console.urls')),
     path('api/v1/', include('inpa.analytics.urls')),
+    path('api/v1/', include('inpa.booking.urls')),
 ]

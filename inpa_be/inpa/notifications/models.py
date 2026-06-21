@@ -37,6 +37,8 @@ class NotifType(models.TextChoices):
     # ── 게시판 즉시 이벤트 (dev/02 §9.1 확정, ReminderRule 대상 아님) ──
     BOARD_COMMENT = 'board_comment', '게시글 댓글'
     BOARD_LIKE = 'board_like', '게시글 좋아요'
+    # ── 미팅 예약(영업) — 고객이 공개 링크에서 예약 확정 시 설계사에게. 즉시 이벤트. ──
+    MEETING_BOOKED = 'meeting_booked', '미팅 예약됨'
 
 
 class Notification(models.Model):
