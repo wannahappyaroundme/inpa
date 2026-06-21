@@ -4,57 +4,48 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { tokenStore } from "@/lib/api";
+import { InpaMark } from "@/components/inpa-logo";
+import {
+  LayoutGrid, BarChart3, ArrowLeftRight, ShieldCheck, ScanLine,
+  Upload, Sparkles, Share2, Check, FileCheck, Ban, type LucideIcon,
+} from "lucide-react";
 
-// ─── Logo ────────────────────────────────────────────────────────────────────
+// 인파 랜딩 — Phase A(무모션 리디자인): 다크 히어로 명암 리듬 · lucide 라인 아이콘 · 타이포 확대.
+// ★ 컴플라이언스: 단정·과장 카피 금지("다 합니다/3초/유리"). AI 초안·중개권유 아님·면책 고정.
 
-function Logo({ size = 32 }: { size?: number }) {
+const NAVY = "#152a5e"; // 히어로/다크 섹션 딥네이비
+const MINT = "#12B5A4";
+
+function FeatureIcon({ icon: Icon, tone = "brand" }: { icon: LucideIcon; tone?: "brand" | "mint" }) {
   return (
-    <svg
-      viewBox="0 0 48 48"
-      width={size}
-      height={size}
-      aria-label="인파"
-      role="img"
+    <div
+      className="w-11 h-11 rounded-xl flex items-center justify-center"
+      style={tone === "mint"
+        ? { background: "rgba(18,181,164,.14)", color: MINT }
+        : { background: "var(--accent-tint)", color: "var(--brand)" }}
     >
-      <path
-        d="M16.5 41 V15.5 H25 A7 7 0 0 1 25 29.5 H16.5"
-        fill="none"
-        stroke="#1E40C4"
-        strokeWidth="7.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="16.5" cy="5.05" r="3.9" fill="#DC2626" />
-    </svg>
+      <Icon size={22} strokeWidth={1.75} aria-hidden />
+    </div>
   );
 }
 
-// ─── Global Header ────────────────────────────────────────────────────────────
-
+// ─── Header ───────────────────────────────────────────────────────────────────
 function LandingHeader() {
   return (
     <header
-      className="sticky top-0 z-30 bg-[var(--surface)] border-b border-[var(--line)]"
+      className="sticky top-0 z-30 bg-[var(--surface)]/85 backdrop-blur border-b border-[var(--line)]"
       style={{ height: "var(--header-h)" }}
     >
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16 h-full flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <Logo size={30} />
-          <span className="font-extrabold text-[var(--brand-ink)] text-[18px] tracking-tight">
-            인파
-          </span>
+          <InpaMark size={30} />
+          <span className="font-extrabold text-[var(--brand-ink)] text-[18px] tracking-tight">인파</span>
         </Link>
         <div className="flex items-center gap-2">
-          <Link
-            href="/login"
-            className="px-4 py-2 rounded-xl border border-[var(--brand)] text-[var(--brand)] text-[14px] font-semibold min-h-[44px] flex items-center hover:bg-[var(--accent-tint)] transition"
-          >
+          <Link href="/login" className="px-4 py-2 rounded-xl text-[var(--ink-2)] text-[14px] font-semibold min-h-[44px] flex items-center hover:bg-[var(--surface-2)] transition">
             로그인
           </Link>
-          <Link
-            href="/register"
-            className="px-4 py-2 rounded-xl bg-[var(--brand)] text-white text-[14px] font-semibold min-h-[44px] flex items-center hover:opacity-90 transition"
-          >
+          <Link href="/register" className="px-4 py-2 rounded-xl bg-[var(--brand)] text-white text-[14px] font-semibold min-h-[44px] flex items-center hover:opacity-90 transition">
             무료로 시작하기
           </Link>
         </div>
@@ -63,46 +54,43 @@ function LandingHeader() {
   );
 }
 
-// ─── Section 1: Hero + CTA ────────────────────────────────────────────────────
-
+// ─── 1. Hero (다크 네이비) ──────────────────────────────────────────────────────
 function HeroSection() {
   return (
-    <section className="bg-[var(--accent-tint)] py-16 md:py-24">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
-        <div className="flex flex-col md:flex-row items-center gap-10 md:gap-16">
-          {/* Left: Copy + CTA */}
+    <section className="relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${NAVY} 0%, #0c1f49 60%, #0a1838 100%)` }}>
+      {/* 은은한 민트 글로우 */}
+      <div className="pointer-events-none absolute -top-24 -right-24 w-[480px] h-[480px] rounded-full opacity-20"
+           style={{ background: `radial-gradient(circle, ${MINT} 0%, transparent 70%)` }} />
+      <div className="relative mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16 py-20 md:py-28">
+        <div className="flex flex-col md:flex-row items-center gap-12 md:gap-16">
+          {/* Left */}
           <div className="flex-1 text-center md:text-left">
-            <h1 className="text-[28px] sm:text-[36px] md:text-[42px] font-extrabold text-[var(--brand-ink)] leading-tight tracking-tight">
+            <span className="inline-block text-[13px] font-bold tracking-wide" style={{ color: MINT }}>
+              보험설계사 AI 영업 파트너
+            </span>
+            <h1 className="mt-3 text-[36px] sm:text-[48px] md:text-[56px] font-extrabold text-white leading-[1.12] tracking-tight">
               설계사님은<br />클로징만 준비하세요
             </h1>
-            <p className="mt-4 text-[15px] sm:text-[17px] text-[var(--ink-2)] leading-relaxed max-w-lg mx-auto md:mx-0">
-              발굴부터 보장분석, 갈아타기 제안까지 — 인파가 다 합니다.
-              설계사님은 계약 마무리에만 집중하세요.
+            <p className="mt-5 text-[16px] sm:text-[19px] text-white/80 leading-relaxed max-w-xl mx-auto md:mx-0">
+              발굴부터 보장분석, 갈아타기 제안까지 — 인파가 준비하고, 설계사님이 완성합니다.
             </p>
-            <p className="mt-2 text-[13px] sm:text-[14px] text-[var(--ink-3)] leading-relaxed max-w-md mx-auto md:mx-0">
-              증권 업로드 하나로 고객 보장 공백을 3초 안에 시각화.
-              합법적인 비교안내서까지 자동 생성.
+            <p className="mt-2 text-[14px] sm:text-[15px] text-white/55 leading-relaxed max-w-lg mx-auto md:mx-0">
+              증권 한 장으로 고객 보장 공백을 한 화면에. 합법적인 비교안내서 초안까지.
             </p>
-            <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
-              <Link
-                href="/register"
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[48px] flex items-center justify-center hover:opacity-90 transition"
-              >
+            <div className="mt-9 flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
+              <Link href="/register" className="w-full sm:w-auto px-7 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/90 transition shadow-lg">
                 무료로 시작하기
               </Link>
-              <Link
-                href="/login"
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl border-2 border-[var(--brand)] text-[var(--brand)] font-bold text-[16px] min-h-[48px] flex items-center justify-center hover:bg-[var(--accent-tint)] transition"
-              >
-                로그인
-              </Link>
+              <a href="#features" className="w-full sm:w-auto px-7 py-4 rounded-2xl border border-white/25 text-white font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/10 transition">
+                기능 둘러보기
+              </a>
             </div>
+            <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 베타 기간 무제한 · 이메일로 가입</p>
           </div>
 
-          {/* Right: 제품 미리보기 (CSS 목업 — 실제 화면 모티프, 외부 이미지 의존 없음) */}
+          {/* Right: 제품 미리보기 카드(흰) */}
           <div className="flex-1 w-full max-w-md md:max-w-none">
-            <div className="rounded-[var(--radius-lg)] bg-[var(--surface)] border border-[var(--line)] shadow-md overflow-hidden">
-              {/* 윈도우 바 */}
+            <div className="rounded-2xl bg-white shadow-2xl overflow-hidden ring-1 ring-black/5">
               <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-[var(--line)] bg-[var(--surface-2)]">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--cov-none)" }} />
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--cov-short)" }} />
@@ -110,28 +98,21 @@ function HeroSection() {
                 <span className="ml-2 text-[11px] font-semibold text-[var(--ink-3)]">김영수님 · 보장 한눈표</span>
               </div>
               <div className="p-4">
-                {/* 미니 히트맵 (24칸) */}
                 <div className="grid grid-cols-6 gap-1.5">
                   {(["line","line","enough","line","short","line",
                      "line","enough","line","over","line","line",
                      "short","line","line","enough","line","none",
                      "line","line","enough","line","short","line"] as const).map((k, i) => (
-                    <span
-                      key={i}
-                      className="aspect-square rounded-[4px]"
-                      style={{ background: k === "line" ? "var(--line)" : `var(--cov-${k})` }}
-                    />
+                    <span key={i} className="aspect-square rounded-[4px]"
+                          style={{ background: k === "line" ? "var(--line)" : `var(--cov-${k})` }} />
                   ))}
                 </div>
-                {/* 갈아타기 판정 카드 */}
                 <div className="mt-4 rounded-xl border border-[var(--line)] p-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[12px] font-bold text-[var(--ink)]">갈아타기 분석</span>
-                    <span
-                      className="text-[11px] font-bold rounded-full px-2 py-0.5"
-                      style={{ color: "var(--cov-enough)", background: "var(--accent-tint)" }}
-                    >
-                      🟢 유지가 유리
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold rounded-full px-2 py-0.5"
+                          style={{ color: "var(--brand)", background: "var(--accent-tint)" }}>
+                      <ArrowLeftRight size={12} strokeWidth={2.2} /> 유지·전환 변동 비교
                     </span>
                   </div>
                   <div className="mt-2.5 space-y-1.5 text-[12px]">
@@ -141,13 +122,13 @@ function HeroSection() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-[var(--ink-3)]">면책기간 리셋</span>
-                      <span className="font-semibold text-[var(--cov-short)]">재적용 위험</span>
+                      <span className="font-semibold text-[var(--cov-short)]">재적용 가능</span>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-            <p className="mt-2 text-center text-[11px] text-[var(--muted)]">실제 화면 미리보기</p>
+            <p className="mt-2 text-center text-[11px] text-white/40">예시 화면</p>
           </div>
         </div>
       </div>
@@ -155,42 +136,45 @@ function HeroSection() {
   );
 }
 
-// ─── Section 2: Core Features ─────────────────────────────────────────────────
+// ─── 2. 신뢰지표 띠 (얇은 화이트) ────────────────────────────────────────────────
+function TrustBar() {
+  const items = [
+    { icon: LayoutGrid, label: "담보 100+ 항목 한눈에" },
+    { icon: ScanLine, label: "증권 한 장 자동 정리" },
+    { icon: ShieldCheck, label: "§97 6항목 자동 체크" },
+  ];
+  return (
+    <section className="bg-[var(--surface)] border-b border-[var(--line)]">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16 py-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {items.map((it) => (
+          <div key={it.label} className="flex items-center gap-2.5 justify-center sm:justify-start">
+            <it.icon size={18} strokeWidth={1.75} className="text-[var(--accent-blue)]" aria-hidden />
+            <span className="text-[14px] font-semibold text-[var(--ink-2)]">{it.label}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
+// ─── 3. 핵심 기능 (화이트) ──────────────────────────────────────────────────────
 function FeaturesSection() {
   const cards = [
-    {
-      icon: "⊞",
-      title: "보장 한눈표 (히트맵)",
-      desc: "고객의 현재 보장을 100개 이상 담보 항목으로 한 화면에 펼쳐 보세요. 충분·부족·없음을 색으로 즉시 확인합니다.",
-    },
-    {
-      icon: "◈",
-      title: "히트맵 분석",
-      desc: "보장 공백을 자동으로 계산해 우선순위별로 정렬합니다. 설계사님이 설정한 기준선으로 판단합니다.",
-    },
-    {
-      icon: "⇄",
-      title: "갈아타기 비교안내서",
-      desc: "기존 보험과 새 제안을 나란히 비교하는 공식 비교안내서를 생성합니다. 부당승환 예방 항목이 자동으로 포함됩니다.",
-    },
+    { icon: LayoutGrid, title: "보장 한눈표 (히트맵)", desc: "고객의 현재 보장을 100개 이상 담보 항목으로 한 화면에. 보유·공백을 색으로 즉시 확인합니다." },
+    { icon: BarChart3, title: "보장 공백 분석", desc: "보유 0인 담보를 모아 우선순위로 정렬합니다. 충분·부족 판단은 설계사님이 설정한 기준선을 따릅니다." },
+    { icon: ArrowLeftRight, title: "갈아타기 비교안내서", desc: "기존과 제안을 나란히 정리한 비교안내 자료를 만듭니다. 부당승환(§97) 예방 항목이 함께 정리됩니다." },
   ];
-
   return (
-    <section className="py-16 md:py-24 bg-[var(--surface)]">
+    <section id="features" className="py-20 md:py-28 bg-[var(--surface)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
-        <h2 className="text-[22px] sm:text-[28px] font-extrabold text-[var(--brand-ink)] text-center mb-10">
-          핵심 기능 3가지
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">핵심 기능</h2>
+        <p className="mt-3 text-center text-[16px] text-[var(--ink-3)]">발굴 → 분석 → 제안, 한 동선으로 이어집니다.</p>
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-5">
           {cards.map((c) => (
-            <div
-              key={c.title}
-              className="rounded-[var(--radius)] bg-[var(--surface-2)] border border-[var(--line)] shadow-sm p-6"
-            >
-              <div className="text-[28px] text-[var(--accent-blue)] mb-3">{c.icon}</div>
-              <h3 className="font-bold text-[16px] text-[var(--ink)] mb-2">{c.title}</h3>
-              <p className="text-[13px] text-[var(--ink-3)] leading-relaxed">{c.desc}</p>
+            <div key={c.title} className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 shadow-[0_1px_2px_rgba(16,24,40,.04),0_12px_28px_-12px_rgba(16,24,40,.10)] hover:-translate-y-0.5 transition">
+              <FeatureIcon icon={c.icon} />
+              <h3 className="mt-4 font-bold text-[17px] text-[var(--ink)]">{c.title}</h3>
+              <p className="mt-2 text-[14px] text-[var(--ink-3)] leading-relaxed">{c.desc}</p>
             </div>
           ))}
         </div>
@@ -199,42 +183,33 @@ function FeaturesSection() {
   );
 }
 
-// ─── Section 3: Differentiators ───────────────────────────────────────────────
-
+// ─── 4. 차별점 (다크 네이비) ────────────────────────────────────────────────────
 function DifferentiatorsSection() {
   return (
-    <section className="py-16 md:py-24 bg-[var(--brand-ink)]">
+    <section className="py-20 md:py-28" style={{ background: NAVY }}>
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
-        <h2 className="text-[22px] sm:text-[28px] font-extrabold text-white text-center mb-10">
-          인파만의 차별점
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Item A */}
-          <div className="rounded-[var(--radius)] bg-white/10 border border-white/20 p-6">
-            <span className="inline-block mb-3 px-3 py-1 rounded-full bg-[var(--accent-tint)] text-[var(--brand)] text-[12px] font-bold">
-              §97 체크리스트 자동 완성 — 미달이면 발행 불가
+        <h2 className="text-[28px] sm:text-[36px] font-extrabold text-white text-center tracking-tight">인파만의 차별점</h2>
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-7">
+            <div className="mb-4"><FeatureIcon icon={ShieldCheck} tone="mint" /></div>
+            <span className="inline-block mb-3 px-3 py-1 rounded-full text-[12px] font-bold" style={{ background: "rgba(18,181,164,.16)", color: MINT }}>
+              §97 6항목 자동 완성 — 미달이면 발행 불가
             </span>
-            <h3 className="font-bold text-[17px] text-white mb-2">
-              부당승환 걱정 없는 비교안내
-            </h3>
-            <p className="text-[13px] text-white/70 leading-relaxed">
+            <h3 className="font-bold text-[18px] text-white">부당승환 걱정 없는 비교안내</h3>
+            <p className="mt-2 text-[14px] text-white/65 leading-relaxed">
               보험업법 제97조가 요구하는 6가지 비교 항목(해지환급금 손실·면책기간·예정이율 등)을
-              자동으로 체크하고 문서에 포함합니다.
-              기준 미달 시 발행 자체를 차단해 설계사님을 법적 리스크에서 보호합니다.
+              자동으로 정리합니다. 기준 미달 시 고객 발행을 차단해 법적 리스크를 줄입니다.
             </p>
           </div>
-          {/* Item B */}
-          <div className="rounded-[var(--radius)] bg-white/10 border border-white/20 p-6">
-            <span className="inline-block mb-3 px-3 py-1 rounded-full bg-[var(--accent-tint)] text-[var(--brand)] text-[12px] font-bold">
+          <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-7">
+            <div className="mb-4"><FeatureIcon icon={LayoutGrid} tone="mint" /></div>
+            <span className="inline-block mb-3 px-3 py-1 rounded-full text-[12px] font-bold" style={{ background: "rgba(18,181,164,.16)", color: MINT }}>
               담보 100+ 표준화 · 보험사별 명칭 자동 매핑
             </span>
-            <h3 className="font-bold text-[17px] text-white mb-2">
-              어떤 보험사 증권도 같은 틀로
-            </h3>
-            <p className="text-[13px] text-white/70 leading-relaxed">
+            <h3 className="font-bold text-[18px] text-white">어떤 보험사 증권도 같은 틀로</h3>
+            <p className="mt-2 text-[14px] text-white/65 leading-relaxed">
               &apos;암진단급부금&apos;, &apos;일반암진단비&apos;, &apos;암진단 특약&apos; — 회사마다 다른 이름을
-              100개 이상의 표준 담보로 자동 정규화합니다.
-              증권 데이터가 쌓일수록 매칭 정확도가 높아지는 학습 구조입니다.
+              100개 이상 표준 담보로 자동 정규화합니다. 데이터가 쌓일수록 매칭 정확도가 높아집니다.
             </p>
           </div>
         </div>
@@ -243,59 +218,30 @@ function DifferentiatorsSection() {
   );
 }
 
-// ─── Section 4: How It Works ─────────────────────────────────────────────────
-
+// ─── 5. 작동 방식 (surface-2) ───────────────────────────────────────────────────
 function HowItWorksSection() {
   const steps = [
-    {
-      n: "1",
-      icon: "↑",
-      title: "증권 업로드",
-      desc: "고객 보험 증권 PDF를 드래그하거나 카메라로 찍어 올리세요. 여러 장 한 번에 가능합니다.",
-    },
-    {
-      n: "2",
-      icon: "◎",
-      title: "AI 자동 분석",
-      desc: "인파가 담보를 분류하고 보장 공백을 계산합니다. 보통 10초 이내에 완료됩니다.",
-    },
-    {
-      n: "3",
-      icon: "⇪",
-      title: "비교안내서 & 메시지 공유",
-      desc: "고객에게 보낼 비교안내서와 카톡 메시지를 생성하고, 클립보드로 복사해 전달하세요.",
-    },
+    { n: "1", icon: Upload, title: "증권 PDF 업로드", desc: "고객 보험 증권 PDF를 올리세요. 여러 장 한 번에 가능합니다." },
+    { n: "2", icon: Sparkles, title: "자동 분석·정리", desc: "스캔 → 인식 → 분류 → 분석 단계로 담보를 표준 틀에 매핑하고 보장 공백을 계산합니다." },
+    { n: "3", icon: Share2, title: "비교안내서 · 메시지 공유", desc: "고객에게 보낼 비교안내서·메시지를 만들고, 클립보드로 복사해 직접 전달하세요." },
   ];
-
   return (
-    <section className="py-16 md:py-24 bg-[var(--surface-2)]">
+    <section className="py-20 md:py-28 bg-[var(--surface-2)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
-        <h2 className="text-[22px] sm:text-[28px] font-extrabold text-[var(--brand-ink)] text-center mb-10">
-          어떻게 사용하나요?
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {steps.map((s, i) => (
-            <div key={s.n} className="relative flex flex-col items-start gap-4">
+        <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">어떻게 쓰나요?</h2>
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
+          {steps.map((s) => (
+            <div key={s.n} className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7">
               <div className="flex items-center gap-3">
-                <span className="w-9 h-9 rounded-full bg-[var(--brand)] text-white font-bold text-[15px] flex items-center justify-center flex-shrink-0">
-                  {s.n}
-                </span>
-                {/* connector arrow — desktop only, between steps */}
-                {i < 2 && (
-                  <span className="hidden md:block absolute left-full top-4 -ml-3 text-[var(--muted)] text-[18px]">
-                    →
-                  </span>
-                )}
+                <span className="w-8 h-8 rounded-full bg-[var(--brand)] text-white font-bold text-[14px] flex items-center justify-center">{s.n}</span>
+                <FeatureIcon icon={s.icon} />
               </div>
-              <div>
-                <h3 className="font-bold text-[16px] text-[var(--ink)] mb-1">{s.title}</h3>
-                <p className="text-[13px] text-[var(--ink-3)] leading-relaxed">{s.desc}</p>
-              </div>
+              <h3 className="mt-4 font-bold text-[16px] text-[var(--ink)]">{s.title}</h3>
+              <p className="mt-2 text-[14px] text-[var(--ink-3)] leading-relaxed">{s.desc}</p>
             </div>
           ))}
         </div>
-        {/* 정직성 레드라인: 원탭 자동발송 없음 */}
-        <p className="mt-8 text-center text-[12px] text-[var(--ink-3)]">
+        <p className="mt-8 text-center text-[13px] text-[var(--ink-3)]">
           자동 발송은 지원하지 않습니다. 메시지는 클립보드 복사 후 직접 전달해 주세요.
         </p>
       </div>
@@ -303,166 +249,129 @@ function HowItWorksSection() {
   );
 }
 
-// ─── Section 5: Pricing (Freemium) ───────────────────────────────────────────
-
+// ─── 6. 요금 (화이트) ───────────────────────────────────────────────────────────
 function PricingSection() {
+  const free = ["증권 분석 월 N건 (베타 확정)", "비교안내서 월 1건 체험", "보장 히트맵 조회 무제한"];
+  const plus = ["증권 분석 더 많이", "비교안내서 복수 발행", "AI 분석·메시지 제한 완화", "판촉물 주문 제한 완화"];
   return (
-    <section className="py-16 md:py-24 bg-[var(--surface)]">
+    <section className="py-20 md:py-28 bg-[var(--surface)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
-        <h2 className="text-[22px] sm:text-[28px] font-extrabold text-[var(--brand-ink)] text-center mb-3">
-          요금제
-        </h2>
-        <p className="text-center text-[14px] text-[var(--ink-3)] mb-10">
-          지금 가입하면 베타 기간 전 기능을 무료로 이용합니다.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-          {/* Free plan */}
-          <div className="rounded-[var(--radius-lg)] bg-[var(--surface)] border border-[var(--line)] p-6 flex flex-col gap-3">
-            <div className="text-[13px] font-semibold text-[var(--ink-3)] uppercase tracking-wide">무료 플랜</div>
-            <div className="text-[32px] font-extrabold text-[var(--ink)]">0원</div>
-            <ul className="flex flex-col gap-2 text-[13px] text-[var(--ink-2)]">
-              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>증권 분석 월 N건 (베타 확정)</li>
-              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>비교안내서 월 1건 체험</li>
-              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>보장 히트맵 조회 무제한</li>
-              <li className="flex gap-2"><span className="text-[var(--muted)]">–</span>AI 분석·메시지 제한</li>
+        <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">요금제</h2>
+        <p className="mt-3 text-center text-[15px] text-[var(--ink-3)]">베타 기간 전 기능 무료 — 정식 출시 후에도 베타 가입자 혜택 유지.</p>
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+          <div className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 flex flex-col gap-3">
+            <div className="text-[13px] font-semibold text-[var(--ink-3)] uppercase tracking-wide">무료</div>
+            <div className="text-[34px] font-extrabold text-[var(--ink)]">0원</div>
+            <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
+              {free.map((f) => (
+                <li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>
+              ))}
             </ul>
-            <Link
-              href="/register"
-              className="mt-auto w-full py-3 rounded-xl bg-[var(--brand)] text-white font-bold text-[15px] text-center min-h-[48px] flex items-center justify-center hover:opacity-90 transition"
-            >
+            <Link href="/register" className="mt-auto w-full py-3.5 rounded-xl bg-[var(--brand)] text-white font-bold text-[15px] text-center min-h-[50px] flex items-center justify-center hover:opacity-90 transition">
               무료로 시작하기
             </Link>
           </div>
-
-          {/* Plus plan */}
-          <div className="rounded-[var(--radius-lg)] bg-[var(--surface)] border-2 border-[var(--brand)] p-6 flex flex-col gap-3 relative overflow-hidden">
-            <span className="absolute top-0 left-0 right-0 h-1 bg-[var(--brand)]" />
+          <div className="rounded-2xl bg-[var(--surface)] border-2 border-[var(--brand)] p-7 flex flex-col gap-3 relative">
             <div className="flex items-center gap-2">
-              <div className="text-[13px] font-semibold text-[var(--brand)] uppercase tracking-wide">Plus 플랜</div>
+              <div className="text-[13px] font-semibold text-[var(--brand)] uppercase tracking-wide">Plus</div>
               <span className="px-2 py-0.5 rounded-full bg-[var(--accent-tint)] text-[var(--brand)] text-[11px] font-bold">추천</span>
             </div>
-            <div className="text-[22px] font-extrabold text-[var(--ink)]">추후 공개</div>
-            <ul className="flex flex-col gap-2 text-[13px] text-[var(--ink-2)]">
-              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>증권 분석 더 많이</li>
-              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>비교안내서 복수 발행</li>
-              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>AI 분석·메시지 제한 완화</li>
-              <li className="flex gap-2"><span className="text-[var(--success)]">✓</span>판촉물 주문 제한 완화</li>
+            <div className="text-[24px] font-extrabold text-[var(--ink)]">추후 공개</div>
+            <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
+              {plus.map((f) => (
+                <li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>
+              ))}
             </ul>
-            <button
-              type="button"
-              className="mt-auto w-full py-3 rounded-xl border-2 border-[var(--brand)] text-[var(--brand)] font-bold text-[15px] min-h-[48px] hover:bg-[var(--accent-tint)] transition"
-            >
-              베타 신청 / 문의하기
-            </button>
+            <Link href="/register" className="mt-auto w-full py-3.5 rounded-xl border-2 border-[var(--brand)] text-[var(--brand)] font-bold text-[15px] text-center min-h-[50px] flex items-center justify-center hover:bg-[var(--accent-tint)] transition">
+              베타 신청하기
+            </Link>
           </div>
         </div>
-        <p className="mt-6 text-center text-[12px] text-[var(--muted)]">
-          베타 기간 한도는 실측 후 공개됩니다. 지금 가입하면 베타 기간 전 기능을 무료로 이용합니다.
-        </p>
       </div>
     </section>
   );
 }
 
-// ─── Section 6: Trust / Honesty ──────────────────────────────────────────────
-
+// ─── 7. 신뢰·정직성 (accent-tint) ───────────────────────────────────────────────
 function TrustSection() {
+  const items = [
+    { icon: FileCheck, title: "AI 초안, 최종책임은 설계사", desc: "인파가 만든 비교안내서·메시지는 AI 초안입니다. 보장 판단과 최종 전달 책임은 담당 설계사님에게 있습니다." },
+    { icon: Ban, title: "'심의완료'·'안전' 배지 없음", desc: "특정 상품이 심의를 완료했다거나 안전하다는 표시를 하지 않습니다. 인파는 보험을 중개·권유하지 않습니다." },
+  ];
   return (
-    <section className="py-16 md:py-24 bg-[var(--accent-tint)]">
+    <section className="py-20 md:py-28 bg-[var(--accent-tint)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
-        <h2 className="text-[22px] sm:text-[28px] font-extrabold text-[var(--brand-ink)] text-center mb-10">
-          인파가 지키는 원칙
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Item 1 */}
-          <div className="rounded-[var(--radius)] bg-[var(--surface)] border border-[var(--line)] p-6 flex gap-4">
-            <div className="text-[var(--success)] text-[26px] flex-shrink-0">🛡</div>
-            <div>
-              <h3 className="font-bold text-[15px] text-[var(--ink)] mb-2">
-                AI 초안, 최종책임은 설계사
-              </h3>
-              <p className="text-[13px] text-[var(--ink-3)] leading-relaxed">
-                인파가 생성한 비교안내서·메시지는 AI 초안입니다.
-                보장 판단과 최종 전달의 책임은 담당 설계사님에게 있습니다.
-              </p>
+        <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">인파가 지키는 원칙</h2>
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
+          {items.map((it) => (
+            <div key={it.title} className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 flex gap-4">
+              <FeatureIcon icon={it.icon} />
+              <div>
+                <h3 className="font-bold text-[16px] text-[var(--ink)]">{it.title}</h3>
+                <p className="mt-1.5 text-[14px] text-[var(--ink-3)] leading-relaxed">{it.desc}</p>
+              </div>
             </div>
-          </div>
-
-          {/* Item 2 */}
-          <div className="rounded-[var(--radius)] bg-[var(--surface)] border border-[var(--line)] p-6 flex gap-4">
-            <div className="text-[var(--ink-2)] text-[26px] flex-shrink-0">⊘</div>
-            <div>
-              <h3 className="font-bold text-[15px] text-[var(--ink)] mb-2">
-                &ldquo;심의완료&rdquo; &ldquo;안전&rdquo; 배지 없음
-              </h3>
-              <p className="text-[13px] text-[var(--ink-3)] leading-relaxed">
-                인파는 특정 보험 상품이 심의를 완료했다거나 안전하다는 배지를 표시하지 않습니다.
-                모든 보험 선택은 설계사님과 고객의 판단입니다.
-              </p>
-            </div>
-          </div>
+          ))}
         </div>
       </div>
     </section>
   );
 }
 
-// ─── Section 7: Footer ────────────────────────────────────────────────────────
+// ─── 8. 최종 CTA (다크, 수미상관) ───────────────────────────────────────────────
+function FinalCTASection() {
+  return (
+    <section className="py-20 md:py-28 text-center" style={{ background: `linear-gradient(135deg, ${NAVY}, #0a1838)` }}>
+      <div className="mx-auto max-w-2xl px-6">
+        <h2 className="text-[28px] sm:text-[40px] font-extrabold text-white leading-tight tracking-tight">
+          지금, 첫 고객의<br /><span style={{ color: MINT }}>보장 공백</span>부터 보세요
+        </h2>
+        <p className="mt-4 text-[16px] text-white/70">증권 한 장이면 시작입니다. 베타 기간 무료.</p>
+        <Link href="/register" className="mt-8 inline-flex px-8 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] items-center justify-center hover:bg-white/90 transition shadow-lg">
+          무료로 분석 시작하기
+        </Link>
+        <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 이메일로 가입</p>
+      </div>
+    </section>
+  );
+}
 
+// ─── Footer (다크) ──────────────────────────────────────────────────────────────
 function LandingFooter() {
   return (
-    <footer className="bg-[var(--brand-ink)] text-[var(--surface)] py-12">
+    <footer className="text-white py-12" style={{ background: "#0a1838" }}>
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
-        {/* Top: Logo + Links */}
         <div className="flex flex-col md:flex-row gap-8 md:gap-0 md:justify-between">
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
-              <Logo size={24} />
+              <InpaMark size={24} />
               <span className="font-extrabold text-[17px]">인파 (Inpa)</span>
             </div>
-            <p className="text-[12px] text-white/60 max-w-xs">
+            <p className="text-[13px] text-white/55 max-w-xs leading-relaxed">
               보험설계사의 AI 영업 파트너. 발굴부터 보장분석, 갈아타기 제안까지.
             </p>
           </div>
-
-          <div className="flex flex-col gap-2 text-[13px]">
-            <Link href="/legal/terms" className="text-white/70 hover:text-white transition">
-              이용약관
-            </Link>
-            <Link href="/legal/privacy" className="text-white/70 hover:text-white transition">
-              개인정보처리방침
-            </Link>
-            <Link href="/inquiry/new" className="text-white/70 hover:text-white transition">
-              1:1 문의
-            </Link>
+          <div className="flex flex-col gap-2.5 text-[13px]">
+            <Link href="/legal/terms" className="text-white/70 hover:text-white transition">이용약관</Link>
+            <Link href="/legal/privacy" className="text-white/70 hover:text-white transition">개인정보처리방침</Link>
+            <Link href="/data-policy" className="text-white/70 hover:text-white transition">데이터 처리 안내</Link>
           </div>
         </div>
-
-        {/* Business info placeholder */}
-        <div className="mt-8 pt-6 border-t border-white/20 text-[12px] text-white/40 flex flex-col gap-1">
-          <p>
-            상호명: [미확정] | 사업자등록번호: [미확정] | 대표자: [미확정]
-          </p>
-          <p>
-            주소: [미확정] | 이메일: [미확정]
-          </p>
-          <p className="mt-2">© 2026 Inpa. All rights reserved.</p>
+        <div className="mt-10 pt-6 border-t border-white/15 text-[12px] text-white/40 flex flex-col gap-1">
+          <p>상호명: [미확정] | 사업자등록번호: [미확정] | 대표자: [미확정]</p>
+          <p>주소: [미확정] | 고객센터: [미확정]</p>
+          <p className="mt-2 text-white/55">AI 초안이며 최종 판단·책임은 설계사님에게 있습니다. 인파는 보험 중개·권유를 하지 않습니다.</p>
+          <p className="mt-1">© 2026 Inpa. All rights reserved.</p>
         </div>
       </div>
     </footer>
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function LandingPage() {
   const router = useRouter();
-
-  // 로그인 상태이면 /home 으로 리다이렉트 (SSG 빌드에 영향 없음)
   useEffect(() => {
-    if (tokenStore.get()) {
-      router.replace("/home");
-    }
+    if (tokenStore.get()) router.replace("/home");
   }, [router]);
 
   return (
@@ -470,11 +379,13 @@ export default function LandingPage() {
       <LandingHeader />
       <main>
         <HeroSection />
+        <TrustBar />
         <FeaturesSection />
         <DifferentiatorsSection />
         <HowItWorksSection />
         <PricingSection />
         <TrustSection />
+        <FinalCTASection />
       </main>
       <LandingFooter />
     </>
