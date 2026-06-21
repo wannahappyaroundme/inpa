@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, Suspense } from "react";
 import { login, tokenStore, ApiError } from "@/lib/api";
+import { GoogleSignInButton } from "@/components/google-signin-button";
 
 // ─── Small Logo ───────────────────────────────────────────────────────────────
 
@@ -160,6 +161,18 @@ function LoginForm() {
             </Link>
           </div>
         </form>
+
+        {/* 구글 로그인(병행) — 클라이언트 ID 설정 시에만 노출 */}
+        {process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && (
+          <div className="mt-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex-1 h-px bg-[var(--line)]" />
+              <span className="text-[12px] text-[var(--ink-3)]">또는</span>
+              <div className="flex-1 h-px bg-[var(--line)]" />
+            </div>
+            <GoogleSignInButton />
+          </div>
+        )}
       </div>
     </div>
   );

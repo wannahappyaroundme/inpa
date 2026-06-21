@@ -8,7 +8,9 @@ import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
-import { getProfile, updateProfile, type ProfileResponse } from "@/lib/api";
+import { getProfile, updateProfile, getGoogleCalendarConnectUrl, disconnectGoogleCalendar, type ProfileResponse } from "@/lib/api";
+
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
 export default function AccountSettingsPage() {
   const ready = useAuthGuard();
@@ -32,6 +34,42 @@ export default function AccountSettingsPage() {
       setBookingDur(res.booking_default_duration ?? 30);
     }).catch(() => { /* useAuthGuard 처리 */ });
   }, [ready]);
+
+  // 구글 캘린더 연동 콜백 결과(?gcal=) 배너 처리 후 URL 정리.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const g = new URLSearchParams(window.location.search).get("gcal");
+    if (!g) return;
+    if (g === "connected") setMsg("구글 캘린더가 연동되었어요");
+    else if (g === "denied") setMsg("구글 연동을 취소했어요");
+    else setMsg("구글 캘린더 연동에 실패했어요. 다시 시도해 주세요.");
+    window.history.replaceState({}, "", "/settings/account");
+    setTimeout(() => setMsg(null), 2500);
+  }, []);
+
+  async function connectGoogleCalendar() {
+    try {
+      const { auth_url } = await getGoogleCalendarConnectUrl();
+      window.location.href = auth_url;
+    } catch {
+      setMsg("연동 시작에 실패했어요.");
+    }
+  }
+
+  async function disconnectGcal() {
+    setSaving(true);
+    try {
+      await disconnectGoogleCalendar();
+      const res = await getProfile();
+      setP(res);
+      setMsg("구글 캘린더 연동을 해제했어요");
+      setTimeout(() => setMsg(null), 1800);
+    } catch {
+      setMsg("해제 실패");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function patch(payload: Parameters<typeof updateProfile>[0], note: string) {
     setSaving(true);
@@ -197,6 +235,41 @@ export default function AccountSettingsPage() {
             예약 설정 저장
           </button>
         </Card>
+
+        {/* 구글 캘린더 연동 — 클라이언트 ID 설정 시에만 노출 */}
+        {GOOGLE_CLIENT_ID && (
+          <Card className="px-5 py-4">
+            <div className="flex items-center justify-between">
+              <div className="text-[15px] font-bold text-ink">구글 캘린더 연동</div>
+              {p.google_calendar_connected ? (
+                <button disabled={saving} onClick={disconnectGcal} className="text-[13px] font-semibold text-danger disabled:opacity-60">
+                  연동 해제
+                </button>
+              ) : (
+                <button onClick={connectGoogleCalendar} className="text-[13px] font-bold text-brand">
+                  연동하기
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-[12px] text-ink3 leading-5">
+              연동하면 미팅 확정 시 <b>고객 이름·시간·방식</b>이 Google(미국 서버) 캘린더에 기록돼요.
+              병력·보험 정보는 전송되지 않습니다.
+            </p>
+            {p.google_calendar_connected && (
+              <label className="mt-3 flex items-center justify-between gap-3">
+                <span className="text-[13px] text-ink2">캘린더에 고객 이름 가리기(예: 김○○)</span>
+                <button
+                  disabled={saving}
+                  onClick={() => patch({ google_calendar_mask_name: !p.google_calendar_mask_name }, "저장했어요")}
+                  className={`relative w-11 h-6 rounded-full transition ${p.google_calendar_mask_name ? "bg-brand" : "bg-line"}`}
+                  aria-pressed={p.google_calendar_mask_name}
+                >
+                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${p.google_calendar_mask_name ? "left-[22px]" : "left-0.5"}`} />
+                </button>
+              </label>
+            )}
+          </Card>
+        )}
       </main>
     </div>
   );

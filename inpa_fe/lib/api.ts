@@ -151,6 +151,21 @@ export async function login(payload: LoginPayload): Promise<LoginResponse> {
   return request<LoginResponse>("POST", "/auth/login/", payload);
 }
 
+/** POST /api/v1/auth/google/ — 구글 소셜 로그인(병행). 응답은 login과 동일 */
+export async function googleLogin(id_token: string): Promise<LoginResponse> {
+  return request<LoginResponse>("POST", "/auth/google/", { id_token });
+}
+
+/** GET /api/v1/auth/google/calendar/connect/ — 연동 동의 URL(인증) */
+export async function getGoogleCalendarConnectUrl(): Promise<{ auth_url: string }> {
+  return request<{ auth_url: string }>("GET", "/auth/google/calendar/connect/", undefined, true);
+}
+
+/** POST /api/v1/auth/google/calendar/disconnect/ — 연동 해제(인증) */
+export async function disconnectGoogleCalendar(): Promise<{ disconnected: boolean }> {
+  return request<{ disconnected: boolean }>("POST", "/auth/google/calendar/disconnect/", undefined, true);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface LogoutResponse {
@@ -228,6 +243,8 @@ export interface ProfileResponse {
   booking_msg_template: string;
   booking_location: string;
   booking_default_duration: number;
+  google_calendar_connected: boolean;
+  google_calendar_mask_name: boolean;
   onboarding_completed_at: string | null;
   marketing_agreed_at: string | null;
   ref_code: string | null;
@@ -251,6 +268,7 @@ export interface ProfileUpdatePayload {
   booking_msg_template?: string;
   booking_location?: string;
   booking_default_duration?: number;
+  google_calendar_mask_name?: boolean;
 }
 export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
   return request<ProfileResponse>("PATCH", "/auth/profile/", payload, true);
