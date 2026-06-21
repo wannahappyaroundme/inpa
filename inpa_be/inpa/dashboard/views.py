@@ -31,11 +31,15 @@ class DashboardView(APIView):
 
     def _payload(self, goal, user):
         a = compute_actuals(user, goal.year_month)
+        multiplier = float(goal.income_multiplier)
+        # 예상 월급 = 가입 보험료(실적) × 배율. (추후 수수료 연동 시 이 식만 교체)
+        expected_income = int(a['premium'] * multiplier)
         return {
             'year_month': goal.year_month,
             'target_meetings': goal.target_meetings,
             'target_premium': goal.target_premium,
-            'target_income': goal.target_income,
+            'income_multiplier': multiplier,
+            'expected_income': expected_income,
             'actual_meetings': a['meetings'],
             'actual_premium': a['premium'],
             'actual_new_customers': a['new_customers'],

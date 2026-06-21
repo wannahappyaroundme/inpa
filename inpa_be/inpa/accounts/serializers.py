@@ -52,7 +52,7 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Profile
-        fields = ('email', 'affiliation', 'agent_type', 'affiliation_type',
+        fields = ('email', 'name', 'affiliation', 'agent_type', 'affiliation_type',
                   'cohort_opt_in', 'manager_share_opt_in', 'manager_email', 'managed_agents_count',
                   'license_self_declared', 'license_no', 'career_years',
                   'booking_msg_template', 'booking_location', 'booking_default_duration',

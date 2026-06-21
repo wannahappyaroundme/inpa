@@ -117,7 +117,9 @@ class BookingRequestCreateView(APIView):
         base = (getattr(settings, 'FRONTEND_BASE_URL', '') or '').rstrip('/')
         url = f'{base}/b/{token}'
         profile = getattr(request.user, 'profile', None)
-        planner_name = (getattr(profile, 'affiliation', '') or '') or request.user.email
+        planner_name = ((getattr(profile, 'name', '') or '')
+                        or (getattr(profile, 'affiliation', '') or '')
+                        or request.user.email)
         template = getattr(profile, 'booking_msg_template', '') or DEFAULT_BOOKING_MSG_TEMPLATE
         message = render_booking_message(template, customer.name, planner_name, url)
         return Response(

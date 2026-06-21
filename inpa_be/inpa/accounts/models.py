@@ -91,6 +91,9 @@ class Profile(models.Model):
     # 지점장(manager)에게 내 KPI 집계 공유 동의. 기본 거부 → 동의 없으면 지점 대시보드 미포함.
     manager_share_opt_in = models.BooleanField(default=False)
 
+    # 설계사 본인 이름 — 예약/안내 문구의 {설계사명}에 자동 매핑. 비면 소속/이메일로 폴백.
+    name = models.CharField('설계사 이름', max_length=30, blank=True, default='')
+
     # ── 미팅 예약(Calendly식) 설정 ──────────────────────────────────────
     # 예약 링크와 함께 고객에게 보낼 메시지 템플릿({고객명}{설계사명}{링크}). 빈 값이면 기본 템플릿.
     booking_msg_template = models.TextField('미팅 예약 메시지 템플릿', blank=True, default='')

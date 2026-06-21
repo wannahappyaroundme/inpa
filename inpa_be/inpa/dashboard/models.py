@@ -15,7 +15,8 @@ class MonthlyGoal(models.Model):
     year_month = models.CharField('연월(YYYY-MM)', max_length=7)
     target_meetings = models.PositiveIntegerField('만날 고객 수 목표', default=0)
     target_premium = models.PositiveBigIntegerField('월 가입 보험료 목표', default=0)
-    target_income = models.PositiveBigIntegerField('예상 월급(수동)', default=0)
+    # 예상 월급 = 가입 보험료(실적) × 배율. 기본 10배, 설계사가 직접 수정. (추후 수수료 연동 자리)
+    income_multiplier = models.DecimalField('예상 월급 배율', max_digits=5, decimal_places=1, default=10)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -37,13 +37,25 @@ class DashboardTests(TestCase):
 
     def test_patch_updates_targets(self):
         r = self.client.patch('/api/v1/dashboard/',
-                              {'target_meetings': 10, 'target_premium': 5000000, 'target_income': 3000000},
+                              {'target_meetings': 10, 'target_premium': 5000000, 'income_multiplier': 12},
                               format='json')
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['target_meetings'], 10)
+        self.assertEqual(r.json()['income_multiplier'], 12)
         g = MonthlyGoal.objects.get(owner=self.user)
         self.assertEqual(g.target_premium, 5000000)
-        self.assertEqual(g.target_income, 3000000)
+        self.assertEqual(float(g.income_multiplier), 12)
+
+    def test_expected_income_from_premium(self):
+        """예상 월급 = 가입 보험료(실적) × 배율."""
+        from inpa.customers.models import Customer
+        from inpa.insurances.models import CustomerInsurance
+        cust = Customer.objects.create(owner=self.user, name='홍')
+        CustomerInsurance.objects.create(customer=cust, monthly_premiums=200000)
+        self.client.patch('/api/v1/dashboard/', {'income_multiplier': 10}, format='json')
+        r = self.client.get('/api/v1/dashboard/')
+        self.assertEqual(r.json()['actual_premium'], 200000)
+        self.assertEqual(r.json()['expected_income'], 2000000)
 
     def test_patch_negative_rejected(self):
         r = self.client.patch('/api/v1/dashboard/', {'target_meetings': -1}, format='json')
