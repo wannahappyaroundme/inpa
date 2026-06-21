@@ -14,6 +14,7 @@ export default function AccountSettingsPage() {
   const ready = useAuthGuard();
   const [p, setP] = useState<ProfileResponse | null>(null);
   const [managerEmail, setManagerEmail] = useState("");
+  const [name, setName] = useState("");
   const [bookingTpl, setBookingTpl] = useState("");
   const [bookingLoc, setBookingLoc] = useState("");
   const [bookingDur, setBookingDur] = useState(30);
@@ -25,6 +26,7 @@ export default function AccountSettingsPage() {
     getProfile().then((res) => {
       setP(res);
       setManagerEmail(res.manager_email ?? "");
+      setName(res.name ?? "");
       setBookingTpl(res.booking_msg_template ?? "");
       setBookingLoc(res.booking_location ?? "");
       setBookingDur(res.booking_default_duration ?? 30);
@@ -148,6 +150,15 @@ export default function AccountSettingsPage() {
             <b>{"{고객명}"} · {"{설계사명}"} · {"{링크}"}</b>를 넣으면 자동으로 채워집니다.
           </p>
           <label className="mt-3 block">
+            <span className="text-[12px] text-ink3">내 이름(메시지의 {"{설계사명}"}에 들어가요)</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="예) 홍길동"
+              className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-[14px]"
+            />
+          </label>
+          <label className="mt-3 block">
             <span className="text-[12px] text-ink3">예약 안내 메시지(빈 칸이면 기본 문구)</span>
             <textarea
               value={bookingTpl}
@@ -178,7 +189,7 @@ export default function AccountSettingsPage() {
           <button
             disabled={saving}
             onClick={() => patch(
-              { booking_msg_template: bookingTpl, booking_location: bookingLoc.trim(), booking_default_duration: bookingDur },
+              { name: name.trim(), booking_msg_template: bookingTpl, booking_location: bookingLoc.trim(), booking_default_duration: bookingDur },
               "예약 설정을 저장했어요"
             )}
             className="mt-3 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2.5 disabled:opacity-60"

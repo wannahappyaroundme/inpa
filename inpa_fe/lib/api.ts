@@ -213,6 +213,7 @@ export async function confirmPasswordReset(
  */
 export interface ProfileResponse {
   email: string;
+  name: string;
   affiliation: string | null;
   agent_type: number | null;
   /** 1=전속(원수사) 2=GA. null=미신고 */
@@ -242,6 +243,7 @@ export async function getProfile(): Promise<ProfileResponse> {
 
 /** PATCH /api/v1/auth/profile/ — 모드·동의·매니저 연결 변경 */
 export interface ProfileUpdatePayload {
+  name?: string;
   affiliation_type?: number | null;
   cohort_opt_in?: boolean;
   manager_share_opt_in?: boolean;
@@ -1585,7 +1587,8 @@ export interface DashboardSummary {
   year_month: string;
   target_meetings: number;
   target_premium: number;
-  target_income: number;
+  income_multiplier: number;   // 예상 월급 배율(기본 10)
+  expected_income: number;     // = actual_premium × income_multiplier (계산값)
   actual_meetings: number;
   actual_premium: number;
   actual_new_customers: number;
@@ -1599,7 +1602,7 @@ export async function getDashboard(month?: string): Promise<DashboardSummary> {
 
 /** PATCH /api/v1/dashboard/ — 목표 갱신(인증). 음수는 400 */
 export async function updateDashboardGoal(
-  payload: { target_meetings?: number; target_premium?: number; target_income?: number },
+  payload: { target_meetings?: number; target_premium?: number; income_multiplier?: number },
   month?: string
 ): Promise<DashboardSummary> {
   const q = month ? `?month=${encodeURIComponent(month)}` : "";

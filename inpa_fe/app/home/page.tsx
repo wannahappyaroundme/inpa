@@ -28,6 +28,7 @@ function GoalRow({ label, actual, target, unit, won }: { label: string; actual: 
         <span className="text-[13px] text-ink2">{label}</span>
         <span className="text-[13px] text-ink3 tnum">
           <b className="text-ink text-[15px]">{fmt(actual)}</b> / {target > 0 ? fmt(target) : "—"}{unit ? ` ${unit}` : won ? "원" : ""}
+          <span className="ml-1.5 font-bold text-brand">{p}%</span>
         </span>
       </div>
       <div className="h-2 rounded-full bg-surface2 overflow-hidden">
@@ -61,7 +62,7 @@ export default function HomePage() {
   const [editGoal, setEditGoal] = useState(false);
   const [gMeet, setGMeet] = useState(0);
   const [gPrem, setGPrem] = useState(0);
-  const [gInc, setGInc] = useState(0);
+  const [gMult, setGMult] = useState(10);
   const [goalSaving, setGoalSaving] = useState(false);
 
   const first = new Date(calendar.year, calendar.month - 1, 1).getDay();
@@ -93,7 +94,7 @@ export default function HomePage() {
     getDashboard()
       .then((d) => {
         setDash(d);
-        setGMeet(d.target_meetings); setGPrem(d.target_premium); setGInc(d.target_income);
+        setGMeet(d.target_meetings); setGPrem(d.target_premium); setGMult(d.income_multiplier);
       })
       .catch(() => setDash(null));
     // 환수 위험을 인앱 알림으로 동기화(조용히, dedup) → 그 다음 레이더 집계 로드.
@@ -107,7 +108,7 @@ export default function HomePage() {
   async function saveGoal() {
     setGoalSaving(true);
     try {
-      const d = await updateDashboardGoal({ target_meetings: gMeet, target_premium: gPrem, target_income: gInc });
+      const d = await updateDashboardGoal({ target_meetings: gMeet, target_premium: gPrem, income_multiplier: gMult });
       setDash(d);
       setEditGoal(false);
     } catch {
@@ -118,6 +119,12 @@ export default function HomePage() {
   }
 
   if (!ready) return null;
+
+  // 이번 달 경과 — 남은 일수 · 경과 %
+  const _now = new Date();
+  const _dim = new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDate();
+  const monthDaysLeft = _dim - _now.getDate();
+  const monthPct = Math.round((_now.getDate() / _dim) * 100);
 
   // 이름 표시: profile.email 앞부분 fallback
   const displayName = profile
@@ -180,7 +187,7 @@ export default function HomePage() {
               {editGoal ? (
                 <div className="flex gap-3">
                   <button
-                    onClick={() => { setEditGoal(false); setGMeet(dash.target_meetings); setGPrem(dash.target_premium); setGInc(dash.target_income); }}
+                    onClick={() => { setEditGoal(false); setGMeet(dash.target_meetings); setGPrem(dash.target_premium); setGMult(dash.income_multiplier); }}
                     className="text-[13px] text-ink3"
                   >
                     취소
@@ -190,6 +197,17 @@ export default function HomePage() {
               ) : (
                 <button onClick={() => setEditGoal(true)} className="text-[13px] font-semibold text-brand">목표 수정</button>
               )}
+            </div>
+
+            {/* 이번 달 경과 — 남은 일수 · 경과 % */}
+            <div className="mb-4">
+              <div className="flex items-baseline justify-between text-[12px]">
+                <span className="text-ink3">이번 달 경과</span>
+                <span className="text-ink2 tnum"><b className="text-ink">D-{monthDaysLeft}</b> · {monthPct}% 지남</span>
+              </div>
+              <div className="mt-1 h-1.5 rounded-full bg-surface2 overflow-hidden">
+                <div className="h-full bg-muted rounded-full" style={{ width: `${monthPct}%` }} />
+              </div>
             </div>
 
             {editGoal ? (
@@ -207,19 +225,25 @@ export default function HomePage() {
                   <input type="number" min={0} step={10000} value={gPrem} onChange={(e) => setGPrem(Math.max(0, Number(e.target.value) || 0))} className="w-40 text-right rounded-lg border border-line px-2 py-1.5 text-[14px] tnum" />
                 </label>
                 <label className="flex items-center justify-between gap-3">
-                  <span className="text-[13px] text-ink2">예상 월급 (원)</span>
-                  <input type="number" min={0} step={10000} value={gInc} onChange={(e) => setGInc(Math.max(0, Number(e.target.value) || 0))} className="w-40 text-right rounded-lg border border-line px-2 py-1.5 text-[14px] tnum" />
+                  <span className="text-[13px] text-ink2">예상 월급 배율 (×가입보험료)</span>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => setGMult((v) => Math.max(0, v - 1))} className="w-7 h-7 rounded-lg border border-line text-ink2">−</button>
+                    <input type="number" min={0} step={1} value={gMult} onChange={(e) => setGMult(Math.max(0, Number(e.target.value) || 0))} className="w-16 text-center rounded-lg border border-line py-1.5 text-[14px] tnum" />
+                    <button onClick={() => setGMult((v) => v + 1)} className="w-7 h-7 rounded-lg border border-line text-ink2">+</button>
+                  </div>
                 </label>
-                <p className="text-[11px] text-ink3 leading-4">예상 월급은 수동 입력값이에요(추후 자동 연동 예정). 만날 고객·가입 보험료는 실적이 자동 반영됩니다.</p>
+                <p className="text-[11px] text-ink3 leading-4">예상 월급 = <b>가입 보험료(실적) × 배율</b>(기본 10배, 직접 수정). 만날 고객·가입 보험료 실적은 자동 반영돼요.</p>
               </div>
             ) : (
               <div className="space-y-3.5">
                 <GoalRow label="만날 고객" actual={dash.actual_meetings} target={dash.target_meetings} unit="명" />
                 <GoalRow label="가입 보험료" actual={dash.actual_premium} target={dash.target_premium} won />
                 <div className="flex items-center justify-between">
-                  <span className="text-[13px] text-ink2">예상 월급</span>
+                  <span className="text-[13px] text-ink2">
+                    예상 월급 <span className="text-ink3">(가입보험료 ×{dash.income_multiplier})</span>
+                  </span>
                   <span className="text-[15px] font-extrabold tnum text-accent">
-                    {dash.target_income > 0 ? `${fmtWonShort(dash.target_income)}원` : "—"}
+                    {dash.expected_income > 0 ? `${fmtWonShort(dash.expected_income)}원` : "—"}
                   </span>
                 </div>
               </div>
