@@ -39,6 +39,7 @@ LOCAL_APPS = [
     'inpa.admin_console',  # 관리자 콘솔 (IsAdmin 전용 백오피스, dev/19)
     'inpa.analytics',      # ★ 북극성 계측 + 공유뷰 (NorthStarEvent Day1 동결, dev/13)
     'inpa.booking',        # 미팅 예약 (Calendly식 내장 — 슬롯/미팅, 공개 /b/<token>, owner 전용)
+    'inpa.dashboard',      # 대시보드 월별 목표 (수동 설정 + 실적 계산, owner 전용)
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
