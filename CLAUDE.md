@@ -2,8 +2,8 @@
 
 > 보험설계사용 AI 영업지원 웹앱 신사업. **인파(Inpa) = 인슈어(Insure) + 파트너(Partner)** = 보험설계사 곁의 영업 파트너.
 > 코드는 `~/Desktop/foliio`(Foliio 분석판, 고년차용)에서 포팅·재활용.
-> **현재: Phase 0(개발 문서 정리) 완료, Phase 1(BE 스캐폴딩) 착수 직전.**
-> `docs/dev/00~24` 개발 문서 24종 + FE 스캐폴드(`inpa_fe/`, Next.js, 데모 5페이지) 존재. BE(`inpa_be/`) 미착수.
+> **현재: Phase 1 진행 중 — BE 12개 Django 앱 + FE 전체 라우트(공개·인증·관리자 60+ 페이지) 구현됨.**
+> 구글 연동(소셜로그인+캘린더)·미팅예약·동의흐름까지 동작. 컴플라이언스 게이트(병력수집·§97 발행·국외이전)는 정식 출시 전까지 env 플래그로 닫힌 상태. `docs/dev/00~24` 개발 문서 + `docs/dev/00-INDEX.md`(SSOT)도 함께 유지.
 
 ## 핵심 컨텍스트
 - **타겟**: 원수사·GA 위촉직(개인사업자) 보험설계사. 1순위 신입(발굴 절박), 2순위 중견(관리).
@@ -13,11 +13,62 @@
 
 ## 스택 (2026-06-19 확정 — Claude Code 개발 최적)
 - **FE: Next.js + TypeScript + Tailwind** (Angular 대신 — Claude Code 개발 속도·디자인 토큰 매핑 유리. foliio 랜딩도 Next.js 16).
-- **BE: Django 4.1 + DRF + Python** — foliio의 `core/ocr/claude_parser`·`customers/calculate.py`(8케이스, numpy_financial)·담보 정규화 로직을 **그대로 재사용**(재포팅 위험 회피 = 핵심 자산).
+- **BE: Django 4.2 + DRF + Python 3.11** — foliio의 `core/ocr/claude_parser`·`customers/calculate.py`(8케이스, numpy_financial)·담보 정규화 로직을 **그대로 재사용**(재포팅 위험 회피 = 핵심 자산).
 - DB: **PostgreSQL**(운영=Neon 무료, 로컬=SQLite) — 2026-06-21 Railway 무료티어 폐지로 MariaDB→PG 전환(Django ORM이라 코드 영향 0, `psycopg2-binary`). / AI: Claude API(비교안내서·정규화=Opus 4.8 / 다건OCR=Haiku / 야간=Batches).
 - **재사용=Python 백엔드 / 신규=Next.js 프론트**(3축 화면은 어차피 신규). Angular 컴포넌트는 재구현.
 - 디자인 토큰: `design/tokens/inpa-tokens.css`(:root CSS변수) → Tailwind config 매핑. 로고: `design/logo/*.svg`.
 - CPO=CTO 겸임(사용자 결정). 외부 법무 자문 계약 없음 → 컴플라이언스 게이트는 보수적 기본값+공개 가이드(협회·금감원)로 자체 처리, 유료 정식출시 전 재검토.
+
+## 개발 명령어 (commands)
+**모노레포**: `inpa_be/`(Django) + `inpa_fe/`(Next.js)가 한 저장소. 각 디렉터리에서 명령 실행.
+
+### 백엔드 (`inpa_be/`, Python 3.11)
+- 셋업: `pip install -r requirements.txt`(venv 권장). 기본 설정 = `config.settings.local`(SQLite — `manage.py`가 자동 지정).
+- 서버: `python manage.py runserver` → http://localhost:8000 (API 루트 `/api/v1/`, 헬스체크 `/healthz/`).
+- 마이그레이션: `python manage.py makemigrations` → `python manage.py migrate`.
+- 전체 테스트: `python manage.py test inpa` / 단일: `python manage.py test inpa.booking` · `python manage.py test inpa.accounts.tests.LoginTests.test_x`(점 표기).
+- 배포 전 점검(필수): `python manage.py check`.
+- 시드(화면 렌더 확인용, 멱등): 데모 데이터 `python manage.py seed_demo` · 정규화 사전 `python manage.py seed_normalization`.
+- Django admin: `/admin/`. (운영 백오피스는 별도 `admin_console` API + FE `/admin/*`.)
+
+### 프론트엔드 (`inpa_fe/`, Node 20, **Next.js 16 + React 19**)
+- 셋업: `npm ci`. 개발: `npm run dev` → http://localhost:3000. 빌드: `npm run build`(타입체크 겸함). 운영: `npm start`.
+- BE 주소 = `NEXT_PUBLIC_API_BASE`(미설정 시 `localhost:8000/api/v1` 폴백 + 콘솔 경고). **빌드타임 인라인이라 Vercel 환경변수 변경 후 재배포 필요.**
+- 린트/테스트 스크립트 없음. ⚠️ `inpa_fe/AGENTS.md` 경고: **Next 16은 훈련데이터와 다름 — 코드 전 `node_modules/next/dist/docs/` 해당 가이드 확인.**
+
+### CI / 배포 (`.github/workflows/ci.yml`)
+- push/PR(main·master) 시 3개 잡: ①BE `check`+`test inpa` ②FE `npm ci`+`build` ③gitleaks 시크릿 스캔.
+- 배포는 CI가 아님 — **Vercel(FE)·Render(BE, `render.yaml`)가 GitHub 연동 자동배포**, DB=Neon(PostgreSQL).
+
+## 코드 아키텍처 (big picture — 여러 파일을 읽어야 보이는 것)
+
+### 요청 흐름
+브라우저 → Next 페이지(`inpa_fe/app/**`) → **`inpa_fe/lib/api.ts`**(BE 호출 단일 게이트 — 모든 엔드포인트·타입 한 파일에 정의, 관리자는 `lib/adminApi.ts`) → DRF `/api/v1/`(`config/urls.py`가 앱별 `urls.py`로 분배) → ViewSet → 모델. 인증 = DRF TokenAuthentication, 토큰은 FE `localStorage['inpa_token']`(`tokenStore`). 에러 `{error|code|detail}` → FE `ApiError`로 정규화.
+
+### 멀티테넌시(가시성)는 한 곳에서 강제 — 우회 금지
+`inpa/core/mixins.py` `OwnedQuerySetMixin`(본인 데이터만 조회 + 생성 시 owner 자동 주입) + `inpa/core/permissions.py` `IsOwner`/`IsAdmin`/`IsEmailVerified`. **소유자 전용 ViewSet엔 이 믹스인+IsOwner를 반드시 부착.** 관리자(`profile.is_admin`)는 조회 우회. 공유(게시판·공지·FAQ·판촉샘플)만 예외. (정본: `docs/dev/02` §0 가시성 매트릭스.)
+
+### Django 앱 지도 (`inpa_be/inpa/`, 12개 — `settings/base.py` LOCAL_APPS)
+- `accounts` — User(이메일 PK)·Profile·인증(가입/이메일인증/로그인잠금/비번재설정)·구글(`google.py` 소셜로그인, `google_calendar.py` 캘린더)·온보딩·지점장 대시보드(`manager.py`).
+- `customers` — 고객 CRUD·동의로그(`ConsentLog`)·고객 본인 동의 공개링크(`public_consent.py` `/c/<token>`)·기준선 프리셋(`presets.py`).
+- `insurances` — 보험/담보(소유자 전용, `customer__owner` 경유)·환수레이더(`churn.py`)·셀프진단 공개(`self_diagnosis.py` `/d/<ref>`)·OCR 교차검증(`verify.py`).
+- `analysis` — **표준 담보 트리 + 보험사별 담보명 정규화 사전(공유 전역 마스터)**. 계산엔진 `calculate.py`(히트맵), 갈아타기 `compare.py`+`switch_verdict.py`(KEEP/SWITCH/NEUTRAL = 설계사 내부 전용, 고객 노출 금지 §97). foliio 포팅 핵심 자산.
+- `booking` — 미팅예약(Calendly식): 슬롯/미팅 + 공개 예약링크(`public_booking.py` `/b/<token>`).
+- `dashboard` — 월별 목표(수동)+실적(계산), 예상월급 배율.
+- `notifications`(알림+리마인더) · `billing`(요금제·사용량 한도) · `boards`(게시판·공지·FAQ·문의, 혼합 가시성) · `promotion`(판촉물 주문) · `admin_console`(IsAdmin 백오피스) · `analytics`(북극성 이벤트 계측).
+- `core` — 공통 믹스인·권한 + `core/ocr/`(foliio 벤더링: `claude_parser.py`·`ocrparsing.py`·`ocrdata.py` 보험사 코드).
+
+### 증권 분석 파이프라인 (foliio 재사용의 핵심 동선)
+증권 PDF 업로드(`POST /customers/<id>/insurances/ocr/`) → `core/ocr/claude_parser`(pdfplumber + Claude Opus, `ANTHROPIC_API_KEY` 게이트, 미설정 시 503) → `CustomerInsuranceDetail`(`InsuranceDetail.analysis_detail` M2M로 표준 트리에 매핑) → `analysis/calculate.py`가 leaf별 `held_amount` 합산 → `PlannerBaseline`(설계사 기준선) 매칭되면 `graded`(부족/적정/넉넉), 없으면 `neutral` → 히트맵/공유뷰.
+
+### 공개(비인증) 토큰 엔드포인트 — FE 라우트와 1:1
+`/s/<token>`(공유뷰) · `/b/<token>`(예약) · `/c/<token>`(고객 본인 동의) · `/d/<ref>`(셀프진단). 전부 TimestampSigner 토큰 + ScopedRateThrottle. FE는 `app/s|b|c|d/[token]/`.
+
+### 설정·기능 게이트 (`settings/base.py` — env로 제어, 코드 우회 금지)
+- 환경 분리: `local`(SQLite·DEBUG·콘솔이메일) ↔ `prod`(Postgres `DATABASE_URL`·whitenoise·보안헤더·Sentry, SECRET_KEY 미설정 시 fail-loud).
+- **컴플라이언스 게이트(기본 닫힘)**: `COMPARE_AI_ENABLED`(갈아타기 AI초안) · `COMPARE_PUBLISH_ENABLED`(고객 발송 — §97 법무 전 하드블록) · `ANALYZE_MEDICAL_ENABLED`(병력 수집 BE 차단) · `REQUIRE_CUSTOMER_SELF_CONSENT`.
+- 기능 플래그: `FREE_TIER_UNLIMITED`(베타 한도 우회) · `BOOKING_ENABLED` · `OCR_VERIFY_ENABLED` · `GOOGLE_OAUTH_*`(미설정 = 기능 숨김).
+- Claude 모델은 하드코딩 금지 — `CLAUDE_MODEL_PARSE`(Opus) · `CLAUDE_MODEL_BULK`(Haiku)를 env에서만 주입.
 
 ## 확정 결정 (2026-06-19 세션)
 - **인증 = 이메일/비밀번호 + 구글 OAuth 병행** (2026-06-21 변경 — 카카오는 폐기 유지). 회원가입→이메일 인증→로그인→비번찾기(이메일 토큰). 비번 해시 PBKDF2. 토큰은 Django 서명 토큰. 구글 로그인=검증 이메일로 기존 계정 링크(병행)·신규는 온보딩서 자격/소속 수집. 구글 캘린더=미팅 확정 시 이벤트 자동생성(이름 기본 마스킹). 전부 `GOOGLE_OAUTH_*` env 게이트(미설정=숨김).
