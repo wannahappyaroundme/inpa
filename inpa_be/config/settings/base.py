@@ -107,6 +107,7 @@ REST_FRAMEWORK = {
     # ★ LocMemCache(워커별)라 정확상한은 아님 — DB 일일상한과 병행. Redis 도입 시 강화(soon).
     'DEFAULT_THROTTLE_RATES': {
         'self_diagnosis': '5/hour',
+        'consent_public': '10/hour',  # 고객 본인 동의 공개 경로(P3c) — 남용 방어
     },
 }
 
@@ -115,6 +116,8 @@ REST_FRAMEWORK = {
 PASSWORD_RESET_TIMEOUT = env.int('PASSWORD_RESET_TIMEOUT', default=3600)
 # 이메일 인증: TimestampSigner max_age (24h)
 EMAIL_VERIFY_TOKEN_TTL_HOURS = env.int('EMAIL_VERIFY_TOKEN_TTL_HOURS', default=24)
+# 고객 동의 요청 링크(P3c): TimestampSigner max_age (72h)
+CONSENT_TOKEN_TTL_HOURS = env.int('CONSENT_TOKEN_TTL_HOURS', default=72)
 # 로그인 5회 실패 → 10분 잠금 (423)
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 600
@@ -182,3 +185,9 @@ OCR_VERIFY_ENABLED = env.bool('OCR_VERIFY_ENABLED', default=True)
 # AI 분석은 증권 텍스트만 사용(병력은 Claude로 전송되지 않음)하므로 미수집과 무관하게 동작.
 # 정식 출시 전(법무 검토 완료 후) True 로 flip. UI 숨김은 방어가 아니므로 BE에서 차단.
 ANALYZE_MEDICAL_ENABLED = env.bool('ANALYZE_MEDICAL_ENABLED', default=False)
+
+# ── 국외이전 동의 = 고객 본인 직접 동의 강제 (council 2026-06-21 P3c) ──────────
+# HYBRID-A: 설계사 대리동의는 OCR 게이트(consent_overseas_at)를 절대 열지 못한다(상시).
+# 이 플래그는 '향후 설계사 대리 fallback 자체를 둘지' 예약 스위치 — 현재 코드 경로상
+# 대리동의 unlock은 어차피 없으므로 기본 False. 정식 출시 검토 시 재확정.
+REQUIRE_CUSTOMER_SELF_CONSENT = env.bool('REQUIRE_CUSTOMER_SELF_CONSENT', default=False)

@@ -218,8 +218,20 @@ class ConsentLog(models.Model):
         (SCOPE_MARKETING, '마케팅 수신'),
     )
 
+    # ★ 동의 주체(council P3c): 누가 동의했나 = 감사 핵심.
+    #   customer_self = 고객 본인이 자기 기기에서 동의(셀프진단 / 동의요청 링크) → 적법.
+    #   planner_attested = 설계사가 기록(대리) → 감사용으로만 남고 국외이전 게이트를 열지 못함.
+    SUBJECT_CUSTOMER_SELF = 'customer_self'
+    SUBJECT_PLANNER_ATTESTED = 'planner_attested'
+    SUBJECT_CHOICES = (
+        (SUBJECT_CUSTOMER_SELF, '고객 본인'),
+        (SUBJECT_PLANNER_ATTESTED, '설계사 기록(대리)'),
+    )
+
     customer = models.ForeignKey('Customer', on_delete=models.SET_NULL, null=True, blank=True, related_name='consent_logs')
     scope = models.CharField('동의 범위', max_length=50, choices=SCOPE_CHOICES)
+    subject = models.CharField('동의 주체', max_length=20, choices=SUBJECT_CHOICES,
+                               default=SUBJECT_PLANNER_ATTESTED)
     purpose = models.CharField('처리 목적', max_length=200, default='', blank=True)
     doc_version = models.CharField('약관 버전', max_length=30, blank=True, default='')  # PolicyVersion.version 참조
     agreed_at = models.DateTimeField('동의 시각', auto_now_add=True)  # 불변

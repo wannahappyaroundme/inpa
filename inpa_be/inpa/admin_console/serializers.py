@@ -303,12 +303,16 @@ class AdminConsentLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConsentLog
         fields = [
-            'id', 'customer_name_masked', 'owner_email', 'scope', 'purpose',
-            'doc_version', 'agreed_at', 'ip', 'revoked_at', 'revoke_ip',
+            'id', 'customer_name_masked', 'owner_email', 'scope', 'subject',
+            'subject_display', 'purpose', 'doc_version', 'agreed_at', 'ip',
+            'revoked_at', 'revoke_ip',
         ]
 
+    subject_display = serializers.CharField(source='get_subject_display', read_only=True)
+
     def get_customer_name_masked(self, obj):
-        return _mask_name(obj.customer.name)
+        # customer는 SET_NULL — 고객 파기 후 null일 수 있음(감사기록 잔존).
+        return _mask_name(obj.customer.name) if obj.customer_id else '(삭제된 고객)'
 
     def get_owner_email(self, obj):
         return obj.customer.owner.email if obj.customer and obj.customer.owner_id else None

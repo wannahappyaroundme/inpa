@@ -38,9 +38,10 @@ class ConsentLogSerializer(serializers.ModelSerializer):
     """append-only — 생성만. 철회는 별도 액션(revoke)에서 revoked_at 기록."""
     class Meta:
         model = ConsentLog
-        fields = ('id', 'customer', 'scope', 'purpose', 'doc_version', 'agreed_at',
-                  'ip', 'revoked_at', 'revoke_ip')
-        read_only_fields = ('id', 'customer', 'agreed_at', 'revoked_at', 'revoke_ip')
+        fields = ('id', 'customer', 'scope', 'subject', 'purpose', 'doc_version',
+                  'agreed_at', 'ip', 'revoked_at', 'revoke_ip')
+        # subject은 서버가 지정(설계사가 customer_self로 위조 못하게 read_only).
+        read_only_fields = ('id', 'customer', 'subject', 'agreed_at', 'revoked_at', 'revoke_ip')
 
 
 class PlannerBaselineSerializer(serializers.ModelSerializer):

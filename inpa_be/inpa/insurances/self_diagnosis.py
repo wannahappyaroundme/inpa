@@ -124,6 +124,7 @@ class SelfDiagnosisView(APIView):
                 )
             ConsentLog.objects.create(
                 customer=customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,  # 잠재고객 본인 동의(P3c)
                 purpose='셀프진단 증권 OCR 국외이전(Claude, 미국)', ip=ip)
             _persist_ocr(customer, ocr_data)
 

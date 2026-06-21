@@ -374,6 +374,10 @@ class AdminConsentLogTest(TestCase):
         self.assertTrue(len(results) > 0)
         masked = results[0]['customer_name_masked']
         self.assertTrue(masked.endswith('**'), f"마스킹 미적용: {masked}")
+        # P3c: 동의 주체(subject) 노출 — 감사 필수
+        self.assertIn('subject', results[0])
+        self.assertEqual(results[0]['subject'], ConsentLog.SUBJECT_PLANNER_ATTESTED)
+        self.assertIn('subject_display', results[0])
 
 
 # ─── NM: 정규화 매핑 ────────────────────────────────────────────────

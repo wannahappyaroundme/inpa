@@ -14,6 +14,7 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from . import views
+from .public_consent import PublicConsentView
 
 app_name = 'customers'
 
@@ -42,4 +43,8 @@ urlpatterns = router.urls + [
     path('customers/<int:customer_pk>/medical/<int:pk>/', _medical['detail'], name='medical-detail'),
     path('customers/<int:customer_pk>/consents/', _consent['list'], name='consent-list'),
     path('customers/<int:customer_pk>/consents/<int:pk>/', _consent['detail'], name='consent-detail'),
+    # P3c — 동의 요청 링크 생성(설계사) + 고객 본인 동의(공개)
+    path('customers/<int:customer_pk>/consent-requests/',
+         views.ConsentRequestCreateView.as_view(), name='consent-request-create'),
+    path('c/<str:token>/', PublicConsentView.as_view(), name='public-consent'),
 ]

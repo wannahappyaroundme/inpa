@@ -5,6 +5,8 @@
   2) 병력 동의 게이트 — consent_overseas_at 없으면 병력 등록 412 차단, 동의 후 201.
 + 하위 라우트 owner 격리, ConsentLog append-only, 동의 생성 시 스냅샷 동기화 보강.
 """
+from django.core import signing
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 from django.test import TestCase, override_settings
@@ -15,6 +17,7 @@ from .models import (
     ConsentLog, Customer, CustomerMedicalHistory, CustomerTag, PlannerBaseline,
 )
 from .presets import PRESET_ORIGIN_V0, PRESET_V0, iter_preset_rows
+from .tokens import make_consent_token, read_consent_token
 
 
 def _make_planner(email):
@@ -117,18 +120,31 @@ class MedicalConsentGateTests(TestCase):
         self.assertEqual(r.status_code, 201)
         self.assertEqual(CustomerMedicalHistory.objects.count(), 1)
 
-    def test_consent_log_syncs_snapshot(self):
-        """overseas_medical 동의 로그 생성 → Customer.consent_overseas_at 스냅샷 동기화 → 병력 등록 가능."""
+    def test_planner_consent_does_not_unlock_gate(self):
+        """★ P3c 카나리아: 설계사 동의 기록은 planner_attested(대리)로 남고 국외이전 게이트를
+        열지 못한다. consent_overseas_at은 여전히 None, 병력 게이트도 412 유지."""
         r = self.client.post(
             f'/api/v1/customers/{self.customer.id}/consents/',
             {'scope': ConsentLog.SCOPE_OVERSEAS_MEDICAL, 'doc_version': 'OVERSEAS-v1.0'},
             format='json')
         self.assertEqual(r.status_code, 201)
+        log = ConsentLog.objects.get(id=r.json()['id'])
+        self.assertEqual(log.subject, ConsentLog.SUBJECT_PLANNER_ATTESTED)
         self.customer.refresh_from_db()
-        self.assertIsNotNone(self.customer.consent_overseas_at)
-        # 게이트 해제 확인
+        self.assertIsNone(self.customer.consent_overseas_at)  # 게이트 안 열림
         r2 = self._post_medical()
-        self.assertEqual(r2.status_code, 201)
+        self.assertEqual(r2.status_code, 412)
+        self.assertEqual(r2.json()['code'], 'CONSENT_OVERSEAS_REQUIRED')
+
+    def test_planner_cannot_forge_customer_self_subject(self):
+        """설계사가 subject=customer_self로 위조해도 서버가 planner_attested로 강제(read_only)."""
+        r = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/consents/',
+            {'scope': ConsentLog.SCOPE_OVERSEAS_MEDICAL, 'subject': 'customer_self'},
+            format='json')
+        self.assertEqual(r.status_code, 201)
+        log = ConsentLog.objects.get(id=r.json()['id'])
+        self.assertEqual(log.subject, ConsentLog.SUBJECT_PLANNER_ATTESTED)
 
     def test_consent_log_is_append_only(self):
         """ConsentLog는 append-only — PATCH/DELETE 차단(405)."""
@@ -183,6 +199,105 @@ class ConsentLogRetentionTests(TestCase):
         self.assertTrue(ConsentLog.objects.filter(id=log_id).exists())
         log.refresh_from_db()
         self.assertIsNone(log.customer_id)
+
+
+class CustomerSelfConsentTests(TestCase):
+    """★ P3c: 고객 본인 국외이전 동의 — 토큰·동의요청(설계사)·공개 동의(고객)."""
+
+    def setUp(self):
+        cache.clear()  # ScopedRateThrottle(consent_public) 카운터 초기화
+        self.user_a, self.client_a = _make_planner('agent_a@test.com')
+        self.user_b, self.client_b = _make_planner('agent_b@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user_a, name='홍길동', mobile_phone_number='010-0000-0000')
+        self.public = APIClient()  # 비인증 공개 클라이언트
+
+    # ── 토큰 ──
+    def test_token_roundtrip(self):
+        token = make_consent_token(self.customer)
+        self.assertEqual(read_consent_token(token), self.customer.id)
+
+    def test_token_expired(self):
+        token = make_consent_token(self.customer)
+        with override_settings(CONSENT_TOKEN_TTL_HOURS=0):
+            with self.assertRaises(signing.SignatureExpired):
+                read_consent_token(token)
+
+    def test_token_tampered(self):
+        with self.assertRaises(signing.BadSignature):
+            read_consent_token('not.a.valid-token')
+
+    # ── 설계사: 동의 요청 링크 생성 ──
+    def test_consent_request_owner_ok(self):
+        r = self.client_a.post(f'/api/v1/customers/{self.customer.id}/consent-requests/')
+        self.assertEqual(r.status_code, 201)
+        body = r.json()
+        self.assertIn('token', body)
+        self.assertIn('/c/', body['consent_url'])
+        self.assertFalse(body['already_consented'])
+        self.assertEqual(read_consent_token(body['token']), self.customer.id)
+
+    def test_consent_request_owner_isolation(self):
+        """타 설계사(B)는 A의 고객으로 링크를 만들 수 없다(404)."""
+        r = self.client_b.post(f'/api/v1/customers/{self.customer.id}/consent-requests/')
+        self.assertEqual(r.status_code, 404)
+
+    # ── 공개: 고지 GET ──
+    def test_public_get_discloses_masked(self):
+        token = make_consent_token(self.customer)
+        r = self.public.get(f'/api/v1/c/{token}/')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body['customer']['name_masked'], '홍**')
+        self.assertFalse(body['already_consented'])
+        # PII 누출 금지 — 전화/생년/병력 미포함
+        self.assertNotIn('010-0000-0000', r.content.decode())
+
+    def test_public_get_expired_410(self):
+        token = make_consent_token(self.customer)
+        with override_settings(CONSENT_TOKEN_TTL_HOURS=0):
+            r = self.public.get(f'/api/v1/c/{token}/')
+        self.assertEqual(r.status_code, 410)
+
+    def test_public_get_invalid_404(self):
+        r = self.public.get('/api/v1/c/bad-token/')
+        self.assertEqual(r.status_code, 404)
+
+    # ── 공개: 동의 제출 POST ──
+    def test_public_post_consent_unlocks_gate(self):
+        token = make_consent_token(self.customer)
+        r = self.public.post(f'/api/v1/c/{token}/', {'consent_overseas': 'true'}, format='json')
+        self.assertEqual(r.status_code, 201)
+        self.customer.refresh_from_db()
+        self.assertIsNotNone(self.customer.consent_overseas_at)  # OCR 게이트 해제
+        log = ConsentLog.objects.filter(customer=self.customer).latest('agreed_at')
+        self.assertEqual(log.subject, ConsentLog.SUBJECT_CUSTOMER_SELF)
+
+    def test_public_post_without_consent_412(self):
+        token = make_consent_token(self.customer)
+        r = self.public.post(f'/api/v1/c/{token}/', {}, format='json')
+        self.assertEqual(r.status_code, 412)
+        self.customer.refresh_from_db()
+        self.assertIsNone(self.customer.consent_overseas_at)
+
+    def test_public_post_idempotent(self):
+        """재동의가 기존 스냅샷 시각을 덮지 않는다(append-only 정신)."""
+        token = make_consent_token(self.customer)
+        self.public.post(f'/api/v1/c/{token}/', {'consent_overseas': 'true'}, format='json')
+        self.customer.refresh_from_db()
+        first = self.customer.consent_overseas_at
+        self.public.post(f'/api/v1/c/{token}/', {'consent_overseas': 'true'}, format='json')
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.consent_overseas_at, first)
+
+    @override_settings(REQUIRE_CUSTOMER_SELF_CONSENT=True)
+    def test_customer_self_unlocks_in_strict_mode(self):
+        """전방검증: strict 모드여도 고객 본인 동의는 정상적으로 게이트를 연다."""
+        token = make_consent_token(self.customer)
+        r = self.public.post(f'/api/v1/c/{token}/', {'consent_overseas': 'true'}, format='json')
+        self.assertEqual(r.status_code, 201)
+        self.customer.refresh_from_db()
+        self.assertIsNotNone(self.customer.consent_overseas_at)
 
 
 class AuthGateTests(TestCase):

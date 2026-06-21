@@ -14,6 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
@@ -31,6 +32,7 @@ from .serializers import (
     CustomerMedicalHistorySerializer, CustomerTagSerializer,
     FamilyMemberSerializer, PlannerBaselineSerializer,
 )
+from .tokens import make_consent_token
 
 
 class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
@@ -130,7 +132,9 @@ class ConsentLogViewSet(_CustomerScopedViewSet):
     """동의 로그 — /api/v1/customers/{customer_pk}/consents/ (append-only).
 
     INSERT만 허용. UPDATE/DELETE는 감사 무결성 위반이므로 차단. 철회는 revoke 액션으로 revoked_at 기록.
-    overseas_medical 동의 생성 시 Customer.consent_overseas_at 스냅샷 동기화.
+    ★ P3c(council 2026-06-21): 설계사가 찍는 동의는 subject=planner_attested(대리 기록)으로만
+      남고, 국외이전 게이트(Customer.consent_overseas_at)를 열지 못한다. 게이트는 고객 본인
+      동의(공개 /c/<token> 또는 셀프진단)만 연다 — 대리동의 무효 소지 차단.
     """
     serializer_class = ConsentLogSerializer
     queryset = ConsentLog.objects.all()
@@ -139,11 +143,42 @@ class ConsentLogViewSet(_CustomerScopedViewSet):
     def perform_create(self, serializer):
         customer = self.get_customer()
         ip = self.request.META.get('REMOTE_ADDR')
-        log = serializer.save(customer=customer, ip=ip)
-        # 국외이전 동의 → Customer 스냅샷 동기화 (detect 412 게이트 해제)
-        if log.scope == ConsentLog.SCOPE_OVERSEAS_MEDICAL and customer.consent_overseas_at is None:
-            customer.consent_overseas_at = log.agreed_at
-            customer.save(update_fields=['consent_overseas_at'])
+        # 설계사 기록 = planner_attested. 스냅샷(consent_overseas_at)은 건드리지 않는다(대리동의 강등).
+        serializer.save(customer=customer, ip=ip,
+                        subject=ConsentLog.SUBJECT_PLANNER_ATTESTED)
+
+
+class ConsentRequestCreateView(APIView):
+    """동의 요청 링크 생성 — POST /api/v1/customers/<customer_pk>/consent-requests/ (P3c).
+
+    설계사(소유자)가 본인 고객의 '국외이전 동의 요청' 링크를 만든다. 고객이 본인 기기에서
+    /c/<token> 로 열어 직접 동의해야 OCR 게이트가 열린다(설계사 대리동의 불가).
+    링크 전달은 FE에서 클립보드 복사/카톡 열기까지만(자동발송 없음 — 정직성 레드라인).
+    """
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+
+    def _is_admin(self):
+        profile = getattr(self.request.user, 'profile', None)
+        return bool(getattr(profile, 'is_admin', False))
+
+    def _get_customer(self, pk):
+        qs = Customer.objects.all()
+        if not self._is_admin():
+            qs = qs.filter(owner=self.request.user)  # owner 격리 — 타 설계사 고객은 404
+        try:
+            return qs.get(pk=pk)
+        except Customer.DoesNotExist:
+            raise NotFound('고객을 찾을 수 없습니다.')
+
+    def post(self, request, customer_pk):
+        customer = self._get_customer(customer_pk)
+        token = make_consent_token(customer)
+        base = (getattr(settings, 'FRONTEND_BASE_URL', '') or '').rstrip('/')
+        return Response(
+            {'token': token,
+             'consent_url': f'{base}/c/{token}',
+             'already_consented': customer.consent_overseas_at is not None},
+            status=status.HTTP_201_CREATED)
 
 
 class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):

@@ -36,8 +36,8 @@ class CustomerMedicalHistoryAdmin(admin.ModelAdmin):
 
 @admin.register(ConsentLog)
 class ConsentLogAdmin(admin.ModelAdmin):
-    list_display = ('id', 'customer', 'scope', 'doc_version', 'agreed_at', 'revoked_at')
-    list_filter = ('scope',)
+    list_display = ('id', 'customer', 'scope', 'subject', 'doc_version', 'agreed_at', 'revoked_at')
+    list_filter = ('scope', 'subject')
     raw_id_fields = ('customer',)
     # append-only — admin에서도 수정/삭제 금지(감사 무결성)
     readonly_fields = ('agreed_at',)
