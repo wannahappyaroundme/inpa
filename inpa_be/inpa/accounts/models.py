@@ -102,6 +102,15 @@ class Profile(models.Model):
     # 슬롯 생성 시 기본 소요시간(분).
     booking_default_duration = models.PositiveSmallIntegerField('기본 미팅 시간(분)', default=30)
 
+    # ── 구글 연동 ────────────────────────────────────────────────────────
+    # google_sub = 구글 계정 고유 id(병행 로그인 링크 키). unique+null → 비구글 계정 다수 NULL 허용.
+    google_sub = models.CharField('구글 sub', max_length=255, unique=True, null=True, blank=True)
+    # ★ refresh_token = 장기 비밀. 어떤 serializer에도 노출 금지·로그 금지. (베타 평문, 암호화는 후속)
+    google_calendar_refresh_token = models.TextField('구글 캘린더 refresh token', null=True, blank=True, default=None)
+    google_calendar_connected_at = models.DateTimeField('구글 캘린더 연동 시각', null=True, blank=True)
+    # 캘린더 이벤트에 고객 실명 대신 마스킹(김○○) 사용. 기본 마스킹(국외이전 보수적 기본값).
+    google_calendar_mask_name = models.BooleanField('캘린더 이벤트 이름 마스킹', default=True)
+
     class Meta:
         db_table = 'accounts_profile'
 

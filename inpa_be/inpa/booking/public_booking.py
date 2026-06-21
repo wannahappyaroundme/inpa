@@ -125,6 +125,20 @@ class PublicBookingView(_NoIndexMixin, APIView):
         except Exception:
             pass
 
+        # 구글 캘린더 등록(연동된 설계사만, atomic 밖·실패 격리 — 예약 확정엔 영향 없음)
+        try:
+            from inpa.accounts.google import google_calendar_enabled
+            owner_profile = getattr(customer.owner, 'profile', None)
+            if (google_calendar_enabled() and owner_profile
+                    and owner_profile.google_calendar_refresh_token):
+                from inpa.accounts.google_calendar import insert_meeting_event
+                event_id = insert_meeting_event(owner_profile, meeting, customer.name)
+                if event_id:
+                    meeting.google_event_id = event_id
+                    meeting.save(update_fields=['google_event_id'])
+        except Exception:
+            pass
+
         return Response(
             {'confirmed': True, 'start_at': meeting.start_at,
              'method': method, 'location_detail': meeting.location_detail},

@@ -17,4 +17,9 @@ urlpatterns = [
     path('profile/', views.ProfileView.as_view(), name='profile'),
     path('withdraw/', views.WithdrawView.as_view(), name='withdraw'),
     path('onboarding/attest/', views.OnboardingAttestView.as_view(), name='onboarding-attest'),
+    # ── 구글 연동 ──
+    path('google/', views.GoogleLoginView.as_view(), name='google-login'),
+    path('google/calendar/connect/', views.GoogleCalendarConnectView.as_view(), name='google-calendar-connect'),
+    path('google/calendar/callback/', views.GoogleCalendarCallbackView.as_view(), name='google-calendar-callback'),
+    path('google/calendar/disconnect/', views.GoogleCalendarDisconnectView.as_view(), name='google-calendar-disconnect'),
 ]

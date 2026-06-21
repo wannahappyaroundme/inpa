@@ -49,17 +49,21 @@ class ProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source='user.email', read_only=True)
     managed_agents_count = serializers.SerializerMethodField()
     manager_email = serializers.SerializerMethodField()
+    google_calendar_connected = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
+        # ★ google_sub / google_calendar_refresh_token 은 절대 노출 금지(여기에 넣지 않는다).
         fields = ('email', 'name', 'affiliation', 'agent_type', 'affiliation_type',
                   'cohort_opt_in', 'manager_share_opt_in', 'manager_email', 'managed_agents_count',
                   'license_self_declared', 'license_no', 'career_years',
                   'booking_msg_template', 'booking_location', 'booking_default_duration',
+                  'google_calendar_connected', 'google_calendar_mask_name',
                   'onboarding_completed_at', 'marketing_agreed_at', 'ref_code',
                   'email_verified_at', 'is_admin', 'is_dormant')
         read_only_fields = ('email', 'onboarding_completed_at', 'ref_code', 'email_verified_at',
-                            'is_admin', 'is_dormant', 'manager_email', 'managed_agents_count')
+                            'is_admin', 'is_dormant', 'manager_email', 'managed_agents_count',
+                            'google_calendar_connected')
 
     def get_managed_agents_count(self, obj):
         # 이 사용자(매니저)에게 배정된 소속 설계사 수(메뉴 노출 게이트용 — 동의 여부 무관 총원).
@@ -67,6 +71,9 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     def get_manager_email(self, obj):
         return obj.manager.email if obj.manager_id else None
+
+    def get_google_calendar_connected(self, obj):
+        return bool(obj.google_calendar_refresh_token)
 
 
 class LoginSerializer(serializers.Serializer):

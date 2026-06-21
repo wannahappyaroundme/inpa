@@ -8,6 +8,8 @@ from django.contrib.auth import authenticate
 from django.core import signing
 from django.core.cache import cache
 from django.core.mail import send_mail
+from django.db import transaction
+from django.http import HttpResponseRedirect
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.authtoken.models import Token
@@ -15,6 +17,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from inpa.notifications.models import create_reminder_rules_for_user
+
+from .google import (
+    GoogleTokenError, google_calendar_enabled, google_login_enabled,
+    verify_google_id_token,
+)
 from .models import Profile, User
 from .serializers import (
     LoginSerializer, OnboardingAttestSerializer, PasswordChangeSerializer,
@@ -153,6 +161,139 @@ class LoginView(APIView):
             'email': user.email,
             'onboarding_completed': profile.onboarding_completed_at is not None,
         })
+
+
+class GoogleLoginView(APIView):
+    """구글 소셜 로그인(병행) — POST /api/v1/auth/google/ {id_token}.
+
+    이메일/비밀번호 인증은 그대로 유지. 구글 검증 이메일 기준으로 기존 계정에 링크하거나
+    신규 생성(is_active=True, 비번 미설정). 응답 계약은 LoginView와 동일.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        if not google_login_enabled():
+            return Response({'code': 'NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        id_token_str = request.data.get('id_token')
+        if not id_token_str:
+            return Response({'code': 'ID_TOKEN_REQUIRED', 'detail': 'id_token이 필요합니다.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            claims = verify_google_id_token(id_token_str)
+        except GoogleTokenError:
+            return Response({'code': 'GOOGLE_TOKEN_INVALID', 'detail': '구글 로그인에 실패했습니다.'},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        email = claims['email'].lower()
+        sub = claims['sub']
+
+        # 1) sub로 이미 링크된 프로필이 있으면 그 사용자(정본).
+        profile = Profile.objects.filter(google_sub=sub).select_related('user').first()
+        if profile is not None:
+            user = profile.user
+        else:
+            user = User.objects.filter(email__iexact=email).first()
+            if user is not None:
+                # 기존(이메일/비번) 계정에 링크 — 비번 무손상(병행).
+                profile, _ = Profile.objects.get_or_create(user=user)
+                if profile.google_sub and profile.google_sub != sub:
+                    return Response({'code': 'GOOGLE_ALREADY_LINKED',
+                                     'detail': '이미 다른 구글 계정에 연결된 이메일입니다.'},
+                                    status=status.HTTP_409_CONFLICT)
+                if not profile.google_sub:
+                    profile.google_sub = sub
+                    profile.save(update_fields=['google_sub'])
+            else:
+                # 신규 구글 사용자 — 구글이 이메일 검증했으므로 is_active=True, 비번 미설정.
+                with transaction.atomic():
+                    user = User.objects.create_user(email=email, is_active=True)
+                    user.set_unusable_password()
+                    user.save(update_fields=['password'])
+                    profile = Profile.objects.create(
+                        user=user, google_sub=sub,
+                        name=(claims.get('given_name') or claims.get('name') or ''),
+                        email_verified_at=timezone.now())
+                create_reminder_rules_for_user(user)
+
+        # 휴면 자동 복구(로그인 시에만).
+        if profile.is_dormant:
+            profile.is_dormant = False
+            profile.dormant_at = None
+            profile.save(update_fields=['is_dormant', 'dormant_at'])
+
+        token, _ = Token.objects.get_or_create(user=user)
+        return Response({
+            'token': token.key,
+            'email': user.email,
+            'onboarding_completed': profile.onboarding_completed_at is not None,
+        })
+
+
+def _gcal_redirect(result):
+    base = (settings.FRONTEND_BASE_URL or '').rstrip('/')
+    return HttpResponseRedirect(f'{base}/settings/account?gcal={result}')
+
+
+class GoogleCalendarConnectView(APIView):
+    """구글 캘린더 연동 시작 — GET /api/v1/auth/google/calendar/connect/ → {auth_url}."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not google_calendar_enabled():
+            return Response({'code': 'CALENDAR_DISABLED', 'detail': '구글 캘린더 연동이 비활성화되어 있습니다.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        from .google_calendar import build_auth_url
+        return Response({'auth_url': build_auth_url(request.user.pk)})
+
+
+class GoogleCalendarCallbackView(APIView):
+    """구글 OAuth 콜백(브라우저 리다이렉트) — 신원은 서명 state로만. AllowAny."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        if not google_calendar_enabled():
+            return Response({'code': 'NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        from .google_calendar import exchange_code, read_calendar_state
+        if request.query_params.get('error'):
+            return _gcal_redirect('denied')
+        code = request.query_params.get('code')
+        state = request.query_params.get('state') or ''
+        try:
+            user_pk = read_calendar_state(state)
+        except (signing.BadSignature, signing.SignatureExpired):
+            return _gcal_redirect('error')
+        if not code:
+            return _gcal_redirect('error')
+        user = User.objects.filter(pk=user_pk).first()
+        if user is None:
+            return _gcal_redirect('error')
+        try:
+            refresh_token = exchange_code(code)
+            if not refresh_token:
+                return _gcal_redirect('error')
+            profile, _ = Profile.objects.get_or_create(user=user)
+            profile.google_calendar_refresh_token = refresh_token
+            profile.google_calendar_connected_at = timezone.now()
+            profile.save(update_fields=['google_calendar_refresh_token', 'google_calendar_connected_at'])
+        except Exception:
+            return _gcal_redirect('error')
+        return _gcal_redirect('connected')
+
+
+class GoogleCalendarDisconnectView(APIView):
+    """구글 캘린더 연동 해제 — POST /api/v1/auth/google/calendar/disconnect/."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .google_calendar import revoke_refresh_token
+        profile, _ = Profile.objects.get_or_create(user=request.user)
+        revoke_refresh_token(profile.google_calendar_refresh_token)
+        profile.google_calendar_refresh_token = None
+        profile.google_calendar_connected_at = None
+        profile.save(update_fields=['google_calendar_refresh_token', 'google_calendar_connected_at'])
+        return Response({'disconnected': True})
 
 
 class LogoutView(APIView):

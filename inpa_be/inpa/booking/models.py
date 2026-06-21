@@ -75,6 +75,7 @@ class Meeting(models.Model):
     location_detail = models.CharField('장소', max_length=200, blank=True, default='')  # 확정 시 profile.booking_location 스냅샷
     customer_note = models.TextField('고객 메모', blank=True, default='')
     status = models.CharField('상태', max_length=10, choices=STATUS_CHOICES, default=STATUS_CONFIRMED)
+    google_event_id = models.CharField('구글 캘린더 이벤트 ID', max_length=1024, null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

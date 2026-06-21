@@ -136,6 +136,14 @@ EMAIL_USE_SSL = env.bool('EMAIL_USE_SSL', default=False)
 
 FRONTEND_BASE_URL = env('FRONTEND_BASE_URL', default='http://localhost:3000')
 
+# ── 구글 연동 (소셜 로그인 + 캘린더) — 전부 env 게이트. 미설정 시 기능 dark ──────
+# 로그인은 CLIENT_ID만, 캘린더는 SECRET+REDIRECT_URI까지 있어야 활성(헬퍼로 단일 판정).
+GOOGLE_OAUTH_ENABLED = env.bool('GOOGLE_OAUTH_ENABLED', default=False)
+GOOGLE_OAUTH_CLIENT_ID = env('GOOGLE_OAUTH_CLIENT_ID', default='')
+GOOGLE_OAUTH_CLIENT_SECRET = env('GOOGLE_OAUTH_CLIENT_SECRET', default='')  # ★ secret — Render 전용
+GOOGLE_OAUTH_REDIRECT_URI = env('GOOGLE_OAUTH_REDIRECT_URI', default='')    # 캘린더 callback (Console과 정확히 일치)
+GOOGLE_OAUTH_STATE_TTL_SECONDS = env.int('GOOGLE_OAUTH_STATE_TTL_SECONDS', default=600)  # OAuth state(CSRF) TTL
+
 # ── Claude API (보험증권 OCR 파싱 · 담보 정규화 — Phase 1.1) ───────
 # 하드코딩 금지: env(.env)에서만 주입. 비어 있으면 claude_parser 가 None 반환(OCR 비활성).
 ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', default='')
