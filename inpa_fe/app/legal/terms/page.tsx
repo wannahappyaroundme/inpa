@@ -1,6 +1,6 @@
 // 서비스 이용약관 (TOS-v1) — 정본: docs/dev/16-legal-and-consent.md §2.
 // 법인명·대표자·사업자번호·연락처는 확정 후 TBD 자리에 기재.
-import { LegalPage, Article, TBD } from "@/components/legal";
+import { LegalPage, Article } from "@/components/legal";
 
 export const metadata = { title: "서비스 이용약관" };
 
@@ -11,7 +11,7 @@ export default function TermsPage() {
     <LegalPage title="서비스 이용약관" effective="버전 TOS-v1 · 시행일 [확정 후 기재] · 본 초안은 한국 전자상거래법·약관규제법·개인정보보호법을 참고해 작성되었습니다.">
       <Article n={1} title="목적">
         <p>
-          이 약관은 인파(이하 &quot;인파&quot; 또는 &quot;서비스&quot;)를 운영하는 <TBD>법인명</TBD>(이하 &quot;회사&quot;)이
+          이 약관은 인파(이하 &quot;인파&quot; 또는 &quot;서비스&quot;)의 운영자(이하 &quot;회사&quot;)가
           제공하는 보험설계사용 AI 영업지원 웹 애플리케이션 서비스의 이용에 관한 조건과 절차를 규정함을 목적으로 합니다.
         </p>
       </Article>
@@ -89,7 +89,10 @@ export default function TermsPage() {
       </Article>
 
       <Article title="회사 정보 · 문의">
-        <p>상호 <TBD>법인명</TBD> · 대표자 <TBD>대표자명</TBD> · 사업자등록번호 <TBD>사업자등록번호</TBD> · 통신판매업신고 <TBD>신고번호</TBD> · 주소 <TBD>주소</TBD> · 고객센터 <TBD>이메일</TBD></p>
+        <p className="text-[var(--ink-3)]">
+          회사 정보(상호·대표자·사업자등록번호·주소·고객센터·통신판매업신고)는 법인 설립 및 정식 출시 시 기재됩니다.
+          현재는 예비창업(베타) 단계이며, 문의는 서비스 내 1:1 문의를 이용해 주세요.
+        </p>
       </Article>
     </LegalPage>
   );

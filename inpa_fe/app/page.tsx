@@ -302,8 +302,7 @@ function LandingFooter() {
           </div>
         </div>
         <div className="mt-10 pt-6 border-t border-white/15 text-[12px] text-white/40 flex flex-col gap-1">
-          <p>상호명: [미확정] | 사업자등록번호: [미확정] | 대표자: [미확정]</p>
-          <p>주소: [미확정] | 고객센터: [미확정]</p>
+          <p>회사 정보는 법인 설립·정식 출시 시 기재됩니다. (현재 예비창업 베타 단계)</p>
           <p className="mt-2 text-white/55">AI 초안이며 최종 판단·책임은 설계사님에게 있습니다. 인파는 보험 중개·권유를 하지 않습니다.</p>
           <p className="mt-1">© 2026 Inpa. All rights reserved.</p>
         </div>
