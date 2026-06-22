@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
-import { calendar, calendarEvents, eventMeta, todayTasks, type EventType } from "@/lib/mock";
 import { useAuthGuard } from "@/lib/useAuthGuard";
-import { listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings, getDashboard, updateDashboardGoal, type ProfileResponse, type ChurnRadarResponse, type Meeting, type DashboardSummary } from "@/lib/api";
+import {
+  listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings,
+  getDashboard, updateDashboardGoal, listNotifications,
+  type ProfileResponse, type ChurnRadarResponse, type Meeting, type DashboardSummary, type NotificationItem,
+} from "@/lib/api";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 const krw = new Intl.NumberFormat("ko-KR");
@@ -18,6 +21,51 @@ function fmtWonShort(v: number): string {
 function pct(actual: number, target: number): number {
   return target > 0 ? Math.min(100, Math.round((actual / target) * 100)) : 0;
 }
+const pad = (n: number) => String(n).padStart(2, "0");
+
+// 일정/알림 종류별 점 색·라벨 (실데이터 = 미팅 + 리마인더 알림)
+type Kind = "meeting" | "expiry" | "birthday" | "consult" | "task" | "other";
+const META: Record<Kind, { dot: string; label: string }> = {
+  meeting: { dot: "bg-brand", label: "미팅" },
+  expiry: { dot: "bg-cnone", label: "만기·미납" },
+  birthday: { dot: "bg-short", label: "생일" },
+  consult: { dot: "bg-enough", label: "상담" },
+  task: { dot: "bg-over", label: "리드·할일" },
+  other: { dot: "bg-muted", label: "알림" },
+};
+function notifKind(t: string): Kind {
+  switch (t) {
+    case "expiry_soon":
+    case "unpaid_d_alert": return "expiry";
+    case "birthday_soon": return "birthday";
+    case "consult_reminder": return "consult";
+    case "self_diagnosis_lead":
+    case "task_due": return "task";
+    default: return "other";
+  }
+}
+
+// ISO(+09:00) → Asia/Seoul 기준 'YYYY-MM-DD' / 'HH:mm'
+function kstYmd(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date(iso));
+  } catch { return iso.slice(0, 10); }
+}
+function kstTime(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(new Date(iso));
+  } catch { return ""; }
+}
+function hhmmToMin(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+interface AgendaItem { ymd: string; time: string; title: string; kind: Kind; sort: number }
 
 function GoalRow({ label, actual, target, unit, won }: { label: string; actual: number; target: number; unit?: string; won?: boolean }) {
   const p = pct(actual, target);
@@ -49,15 +97,15 @@ function fmtMeeting(iso: string): string {
   }
 }
 
-// 설계사 대시보드. KPI 한 줄(내 고객 수=실API) + 캘린더(일정/업무) + 오늘 할 일.
+// 설계사 대시보드. KPI(실API) + 목표 + 환수레이더 + 캘린더(실제 미팅·리마인더) + 선택일 일정.
 export default function HomePage() {
   const router = useRouter();
   const ready = useAuthGuard();
-  const [sel, setSel] = useState(calendar.today);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [customerCount, setCustomerCount] = useState<number | null>(null);
   const [churn, setChurn] = useState<ChurnRadarResponse | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [notifs, setNotifs] = useState<NotificationItem[]>([]);
   const [dash, setDash] = useState<DashboardSummary | null>(null);
   const [editGoal, setEditGoal] = useState(false);
   const [gMeet, setGMeet] = useState(0);
@@ -65,23 +113,20 @@ export default function HomePage() {
   const [gMult, setGMult] = useState(10);
   const [goalSaving, setGoalSaving] = useState(false);
 
-  const first = new Date(calendar.year, calendar.month - 1, 1).getDay();
-  const days = new Date(calendar.year, calendar.month, 0).getDate();
-  const cells: (number | null)[] = [
-    ...Array(first).fill(null),
-    ...Array.from({ length: days }, (_, i) => i + 1),
-  ];
+  // 캘린더가 보는 연·월 (실제 오늘 기준) + 선택일
+  const now = new Date();
+  const todayY = now.getFullYear();
+  const todayM = now.getMonth() + 1;
+  const todayD = now.getDate();
+  const [viewY, setViewY] = useState(todayY);
+  const [viewM, setViewM] = useState(todayM);
+  const [selDay, setSelDay] = useState(todayD);
 
   useEffect(() => {
     if (!ready) return;
-    // 프로필 & 고객 수 병렬 로드
     getProfile()
       .then((p) => {
-        // 온보딩 미완료면 투어로 보냄 (홈 진입 가드)
-        if (!p.onboarding_completed_at) {
-          router.replace("/onboarding");
-          return;
-        }
+        if (!p.onboarding_completed_at) { router.replace("/onboarding"); return; }
         setProfile(p);
       })
       .catch(() => { /* 토큰 만료 시 useAuthGuard가 처리 */ });
@@ -91,19 +136,35 @@ export default function HomePage() {
     listMeetings(true)
       .then((res) => setMeetings(res.results))
       .catch(() => setMeetings([]));
+    listNotifications({ page: 1 })
+      .then((res) => setNotifs(res.results))
+      .catch(() => setNotifs([]));
     getDashboard()
       .then((d) => {
         setDash(d);
         setGMeet(d.target_meetings); setGPrem(d.target_premium); setGMult(d.income_multiplier);
       })
       .catch(() => setDash(null));
-    // 환수 위험을 인앱 알림으로 동기화(조용히, dedup) → 그 다음 레이더 집계 로드.
     syncChurnAlerts().catch(() => { /* 무시 */ }).finally(() => {
-      getChurnRadar()
-        .then((res) => setChurn(res))
-        .catch(() => setChurn(null));
+      getChurnRadar().then((res) => setChurn(res)).catch(() => setChurn(null));
     });
   }, [ready, router]);
+
+  // 미팅 + 리마인더 알림 → 날짜별 일정 맵
+  const agenda = useMemo(() => {
+    const map = new Map<string, AgendaItem[]>();
+    const add = (it: AgendaItem) => { const a = map.get(it.ymd) ?? []; a.push(it); map.set(it.ymd, a); };
+    for (const m of meetings) {
+      const t = kstTime(m.start_at);
+      add({ ymd: kstYmd(m.start_at), time: t || "—", title: `${m.customer_name} · ${m.method_display}`, kind: "meeting", sort: t ? hhmmToMin(t) : 0 });
+    }
+    for (const n of notifs) {
+      if (!n.target_date) continue;
+      add({ ymd: n.target_date, time: "온종일", title: n.title, kind: notifKind(n.notif_type), sort: -1 });
+    }
+    for (const [, arr] of map) arr.sort((a, b) => a.sort - b.sort);
+    return map;
+  }, [meetings, notifs]);
 
   async function saveGoal() {
     setGoalSaving(true);
@@ -118,32 +179,43 @@ export default function HomePage() {
     }
   }
 
+  function shiftMonth(delta: number) {
+    let y = viewY, m = viewM + delta;
+    if (m < 1) { m = 12; y--; }
+    if (m > 12) { m = 1; y++; }
+    setViewY(y); setViewM(m);
+  }
+
   if (!ready) return null;
 
   // 이번 달 경과 — 남은 일수 · 경과 %
-  const _now = new Date();
-  const _dim = new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDate();
-  const monthDaysLeft = _dim - _now.getDate();
-  const monthPct = Math.round((_now.getDate() / _dim) * 100);
+  const _dim = new Date(todayY, todayM, 0).getDate();
+  const monthDaysLeft = _dim - todayD;
+  const monthPct = Math.round((todayD / _dim) * 100);
 
-  // 이름 표시: profile.email 앞부분 fallback
-  const displayName = profile
-    ? profile.email.split("@")[0]
-    : "설계사";
+  const displayName = profile ? profile.email.split("@")[0] : "설계사";
 
-  // KPI — 내 고객 수는 실API, 나머지는 자리표시(mock 대신 대시)
+  // KPI — 전부 실데이터(이미 로딩한 상태에서 파생)
   const kpiRows = [
-    {
-      label: "내 고객",
-      value: customerCount !== null ? String(customerCount) : "—",
-      unit: "명",
-      accent: false,
-    },
-    { label: "이번 달 만기", value: "—", unit: "건", accent: true },
-    { label: "오늘 할 일",    value: "—", unit: "건", accent: false },
-    { label: "이번 달 신규",  value: "—", unit: "명", accent: false },
-    { label: "미열람 공유",   value: "—", unit: "건", accent: false },
+    { label: "내 고객", value: customerCount !== null ? String(customerCount) : "—", unit: "명", accent: false },
+    { label: "이번 달 신규", value: dash ? String(dash.actual_new_customers) : "—", unit: "명", accent: false },
+    { label: "이번 달 미팅", value: dash ? String(dash.actual_meetings) : "—", unit: "건", accent: false },
+    { label: "환수 위험", value: churn ? String(churn.risk_count) : "—", unit: "건", accent: !!churn && churn.risk_count > 0 },
+    { label: "다가오는 미팅", value: String(meetings.length), unit: "건", accent: false },
   ];
+
+  // 캘린더 셀
+  const first = new Date(viewY, viewM - 1, 1).getDay();
+  const days = new Date(viewY, viewM, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array(first).fill(null),
+    ...Array.from({ length: days }, (_, i) => i + 1),
+  ];
+  const isCurrentMonth = viewY === todayY && viewM === todayM;
+
+  const selectedYmd = `${viewY}-${pad(viewM)}-${pad(selDay)}`;
+  const selectedItems = agenda.get(selectedYmd) ?? [];
+  const agendaTitle = isCurrentMonth && selDay === todayD ? "오늘의 일정 · 할 일" : `${viewM}월 ${selDay}일 일정`;
 
   return (
     <div className="min-h-dvh">
@@ -151,26 +223,20 @@ export default function HomePage() {
       <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
         <div className="flex items-end justify-between">
           <h1 className="text-[22px] font-extrabold text-ink">
-            안녕하세요, {displayName} 설계사님{" "}
-            <span className="font-normal">👋</span>
+            안녕하세요, {displayName} 설계사님 <span className="font-normal">👋</span>
           </h1>
           <span className="hidden sm:block text-[13px] text-ink3 tnum">
-            {calendar.year}.{String(calendar.month).padStart(2, "0")}.
-            {String(calendar.today).padStart(2, "0")}
+            {todayY}.{pad(todayM)}.{pad(todayD)}
           </span>
         </div>
 
-        {/* KPI 한 줄 */}
+        {/* KPI 한 줄 — 전부 실데이터 */}
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {kpiRows.map((k) => (
             <Card key={k.label} className="px-4 py-3.5">
               <div className="text-[12px] text-ink3">{k.label}</div>
               <div className="mt-1 flex items-baseline gap-1">
-                <span
-                  className={`text-[24px] font-extrabold tnum ${
-                    k.accent ? "text-accent" : "text-ink"
-                  }`}
-                >
+                <span className={`text-[24px] font-extrabold tnum ${k.accent ? "text-accent" : "text-ink"}`}>
                   {k.value}
                 </span>
                 <span className="text-[13px] text-ink3">{k.unit}</span>
@@ -303,17 +369,17 @@ export default function HomePage() {
           </Card>
         )}
 
-        {/* 캘린더 + 오늘 일정 */}
+        {/* 캘린더(실제 월·미팅·리마인더) + 선택일 일정 */}
         <div className="mt-5 lg:grid lg:grid-cols-3 lg:gap-5">
           <Card className="lg:col-span-2 p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
-              <button className="w-8 h-8 rounded-lg hover:bg-surface2 text-ink2 text-[18px]">
+              <button onClick={() => shiftMonth(-1)} className="w-8 h-8 rounded-lg hover:bg-surface2 text-ink2 text-[18px]">
                 ‹
               </button>
               <div className="text-[16px] font-bold text-ink">
-                {calendar.year}년 {calendar.month}월
+                {viewY}년 {viewM}월
               </div>
-              <button className="w-8 h-8 rounded-lg hover:bg-surface2 text-ink2 text-[18px]">
+              <button onClick={() => shiftMonth(1)} className="w-8 h-8 rounded-lg hover:bg-surface2 text-ink2 text-[18px]">
                 ›
               </button>
             </div>
@@ -328,30 +394,26 @@ export default function HomePage() {
               {cells.map((d, i) => {
                 if (!d) return <div key={i} />;
                 const isSun = i % 7 === 0;
-                const isToday = d === calendar.today;
-                const isSel = d === sel;
+                const isToday = isCurrentMonth && d === todayD;
+                const isSel = d === selDay;
                 let cls = isSun ? "text-danger" : "text-ink2";
                 if (isToday && !isSel) cls = "text-brand font-bold";
                 if (isSel) cls = "bg-brand text-white font-bold";
-                const evs = calendarEvents[d];
+                const ymd = `${viewY}-${pad(viewM)}-${pad(d)}`;
+                const items = agenda.get(ymd);
+                const kinds = items ? Array.from(new Set(items.map((it) => it.kind))).slice(0, 3) : [];
                 return (
-                  <div
-                    key={i}
-                    className="flex flex-col items-center pt-1.5 pb-1 min-h-[52px]"
-                  >
+                  <div key={i} className="flex flex-col items-center pt-1.5 pb-1 min-h-[52px]">
                     <button
-                      onClick={() => setSel(d)}
+                      onClick={() => setSelDay(d)}
                       className={`w-9 h-9 rounded-full flex items-center justify-center text-[14px] font-medium ${cls}`}
                     >
                       {d}
                     </button>
-                    {evs && (
+                    {kinds.length > 0 && (
                       <div className="flex gap-0.5 mt-1">
-                        {evs.slice(0, 3).map((e, j) => (
-                          <span
-                            key={j}
-                            className={`w-1.5 h-1.5 rounded-full ${eventMeta[e].dot}`}
-                          />
+                        {kinds.map((k, j) => (
+                          <span key={j} className={`w-1.5 h-1.5 rounded-full ${META[k].dot}`} />
                         ))}
                       </div>
                     )}
@@ -360,36 +422,42 @@ export default function HomePage() {
               })}
             </div>
             <div className="mt-3 flex flex-wrap gap-3 text-[12px] text-ink3">
-              {(Object.keys(eventMeta) as EventType[]).map((e) => (
-                <span key={e} className="inline-flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${eventMeta[e].dot}`} />
-                  {eventMeta[e].label}
+              {(Object.keys(META) as Kind[]).map((k) => (
+                <span key={k} className="inline-flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${META[k].dot}`} />
+                  {META[k].label}
                 </span>
               ))}
             </div>
           </Card>
 
           <Card className="mt-4 lg:mt-0 p-4 sm:p-5">
-            <div className="text-[15px] font-bold text-ink mb-3">
-              오늘의 일정 · 할 일
-            </div>
-            <div className="space-y-3.5">
-              {todayTasks.map((t, i) => (
-                <div key={i} className="flex gap-3">
-                  <div className="text-[12px] font-semibold text-ink3 w-11 shrink-0 tnum pt-0.5">
-                    {t.time}
+            <div className="text-[15px] font-bold text-ink mb-3">{agendaTitle}</div>
+            {selectedItems.length > 0 ? (
+              <div className="space-y-3.5">
+                {selectedItems.map((t, i) => (
+                  <div key={i} className="flex gap-3">
+                    <div className="text-[12px] font-semibold text-ink3 w-11 shrink-0 tnum pt-0.5">
+                      {t.time}
+                    </div>
+                    <div className="flex-1 flex items-start gap-2">
+                      <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${META[t.kind].dot}`} />
+                      <span className="text-[14px] text-ink leading-5">{t.title}</span>
+                    </div>
                   </div>
-                  <div className="flex-1 flex items-start gap-2">
-                    <span
-                      className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${eventMeta[t.type].dot}`}
-                    />
-                    <span className="text-[14px] text-ink leading-5">{t.title}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <button className="mt-4 w-full rounded-xl border border-line text-[13px] font-semibold text-brand py-2.5 hover:bg-accent-tint transition">
-              + 일정 · 업무 추가
+                ))}
+              </div>
+            ) : (
+              <div className="py-6 text-center text-[13px] text-ink3">
+                예정된 일정이 없어요.
+                <div className="text-[12px] mt-1">미팅·리마인더가 생기면 여기에 표시돼요.</div>
+              </div>
+            )}
+            <button
+              onClick={() => router.push("/settings/meetings")}
+              className="mt-4 w-full rounded-xl border border-line text-[13px] font-semibold text-brand py-2.5 hover:bg-accent-tint transition"
+            >
+              미팅 예약 관리 →
             </button>
           </Card>
         </div>

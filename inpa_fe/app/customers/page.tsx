@@ -6,6 +6,7 @@ import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import { listCustomers, type CustomerListItem } from "@/lib/api";
+import { CustomerCreateModal } from "@/components/customer-create-modal";
 
 // 고객 관리(CRM). 목록·검색·만기배지. 실 API 연결. 데스크톱 2열 반응형.
 export default function CustomersPage() {
@@ -16,6 +17,7 @@ export default function CustomersPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const fetchCustomers = useCallback(
     async (q: string) => {
@@ -84,7 +86,10 @@ export default function CustomersPage() {
               {loading ? "..." : totalCount}
             </span>
           </h1>
-          <button className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2.5">
+          <button
+            onClick={() => setShowCreate(true)}
+            className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2.5 active:scale-[0.98] transition"
+          >
             + 고객 등록
           </button>
         </div>
@@ -167,6 +172,16 @@ export default function CustomersPage() {
           ))}
         </div>
       </main>
+
+      {showCreate && (
+        <CustomerCreateModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            setShowCreate(false);
+            fetchCustomers(search);
+          }}
+        />
+      )}
     </div>
   );
 }
