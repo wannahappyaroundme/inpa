@@ -85,3 +85,34 @@ export const heatmapMock: HeatCategory[] = [
   { category: "후유장해", items: [{ name: "상해후유장해", status: "enough" }, { name: "질병후유장해", status: "short" }] },
   { category: "노후간병", items: [{ name: "치매", status: "none" }, { name: "장기요양", status: "none" }] },
 ];
+
+/* ───────── 갈아타기 비교(기존 증권 vs 제안 증권) ───────── */
+// ⚠️ 데모용 목업. 실제 갈아타기 판정·발행은 §97 컴플라이언스 게이트 통과 후 설계사 책임.
+export interface CompareRowMock { coverage: string; current: number; proposed: number }
+export const compareMock = {
+  customerName: "김보장",
+  current: { product: "기존 · 무)종합건강보험 (2014년 가입)", monthly: 124000, total: 14880000 },
+  proposed: { product: "제안 · 무)건강보장보험 (2026년)", monthly: 98000, total: 11760000 },
+  rows: [
+    { coverage: "암 진단비", current: 30000000, proposed: 50000000 },
+    { coverage: "뇌혈관 진단비", current: 10000000, proposed: 20000000 },
+    { coverage: "허혈성심장 진단비", current: 10000000, proposed: 20000000 },
+    { coverage: "수술비 (1~5종)", current: 3000000, proposed: 5000000 },
+    { coverage: "입원일당 (1일)", current: 30000, proposed: 50000 },
+    { coverage: "운전자 형사합의금", current: 0, proposed: 30000000 },
+    { coverage: "일상생활배상책임", current: 0, proposed: 100000000 },
+  ] as CompareRowMock[],
+  verdict: {
+    decision: "SWITCH" as "KEEP" | "SWITCH" | "NEUTRAL",
+    reason:
+      "암·뇌·심장 진단비가 현재 기준 대비 부족하고 운전자·배상 담보가 공백입니다. 제안 상품은 월 보험료가 26,000원 낮으면서 핵심 진단비를 강화해요.",
+    netBenefitYear: 312000, // 1년 추정 순이득(원)
+  },
+  warnings: [
+    { label: "해지 손실", detail: "기존 계약 해지 시 환급금이 납입액보다 적을 수 있어요 (추정 −180만원)." },
+    { label: "면책 리셋", detail: "신규 가입 시 암 보장 90일 면책·1년 50% 감액이 다시 적용됩니다." },
+    { label: "예정이율 변경", detail: "구상품과 예정이율이 달라 같은 보장도 보험료 구조가 달라질 수 있어요." },
+  ],
+  disclaimer:
+    "본 비교는 AI 초안이며 최종 판단·고객 안내·책임은 담당 설계사에게 있습니다. (부당승환 보험업법 §97 유의)",
+};
