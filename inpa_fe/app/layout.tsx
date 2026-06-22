@@ -27,7 +27,8 @@ export const metadata: Metadata = {
     title: TITLE,
     description: DESCRIPTION,
     url: SITE_URL,
-    // og:image는 app/opengraph-image.tsx 가 자동 생성
+    // og:image = app/opengraph-image.jpg (1200×630 최적화본) — Next App Router가 자동 주입.
+    //   원본 마스터: design/opengraph-source.png. alt = app/opengraph-image.alt.txt. 절대 URL은 metadataBase 기준.
   },
   twitter: {
     card: "summary_large_image",
