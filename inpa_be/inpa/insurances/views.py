@@ -38,6 +38,7 @@ from inpa.core.ocr.claude_parser import claude_parse
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer
 
+from .coverage_bridge import resolve_std_detail
 from .models import (
     CustomerInsurance, CustomerInsuranceDetail, InsuranceCategory,
     InsuranceDetail, InsuranceSubCategory,
@@ -148,6 +149,13 @@ def _get_or_create_detail(cat_name, sub_name, det_name, insurance_type):
     sub, _ = InsuranceSubCategory.objects.get_or_create(
         category=cat, name=sub_name, defaults={'insurance_type': insurance_type})
     det, _ = InsuranceDetail.objects.get_or_create(sub_category=sub, name=det_name)
+    # [P0] 표준 담보(AnalysisDetail) 다리 연결 — 히트맵/계산이 보유금액을 집계하려면
+    # detail.analysis_detail M2M 가 있어야 한다(없으면 held=0). 파서 이름↔표준 이름이
+    # 달라 명시 맵(coverage_bridge)으로 잇는다. 미대응이면 std=None → 미연결(graceful).
+    # .add 는 멱등 → 같은 케이스 재업로드해도 중복 안 생김.
+    std = resolve_std_detail(cat_name, sub_name, det_name)
+    if std is not None:
+        det.analysis_detail.add(std)
     return det
 
 

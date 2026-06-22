@@ -478,3 +478,78 @@ class VerifyUnitTests(TestCase):
         from inpa.insurances.verify import verify_extraction
         # 키 없으면 ci 접근 전에 None 반환(파싱 결과 안 깨뜨림 — 격리 보장)
         self.assertIsNone(verify_extraction(["삼성생명 종합보험"], None))
+
+
+# ──────────────────────────────────────────────────────────────────────
+# [P0] OCR→표준담보 다리(coverage_bridge) — 실데이터에서 히트맵 보유금액이 잡히는지
+#   버그: _get_or_create_detail 이 analysis_detail M2M 를 안 이어 held 가 전부 0 였음.
+#   파서 이름(일반암)과 표준 이름(일반암진단비)이 달라 명시 맵으로 잇는다.
+# ──────────────────────────────────────────────────────────────────────
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
+class BridgeLinkTests(TestCase):
+    """파서 leaf → 표준 AnalysisDetail 연결 + 히트맵 held>0 + 멱등."""
+
+    def setUp(self):
+        from django.core.management import call_command
+        # [표준] 담보 트리(seed_normalization) 적재 — 일반암진단비 행 포함.
+        call_command('seed_normalization')
+        self.user, self.client = _make_planner('bridge@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='브리지고객', birth_day='1985.03.10', gender=1,
+            consent_overseas_at=timezone.now())
+
+    def _upload(self):
+        """_fake_ocr_data(진단비>암>일반암 5천만) → 실제 _persist_ocr 변환."""
+        with mock.patch('inpa.insurances.views.claude_parse', return_value=_fake_ocr_data()), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['삼성화재 종합보험 일반암 5천만원'], None)):
+            return self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+
+    def _std_cancer_detail(self):
+        """[표준] 트리의 '일반암진단비' AnalysisDetail (동명 충돌 방지 마커 한정)."""
+        return AnalysisDetail.objects.get(
+            name='일반암진단비', sub_category__category__name__startswith='[표준]')
+
+    def test_persist_links_parser_leaf_to_standard_detail(self):
+        """업로드 케이스의 InsuranceDetail 이 표준 '일반암진단비' 에 연결된다."""
+        r = self._upload()
+        self.assertEqual(r.status_code, 201, r.content)
+        case = CustomerInsuranceDetail.objects.get()
+        self.assertEqual(case.detail.name, '일반암')  # 파서 leaf 이름
+        # ★ 다리: 파서 leaf(일반암) → 표준(일반암진단비) M2M 연결됨
+        std = self._std_cancer_detail()
+        self.assertIn(std.id, case.detail.analysis_detail.values_list('id', flat=True))
+
+    def test_heatmap_shows_held_amount(self):
+        """히트맵에서 일반암진단비 보유금액이 5천만으로 집계된다(이전엔 0 버그)."""
+        self._upload()
+        r = self.client.get(f'/api/v1/customers/{self.customer.id}/heatmap/')
+        self.assertEqual(r.status_code, 200, r.content)
+        std = self._std_cancer_detail()
+        held = None
+        for cat in r.json()['tree']:
+            for sub in cat['sub_categories']:
+                for det in sub['details']:
+                    if det['detail_id'] == std.id:
+                        held = det['held_amount']
+        self.assertEqual(held, 50000000)
+
+    def test_link_is_idempotent_on_reupload(self):
+        """같은 증권 2회 업로드해도 표준 담보 연결은 1건(.add 멱등)."""
+        self._upload()
+        self._upload()
+        std = self._std_cancer_detail()
+        # 동일 InsuranceDetail(get_or_create) 의 M2M 에 표준 행은 중복 없이 1건
+        links = [d for d in CustomerInsuranceDetail.objects.values_list(
+            'detail__analysis_detail', flat=True) if d == std.id]
+        self.assertEqual(len(set(links)), 1)
+        self.assertEqual(
+            self._std_cancer_detail().sub_category.details.filter(
+                name='일반암진단비').count(), 1)
+
+    def test_unmapped_leaf_links_nothing_gracefully(self):
+        """맵에 없는 파서 leaf(재해상해)는 미연결 — 에러 없이 held=0."""
+        from inpa.insurances.coverage_bridge import resolve_std_detail
+        self.assertIsNone(resolve_std_detail('상해', '상해', '재해상해'))
+        self.assertIsNone(resolve_std_detail('없는', '경로', '담보'))
