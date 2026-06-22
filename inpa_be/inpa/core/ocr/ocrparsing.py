@@ -1502,6 +1502,20 @@ def _is_treatment_only(name):
     return bool(_DIAGNOSIS_TREATMENT_BLOCKLIST.search(no_space))
 
 
+# 정액형 입원 음성 토큰 — '일당/급여금/위로금/N일이상'은 정액(fixed-benefit) 입원이지
+# 실손 입원의료비(indemnity)가 아니다. 키워드 매칭이 substring 이라 짧은 '질병입원'이
+# '질병입원일당'을 실손으로 빨아들이는 오염을 막는 백스톱(claude/text-line 양 파이프라인 공용).
+# 보수적 토큰만 — 실손 '입원형'/'입원비용' 오차단 방지(그 둘은 정액 토큰 미포함).
+_FIXED_BENEFIT_INPATIENT = re.compile(r'일당|입원급여금|입원위로금|\d+일이상')
+
+
+def _is_fixed_benefit_inpatient(name):
+    """정액형 입원(일당·입원급여금·입원위로금·N일이상) 여부 → 실손 입원 path 거부용."""
+    if not name:
+        return False
+    return bool(_FIXED_BENEFIT_INPATIENT.search(name.replace(' ', '')))
+
+
 def is_keyword_excluded(text, keyword):
     """text 에서 keyword 가 '(...제외)' / '(...제거)' / '(...빼고)' 같은
     배제 컨텍스트 안에 있으면 True.
@@ -1558,6 +1572,10 @@ def _match_coverage(text):
     no_space = re.sub(r'갱신형$', '', no_space)
     no_space = re.sub(r'담보$', '', no_space)
     for path, keywords in COVERAGE_KEYWORDS.items():
+        # 정액 입원(일당/급여금/N일이상)은 실손 입원의료비 path 가 아님 — 통째로 건너뜀.
+        # (substring 매칭상 짧은 '질병입원'이 '질병입원일당'을 잡아 실손 오염시키는 것 차단.)
+        if path.startswith('실손 의료비->') and '입원' in path and _is_fixed_benefit_inpatient(no_space):
+            continue
         for kw in sorted(keywords, key=len, reverse=True):
             if kw in no_space:
                 if is_keyword_excluded(text, kw):

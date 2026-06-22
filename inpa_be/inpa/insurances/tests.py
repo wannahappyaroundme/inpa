@@ -684,6 +684,126 @@ class SeedNormalizationIdempotencyTests(TestCase):
             sub_category__category__name__startswith='[표준]').count()
         self.assertEqual(cat1, cat2)
         self.assertEqual(det1, det2)
-        # 처치 카테고리는 정확히 1개
+        # 처치·입원비 신규 카테고리는 정확히 1개씩
         self.assertEqual(
             AnalysisCategory.objects.filter(name='[표준]처치').count(), 1)
+        self.assertEqual(
+            AnalysisCategory.objects.filter(name='[표준]입원비').count(), 1)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# [입원 섹션] 정액 입원(일당/비) 표면화 + 실손 매처 분리(음성토큰 가드) + 단위가드
+#   ★ 핵심 회귀: 정액 입원이 실손 입원의료비로 오염되지 않고, 실손은 그대로 매칭되는지.
+# ──────────────────────────────────────────────────────────────────────
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
+class InpatientSectionTests(TestCase):
+    def setUp(self):
+        from django.core.management import call_command
+        call_command('seed_normalization')  # [표준]입원일당(재사용) + [표준]입원비(신규)
+        self.user, self.client = _make_planner('inpatient@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='입원고객', birth_day='1985.03.10', gender=1,
+            consent_overseas_at=timezone.now())
+
+    def _upload(self, ocr):
+        with mock.patch('inpa.insurances.views.claude_parse', return_value=ocr), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['삼성화재 종합보험 입원 담보'], None)):
+            return self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+
+    def _std(self, name):
+        return AnalysisDetail.objects.get(
+            name=name, sub_category__category__name__startswith='[표준]')
+
+    def _held(self, std_id):
+        r = self.client.get(f'/api/v1/customers/{self.customer.id}/heatmap/')
+        self.assertEqual(r.status_code, 200, r.content)
+        for cat in r.json()['tree']:
+            for sub in cat['sub_categories']:
+                for det in sub['details']:
+                    if det['detail_id'] == std_id:
+                        return det
+        return None
+
+    def test_inpatient_daily_links_and_held(self):
+        """TC1 일당: 질병입원일당 5만원/일 → 표준 '질병입원일당' 연결 + held>0."""
+        r = self._upload(_fake_ocr_section('입원', '질병', '질병입원일당', 50000))
+        self.assertEqual(r.status_code, 201, r.content)
+        std = self._std('질병입원일당')
+        self.assertEqual(self._held(std.id)['held_amount'], 50000)
+
+    def test_inpatient_lumpsum_links_and_held(self):
+        """TC2 입원비: 암입원비 500만(총액) → 신규 표준 '암입원비' 연결 + held>0."""
+        r = self._upload(_fake_ocr_section('입원', '암', '암입원비', 5000000))
+        self.assertEqual(r.status_code, 201, r.content)
+        std = self._std('암입원비')
+        self.assertEqual(self._held(std.id)['held_amount'], 5000000)
+
+    def test_cross_section_regression_no_silsohn_pollution(self):
+        """TC3 ★교차섹션 회귀: 정액 입원은 실손 path로 안 가고, 실손 입원의료비는 그대로.
+
+        키워드 매칭이 substring 이라 짧은 '질병입원'이 '질병입원일당'을 빨아들이던 버그를
+        음성토큰 가드로 차단했는지 — 실제 함수/반환형으로 락(text-line 파이프라인).
+        """
+        from inpa.core.ocr.ocrparsing import _match_coverage
+        # 정액 입원 → 실손 아님(None)
+        self.assertIsNone(_match_coverage('질병입원일당'))
+        self.assertIsNone(_match_coverage('상해입원일당'))
+        self.assertIsNone(_match_coverage('질병입원비(1일이상)'))
+        # ★ 실손 회귀 0: 진짜 실손 입원의료비는 여전히 실손으로 매칭
+        self.assertEqual(_match_coverage('질병입원의료비'),
+                         '실손 의료비->질병->질병 입원 의료비')
+        self.assertEqual(_match_coverage('상해입원의료비'),
+                         '실손 의료비->상해->상해 입원 의료비')
+
+    def test_claude_pipeline_fixed_benefit_not_polluting_silsohn(self):
+        """TC3b: Claude가 정액 입원을 실손으로 오라우팅해도 가드가 실손 적재를 차단."""
+        from inpa.core.ocr.claude_parser import _add_coverage
+        ocr = Ocr_Data()
+        # Claude 오라우팅 시뮬: 원문 '질병입원일당'인데 실손 입원의료비로 분류
+        _add_coverage(ocr, {'category': '실손 의료비', 'subcategory': '질병',
+                            'detail_name': '질병 입원 의료비', 'name': '질병입원일당',
+                            'amount': 50000}, 20, 100)
+        self.assertEqual(ocr.dict_detail_data['실손 의료비']['질병']['질병 입원 의료비'], [])
+        # 대조: 진짜 실손 입원의료비는 정상 적재
+        _add_coverage(ocr, {'category': '실손 의료비', 'subcategory': '질병',
+                            'detail_name': '질병 입원 의료비', 'name': '질병입원의료비',
+                            'amount': 30000000}, 20, 100)
+        self.assertEqual(len(ocr.dict_detail_data['실손 의료비']['질병']['질병 입원 의료비']), 1)
+
+    def test_value_guard_redirects_lumpsum_from_daily(self):
+        """TC4 단위가드: 일당 leaf에 100만 초과 금액 → 입원비 leaf로 전환."""
+        from inpa.core.ocr.claude_parser import _add_coverage
+        ocr = Ocr_Data()
+        # 일당으로 분류됐지만 금액 500만(총액형 오분류) → 질병입원비로 전환
+        _add_coverage(ocr, {'category': '입원', 'subcategory': '질병',
+                            'detail_name': '질병입원일당', 'name': '질병입원비',
+                            'amount': 5000000}, 20, 100)
+        self.assertEqual(ocr.dict_detail_data['입원']['질병']['질병입원일당'], [])
+        self.assertEqual(len(ocr.dict_detail_data['입원']['질병']['질병입원비']), 1)
+        # 대조: 정상 일당(5만원/일)은 일당 그대로
+        _add_coverage(ocr, {'category': '입원', 'subcategory': '상해',
+                            'detail_name': '상해입원일당', 'name': '상해입원일당',
+                            'amount': 50000}, 20, 100)
+        self.assertEqual(len(ocr.dict_detail_data['입원']['상해']['상해입원일당']), 1)
+
+    def test_diagnosis_leak_guard_blocks_in_inpatient(self):
+        """TC5 진단누수가드: 원문 '암진단비'가 입원 섹션으로 와도 미연결."""
+        from inpa.core.ocr.claude_parser import _add_coverage
+        ocr = Ocr_Data()
+        _add_coverage(ocr, {'category': '입원', 'subcategory': '암',
+                            'detail_name': '암입원비', 'name': '암진단비',
+                            'amount': 30000000}, 20, 100)
+        self.assertEqual(ocr.dict_detail_data['입원']['암']['암입원비'], [])
+        # 대조: 진짜 암입원비는 정상
+        _add_coverage(ocr, {'category': '입원', 'subcategory': '암',
+                            'detail_name': '암입원비', 'name': '암입원비',
+                            'amount': 30000000}, 20, 100)
+        self.assertEqual(len(ocr.dict_detail_data['입원']['암']['암입원비']), 1)
+
+    def test_inpatient_leaf_neutral_without_baseline(self):
+        """TC7 graceful: 기준선 없으면 입원비 leaf는 neutral(에러 無)."""
+        self._upload(_fake_ocr_section('입원', '암', '암입원비', 5000000))
+        std = self._std('암입원비')
+        self.assertEqual(self._held(std.id)['status'], 'neutral')
