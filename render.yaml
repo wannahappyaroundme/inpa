@@ -16,9 +16,14 @@ services:
       DATABASE_URL=postgres://build:build@localhost:5432/build
       SECRET_KEY=build-only-not-a-secret
       python manage.py collectstatic --noinput
-    # 시작: 마이그레이션(멱등) 후 gunicorn. $PORT 는 Render 주입.
+    # 시작: 마이그레이션 → 표준담보/정규화 시드(멱등) → gunicorn. $PORT 는 Render 주입.
+    #   seed_normalization 은 멱등(재실행해도 카운트 불변)이라 매 배포·재기동마다 안전하게
+    #   재적재된다. 표준 담보 트리([표준]*)·정규화 사전이 prod DB 에 항상 존재하도록 보장
+    #   (예: '처치' 카테고리 신규분이 수동 개입 없이 배포 즉시 반영). @transaction.atomic
+    #   이라 실패 시 이전 트리로 롤백 → 부분 적재 없음.
     startCommand: >-
       python manage.py migrate --noinput &&
+      python manage.py seed_normalization &&
       gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
       - key: DJANGO_SETTINGS_MODULE
