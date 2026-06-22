@@ -129,7 +129,7 @@ export function AppNav({ active }: { active?: NavKey }) {
           </Link>
 
           <Link
-            href="/profile"
+            href="/settings/account"
             aria-label="내 계정"
             className="w-8 h-8 rounded-full bg-brand text-white flex items-center justify-center text-[13px] font-bold"
           >
