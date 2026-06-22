@@ -553,3 +553,137 @@ class BridgeLinkTests(TestCase):
         from inpa.insurances.coverage_bridge import resolve_std_detail
         self.assertIsNone(resolve_std_detail('상해', '상해', '재해상해'))
         self.assertIsNone(resolve_std_detail('없는', '경로', '담보'))
+
+
+def _fake_ocr_section(cat, sub, det, amount=30000000):
+    """수술/처치 등 신규 섹션 mock Ocr_Data — 손해보험 + 지정 leaf 1건."""
+    ocr = Ocr_Data()
+    ocr.parsing_method = 'claude'
+    ocr.is_same_insured = True
+    head = ocr.dict_loss_head_data
+    head['손해보험'] = 2  # 삼성화재
+    head['상품명'] = '무배당 종합보험'
+    head['계약자'] = '홍길동'
+    head['피보험자'] = '홍길동'
+    head['납입기간'] = 20
+    head['보장기간'] = 100
+    head['월납입보험료'] = 50000
+    head['월보장보험료'] = 50000
+    head['계약일'] = '2020.01.15'
+    head['payment_period_type'] = 1
+    head['warranty_period_type'] = 1
+    ocr.dict_detail_data[cat][sub][det].append(f'20:1:100:1:{amount}:10000')
+    return ocr
+
+
+# ──────────────────────────────────────────────────────────────────────
+# [수술·처치 섹션] 파서 신규 섹션 → 표준담보 연결 + 히트맵 held + 정확도 가드 + UnmatchedLog
+# ──────────────────────────────────────────────────────────────────────
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
+class SurgeryTreatmentSectionTests(TestCase):
+    def setUp(self):
+        from django.core.management import call_command
+        call_command('seed_normalization')  # [표준]수술비·처치 트리 적재(멱등)
+        self.user, self.client = _make_planner('surgery@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='수술처치고객', birth_day='1985.03.10', gender=1,
+            consent_overseas_at=timezone.now())
+
+    def _upload(self, ocr):
+        with mock.patch('inpa.insurances.views.claude_parse', return_value=ocr), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['삼성화재 종합보험 수술/처치 담보'], None)):
+            return self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+
+    def _std(self, name):
+        return AnalysisDetail.objects.get(
+            name=name, sub_category__category__name__startswith='[표준]')
+
+    def _held(self, std_id):
+        r = self.client.get(f'/api/v1/customers/{self.customer.id}/heatmap/')
+        self.assertEqual(r.status_code, 200, r.content)
+        for cat in r.json()['tree']:
+            for sub in cat['sub_categories']:
+                for det in sub['details']:
+                    if det['detail_id'] == std_id:
+                        return det
+        return None
+
+    def test_surgery_section_links_and_held(self):
+        """TC1 수술: 암수술비 5천만 → 표준 '암수술비' 연결 + 히트맵 held>0."""
+        r = self._upload(_fake_ocr_section('수술', '암', '암수술비', 50000000))
+        self.assertEqual(r.status_code, 201, r.content)
+        case = CustomerInsuranceDetail.objects.get()
+        std = self._std('암수술비')
+        self.assertIn(std.id, case.detail.analysis_detail.values_list('id', flat=True))
+        self.assertEqual(self._held(std.id)['held_amount'], 50000000)
+
+    def test_treatment_section_links_and_held(self):
+        """TC2 처치: 항암약물치료 1천만 → 신규 표준 '항암약물치료비' 연결 + held>0."""
+        r = self._upload(_fake_ocr_section('처치', '항암', '항암약물치료', 10000000))
+        self.assertEqual(r.status_code, 201, r.content)
+        std = self._std('항암약물치료비')
+        self.assertEqual(self._held(std.id)['held_amount'], 10000000)
+
+    def test_treatment_leaf_neutral_without_baseline(self):
+        """TC6 graceful: 기준선 없으면 처치 leaf는 neutral(에러 無)."""
+        self._upload(_fake_ocr_section('처치', '항암', '항암방사선치료', 10000000))
+        std = self._std('항암방사선치료비')
+        self.assertEqual(self._held(std.id)['status'], 'neutral')
+
+    def test_accuracy_guard_blocks_diagnosis_in_surgery(self):
+        """TC3 정확도 가드: 원문 '암진단비'가 수술 섹션으로 와도 미연결(백스톱).
+
+        대조: 원문이 진짜 수술('암수술비')이면 정상 연결.
+        """
+        from inpa.core.ocr.claude_parser import _add_coverage
+        ocr = Ocr_Data()
+        # 원문=암진단비(순수 진단), 구조=수술 섹션 → 가드가 차단
+        _add_coverage(ocr, {'category': '수술', 'subcategory': '암',
+                            'detail_name': '암수술비', 'name': '암진단비',
+                            'amount': 50000000}, 20, 100)
+        self.assertEqual(ocr.dict_detail_data['수술']['암']['암수술비'], [])
+        # 원문=암수술비(진짜 수술) → 정상 연결
+        _add_coverage(ocr, {'category': '수술', 'subcategory': '암',
+                            'detail_name': '암수술비', 'name': '암수술비',
+                            'amount': 50000000}, 20, 100)
+        self.assertEqual(len(ocr.dict_detail_data['수술']['암']['암수술비']), 1)
+
+    def test_unmatched_logged_and_occurrence_increments(self):
+        """TC4 UnmatchedLog: 미매칭 담보가 적재되고 재업로드 시 occurrence 누적."""
+        from inpa.analysis.models import UnmatchedLog
+        ocr = _fake_ocr_section('수술', '암', '암수술비', 50000000)
+        ocr._unmatched_coverages = ['조혈모세포이식수술비', '암입원비']
+        self._upload(ocr)
+        # 회사코드=2(삼성화재 head['손해보험']), 2건 적재
+        self.assertEqual(UnmatchedLog.objects.filter(company=2).count(), 2)
+        log = UnmatchedLog.objects.get(raw_name='조혈모세포이식수술비')
+        self.assertEqual(log.occurrence, 1)
+        # 재업로드 → 같은 raw_name 은 occurrence++ (행 추가 X)
+        ocr2 = _fake_ocr_section('수술', '암', '암수술비', 50000000)
+        ocr2._unmatched_coverages = ['조혈모세포이식수술비']
+        self._upload(ocr2)
+        log.refresh_from_db()
+        self.assertEqual(log.occurrence, 2)
+        self.assertEqual(UnmatchedLog.objects.filter(company=2).count(), 2)
+
+
+class SeedNormalizationIdempotencyTests(TestCase):
+    """TC5 멱등: seed_normalization 2회 → [표준] 카테고리·처치 불변, IntegrityError 無."""
+
+    def test_seed_twice_is_idempotent(self):
+        from django.core.management import call_command
+        call_command('seed_normalization')
+        cat1 = AnalysisCategory.objects.filter(name__startswith='[표준]').count()
+        det1 = AnalysisDetail.objects.filter(
+            sub_category__category__name__startswith='[표준]').count()
+        call_command('seed_normalization')  # 2회차 — IntegrityError 나면 여기서 실패
+        cat2 = AnalysisCategory.objects.filter(name__startswith='[표준]').count()
+        det2 = AnalysisDetail.objects.filter(
+            sub_category__category__name__startswith='[표준]').count()
+        self.assertEqual(cat1, cat2)
+        self.assertEqual(det1, det2)
+        # 처치 카테고리는 정확히 1개
+        self.assertEqual(
+            AnalysisCategory.objects.filter(name='[표준]처치').count(), 1)

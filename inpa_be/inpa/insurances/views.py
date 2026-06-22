@@ -24,6 +24,7 @@
 """
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -32,6 +33,7 @@ from rest_framework.response import Response
 
 from inpa.analysis.models import (
     AnalysisCategory, AnalysisDetail, AnalysisSubCategory, NormalizationDict,
+    UnmatchedLog,
 )
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
 from inpa.core.ocr.claude_parser import claude_parse
@@ -211,11 +213,14 @@ def _persist_ocr(customer, ocr_data):
     loss_head = ocr_data.dict_loss_head_data
     if life_head.get('생명보험', -1) > -1:
         head, insurance_type = life_head, _LIFE_TYPE
+        company_code = life_head.get('생명보험', -1)
     elif loss_head.get('손해보험', -1) > -1:
         head, insurance_type = loss_head, _LOSS_TYPE
+        company_code = loss_head.get('손해보험', -1)
     else:
         # 보험사 미감지 — 손해보험 dict 를 디폴트로(담보 데이터가 거기 누적됨)
         head, insurance_type = loss_head, _LOSS_TYPE
+        company_code = -1
 
     contractor = head.get('계약자', '') or None
     insured = head.get('피보험자', '') or None
@@ -269,6 +274,19 @@ def _persist_ocr(customer, ocr_data):
                         warranty_period_type=parsed['warranty_period_type'],
                     )
                     created_cases += 1
+
+    # ── 3.5) 미매칭 담보 → UnmatchedLog 적재 (학습 플라이휠, dev/02 §5.3) ──
+    # 표준에 없어 버려진 담보를 기록 → admin 검수 → NormalizationDict(admin_verified)
+    # 승격 → 다음 OCR 자동매칭(데이터 복리). 없으면 컷 담보가 흔적 없이 소실.
+    for raw in getattr(ocr_data, '_unmatched_coverages', []) or []:
+        raw_name = (raw or '').strip()[:120]
+        if not raw_name:
+            continue
+        log, created = UnmatchedLog.objects.get_or_create(
+            company=company_code, raw_name=raw_name)
+        if not created:
+            # 재등장 → 발생 횟수 누적(F 표현식, 경쟁조건 안전)
+            UnmatchedLog.objects.filter(pk=log.pk).update(occurrence=F('occurrence') + 1)
 
     # ── 4) 8케이스 보험료 엔진 (foliio 무변경) ──
     ci.set_renewal_month()  # save() 포함
