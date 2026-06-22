@@ -122,7 +122,7 @@ function TrustBar() {
         </div>
         <div className="flex items-center gap-2.5 justify-center sm:justify-start">
           <ShieldCheck size={18} strokeWidth={1.75} className="text-[var(--accent-blue)]" aria-hidden />
-          <span className="text-[14px] font-semibold text-[var(--ink-2)]">§97 <CountUp to={6} />항목 자동 체크</span>
+          <span className="text-[14px] font-semibold text-[var(--ink-2)]">갈아타기 불이익 항목 점검</span>
         </div>
       </div>
     </section>
@@ -133,7 +133,7 @@ function FeaturesSection() {
   const cards = [
     { icon: LayoutGrid, title: "보장 한눈표 (히트맵)", desc: "고객의 현재 보장을 100개 이상 담보 항목으로 한 화면에. 보유·공백을 색으로 즉시 확인합니다." },
     { icon: BarChart3, title: "보장 공백 분석", desc: "보유 0인 담보를 모아 우선순위로 정렬합니다. 충분·부족 판단은 설계사님이 설정한 기준선을 따릅니다." },
-    { icon: ArrowLeftRight, title: "갈아타기 비교안내서", desc: "기존과 제안을 나란히 정리한 비교안내 자료를 만듭니다. 부당승환(§97) 예방 항목이 함께 정리됩니다." },
+    { icon: ArrowLeftRight, title: "갈아타기 비교안내서", desc: "기존과 제안을 나란히 정리하고, 해지손실·면책기간 재적용·예정이율 같은 갈아타기 불이익을 빠짐없이 짚어줍니다. (AI 초안 — 최종 비교안내·책임은 설계사)" },
   ];
   return (
     <section id="features" className="py-20 md:py-28 bg-[var(--surface)]">
@@ -158,8 +158,8 @@ function FeaturesSection() {
 
 function DifferentiatorsSection() {
   const items = [
-    { icon: ShieldCheck, badge: "§97 6항목 자동 완성 — 미달이면 발행 불가", title: "부당승환 걱정 없는 비교안내",
-      desc: "보험업법 제97조가 요구하는 6가지 비교 항목(해지환급금 손실·면책기간·예정이율 등)을 자동으로 정리합니다. 기준 미달 시 고객 발행을 차단해 법적 리스크를 줄입니다." },
+    { icon: ShieldCheck, badge: "갈아타기 불이익 가드레일 — 점검 전엔 발행 잠금", title: "갈아타기 불이익을 놓치지 않는 비교안내",
+      desc: "갈아타기 시 고객에게 불리할 수 있는 항목(해지환급금 손실·면책기간 재적용·예정이율 등)을 빠짐없이 점검하도록 돕습니다. 점검 전에는 고객 발행을 잠가 빠뜨림을 줄여요. 법적 비교안내(공식 확인서)는 설계사가 최종 확인·책임집니다." },
     { icon: LayoutGrid, badge: "담보 100+ 표준화 · 보험사별 명칭 자동 매핑", title: "어떤 보험사 증권도 같은 틀로",
       desc: "'암진단급부금', '일반암진단비', '암진단 특약' — 회사마다 다른 이름을 100개 이상 표준 담보로 자동 정규화합니다. 데이터가 쌓일수록 매칭 정확도가 높아집니다." },
   ];
