@@ -17,6 +17,7 @@ export type NavKey =
   | "home"
   | "customers"
   | "analysis"
+  | "schedule"
   | "board"
   | "promotion"
   | "settings"
@@ -62,6 +63,7 @@ export function AppNav({ active }: { active?: NavKey }) {
   const items: { key: NavKey; href: string; label: string }[] = [
     { key: "home", href: "/home", label: "대시보드" },
     { key: "customers", href: "/customers", label: "고객" },
+    { key: "schedule", href: "/schedule", label: "일정" },
     { key: "analysis", href: "/analysis", label: "분석" },
     { key: "settings", href: "/settings/baseline", label: "기준" },
     { key: "board", href: "/boards", label: "게시판" },

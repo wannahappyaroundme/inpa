@@ -47,9 +47,16 @@ export default function MeetingsSettingsPage() {
 
   const addSlot = useCallback(async () => {
     if (!newAt) return;
+    // datetime-local 은 브라우저 로컬(KST)로 파싱 → toISOString 이 UTC 로 변환(정상).
+    // 과거/직후 시각은 서버 400(미래강제) 전에 클라에서 막아 친절 안내.
+    const dt = new Date(newAt);
+    if (isNaN(dt.getTime())) { setErr("날짜·시간을 다시 확인해주세요."); return; }
+    if (dt.getTime() <= Date.now() + 60_000) {
+      setErr("지금보다 나중 시간을 골라주세요. (예약 가능 시간은 미래만 등록돼요)"); return;
+    }
     setBusy(true); setErr(null);
     try {
-      await createMeetingSlot({ start_at: new Date(newAt).toISOString(), duration_min: newDur });
+      await createMeetingSlot({ start_at: dt.toISOString(), duration_min: newDur });
       setNewAt("");
       load();
     } catch (e: unknown) {
@@ -58,6 +65,13 @@ export default function MeetingsSettingsPage() {
       setBusy(false);
     }
   }, [newAt, newDur, load]);
+
+  // datetime-local min = 지금+5분(로컬 시각 문자열 YYYY-MM-DDTHH:mm)
+  const minLocal = (() => {
+    const d = new Date(Date.now() + 5 * 60_000);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  })();
 
   const removeSlot = useCallback(async (id: number) => {
     setBusy(true); setErr(null);
@@ -115,6 +129,7 @@ export default function MeetingsSettingsPage() {
               <input
                 type="datetime-local"
                 value={newAt}
+                min={minLocal}
                 onChange={(e) => setNewAt(e.target.value)}
                 className="mt-1 block rounded-xl border border-line px-3 py-2 text-[14px]"
               />

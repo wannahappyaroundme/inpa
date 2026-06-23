@@ -1562,6 +1562,74 @@ export async function cancelMeeting(id: number): Promise<Meeting> {
   return request<Meeting>("POST", `/meetings/${id}/cancel/`, undefined, true);
 }
 
+// ── 개인 일정(schedule) — 일정/할일/고정 차단 ──────────────────────────────
+export type ScheduleKind = "event" | "todo" | "block";
+
+export interface ScheduleItem {
+  id: number;
+  kind: ScheduleKind;
+  title: string;
+  memo: string;
+  customer: number | null;
+  customer_name: string | null;
+  start_at: string | null;   // event/todo/단건 block (ISO, UTC 저장 → KST 표시)
+  end_at: string | null;
+  all_day: boolean;
+  is_done: boolean;          // todo 완료
+  done_at: string | null;
+  recur_weekday: number | null;       // 0=월 … 6=일 (반복 차단)
+  recur_start_time: string | null;    // "HH:MM:SS" — ★ new Date()에 넣지 말 것(slice(0,5))
+  recur_end_time: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduleItemPayload {
+  kind: ScheduleKind;
+  title: string;
+  memo?: string;
+  customer?: number | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  all_day?: boolean;
+  recur_weekday?: number | null;
+  recur_start_time?: string | null;   // "HH:mm" 전송(벽시계 — 변환 금지)
+  recur_end_time?: string | null;
+}
+
+/** GET /api/v1/schedule-items/?month=YYYY-MM&kind= — 내 일정(인증). 반복차단은 항상 포함 */
+export async function listScheduleItems(
+  params?: { month?: string; kind?: ScheduleKind }
+): Promise<PaginatedResult<ScheduleItem>> {
+  const q = new URLSearchParams();
+  if (params?.month) q.set("month", params.month);
+  if (params?.kind) q.set("kind", params.kind);
+  const qs = q.toString() ? `?${q.toString()}` : "";
+  return request<PaginatedResult<ScheduleItem>>("GET", `/schedule-items/${qs}`, undefined, true);
+}
+
+/** POST /api/v1/schedule-items/ — 일정/할일/차단 추가(인증) */
+export async function createScheduleItem(payload: ScheduleItemPayload): Promise<ScheduleItem> {
+  return request<ScheduleItem>("POST", "/schedule-items/", payload, true);
+}
+
+/** PATCH /api/v1/schedule-items/<id>/ — 수정(인증) */
+export async function updateScheduleItem(
+  id: number, payload: Partial<ScheduleItemPayload>
+): Promise<ScheduleItem> {
+  return request<ScheduleItem>("PATCH", `/schedule-items/${id}/`, payload, true);
+}
+
+/** DELETE /api/v1/schedule-items/<id>/ — 삭제(인증) */
+export async function deleteScheduleItem(id: number): Promise<void> {
+  await requestVoid("DELETE", `/schedule-items/${id}/`, true);
+}
+
+/** POST /api/v1/schedule-items/<id>/toggle_done/ — 할일 완료 토글(인증) */
+export async function toggleScheduleDone(id: number): Promise<ScheduleItem> {
+  return request<ScheduleItem>("POST", `/schedule-items/${id}/toggle_done/`, undefined, true);
+}
+
 /** POST /api/v1/customers/<id>/booking-requests/ — 예약 링크 생성(인증) */
 export async function createBookingRequest(customerId: number): Promise<BookingRequestResponse> {
   return request<BookingRequestResponse>(

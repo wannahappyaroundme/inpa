@@ -7,8 +7,9 @@ import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings,
-  getDashboard, updateDashboardGoal, listNotifications,
+  getDashboard, updateDashboardGoal, listNotifications, listScheduleItems,
   type ProfileResponse, type ChurnRadarResponse, type Meeting, type DashboardSummary, type NotificationItem,
+  type ScheduleItem,
 } from "@/lib/api";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
@@ -23,14 +24,17 @@ function pct(actual: number, target: number): number {
 }
 const pad = (n: number) => String(n).padStart(2, "0");
 
-// 일정/알림 종류별 점 색·라벨 (실데이터 = 미팅 + 리마인더 알림)
-type Kind = "meeting" | "expiry" | "birthday" | "consult" | "task" | "other";
+// 일정/알림 종류별 점 색·라벨 (실데이터 = 내 일정/할일/차단 + 미팅 + 리마인더 알림)
+type Kind = "schedule" | "todo" | "block" | "meeting" | "expiry" | "birthday" | "consult" | "task" | "other";
 const META: Record<Kind, { dot: string; label: string }> = {
-  meeting: { dot: "bg-brand", label: "미팅" },
+  schedule: { dot: "bg-brand", label: "일정" },
+  todo: { dot: "bg-over", label: "할일" },
+  block: { dot: "bg-muted", label: "차단" },
+  meeting: { dot: "bg-enough", label: "미팅" },
   expiry: { dot: "bg-cnone", label: "만기·미납" },
   birthday: { dot: "bg-short", label: "생일" },
   consult: { dot: "bg-enough", label: "상담" },
-  task: { dot: "bg-over", label: "리드·할일" },
+  task: { dot: "bg-over", label: "리드·알림" },
   other: { dot: "bg-muted", label: "알림" },
 };
 function notifKind(t: string): Kind {
@@ -106,6 +110,7 @@ export default function HomePage() {
   const [churn, setChurn] = useState<ChurnRadarResponse | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [notifs, setNotifs] = useState<NotificationItem[]>([]);
+  const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [dash, setDash] = useState<DashboardSummary | null>(null);
   const [editGoal, setEditGoal] = useState(false);
   const [gMeet, setGMeet] = useState(0);
@@ -150,10 +155,25 @@ export default function HomePage() {
     });
   }, [ready, router]);
 
-  // 미팅 + 리마인더 알림 → 날짜별 일정 맵
+  // 보고 있는 달의 내 일정/할일/차단 로드(월 이동 시 갱신)
+  useEffect(() => {
+    if (!ready) return;
+    listScheduleItems({ month: `${viewY}-${pad(viewM)}` })
+      .then((r) => setScheduleItems(r.results))
+      .catch(() => setScheduleItems([]));
+  }, [ready, viewY, viewM]);
+
+  // 내 일정/할일/차단 + 미팅 + 리마인더 알림 → 날짜별 일정 맵
   const agenda = useMemo(() => {
     const map = new Map<string, AgendaItem[]>();
     const add = (it: AgendaItem) => { const a = map.get(it.ymd) ?? []; a.push(it); map.set(it.ymd, a); };
+    for (const s of scheduleItems) {
+      if (s.kind === "block" && s.recur_weekday !== null) continue; // 반복차단은 /schedule 풀뷰에서만
+      if (!s.start_at) continue;
+      const t = s.all_day ? "" : kstTime(s.start_at);
+      const k: Kind = s.kind === "event" ? "schedule" : s.kind === "todo" ? "todo" : "block";
+      add({ ymd: kstYmd(s.start_at), time: t || "종일", title: s.title, kind: k, sort: t ? hhmmToMin(t) : -1 });
+    }
     for (const m of meetings) {
       const t = kstTime(m.start_at);
       add({ ymd: kstYmd(m.start_at), time: t || "—", title: `${m.customer_name} · ${m.method_display}`, kind: "meeting", sort: t ? hhmmToMin(t) : 0 });
@@ -164,7 +184,7 @@ export default function HomePage() {
     }
     for (const [, arr] of map) arr.sort((a, b) => a.sort - b.sort);
     return map;
-  }, [meetings, notifs]);
+  }, [scheduleItems, meetings, notifs]);
 
   async function saveGoal() {
     setGoalSaving(true);
@@ -454,10 +474,10 @@ export default function HomePage() {
               </div>
             )}
             <button
-              onClick={() => router.push("/settings/meetings")}
+              onClick={() => router.push("/schedule")}
               className="mt-4 w-full rounded-xl border border-line text-[13px] font-semibold text-brand py-2.5 hover:bg-accent-tint transition"
             >
-              미팅 예약 관리 →
+              일정 전체 보기 · 추가 →
             </button>
           </Card>
         </div>
