@@ -8,6 +8,8 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
+import { BookingSettings } from "@/components/booking-settings";
+import { AvailabilityShare } from "@/components/availability-share";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listScheduleItems, createScheduleItem, updateScheduleItem, deleteScheduleItem,
@@ -308,6 +310,12 @@ export default function SchedulePage() {
               <div className="py-6 text-center text-[13px] text-ink3">이 날 일정이 없어요.<div className="text-[12px] mt-1">+ 추가로 일정·할일·차단을 넣어보세요.</div></div>
             )}
           </Card>
+        </div>
+
+        {/* 예약(가용시간) 받기 — 설정 + 공유문구 */}
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <BookingSettings />
+          <AvailabilityShare />
         </div>
       </main>
 

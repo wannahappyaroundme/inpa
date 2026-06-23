@@ -18,10 +18,6 @@ export default function AccountSettingsPage() {
   const router = useRouter();
   const [p, setP] = useState<ProfileResponse | null>(null);
   const [managerEmail, setManagerEmail] = useState("");
-  const [name, setName] = useState("");
-  const [bookingTpl, setBookingTpl] = useState("");
-  const [bookingLoc, setBookingLoc] = useState("");
-  const [bookingDur, setBookingDur] = useState(30);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -30,10 +26,6 @@ export default function AccountSettingsPage() {
     getProfile().then((res) => {
       setP(res);
       setManagerEmail(res.manager_email ?? "");
-      setName(res.name ?? "");
-      setBookingTpl(res.booking_msg_template ?? "");
-      setBookingLoc(res.booking_location ?? "");
-      setBookingDur(res.booking_default_duration ?? 30);
     }).catch(() => { /* useAuthGuard 처리 */ });
   }, [ready]);
 
@@ -179,63 +171,15 @@ export default function AccountSettingsPage() {
           </p>
         </Card>
 
-        {/* 미팅 예약 설정 */}
+        {/* 미팅 예약 설정 — 일정 탭으로 이동함 */}
         <Card className="px-5 py-4">
           <div className="flex items-center justify-between">
-            <div className="text-[15px] font-bold text-ink">미팅 예약</div>
-            <Link href="/settings/meetings" className="text-[13px] font-semibold text-brand">가능한 시간 관리 →</Link>
+            <div className="text-[15px] font-bold text-ink">미팅 예약 설정</div>
+            <Link href="/schedule" className="text-[13px] font-semibold text-brand">일정 탭으로 →</Link>
           </div>
           <p className="mt-1 text-[12px] text-ink3 leading-5">
-            고객에게 보낼 예약 링크의 안내 메시지·장소를 설정해요. 메시지에{" "}
-            <b>{"{고객명}"} · {"{설계사명}"} · {"{링크}"}</b>를 넣으면 자동으로 채워집니다.
+            예약 안내 메시지·장소·가능 시간 설정은 <b>일정 탭</b>으로 옮겼어요.
           </p>
-          <label className="mt-3 block">
-            <span className="text-[12px] text-ink3">내 이름(메시지의 {"{설계사명}"}에 들어가요)</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="예) 홍길동"
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-[14px]"
-            />
-          </label>
-          <label className="mt-3 block">
-            <span className="text-[12px] text-ink3">예약 안내 메시지(빈 칸이면 기본 문구)</span>
-            <textarea
-              value={bookingTpl}
-              onChange={(e) => setBookingTpl(e.target.value)}
-              rows={4}
-              placeholder="안녕하세요 {고객명}님, {설계사명}입니다. 아래 링크에서 편하신 시간을 골라주세요. {링크}"
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-[13px] leading-5"
-            />
-          </label>
-          <label className="mt-3 block">
-            <span className="text-[12px] text-ink3">대면 기본 장소</span>
-            <input
-              value={bookingLoc}
-              onChange={(e) => setBookingLoc(e.target.value)}
-              placeholder="예) 강남역 스타벅스"
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-[14px]"
-            />
-          </label>
-          <label className="mt-3 block">
-            <span className="text-[12px] text-ink3">기본 미팅 시간(분)</span>
-            <input
-              type="number" min={10} max={240}
-              value={bookingDur}
-              onChange={(e) => setBookingDur(Number(e.target.value) || 30)}
-              className="mt-1 w-28 rounded-xl border border-line px-3 py-2 text-[14px] tnum"
-            />
-          </label>
-          <button
-            disabled={saving}
-            onClick={() => patch(
-              { name: name.trim(), booking_msg_template: bookingTpl, booking_location: bookingLoc.trim(), booking_default_duration: bookingDur },
-              "예약 설정을 저장했어요"
-            )}
-            className="mt-3 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2.5 disabled:opacity-60"
-          >
-            예약 설정 저장
-          </button>
         </Card>
 
         {/* 구글 캘린더 연동 — 클라이언트 ID 설정 시에만 노출 */}
