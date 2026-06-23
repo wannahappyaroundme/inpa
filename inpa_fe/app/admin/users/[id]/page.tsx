@@ -4,7 +4,14 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useAdminGuard } from "@/lib/useAdminGuard";
-import { adminGetUser, adminUpdateSubscription, adminSendResetEmail, type AdminUserDetail } from "@/lib/adminApi";
+import {
+  adminGetUser,
+  adminUpdateSubscription,
+  adminSendResetEmail,
+  adminListPlans,
+  type AdminUserDetail,
+  type AdminPlan,
+} from "@/lib/adminApi";
 import { Card } from "@/components/ui";
 
 function fmt(d: string | null): string {
@@ -12,7 +19,14 @@ function fmt(d: string | null): string {
   return new Date(d).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
-const PLANS = ["free", "plus", "pro", "beta"];
+// 이번 달 사용량 라벨 (UsageMeter.ACTION_CHOICES 대응)
+const USAGE_LABELS: Record<string, string> = {
+  ocr: "증권 OCR",
+  ai_compare: "AI 비교안내서",
+  analysis: "AI 분석·메시지",
+  promotion: "판촉물 주문",
+};
+const USAGE_ORDER = ["ocr", "ai_compare", "analysis", "promotion"];
 
 export default function AdminUserDetailPage() {
   const ready = useAdminGuard();
@@ -20,6 +34,7 @@ export default function AdminUserDetailPage() {
   const userId = Number(params.id);
 
   const [user, setUser] = useState<AdminUserDetail | null>(null);
+  const [plans, setPlans] = useState<AdminPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,10 +48,11 @@ export default function AdminUserDetailPage() {
   useEffect(() => {
     if (!ready) return;
     setLoading(true);
-    adminGetUser(userId)
-      .then((u) => {
+    Promise.all([adminGetUser(userId), adminListPlans().catch(() => [] as AdminPlan[])])
+      .then(([u, p]) => {
         setUser(u);
         setSelectedPlan(u.plan_code);
+        setPlans(p);
       })
       .catch(() => setError("설계사 정보를 불러오지 못했어요."))
       .finally(() => setLoading(false));
@@ -47,8 +63,10 @@ export default function AdminUserDetailPage() {
     setPlanChanging(true);
     setPlanMsg(null);
     try {
-      await adminUpdateSubscription(userId, selectedPlan);
-      setUser((prev) => prev ? { ...prev, plan_code: selectedPlan } : prev);
+      const res = await adminUpdateSubscription(userId, selectedPlan);
+      setUser((prev) =>
+        prev ? { ...prev, plan_code: res.plan_code, plan_display: res.plan_display } : prev
+      );
       setPlanMsg("요금제가 변경되었어요.");
     } catch {
       setPlanMsg("변경에 실패했어요. 다시 시도하세요.");
@@ -71,6 +89,14 @@ export default function AdminUserDetailPage() {
   }
 
   if (!ready) return null;
+
+  // 요금제 옵션: 서버 plans가 있으면 그걸, 없으면 현재 코드만 (404 방지)
+  const planOptions: { code: string; label: string }[] =
+    plans.length > 0
+      ? plans.map((p) => ({ code: p.code, label: `${p.display_name} (${p.code})` }))
+      : user
+      ? [{ code: user.plan_code, label: user.plan_display }]
+      : [];
 
   return (
     <div className="p-6">
@@ -95,11 +121,21 @@ export default function AdminUserDetailPage() {
             <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
               <div>
                 <dt className="text-ink3 mb-0.5">이메일</dt>
-                <dd className="font-medium text-ink">{user.email}</dd>
+                <dd className="font-medium text-ink break-all">{user.email}</dd>
               </div>
               <div>
                 <dt className="text-ink3 mb-0.5">소속</dt>
                 <dd className="font-medium text-ink">{user.affiliation ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-ink3 mb-0.5">설계사 유형</dt>
+                <dd className="font-medium text-ink">{user.agent_type_display ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-ink3 mb-0.5">경력</dt>
+                <dd className="font-medium text-ink">
+                  {user.career_years != null ? `${user.career_years}년` : "—"}
+                </dd>
               </div>
               <div>
                 <dt className="text-ink3 mb-0.5">가입일</dt>
@@ -110,30 +146,50 @@ export default function AdminUserDetailPage() {
                 <dd className="font-medium text-ink tnum">{fmt(user.last_login)}</dd>
               </div>
               <div>
+                <dt className="text-ink3 mb-0.5">이메일 인증</dt>
+                <dd className="font-medium text-ink tnum">
+                  {user.email_verified_at ? fmt(user.email_verified_at) : "미인증"}
+                </dd>
+              </div>
+              <div>
                 <dt className="text-ink3 mb-0.5">상태</dt>
                 <dd className="font-medium text-ink">
                   {user.will_delete_at
                     ? `탈퇴 예정 (${fmt(user.will_delete_at)})`
                     : user.is_dormant
-                    ? "휴면"
+                    ? `휴면${user.dormant_at ? ` (${fmt(user.dormant_at)})` : ""}`
                     : "활성"}
                 </dd>
               </div>
             </dl>
           </Card>
 
-          {/* 사용량 */}
+          {/* 활동 요약 + 이번 달 사용량 */}
           <Card className="p-5">
-            <h2 className="text-[15px] font-bold text-ink mb-4">이번 달 사용량 (읽기 전용)</h2>
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
-              <div>
-                <dt className="text-ink3 mb-0.5">OCR 업로드</dt>
-                <dd className="font-bold tnum text-ink text-[18px]">{user.ocr_count_month}</dd>
+            <h2 className="text-[15px] font-bold text-ink mb-4">활동 요약 (이번 달, 읽기 전용)</h2>
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="rounded-xl bg-surface2 p-3">
+                <div className="text-ink3 text-[12px] mb-0.5">고객 수</div>
+                <div className="font-bold tnum text-ink text-[20px]">{user.customer_count}</div>
               </div>
-              <div>
-                <dt className="text-ink3 mb-0.5">공유 열람</dt>
-                <dd className="font-bold tnum text-ink text-[18px]">{user.share_view_count_month}</dd>
+              <div className="rounded-xl bg-surface2 p-3">
+                <div className="text-ink3 text-[12px] mb-0.5">보유 포트폴리오</div>
+                <div className="font-bold tnum text-ink text-[20px]">{user.portfolio_count}</div>
               </div>
+              <div className="rounded-xl bg-surface2 p-3">
+                <div className="text-ink3 text-[12px] mb-0.5">요금제</div>
+                <div className="font-bold text-ink text-[15px] pt-1">{user.plan_display}</div>
+              </div>
+            </div>
+            <dl className="grid grid-cols-4 gap-x-4 gap-y-2 text-[13px]">
+              {USAGE_ORDER.map((action) => (
+                <div key={action}>
+                  <dt className="text-ink3 mb-0.5 text-[12px]">{USAGE_LABELS[action] ?? action}</dt>
+                  <dd className="font-bold tnum text-ink text-[16px]">
+                    {user.usage_this_month?.[action] ?? 0}
+                  </dd>
+                </div>
+              ))}
             </dl>
           </Card>
 
@@ -146,8 +202,8 @@ export default function AdminUserDetailPage() {
                 onChange={(e) => setSelectedPlan(e.target.value)}
                 className="rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none focus:border-brand"
               >
-                {PLANS.map((p) => (
-                  <option key={p} value={p}>{p}</option>
+                {planOptions.map((p) => (
+                  <option key={p.code} value={p.code}>{p.label}</option>
                 ))}
               </select>
               <button
@@ -181,14 +237,21 @@ export default function AdminUserDetailPage() {
             )}
           </Card>
 
-          {/* 동의 로그 요약 */}
-          {user.consent_logs.length > 0 && (
-            <Card className="p-5">
-              <h2 className="text-[15px] font-bold text-ink mb-3">동의 로그 (읽기 전용)</h2>
+          {/* 동의 로그 요약 (이 설계사 고객들의 최근 동의, 고객명 마스킹) */}
+          <Card className="p-5">
+            <h2 className="text-[15px] font-bold text-ink mb-1">고객 동의 로그 (읽기 전용)</h2>
+            <p className="text-[12px] text-ink3 mb-3">
+              이 설계사 고객들의 최근 동의 기록입니다 (고객명 마스킹, 감사 무결성 보호).
+            </p>
+            {user.consent_logs.length === 0 ? (
+              <p className="text-[13px] text-ink3">동의 로그가 없어요.</p>
+            ) : (
               <div className="space-y-2">
                 {user.consent_logs.map((log) => (
-                  <div key={log.id} className="flex items-center gap-4 text-[13px]">
-                    <span className="text-ink font-semibold">{log.scope}</span>
+                  <div key={log.id} className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[13px]">
+                    <span className="text-ink font-semibold tnum">{log.customer_name_masked}</span>
+                    <span className="text-ink">{log.scope_display}</span>
+                    <span className="text-ink3 text-[11px]">{log.subject_display}</span>
                     <span className="text-ink3 tnum">{fmt(log.agreed_at)}</span>
                     {log.revoked_at && (
                       <span className="text-danger text-[11px]">철회 {fmt(log.revoked_at)}</span>
@@ -196,8 +259,8 @@ export default function AdminUserDetailPage() {
                   </div>
                 ))}
               </div>
-            </Card>
-          )}
+            )}
+          </Card>
         </div>
       )}
     </div>

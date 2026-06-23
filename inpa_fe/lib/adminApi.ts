@@ -114,19 +114,33 @@ export async function adminLogout(): Promise<void> {
 export interface AdminUserDetail {
   id: number;
   email: string;
+  is_active: boolean;
   date_joined: string;
   last_login: string | null;
   affiliation: string | null;
+  agent_type: number | null;
+  agent_type_display: string | null;
+  career_years: number | null;
+  license_self_declared: boolean;
+  license_no: string | null;
+  email_verified_at: string | null;
+  onboarding_completed_at: string | null;
+  is_dormant: boolean;
+  dormant_at: string | null;
+  will_delete_at: string | null;
   plan_code: string;
   plan_display: string;
   subscription_status: string | null;
-  is_dormant: boolean;
-  will_delete_at: string | null;
-  ocr_count_month: number;
-  share_view_count_month: number;
+  // 이번 달 사용량 — 4종 (ocr / ai_compare / analysis / promotion)
+  usage_this_month: Record<string, number>;
+  customer_count: number;
+  portfolio_count: number;
   consent_logs: Array<{
     id: number;
+    customer_name_masked: string;
     scope: string;
+    scope_display: string;
+    subject_display: string;
     agreed_at: string;
     revoked_at: string | null;
   }>;

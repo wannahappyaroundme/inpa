@@ -36,13 +36,15 @@ from django.utils import timezone
 from inpa.accounts.models import Profile
 from inpa.analysis.models import (
     AnalysisCategory, AnalysisDetail, AnalysisSubCategory, ChartDetail,
-    NormalizationDict,
+    NormalizationDict, UnmatchedLog,
 )
 from inpa.billing.models import Plan, Subscription, UsageMeter
 from inpa.boards.models import (
-    Comment, Faq, Inquiry, Notice, Post, PostLike,
+    Comment, Faq, Inquiry, InquiryReply, Notice, Post, PostLike, Report,
 )
-from inpa.customers.models import Customer, CustomerTag, PlannerBaseline
+from inpa.customers.models import (
+    ConsentLog, Customer, CustomerTag, PlannerBaseline,
+)
 from inpa.dashboard.models import MonthlyGoal
 from inpa.insurances.models import (
     CustomerInsurance, CustomerInsuranceDetail, Insurance, InsuranceCategory,
@@ -67,7 +69,12 @@ DEMO_NEUTRAL_PLANNER_PASSWORD = 'demoPass123!'
 DEMO_MANAGER_EMAIL = 'demo-manager@inpa.local'
 DEMO_MANAGER_PASSWORD = 'demoPass123!'
 DEMO_CATALOG_TAG = '[DEMO]'                   # 카탈로그 계층 정리용 라벨 prefix
-DEMO_COMPANY_CODES = range(900, 910)          # NormalizationDict 데모 보험사 코드 대역
+DEMO_COMPANY_CODES = range(900, 910)          # NormalizationDict/UnmatchedLog 데모 보험사 코드 대역
+DEMO_REPORT_MARK = '[DEMO]'                   # Report.detail 정리 마커(reporter=SET_NULL → 명시 정리)
+
+# 데모 요금제 코드(공유 전역) — display_name [DEMO] prefix 로 _cleanup 정리.
+# 모델 PLAN_CODE choices(free/plus)는 폼 검증용일 뿐 .create()는 우회 → demo_ prefix 사용.
+DEMO_PLAN_CODES = ('demo_free', 'demo_plus', 'demo_pro', 'demo_beta')
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -190,6 +197,66 @@ CUSTOMERS = [
 ]
 
 
+# ── 추가 설계사(어드민 화면 다양성용) ────────────────────────────────────
+#   상태(활성/휴면/탈퇴예정)·요금제(4종+무)·가입일·마지막로그인을 분산.
+#   email 은 모두 @inpa.local (멱등 정리: _cleanup 가 endswith 로 일괄 삭제).
+#   state: 'active' | 'dormant' | 'will_delete'.  plan: DEMO_PLAN_CODES 중 하나 또는 None.
+#   num_customers: 활동 요약(고객 수) 다양화용 간이 고객 수.
+EXTRA_PLANNERS = [
+    {'slug': 'p01', 'name': '강민준', 'affiliation': '[DEMO] 한빛금융서비스(GA)',
+     'agent_type': 2, 'affiliation_type': 2, 'career_years': 3,
+     'joined_days_ago': 120, 'last_login_days_ago': 2, 'state': 'active',
+     'plan': 'demo_plus', 'num_customers': 3, 'usage': {'ocr': 8, 'ai_compare': 4, 'analysis': 9, 'promotion': 2}},
+    {'slug': 'p02', 'name': '윤서연', 'affiliation': '[DEMO] 삼성생명 OO지점(전속)',
+     'agent_type': 1, 'affiliation_type': 1, 'career_years': 1,
+     'joined_days_ago': 60, 'last_login_days_ago': 1, 'state': 'active',
+     'plan': 'demo_free', 'num_customers': 1, 'usage': {'ocr': 2, 'analysis': 1}},
+    {'slug': 'p03', 'name': '임도현', 'affiliation': '[DEMO] 메가인슈어(GA)',
+     'agent_type': 3, 'affiliation_type': 2, 'career_years': 5,
+     'joined_days_ago': 400, 'last_login_days_ago': 120, 'state': 'dormant',
+     'plan': 'demo_pro', 'num_customers': 2, 'usage': {}},
+    {'slug': 'p04', 'name': '오하늘', 'affiliation': '[DEMO] 한빛금융서비스(GA)',
+     'agent_type': 2, 'affiliation_type': 2, 'career_years': 0,
+     'joined_days_ago': 10, 'last_login_days_ago': 0, 'state': 'active',
+     'plan': 'demo_free', 'num_customers': 0, 'usage': {'ocr': 10, 'ai_compare': 5, 'analysis': 10, 'promotion': 5}},
+    {'slug': 'p05', 'name': '배준호', 'affiliation': '[DEMO] 교보생명 OO지점(전속)',
+     'agent_type': 1, 'affiliation_type': 1, 'career_years': 2,
+     'joined_days_ago': 200, 'last_login_days_ago': 35, 'state': 'will_delete',
+     'plan': 'demo_free', 'num_customers': 1, 'usage': {'ocr': 1}},
+    {'slug': 'p06', 'name': '신예림', 'affiliation': '[DEMO] 메가인슈어(GA)',
+     'agent_type': 2, 'affiliation_type': 2, 'career_years': 7,
+     'joined_days_ago': 900, 'last_login_days_ago': 5, 'state': 'active',
+     'plan': 'demo_beta', 'num_customers': 3, 'usage': {'ocr': 5, 'ai_compare': 3, 'analysis': 6, 'promotion': 1}},
+    {'slug': 'p07', 'name': '권태양', 'affiliation': '[DEMO] DB손해보험 OO(전속)',
+     'agent_type': 2, 'affiliation_type': 1, 'career_years': 0,
+     'joined_days_ago': 3, 'last_login_days_ago': None, 'state': 'active',
+     'plan': None, 'num_customers': 0, 'usage': {}},
+    {'slug': 'p08', 'name': '문지우', 'affiliation': '[DEMO] 인파파트너스(GA)',
+     'agent_type': 3, 'affiliation_type': 2, 'career_years': 4,
+     'joined_days_ago': 300, 'last_login_days_ago': 95, 'state': 'dormant',
+     'plan': 'demo_plus', 'num_customers': 2, 'usage': {}},
+    {'slug': 'p09', 'name': '홍서준', 'affiliation': '[DEMO] 메가인슈어(GA)',
+     'agent_type': 1, 'affiliation_type': 2, 'career_years': 6,
+     'joined_days_ago': 500, 'last_login_days_ago': 10, 'state': 'active',
+     'plan': 'demo_pro', 'num_customers': 2, 'usage': {'ocr': 7, 'ai_compare': 2, 'analysis': 8}},
+]
+
+
+# ── 미매칭 큐(UnmatchedLog) 데모 — OCR 원문이 정규화 사전에 없을 때 적재되는 큐 ──
+#   company 는 데모 대역(905~908). resolved=False 가 관리자 검수 대상.
+UNMATCHED = [
+    # (company, raw_name, occurrence, sample_ctx, resolved)
+    (905, '간병인사용입원일당(상급종합병원)', 7, '[DEMO] OO생명 무배당 간병보험', False),
+    (905, '특정고도치료비(표적항암약물허가치료)', 4, '[DEMO] OO화재 암보장특약', False),
+    (906, '독감(인플루엔자)진단비', 12, '[DEMO] OO손보 어린이보험', False),
+    (906, '응급실내원비(응급)', 3, '[DEMO] OO생명 종합보장보험', False),
+    (907, '치아보철치료비(임플란트)', 5, '[DEMO] OO치아보험', False),
+    (907, '운전자벌금(대인)', 2, '[DEMO] OO운전자보험', True),    # 이미 매핑 완료 예시
+    (908, '반려동물수술비(1사고당)', 1, '[DEMO] OO펫보험', False),
+    (908, '3대질병통합진단비', 9, '[DEMO] OO종합건강보험', False),
+]
+
+
 class Command(BaseCommand):
     help = '화면 렌더 확인용 데모 데이터 시드 (멱등). 실제 운영 데이터 아님.'
 
@@ -201,22 +268,30 @@ class Command(BaseCommand):
         detail_by_name = self._seed_tree()                 # 1) 표준 담보 트리 + 차트
         catalog_by_std_name = self._seed_catalog(detail_by_name)  # 2) 카탈로그 + analysis_detail M2M
         self._seed_normalization(detail_by_name)           # 3) 정규화 사전
+        plans = self._seed_plans()                         # 12a) 요금제 4종(구독 부여 전 선생성)
         planner = self._seed_planner()                     # 4) 데모 설계사 + Profile
         customers = self._seed_customers(planner)          # 5) 고객 6명
         self._seed_portfolios(customers, catalog_by_std_name)  # 6) 고객 2명 포트폴리오(held>0)
         graded_customer = self._seed_baselines(planner, customers)  # 7) 고객 1명 baseline(graded)
         # 8) 보조: baseline 없는 설계사 + 고객 1명 → mode='neutral' 시연
         neutral_planner, neutral_customer = self._seed_neutral_demo(catalog_by_std_name)
+        # 8b) 어드민 화면 다양성: 추가 설계사 ~9명(활성/휴면/탈퇴예정 + 요금제 분산)
+        extra_planners = self._seed_extra_planners(plans)
         # 9~12) 추가 도메인 시드
-        self._seed_boards(planner, neutral_planner, customers)
+        posts = self._seed_boards(planner, neutral_planner, customers)
         self._seed_notifications(planner, customers)
         self._seed_schedule(planner, customers)            # 개인 일정/할일/차단
         self._seed_goal(planner)                           # 이번 달 목표(3명/15만)
         samples = self._seed_promotion_samples()
-        self._seed_promotion_orders(planner, samples)
-        self._seed_billing(planner)
+        self._seed_promotion_orders(planner, extra_planners, samples)
+        self._seed_billing(planner, plans)
         manager = self._seed_manager(planner, neutral_planner)  # 13) 지점장 + 동의 연결
         self._seed_lead_and_alerts(planner, customers)          # 14) 셀프진단 리드 + 환수 알림
+        # 15~18) 어드민 운영 화면 채우기: 신고·미매칭·문의·동의로그
+        self._seed_reports(extra_planners + [neutral_planner], posts)
+        self._seed_unmatched()
+        self._seed_more_inquiries(extra_planners, support_user=manager)
+        self._seed_consent_logs(customers, neutral_customer)
 
         self.stdout.write(self.style.SUCCESS('=== seed_demo 완료 ==='))
         self.stdout.write(f'  [메인] 로그인 이메일 : {DEMO_PLANNER_EMAIL}')
@@ -229,6 +304,8 @@ class Command(BaseCommand):
                           f'/ 비번 {DEMO_NEUTRAL_PLANNER_PASSWORD}')
         self.stdout.write(f'  neutral 고객 id     : {neutral_customer.id} '
                           f'(이름={neutral_customer.name}, owner={neutral_planner.email})')
+        self.stdout.write(f'  추가 설계사 {len(extra_planners)}명 (전체 설계사≈{len(extra_planners) + 3}명, '
+                          f'demo 비번 {DEMO_PLANNER_PASSWORD})')
 
     # ── 멱등 정리 ────────────────────────────────────────────────────────
     def _cleanup(self):
@@ -237,11 +314,34 @@ class Command(BaseCommand):
         설계사(owner) 삭제 시 Customer/CustomerInsurance/PlannerBaseline 등이 CASCADE.
         공유 전역 마스터(표준 트리/카탈로그/정규화/게시판 공용/판촉물샘플/요금제)는
         데모 라벨 기준으로만 정리한다.
+
+        ★ 추가 정리(SET_NULL/owner없음이라 CASCADE 안 되는 것):
+          - ConsentLog(customer=SET_NULL): user 삭제 전에 데모 고객 동의로그를 먼저 지운다
+            (안 그러면 customer=null 로 잔존 → 재실행마다 누적).
+          - PromotionOrder(owner=SET_NULL, sample=SET_NULL): 둘 다 CASCADE 안 됨 →
+            user/sample 삭제 전에 owner(@inpa.local)·sample([DEMO]) 링크로 먼저 정리
+            (status_logs 는 order CASCADE). 안 하면 주문이 매 실행 누적.
+          - Report(reporter=SET_NULL): detail [DEMO] 마커로 명시 정리.
+          - UnmatchedLog(owner 없음, 전역): 데모 보험사 코드 대역으로 정리.
         """
-        # 설계사 → CASCADE 로 고객/포트폴리오/baseline/태그/알림/주문 연쇄 삭제
-        User.objects.filter(
-            email__in=[DEMO_PLANNER_EMAIL, DEMO_NEUTRAL_PLANNER_EMAIL,
-                       DEMO_MANAGER_EMAIL]).delete()
+        demo_user_q = User.objects.filter(email__endswith='@inpa.local')
+
+        # 0) 판촉물 주문 — owner/sample 둘 다 SET_NULL 이라 링크 끊기기 전에 먼저 삭제
+        PromotionOrder.objects.filter(owner__in=demo_user_q).delete()
+        PromotionOrder.objects.filter(sample__name__startswith=DEMO_CATALOG_TAG).delete()
+
+        # 1) 데모 고객 동의로그 먼저 삭제 (user 삭제 시 customer=SET_NULL 로 잔존 방지)
+        ConsentLog.objects.filter(customer__owner__in=demo_user_q).delete()
+
+        # 2) 데모 설계사 전체(@inpa.local) → CASCADE 로 고객/포트폴리오/baseline/태그/
+        #    알림/문의/일정/목표/구독 연쇄 삭제. (신규 추가 설계사 p01~ 도 일괄 포함)
+        demo_user_q.delete()
+
+        # 3) 신고(reporter=SET_NULL → CASCADE 안 됨) — detail [DEMO] 마커로 정리
+        Report.objects.filter(detail__startswith=DEMO_REPORT_MARK).delete()
+
+        # 4) 미매칭 큐(전역, owner 없음) — 데모 보험사 코드 대역
+        UnmatchedLog.objects.filter(company__in=list(DEMO_COMPANY_CODES)).delete()
 
         # 정규화 사전(데모 보험사 코드 대역)
         NormalizationDict.objects.filter(company__in=list(DEMO_COMPANY_CODES)).delete()
@@ -675,6 +775,7 @@ class Command(BaseCommand):
         self.stdout.write(
             f'  [9] 게시판: 공지 2 + FAQ 3 + 게시글 {len(posts)} + 댓글 4 + 좋아요 3 + 1:1문의 1'
         )
+        return posts
 
     # ── 10) 알림 (demo 설계사 전용) ──────────────────────────────────────
     def _seed_notifications(self, planner, customers):
@@ -931,8 +1032,11 @@ class Command(BaseCommand):
         )
         return samples
 
-    def _seed_promotion_orders(self, planner, samples):
-        """demo 설계사의 판촉물 주문 2개 (상태 다양 — pending, producing)."""
+    def _seed_promotion_orders(self, planner, extra_planners, samples):
+        """판촉물 주문 6개 — 6개 상태(접수/검토/제작/발송/완료/취소) 전부 커버.
+
+        owner 도 메인 + 추가 설계사로 분산해 어드민 주문 목록을 현실감 있게 채운다.
+        """
         # 주문 1: 달력 — pending (접수 단계)
         order1 = PromotionOrder.objects.create(
             owner=planner,
@@ -973,70 +1077,301 @@ class Command(BaseCommand):
             changed_by=planner, note='[DEMO] 로고 시안 확인 완료, 제작 진행',
         )
 
+        # owner 분산용 헬퍼 (추가 설계사 없으면 메인으로 폴백)
+        def _owner(i):
+            return extra_planners[i] if i < len(extra_planners) else planner
+
+        def _logs(order, statuses):
+            for st, note in statuses:
+                PromotionOrderStatusLog.objects.create(
+                    order=order, to_status=st, changed_by=planner, note=note)
+
+        # 주문 3: 에코백 — reviewing (검토 중)
+        order3 = PromotionOrder.objects.create(
+            owner=_owner(0), sample=samples[2],
+            form_response={'quantity': 200, 'print_text': '[DEMO] 한빛금융 강민준'},
+            status=PromotionOrder.STATUS_REVIEWING,
+            admin_note='[DEMO] 인쇄 문구 확인 중.',
+        )
+        _logs(order3, [(PromotionOrder.STATUS_PENDING, '[DEMO] 주문 접수'),
+                       (PromotionOrder.STATUS_REVIEWING, '[DEMO] 문구 검토')])
+
+        # 주문 4: 탁상달력 — shipping (발송) + 운송장
+        order4 = PromotionOrder.objects.create(
+            owner=_owner(1), sample=samples[0],
+            form_response={'quantity': 300, 'name_text': '[DEMO] 윤서연 설계사', 'color': '베이지'},
+            status=PromotionOrder.STATUS_SHIPPING,
+            admin_note='[DEMO] 발송 완료, 운송장 등록.',
+            tracking_number='1234567890', carrier='CJ대한통운',
+        )
+        _logs(order4, [(PromotionOrder.STATUS_PENDING, '[DEMO] 주문 접수'),
+                       (PromotionOrder.STATUS_REVIEWING, '[DEMO] 검토'),
+                       (PromotionOrder.STATUS_PRODUCING, '[DEMO] 제작'),
+                       (PromotionOrder.STATUS_SHIPPING, '[DEMO] 발송')])
+
+        # 주문 5: 다이어리 — completed (완료)
+        order5 = PromotionOrder.objects.create(
+            owner=planner, sample=samples[1],
+            form_response={'quantity': 100, 'logo_engraving': '없음',
+                           'delivery_address': '[DEMO] 부산시 해운대구 OO로 45'},
+            status=PromotionOrder.STATUS_COMPLETED,
+            admin_note='[DEMO] 수령 확인 완료.',
+            tracking_number='9876543210', carrier='우체국택배',
+        )
+        _logs(order5, [(PromotionOrder.STATUS_PENDING, '[DEMO] 주문 접수'),
+                       (PromotionOrder.STATUS_REVIEWING, '[DEMO] 검토'),
+                       (PromotionOrder.STATUS_PRODUCING, '[DEMO] 제작'),
+                       (PromotionOrder.STATUS_SHIPPING, '[DEMO] 발송'),
+                       (PromotionOrder.STATUS_COMPLETED, '[DEMO] 완료')])
+
+        # 주문 6: 에코백 — cancelled (취소)
+        order6 = PromotionOrder.objects.create(
+            owner=_owner(5), sample=samples[2],
+            form_response={'quantity': 150, 'print_text': '[DEMO] 신예림 설계사'},
+            status=PromotionOrder.STATUS_CANCELLED,
+            admin_note='[DEMO] 설계사 요청으로 취소.',
+        )
+        _logs(order6, [(PromotionOrder.STATUS_PENDING, '[DEMO] 주문 접수'),
+                       (PromotionOrder.STATUS_CANCELLED, '[DEMO] 취소 요청')])
+
         self.stdout.write(
-            f'  [11b] 판촉물 주문: 2개 '
-            f'(주문#{order1.pk} pending, 주문#{order2.pk} producing+이력3)'
+            '  [11b] 판촉물 주문: 6개 (pending/producing/reviewing/shipping/completed/cancelled '
+            '6개 상태 전부)'
         )
 
-    # ── 12) Billing — Plan + Subscription + UsageMeter ─────────────────
-    def _seed_billing(self, planner):
-        """Plan 2개(무료/플러스) + demo Subscription(무료 활성) + UsageMeter 약간.
+    # ── 12a) 요금제 4종 (공유 전역) ──────────────────────────────────────
+    def _seed_plans(self):
+        """데모 요금제 4종(무료/Plus/Pro/Beta) 생성. 반환: {code: Plan}.
 
-        Plan은 공유 전역 데이터이므로 [DEMO] prefix display_name으로 생성.
-        _cleanup에서 display_name__startswith=DEMO_CATALOG_TAG 로 정리.
-        code는 unique이므로 demo_ prefix 사용.
+        Plan은 공유 전역 데이터 → display_name [DEMO] prefix 로 _cleanup 정리.
+        code 는 unique 라 demo_ prefix. 어드민 설계사 상세의 요금제 드롭다운(plans API)과
+        대시보드 요금제 분포에 다양성을 준다.
         """
-        now = timezone.now()
+        plan_specs = [
+            dict(code='demo_free', display_name=f'{DEMO_CATALOG_TAG} 무료 플랜',
+                 price_krw=0,
+                 description='[DEMO] 베타 무료 플랜. OCR 10/AI비교 5/AI분석 10/판촉 5 월 한도.',
+                 limit_ocr=10, limit_ai_compare=5, limit_analysis=10, limit_promotion=5),
+            dict(code='demo_plus', display_name=f'{DEMO_CATALOG_TAG} Plus 플랜',
+                 price_krw=29000, description='[DEMO] Plus 플랜. OCR 50/AI비교 30/AI분석 50/판촉 20.',
+                 limit_ocr=50, limit_ai_compare=30, limit_analysis=50, limit_promotion=20),
+            dict(code='demo_pro', display_name=f'{DEMO_CATALOG_TAG} Pro 플랜',
+                 price_krw=59000, description='[DEMO] Pro 플랜. 모든 기능 무제한.',
+                 limit_ocr=None, limit_ai_compare=None, limit_analysis=None, limit_promotion=None),
+            dict(code='demo_beta', display_name=f'{DEMO_CATALOG_TAG} 베타 테스터',
+                 price_krw=0, description='[DEMO] 베타 테스터 플랜. 무제한(피드백 제공 조건).',
+                 limit_ocr=None, limit_ai_compare=None, limit_analysis=None, limit_promotion=None),
+        ]
+        plans = {}
+        for spec in plan_specs:
+            plans[spec['code']] = Plan.objects.create(is_active=True, **spec)
+        self.stdout.write(f'  [12a] 요금제: {len(plans)}종 ({", ".join(plans.keys())})')
+        return plans
+
+    # ── 12b) Billing — 메인 데모 설계사 구독 + UsageMeter ───────────────
+    def _seed_billing(self, planner, plans):
+        """메인 demo 설계사: 무료 플랜 활성 구독 + 이번 달 사용량(한도 내)."""
         ym = UsageMeter.current_month()
 
-        # 요금제 2개
-        plan_free = Plan.objects.create(
-            code='demo_free',
-            display_name=f'{DEMO_CATALOG_TAG} 무료 플랜',
-            price_krw=0,
-            description='[DEMO] 베타 무료 플랜. OCR 10건/AI분석 10건/판촉물 5건 월 한도.',
-            limit_ocr=10,
-            limit_ai_compare=5,
-            limit_analysis=10,
-            limit_promotion=5,
-            is_active=True,
-        )
-        plan_plus = Plan.objects.create(
-            code='demo_plus',
-            display_name=f'{DEMO_CATALOG_TAG} Plus 플랜',
-            price_krw=29000,
-            description='[DEMO] Plus 플랜. 모든 기능 무제한.',
-            limit_ocr=None,
-            limit_ai_compare=None,
-            limit_analysis=None,
-            limit_promotion=None,
-            is_active=True,
-        )
-
-        # demo 설계사 구독: 무료 플랜 활성
         # OneToOneField → 이미 존재하면 업데이트(signal 등에서 선생성 가능)
         Subscription.objects.update_or_create(
             user=planner,
             defaults={
-                'plan': plan_free,
+                'plan': plans['demo_free'],
                 'status': 'active',
                 'expires_at': None,   # 무료 = 무기한
             },
         )
 
-        # UsageMeter: 이번 달 일부 사용량 기록 (한도 내 정상 범위)
-        usage_rows = [
-            ('ocr', 3),
-            ('ai_compare', 2),
-            ('analysis', 5),
-            ('promotion', 1),
-        ]
+        usage_rows = [('ocr', 3), ('ai_compare', 2), ('analysis', 5), ('promotion', 1)]
         for action, count in usage_rows:
-            UsageMeter.objects.create(
-                user=planner, action=action, year_month=ym, count=count,
+            UsageMeter.objects.update_or_create(
+                user=planner, action=action, year_month=ym,
+                defaults={'count': count},
             )
 
         self.stdout.write(
-            f'  [12] 빌링: Plan {plan_free.code} + {plan_plus.code} + '
-            f'Subscription(demo, free, active) + UsageMeter {len(usage_rows)}행'
+            f'  [12b] 빌링: Subscription(demo, demo_free, active) + '
+            f'UsageMeter {len(usage_rows)}행'
         )
+
+    # ── 8b) 추가 설계사 ~9명 (어드민 화면 다양성) ────────────────────────
+    def _seed_extra_planners(self, plans):
+        """EXTRA_PLANNERS 스펙대로 설계사 생성 — 상태/요금제/가입일/로그인 분산.
+
+        date_joined 는 auto_now_add 라 .update() 로 백데이트(저장 시점 우회).
+        구독 자동생성 시그널은 Plan(code='free') 부재로 스킵 → 여기서 명시 부여.
+        반환: 생성된 User 리스트 (신고/문의/주문 owner 분산에 재사용).
+        """
+        now = timezone.now()
+        ym = UsageMeter.current_month()
+        created_users = []
+
+        for spec in EXTRA_PLANNERS:
+            user = User.objects.create_user(
+                email=f"demo-{spec['slug']}@inpa.local",
+                password=DEMO_PLANNER_PASSWORD)
+            user.is_active = True
+            user.save(update_fields=['is_active'])
+
+            # 가입일 백데이트 + 마지막 로그인 (없으면 None 유지 = 미로그인)
+            updates = {'date_joined': now - datetime.timedelta(days=spec['joined_days_ago'])}
+            if spec['last_login_days_ago'] is not None:
+                updates['last_login'] = now - datetime.timedelta(days=spec['last_login_days_ago'])
+            User.objects.filter(pk=user.pk).update(**updates)
+
+            # Profile + 상태(휴면/탈퇴예정)
+            pk = dict(
+                user=user, email_verified_at=now, onboarding_completed_at=now,
+                agent_type=spec['agent_type'], affiliation=spec['affiliation'],
+                affiliation_type=spec['affiliation_type'],
+                career_years=spec['career_years'], license_self_declared=True,
+            )
+            sub_status = 'active'
+            if spec['state'] == 'dormant':
+                pk['is_dormant'] = True
+                pk['dormant_at'] = now - datetime.timedelta(days=spec['last_login_days_ago'] or 90)
+                sub_status = 'expired'
+            elif spec['state'] == 'will_delete':
+                pk['will_delete_at'] = now + datetime.timedelta(days=25)
+                sub_status = 'cancelled'
+            Profile.objects.create(**pk)
+
+            # 구독 (plan None 이면 무구독 = 대시보드 no_plan 버킷)
+            if spec['plan']:
+                Subscription.objects.update_or_create(
+                    user=user,
+                    defaults={'plan': plans[spec['plan']], 'status': sub_status,
+                              'expires_at': None})
+
+            # 이번 달 사용량
+            for action, count in spec['usage'].items():
+                UsageMeter.objects.update_or_create(
+                    user=user, action=action, year_month=ym, defaults={'count': count})
+
+            # 간이 고객(활동 요약 다양화)
+            for i in range(spec['num_customers']):
+                Customer.objects.create(
+                    owner=user, name=f"{spec['name']} 고객{i + 1}",
+                    birth_day='1988.01.01', gender=(i % 2) + 1,
+                    mobile_phone_number='010-0000-0000', is_agree_term=True,
+                    memo='[DEMO] 추가 설계사 샘플 고객')
+
+            created_users.append(user)
+
+        self.stdout.write(
+            f'  [8b] 추가 설계사: {len(created_users)}명 '
+            f'(활성/휴면/탈퇴예정 + 요금제 분산)')
+        return created_users
+
+    # ── 15) 신고(Report) — 게시글 대상, 대기/처리/기각 ──────────────────
+    def _seed_reports(self, reporters, posts):
+        """게시글 대상 신고 5건. detail [DEMO] 마커로 _cleanup 정리(reporter=SET_NULL)."""
+        if not posts or not reporters:
+            self.stdout.write('  [15] 신고: 건너뜀(게시글/신고자 없음)')
+            return
+        now = timezone.now()
+        # (reporter_idx, post_idx, reason, status)
+        specs = [
+            (0, 0, Report.REASON_SPAM, Report.STATUS_PENDING),
+            (1, 1, Report.REASON_FAKE, Report.STATUS_PENDING),
+            (2, 2, Report.REASON_OTHER, Report.STATUS_RESOLVED),
+            (3, 3, Report.REASON_HATE, Report.STATUS_RESOLVED),
+            (4, 4, Report.REASON_ADULT, Report.STATUS_DISMISSED),
+        ]
+        created = 0
+        for r_idx, p_idx, reason, status in specs:
+            if r_idx >= len(reporters) or p_idx >= len(posts):
+                continue
+            post = posts[p_idx]
+            fields = dict(
+                reporter=reporters[r_idx], content_type=Report.CONTENT_POST,
+                object_id=post.id, reason=reason,
+                detail=f'{DEMO_REPORT_MARK} 데모 신고 — {post.title[:40]}',
+                status=status)
+            if status in (Report.STATUS_RESOLVED, Report.STATUS_DISMISSED):
+                fields['resolved_by'] = reporters[0]
+                fields['resolved_at'] = now
+            Report.objects.create(**fields)
+            created += 1
+        self.stdout.write(f'  [15] 신고: {created}건 (대기/처리완료/기각)')
+
+    # ── 16) 미매칭 큐(UnmatchedLog) ──────────────────────────────────────
+    def _seed_unmatched(self):
+        """OCR 미매칭 담보 원문 큐. 데모 보험사 코드(905~908) → _cleanup 정리."""
+        for company, raw_name, occ, ctx, resolved in UNMATCHED:
+            UnmatchedLog.objects.create(
+                company=company, raw_name=raw_name, occurrence=occ,
+                sample_ctx=ctx, resolved=resolved)
+        unresolved = sum(1 for *_, r in UNMATCHED if not r)
+        self.stdout.write(
+            f'  [16] 미매칭 큐: {len(UNMATCHED)}건 (미해결 {unresolved}건)')
+
+    # ── 17) 1:1 문의 추가 (상태/카테고리 다양) ──────────────────────────
+    def _seed_more_inquiries(self, planners, support_user):
+        """추가 설계사 명의 문의 4건 — open/answered/closed + 일부 답변."""
+        if not planners:
+            self.stdout.write('  [17] 1:1 문의: 건너뜀(설계사 없음)')
+            return
+        # (planner_idx, category, title, body, status, has_reply)
+        specs = [
+            (0, Inquiry.CATEGORY_BILLING, '[DEMO] Plus 결제 후 한도가 안 풀려요',
+             '[DEMO] 결제는 완료됐는데 OCR 한도가 그대로입니다. 확인 부탁드립니다.',
+             Inquiry.STATUS_ANSWERED, True),
+            (1, Inquiry.CATEGORY_BUG, '[DEMO] OCR 업로드 시 일부 담보가 누락돼요',
+             '[DEMO] 증권 PDF 업로드 후 입원일당 담보가 표에 안 잡힙니다.',
+             Inquiry.STATUS_OPEN, False),
+            (5, Inquiry.CATEGORY_OTHER, '[DEMO] 탈퇴 절차가 궁금합니다',
+             '[DEMO] 계정 탈퇴 시 고객 데이터는 어떻게 처리되나요?',
+             Inquiry.STATUS_CLOSED, True),
+            (8, Inquiry.CATEGORY_FEATURE, '[DEMO] 카카오 알림 연동이 가능한가요?',
+             '[DEMO] 고객에게 카카오로 분석 결과를 바로 보내고 싶습니다.',
+             Inquiry.STATUS_ANSWERED, True),
+        ]
+        created = 0
+        for idx, cat, title, body, status, has_reply in specs:
+            if idx >= len(planners):
+                continue
+            inq = Inquiry.objects.create(
+                owner=planners[idx], category=cat, title=title, body=body, status=status)
+            if has_reply and support_user is not None:
+                InquiryReply.objects.create(
+                    inquiry=inq, author=support_user,
+                    body='[DEMO] 운영팀 답변입니다. 확인 후 조치하겠습니다. (★ 데모 답변)')
+            created += 1
+        self.stdout.write(
+            f'  [17] 1:1 문의: +{created}건 (open/answered/closed, 일부 답변)')
+
+    # ── 18) 동의 로그(ConsentLog) — scope 다양 + 일부 철회 ──────────────
+    def _seed_consent_logs(self, customers, neutral_customer):
+        """메인 설계사 고객 + neutral 고객의 동의 로그. agreed_at 은 auto(최근),
+        revoked_at 만 과거로 표현. _cleanup 가 user 삭제 전에 먼저 정리(SET_NULL 잔존 방지).
+        """
+        now = timezone.now()
+        # (customer, scope, subject, purpose, revoked_at)
+        specs = [
+            (customers[0], ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+             ConsentLog.SUBJECT_PLANNER_ATTESTED, '병력 분석 위해 Claude API(미국) 국외이전', None),
+            (customers[0], ConsentLog.SCOPE_MEDICAL_SENSITIVE,
+             ConsentLog.SUBJECT_PLANNER_ATTESTED, '민감정보(병력) 처리', None),
+            (customers[1], ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+             ConsentLog.SUBJECT_CUSTOMER_SELF, '고객 본인 동의(공개 링크)', None),
+            (customers[3], ConsentLog.SCOPE_MARKETING,
+             ConsentLog.SUBJECT_CUSTOMER_SELF, '마케팅 정보 수신',
+             now - datetime.timedelta(days=5)),     # 철회 사례
+            (customers[4], ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+             ConsentLog.SUBJECT_PLANNER_ATTESTED, '병력 국외이전', None),
+            (neutral_customer, ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+             ConsentLog.SUBJECT_CUSTOMER_SELF, '고객 본인 동의', None),
+        ]
+        created = 0
+        revoked = 0
+        for cust, scope, subject, purpose, revoked_at in specs:
+            ConsentLog.objects.create(
+                customer=cust, scope=scope, subject=subject, purpose=purpose,
+                doc_version='2026.06', ip='127.0.0.1', revoked_at=revoked_at)
+            created += 1
+            if revoked_at:
+                revoked += 1
+        self.stdout.write(
+            f'  [18] 동의 로그: {created}건 (철회 {revoked}건, scope 다양)')

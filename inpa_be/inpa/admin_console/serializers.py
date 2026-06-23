@@ -85,20 +85,96 @@ class AdminUserListSerializer(serializers.ModelSerializer):
 
 
 class AdminUserDetailSerializer(serializers.ModelSerializer):
-    """설계사 상세 (admin 전용)."""
+    """설계사 상세 (admin 전용).
+
+    ★ FE(admin/users/[id]) 계약: profile 필드는 평탄화해서 최상위로 노출하고,
+      이번 달 사용량(4종)·활동 요약(고객/포트폴리오 수)·최근 동의로그(마스킹)를 포함한다.
+      (이전엔 profile 중첩 + consent_logs 누락으로 상세 페이지가 깨졌었음.)
+    """
     profile = AdminProfileSerializer(read_only=True)
+    # ── 평탄화 (FE 최상위 기대) ──────────────────────────────────────────
+    affiliation = serializers.SerializerMethodField()
+    agent_type = serializers.SerializerMethodField()
+    agent_type_display = serializers.SerializerMethodField()
+    career_years = serializers.SerializerMethodField()
+    license_self_declared = serializers.SerializerMethodField()
+    license_no = serializers.SerializerMethodField()
+    email_verified_at = serializers.SerializerMethodField()
+    onboarding_completed_at = serializers.SerializerMethodField()
+    is_dormant = serializers.SerializerMethodField()
+    dormant_at = serializers.SerializerMethodField()
+    will_delete_at = serializers.SerializerMethodField()
+    # ── 요금제 ───────────────────────────────────────────────────────────
     plan_code = serializers.SerializerMethodField()
     plan_display = serializers.SerializerMethodField()
     subscription_status = serializers.SerializerMethodField()
+    # ── 활동 요약 + 사용량 + 동의로그 ───────────────────────────────────
     usage_this_month = serializers.SerializerMethodField()
+    customer_count = serializers.SerializerMethodField()
+    portfolio_count = serializers.SerializerMethodField()
+    consent_logs = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'is_active', 'date_joined', 'last_login',
-            'profile', 'plan_code', 'plan_display', 'subscription_status',
-            'usage_this_month',
+            'profile',
+            'affiliation', 'agent_type', 'agent_type_display', 'career_years',
+            'license_self_declared', 'license_no',
+            'email_verified_at', 'onboarding_completed_at',
+            'is_dormant', 'dormant_at', 'will_delete_at',
+            'plan_code', 'plan_display', 'subscription_status',
+            'usage_this_month', 'customer_count', 'portfolio_count',
+            'consent_logs',
         ]
+
+    # ── profile 평탄화 헬퍼 ──────────────────────────────────────────────
+    def _p(self, obj):
+        return getattr(obj, 'profile', None)
+
+    def get_affiliation(self, obj):
+        p = self._p(obj)
+        return p.affiliation if p else None
+
+    def get_agent_type(self, obj):
+        p = self._p(obj)
+        return p.agent_type if p else None
+
+    def get_agent_type_display(self, obj):
+        p = self._p(obj)
+        return p.get_agent_type_display() if p and p.agent_type is not None else None
+
+    def get_career_years(self, obj):
+        p = self._p(obj)
+        return p.career_years if p else None
+
+    def get_license_self_declared(self, obj):
+        p = self._p(obj)
+        return p.license_self_declared if p else False
+
+    def get_license_no(self, obj):
+        p = self._p(obj)
+        return p.license_no if p else None
+
+    def get_email_verified_at(self, obj):
+        p = self._p(obj)
+        return p.email_verified_at if p else None
+
+    def get_onboarding_completed_at(self, obj):
+        p = self._p(obj)
+        return p.onboarding_completed_at if p else None
+
+    def get_is_dormant(self, obj):
+        p = self._p(obj)
+        return p.is_dormant if p else False
+
+    def get_dormant_at(self, obj):
+        p = self._p(obj)
+        return p.dormant_at if p else None
+
+    def get_will_delete_at(self, obj):
+        p = self._p(obj)
+        return p.will_delete_at if p else None
 
     def get_plan_code(self, obj):
         sub = getattr(obj, 'subscription', None)
@@ -113,14 +189,53 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
         return sub.status if sub else None
 
     def get_usage_this_month(self, obj):
+        """이번 달 사용량 4종 (없는 액션은 0으로 채워 항상 4키 보장)."""
         year_month = UsageMeter.current_month()
-        meters = UsageMeter.objects.filter(user=obj, year_month=year_month)
-        return {m.action: m.count for m in meters}
+        meters = {
+            m.action: m.count
+            for m in UsageMeter.objects.filter(user=obj, year_month=year_month)
+        }
+        return {action: meters.get(action, 0) for action, _ in UsageMeter.ACTION_CHOICES}
+
+    def get_customer_count(self, obj):
+        return Customer.objects.filter(owner=obj).count()
+
+    def get_portfolio_count(self, obj):
+        from inpa.insurances.models import CustomerInsurance
+        return CustomerInsurance.objects.filter(customer__owner=obj).count()
+
+    def get_consent_logs(self, obj):
+        """그 설계사 고객들의 최근 동의로그 10건 (고객명 마스킹)."""
+        logs = (
+            ConsentLog.objects
+            .filter(customer__owner=obj)
+            .select_related('customer')
+            .order_by('-agreed_at')[:10]
+        )
+        return [
+            {
+                'id': log.id,
+                'customer_name_masked': (
+                    _mask_name(log.customer.name) if log.customer_id else '(삭제된 고객)'
+                ),
+                'scope': log.scope,
+                'scope_display': log.get_scope_display(),
+                'subject_display': log.get_subject_display(),
+                'agreed_at': log.agreed_at,
+                'revoked_at': log.revoked_at,
+            }
+            for log in logs
+        ]
 
 
 class AdminSubscriptionUpdateSerializer(serializers.Serializer):
-    """요금제 변경 (admin용)."""
-    plan_code = serializers.ChoiceField(choices=Plan.PLAN_CODE)
+    """요금제 변경 (admin용).
+
+    plan_code 는 Plan.PLAN_CODE(free/plus) 로 제한하지 않는다 — 실제 존재하는 Plan
+    코드(예: 데모 플랜)면 모두 허용하고, 뷰의 get_object_or_404(Plan, code=..., is_active=True)
+    가 실제 유효성을 담당한다. (하드 제약 시 데모/추가 플랜으로 변경 불가 → 400 버그.)
+    """
+    plan_code = serializers.CharField(max_length=20)
     status = serializers.ChoiceField(choices=Subscription.STATUS, required=False)
 
 
