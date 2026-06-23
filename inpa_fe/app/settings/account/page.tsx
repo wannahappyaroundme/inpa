@@ -182,40 +182,76 @@ export default function AccountSettingsPage() {
           </p>
         </Card>
 
-        {/* 구글 캘린더 연동 — 클라이언트 ID 설정 시에만 노출 */}
-        {GOOGLE_CLIENT_ID && (
-          <Card className="px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div className="text-[15px] font-bold text-ink">구글 캘린더 연동</div>
-              {p.google_calendar_connected ? (
-                <button disabled={saving} onClick={disconnectGcal} className="text-[13px] font-semibold text-danger disabled:opacity-60">
-                  연동 해제
-                </button>
-              ) : (
-                <button onClick={connectGoogleCalendar} className="text-[13px] font-bold text-brand">
-                  연동하기
-                </button>
-              )}
+        {/* 소셜 계정 연동 — 항상 노출(구글 연동/준비중 + 카카오·네이버 추후 예정) */}
+        <Card className="px-5 py-4">
+          <div className="text-[15px] font-bold text-ink">소셜 계정 연동</div>
+          <p className="mt-1 text-[12px] text-ink3 leading-5">
+            구글 계정을 연동하면 <b>구글 로그인</b>과 <b>구글 캘린더(미팅 자동 기록)</b>를 함께 쓸 수 있어요.
+          </p>
+
+          {/* 구글 */}
+          <div className="mt-3 flex items-center justify-between gap-3 py-2.5 border-t border-line">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center text-[15px] font-bold text-ink shrink-0">G</span>
+              <div className="min-w-0">
+                <div className="text-[14px] font-semibold text-ink">구글</div>
+                <div className="text-[12px] text-ink3 truncate">
+                  {GOOGLE_CLIENT_ID
+                    ? (p.google_calendar_connected ? "연동됨 · 캘린더 동기화 중" : "로그인 + 캘린더 연동")
+                    : "준비 중 (관리자 설정 후 사용 가능)"}
+                </div>
+              </div>
             </div>
-            <p className="mt-1 text-[12px] text-ink3 leading-5">
-              연동하면 미팅 확정 시 <b>고객 이름·시간·방식</b>이 Google(미국 서버) 캘린더에 기록돼요.
-              병력·보험 정보는 전송되지 않습니다.
-            </p>
-            {p.google_calendar_connected && (
-              <label className="mt-3 flex items-center justify-between gap-3">
-                <span className="text-[13px] text-ink2">캘린더에 고객 이름 가리기(예: 김○○)</span>
-                <button
-                  disabled={saving}
-                  onClick={() => patch({ google_calendar_mask_name: !p.google_calendar_mask_name }, "저장했어요")}
-                  className={`relative w-11 h-6 rounded-full transition ${p.google_calendar_mask_name ? "bg-brand" : "bg-line"}`}
-                  aria-pressed={p.google_calendar_mask_name}
-                >
-                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${p.google_calendar_mask_name ? "left-[22px]" : "left-0.5"}`} />
-                </button>
-              </label>
+            {GOOGLE_CLIENT_ID ? (
+              p.google_calendar_connected ? (
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[13px] font-bold text-enough">✓ 연동됨</span>
+                  <button disabled={saving} onClick={disconnectGcal} className="text-[12px] text-ink3 underline disabled:opacity-60">해제</button>
+                </div>
+              ) : (
+                <button onClick={connectGoogleCalendar} className="rounded-lg bg-brand text-white text-[13px] font-bold px-3 py-1.5 shrink-0">연동하기</button>
+              )
+            ) : (
+              <span className="text-[12px] text-ink3 bg-surface2 rounded-full px-2.5 py-1 shrink-0">준비 중</span>
             )}
-          </Card>
-        )}
+          </div>
+
+          {/* 구글 캘린더 고객 이름 마스킹 (연동된 경우만) */}
+          {GOOGLE_CLIENT_ID && p.google_calendar_connected && (
+            <label className="flex items-center justify-between gap-3 py-2 pl-[42px]">
+              <span className="text-[12px] text-ink2">캘린더에 고객 이름 가리기(예: 김○○)</span>
+              <button
+                disabled={saving}
+                onClick={() => patch({ google_calendar_mask_name: !p.google_calendar_mask_name }, "저장했어요")}
+                className={`relative w-11 h-6 rounded-full transition shrink-0 ${p.google_calendar_mask_name ? "bg-brand" : "bg-line"}`}
+                aria-pressed={p.google_calendar_mask_name}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${p.google_calendar_mask_name ? "left-[22px]" : "left-0.5"}`} />
+              </button>
+            </label>
+          )}
+
+          {/* 카카오 · 네이버 — 추후 도입 예정 */}
+          {[
+            { label: "카카오", mark: "K", color: "bg-[#FEE500] text-[#3C1E1E]" },
+            { label: "네이버", mark: "N", color: "bg-[#03C75A] text-white" },
+          ].map((s) => (
+            <div key={s.label} className="flex items-center justify-between gap-3 py-2.5 border-t border-line">
+              <div className="flex items-center gap-2.5">
+                <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-[15px] font-bold ${s.color}`}>{s.mark}</span>
+                <div>
+                  <div className="text-[14px] font-semibold text-ink2">{s.label}</div>
+                  <div className="text-[12px] text-ink3">추후 도입 예정</div>
+                </div>
+              </div>
+              <span className="text-[12px] text-ink3 bg-surface2 rounded-full px-2.5 py-1">예정</span>
+            </div>
+          ))}
+
+          <p className="mt-3 text-[12px] text-ink3 leading-5">
+            구글 캘린더 연동 시 미팅 확정 시점에 <b>고객 이름·시간·방식</b>만 Google(미국 서버) 캘린더에 기록돼요. 병력·보험 정보는 전송되지 않습니다.
+          </p>
+        </Card>
 
         {/* 로그아웃 */}
         <Card className="px-5 py-4">
