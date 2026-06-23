@@ -5,15 +5,17 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
-import { getProfile, updateProfile, getGoogleCalendarConnectUrl, disconnectGoogleCalendar, type ProfileResponse } from "@/lib/api";
+import { getProfile, updateProfile, getGoogleCalendarConnectUrl, disconnectGoogleCalendar, logout, type ProfileResponse } from "@/lib/api";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
 export default function AccountSettingsPage() {
   const ready = useAuthGuard();
+  const router = useRouter();
   const [p, setP] = useState<ProfileResponse | null>(null);
   const [managerEmail, setManagerEmail] = useState("");
   const [name, setName] = useState("");
@@ -270,6 +272,19 @@ export default function AccountSettingsPage() {
             )}
           </Card>
         )}
+
+        {/* 로그아웃 */}
+        <Card className="px-5 py-4">
+          <button
+            onClick={async () => {
+              try { await logout(); } catch { /* 토큰 만료 등은 무시하고 로그아웃 진행 */ }
+              router.push("/login");
+            }}
+            className="w-full rounded-xl border border-line text-[14px] font-semibold text-ink2 py-3 hover:bg-surface2 transition"
+          >
+            로그아웃
+          </button>
+        </Card>
       </main>
     </div>
   );
