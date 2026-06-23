@@ -43,6 +43,7 @@ from inpa.boards.models import (
     Comment, Faq, Inquiry, Notice, Post, PostLike,
 )
 from inpa.customers.models import Customer, CustomerTag, PlannerBaseline
+from inpa.dashboard.models import MonthlyGoal
 from inpa.insurances.models import (
     CustomerInsurance, CustomerInsuranceDetail, Insurance, InsuranceCategory,
     InsuranceDetail, InsuranceSubCategory,
@@ -210,6 +211,7 @@ class Command(BaseCommand):
         self._seed_boards(planner, neutral_planner, customers)
         self._seed_notifications(planner, customers)
         self._seed_schedule(planner, customers)            # 개인 일정/할일/차단
+        self._seed_goal(planner)                           # 이번 달 목표(3명/15만)
         samples = self._seed_promotion_samples()
         self._seed_promotion_orders(planner, samples)
         self._seed_billing(planner)
@@ -832,6 +834,16 @@ class Command(BaseCommand):
             ScheduleItem.objects.get_or_create(
                 owner=planner, kind=kind, title=title, defaults=defaults)
         self.stdout.write(f'  [15] 개인 일정: {len(rows)}건(일정·할일·차단)')
+
+    def _seed_goal(self, planner):
+        """데모 설계사 이번 달 목표(만날 고객 3명 / 가입보험료 15만 / 배율 10).
+
+        대시보드가 0/0 으로 비어 보이지 않게 하는 샘플 기본값. update_or_create 멱등.
+        """
+        MonthlyGoal.objects.update_or_create(
+            owner=planner, year_month=timezone.now().strftime('%Y-%m'),
+            defaults=dict(target_meetings=3, target_premium=150000, income_multiplier=10))
+        self.stdout.write('  [16] 이번 달 목표: 3명 / 15만원')
 
     def _seed_promotion_samples(self):
         """PromotionSample 3~4개 + PromotionSampleImage placeholder.
