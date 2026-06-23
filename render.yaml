@@ -21,9 +21,14 @@ services:
     #   재적재된다. 표준 담보 트리([표준]*)·정규화 사전이 prod DB 에 항상 존재하도록 보장
     #   (예: '처치' 카테고리 신규분이 수동 개입 없이 배포 즉시 반영). @transaction.atomic
     #   이라 실패 시 이전 트리로 롤백 → 부분 적재 없음.
+    # ⚠️ [임시] seed_demo 1회 적재용 라인 추가 — 프로드 어드민 화면 데모 데이터 채우기.
+    #   멱등 + @inpa.local/[DEMO] 마커만 건드려 실데이터(inpa 관리자 등) 안전.
+    #   '|| true' 로 실패해도 부팅 체인을 막지 않음(사이트 다운 방지).
+    #   ★ 확인 후 이 한 줄은 제거(상시 재시드 방지) — 정상 startCommand 로 복귀할 것.
     startCommand: >-
       python manage.py migrate --noinput &&
       python manage.py seed_normalization &&
+      (python manage.py seed_demo || true) &&
       gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
       - key: DJANGO_SETTINGS_MODULE
