@@ -24,7 +24,7 @@ function AdminLoginForm() {
       tokenStore.set(res.token);
       router.replace("/admin");
     } catch {
-      setError("이메일 또는 비밀번호를 확인하세요. 관리자 계정만 로그인할 수 있습니다.");
+      setError("아이디 또는 비밀번호를 확인하세요. 관리자 계정만 로그인할 수 있습니다.");
     } finally {
       setLoading(false);
     }
@@ -46,14 +46,15 @@ function AdminLoginForm() {
 
         <form onSubmit={handleSubmit} className="bg-surface rounded-2xl border border-line shadow-sm p-6 space-y-4">
           <div>
-            <label className="block text-[13px] font-semibold text-ink mb-1.5">이메일</label>
+            <label className="block text-[13px] font-semibold text-ink mb-1.5">아이디</label>
             <input
-              type="email"
+              type="text"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
               autoFocus
-              placeholder="admin@inpa.kr"
+              placeholder="아이디 입력 (예: inpa)"
               className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
             />
           </div>
