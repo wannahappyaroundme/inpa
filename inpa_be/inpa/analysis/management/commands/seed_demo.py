@@ -48,6 +48,7 @@ from inpa.insurances.models import (
     InsuranceDetail, InsuranceSubCategory,
 )
 from inpa.notifications.models import Notification, NotifType
+from inpa.schedule.models import ScheduleItem
 from inpa.promotion.models import (
     PromotionOrder, PromotionSample, PromotionSampleImage,
 )
@@ -208,6 +209,7 @@ class Command(BaseCommand):
         # 9~12) 추가 도메인 시드
         self._seed_boards(planner, neutral_planner, customers)
         self._seed_notifications(planner, customers)
+        self._seed_schedule(planner, customers)            # 개인 일정/할일/차단
         samples = self._seed_promotion_samples()
         self._seed_promotion_orders(planner, samples)
         self._seed_billing(planner)
@@ -794,6 +796,43 @@ class Command(BaseCommand):
         self.stdout.write(f'  [14] 셀프진단 리드 1건 + 리드/환수 알림 2건 (lead id={lead.id})')
 
     # ── 11) 판촉물 샘플 + demo 주문 ────────────────────────────────────────
+    def _seed_schedule(self, planner, customers):
+        """개인 일정/할일/고정 차단 샘플. owner CASCADE 라 _cleanup(planner 삭제) 시 자동 정리.
+
+        타임존: at() 는 KST 벽시계 기준 aware datetime(저장은 UTC). 반복 차단 TimeField 는
+        naive time(벽시계 — 변환 금지). 상대시각이라 재실행해도 신선도 유지.
+        """
+        now = timezone.now()
+
+        def at(days, hour, minute=0):
+            base = timezone.localtime(now) + datetime.timedelta(days=days)
+            return base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+        rows = [
+            ('event', '[DEMO] 김영수 고객 보장분석 미팅',
+             dict(start_at=at(2, 14), customer=customers[0], memo='[DEMO] 증권 지참 안내')),
+            ('event', '[DEMO] 지점 정기교육',
+             dict(start_at=at(5, 12), all_day=True)),
+            ('todo', '[DEMO] 갱신 안내 전화 3건',
+             dict(start_at=at(1, 12), all_day=True)),
+            ('todo', '[DEMO] 증권 OCR 검토',
+             dict(start_at=None)),
+            ('todo', '[DEMO] 지난주 정산',
+             dict(start_at=at(-3, 12), all_day=True, is_done=True, done_at=now)),
+            ('block', '[DEMO] 점심',
+             dict(recur_weekday=0, recur_start_time=datetime.time(12, 0),
+                  recur_end_time=datetime.time(13, 0))),
+            ('block', '[DEMO] 가족 시간',
+             dict(recur_weekday=4, recur_start_time=datetime.time(18, 0),
+                  recur_end_time=datetime.time(20, 0))),
+            ('block', '[DEMO] 병원 예약',
+             dict(start_at=at(3, 9), end_at=at(3, 11))),
+        ]
+        for kind, title, defaults in rows:
+            ScheduleItem.objects.get_or_create(
+                owner=planner, kind=kind, title=title, defaults=defaults)
+        self.stdout.write(f'  [15] 개인 일정: {len(rows)}건(일정·할일·차단)')
+
     def _seed_promotion_samples(self):
         """PromotionSample 3~4개 + PromotionSampleImage placeholder.
 
