@@ -5,9 +5,10 @@ owner 격리(OwnedQuerySetMixin + IsOwner). BOOKING_ENABLED 게이트.
 """
 from django.conf import settings
 from django.utils import timezone
+from django.db import IntegrityError
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -48,7 +49,11 @@ class MeetingSlotViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         if not dur:
             profile = getattr(self.request.user, 'profile', None)
             dur = getattr(profile, 'booking_default_duration', 30) or 30
-        serializer.save(owner=self.request.user, duration_min=dur)
+        try:
+            serializer.save(owner=self.request.user, duration_min=dur)
+        except IntegrityError:
+            # uniq_slot_owner_start 충돌 — 같은 시각 슬롯 중복(원시 400/500 대신 친절 메시지)
+            raise ValidationError({'start_at': ['그 시간에 이미 열어둔 슬롯이 있어요.']})
 
     def _block_if_booked(self):
         if self.get_object().status == MeetingSlot.STATUS_BOOKED:

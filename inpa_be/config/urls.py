@@ -26,4 +26,5 @@ urlpatterns = [
     path('api/v1/', include('inpa.analytics.urls')),
     path('api/v1/', include('inpa.booking.urls')),
     path('api/v1/', include('inpa.dashboard.urls')),
+    path('api/v1/', include('inpa.schedule.urls')),
 ]
