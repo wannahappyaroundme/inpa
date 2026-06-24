@@ -52,7 +52,7 @@ type TabKey = "analysis" | "switch" | "gap" | "history";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "analysis", label: "분석" },
-  { key: "switch", label: "갈아타기" },
+  { key: "switch", label: "비교 분석" },
   { key: "gap", label: "공백" },
   { key: "history", label: "이력" },
 ];
@@ -600,7 +600,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
         const v = data.verdict;
         const map = {
           KEEP: { label: "유지가 유리 (추정)", cls: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "🟢" },
-          SWITCH: { label: "갈아타기 검토", cls: "bg-blue-50 border-blue-200 text-blue-900", dot: "🔵" },
+          SWITCH: { label: "전환 검토", cls: "bg-blue-50 border-blue-200 text-blue-900", dot: "🔵" },
           NEUTRAL: { label: "중립 — 상황 판단", cls: "bg-surface2 border-line text-ink2", dot: "⚪" },
         } as const;
         const m = map[v.decision] ?? map.NEUTRAL;
@@ -736,7 +736,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
               AI 비교안내서는 §97 법무 확정 후 활성화됩니다
             </p>
             <p className="mt-1.5 text-[12px] text-amber-700 leading-5">
-              갈아타기(승환) 비교안내는 보험업법 §97 부당승환 관련 법적 요건이 확정되어야 제공돼요.
+              비교 분석 안내는 보험업법 §97 부당승환 관련 법적 요건이 확정되어야 제공돼요.
               가짜 데이터로 화면을 채우지 않습니다(정직성 레드라인).
             </p>
           </div>

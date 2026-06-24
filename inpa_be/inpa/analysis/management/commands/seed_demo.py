@@ -183,7 +183,7 @@ NORMALIZATION = [
 CUSTOMERS = [
     # idx 0,1 → 포트폴리오 보유(히트맵 held_amount>0), idx 0 → PlannerBaseline 보유(graded)
     {'name': '김영수', 'birth_day': '1985.03.12', 'gender': 1, 'tags': ['VIP', '갱신임박'],
-     'memo': '[DEMO] 갈아타기 검토 중. 만기 3개월.', 'color': 'red'},
+     'memo': '[DEMO] 비교 검토 중. 만기 3개월.', 'color': 'red'},
     {'name': '이지은', 'birth_day': '1990.07.21', 'gender': 2, 'tags': ['신규상담'],
      'memo': '[DEMO] 보장 공백 점검 요청.', 'color': 'blue'},
     {'name': '박철민', 'birth_day': '1978.11.05', 'gender': 1, 'tags': ['소개고객'],
@@ -637,7 +637,7 @@ class Command(BaseCommand):
             title=f'{DEMO_CATALOG_TAG} 인파 베타 서비스 오픈 안내',
             body=(
                 '[DEMO] 인파(Inpa) 베타 서비스가 오픈되었습니다.\n'
-                '담보 한눈표·갈아타기 비교표 등 주요 기능을 무료로 사용할 수 있습니다.\n'
+                '담보 한눈표·비교 분석표 등 주요 기능을 무료로 사용할 수 있습니다.\n'
                 '피드백은 1:1 문의로 남겨주세요. (★ 데모 전용 콘텐츠, 운영 데이터 아님)'
             ),
             is_pinned=True,
@@ -671,7 +671,7 @@ class Command(BaseCommand):
         Faq.objects.create(
             author=planner,
             category='기능문의',
-            question=f'{DEMO_CATALOG_TAG} 갈아타기 비교표는 어떻게 활용하나요?',
+            question=f'{DEMO_CATALOG_TAG} 비교 분석표는 어떻게 활용하나요?',
             answer=(
                 '[DEMO] 보험업법 §97 기준 부당승환 방지 안내서를 AI가 초안 생성합니다.\n'
                 '★ AI 생성물 = 초안이며 최종 책임은 설계사 본인에게 있습니다. (면책 고정)'
@@ -766,7 +766,7 @@ class Command(BaseCommand):
             category=Inquiry.CATEGORY_FEATURE,
             title='[DEMO] 고객 분석 결과 PDF 내보내기 기능 요청',
             body=(
-                '[DEMO] 담보 한눈표와 갈아타기 비교표를 PDF로 출력해서 고객에게 직접 보여줄 수 있으면 좋겠습니다. '
+                '[DEMO] 담보 한눈표와 비교 분석표를 PDF로 출력해서 고객에게 직접 보여줄 수 있으면 좋겠습니다. '
                 '현재 화면 캡처로 대신하고 있는데 해상도가 낮아서 불편합니다.'
             ),
             status=Inquiry.STATUS_OPEN,

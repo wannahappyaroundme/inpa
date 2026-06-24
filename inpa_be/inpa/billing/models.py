@@ -192,7 +192,7 @@ class ClaudeApiLog(models.Model):
     """
     ACTION_CHOICES = (
         ('ocr_parse', '증권 OCR 파싱'),
-        ('compare_guide', '갈아타기 비교안내서'),
+        ('compare_guide', '비교 분석 안내서'),
         ('message_gen', '고객 메시지 생성'),
     )
 

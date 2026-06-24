@@ -6,7 +6,7 @@ const SCREENS = [
   { href: "/admin/demo/dashboard", emoji: "🏠", title: "대시보드", desc: "KPI·캘린더·오늘 일정이 채워진 설계사 홈" },
   { href: "/admin/demo/customers", emoji: "👥", title: "고객 목록(CRM)", desc: "고객 카드·만기 배지·계약 수가 채워진 목록" },
   { href: "/admin/demo/analysis", emoji: "🗂️", title: "보장분석 히트맵", desc: "담보 카테고리별 3색(넉넉/적정/부족/없음) 한눈표" },
-  { href: "/admin/demo/compare", emoji: "🔁", title: "갈아타기 비교", desc: "기존 증권 vs 제안 증권 담보·보험료 비교 + 유의사항" },
+  { href: "/admin/demo/compare", emoji: "🔁", title: "비교 분석", desc: "기존 증권 vs 제안 증권 담보·보험료 비교 + 유의사항" },
   { href: "/admin/demo/share", emoji: "🔗", title: "고객 공유뷰", desc: "고객이 받는 화면 — 납입 현황·보장 목록(사실만)" },
 ];
 

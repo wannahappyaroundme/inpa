@@ -96,7 +96,7 @@ export default function AccountSettingsPage() {
         <Card className="px-5 py-4">
           <div className="text-[15px] font-bold text-ink">위촉 형태</div>
           <p className="mt-1 text-[12px] text-ink3 leading-5">
-            전속(원수사)은 다사 갈아타기 비교 대신 <b>자사 보장공백</b> 중심으로 표시됩니다.
+            전속(원수사)은 타사 비교 분석 대신 <b>자사 보장공백</b> 중심으로 표시됩니다.
           </p>
           <div className="mt-3 grid grid-cols-2 gap-3">
             {[{ v: 2, label: "GA / 대리점" }, { v: 1, label: "전속(원수사)" }].map((o) => (

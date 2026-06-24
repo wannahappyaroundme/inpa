@@ -12,7 +12,7 @@ const SUB = [
   { href: "/admin/demo/dashboard", label: "대시보드" },
   { href: "/admin/demo/customers", label: "고객" },
   { href: "/admin/demo/analysis", label: "보장분석" },
-  { href: "/admin/demo/compare", label: "갈아타기 비교" },
+  { href: "/admin/demo/compare", label: "비교 분석" },
   { href: "/admin/demo/share", label: "고객 공유뷰" },
 ];
 

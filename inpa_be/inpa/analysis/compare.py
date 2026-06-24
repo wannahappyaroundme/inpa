@@ -191,7 +191,7 @@ def _generate_guide_draft(customer, current_summary, proposed_summary, rows):
         '3. 기존계약 해지 시 손실 가능성(해약환급금/사업비 등)\n'
         '4. 신계약의 청약철회·품질보증 등 소비자 권리\n'
         '5. 기존계약 유지 시의 이점\n'
-        '6. 갈아타기(승환) 시 유의사항 및 최종 확인 필요사항\n'
+        '6. 전환 시 유의사항 및 최종 확인 필요사항\n'
     )
 
     timeout_seconds = 90.0

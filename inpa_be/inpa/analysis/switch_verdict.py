@@ -110,7 +110,7 @@ def compute_verdict(current_list, proposed_list, current_summary, proposed_summa
     if not has_proposed:
         return {
             'decision': 'NEUTRAL',
-            'reason': '제안(갈아타기 대상) 보험이 없어 비교할 수 없습니다.',
+            'reason': '제안(비교 대상) 보험이 없어 비교할 수 없습니다.',
             'customer_net_benefit_estimate': None,
             'switch_warnings': warnings,
             'disclaimer': VERDICT_DISCLAIMER,
@@ -130,7 +130,7 @@ def compute_verdict(current_list, proposed_list, current_summary, proposed_summa
     if reduced and loss > 0:
         decision = 'KEEP'
         reason = (
-            f'갈아타기 시 보장이 줄어드는 담보가 있고 해지손실(추정 {loss:,}원)이 발생합니다. '
+            f'전환 시 보장이 줄어드는 담보가 있고 해지손실(추정 {loss:,}원)이 발생합니다. '
             '유지를 우선 검토하세요.'
         )
     elif net is not None and net < 0 and not improved:
@@ -141,7 +141,7 @@ def compute_verdict(current_list, proposed_list, current_summary, proposed_summa
         )
     elif improved and (net is None or net >= 0):
         decision = 'SWITCH'
-        reason = '보장이 개선되고 비용 측면 불리함이 크지 않습니다. 갈아타기를 검토할 가치가 있습니다(설계사 확인).'
+        reason = '보장이 개선되고 비용 측면 불리함이 크지 않습니다. 전환을 검토할 가치가 있습니다(설계사 확인).'
     else:
         decision = 'NEUTRAL'
         reason = '이익과 손실이 뚜렷하지 않습니다. 고객 상황(보장 우선순위·납입 여력)으로 판단하세요.'

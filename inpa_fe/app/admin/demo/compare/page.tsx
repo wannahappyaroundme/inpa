@@ -10,8 +10,8 @@ function amt(v: number): string {
 }
 
 const DEC: Record<string, { label: string; cls: string }> = {
-  SWITCH: { label: "갈아타기 권장", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  KEEP: { label: "유지 권장", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+  SWITCH: { label: "전환 검토", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  KEEP: { label: "유지 검토", cls: "bg-blue-50 text-blue-700 border-blue-200" },
   NEUTRAL: { label: "중립", cls: "bg-surface2 text-ink3 border-line" },
 };
 
@@ -21,7 +21,7 @@ export default function DemoCompare() {
 
   return (
     <div>
-      <h1 className="text-[22px] font-extrabold text-ink">갈아타기 비교 — {c.customerName}님</h1>
+      <h1 className="text-[22px] font-extrabold text-ink">비교 분석 — {c.customerName}님</h1>
       <p className="mt-1 text-[13px] text-ink3">기존 증권과 제안 증권의 담보·보험료를 나란히 비교합니다.</p>
 
       {/* 요약 2열 */}
@@ -76,7 +76,7 @@ export default function DemoCompare() {
 
       {/* 유의사항 */}
       <Card className="mt-3 p-4">
-        <div className="text-[13px] font-bold text-ink mb-2">갈아타기 유의사항</div>
+        <div className="text-[13px] font-bold text-ink mb-2">비교 시 유의사항</div>
         <div className="space-y-2">
           {c.warnings.map((w) => (
             <div key={w.label} className="flex gap-2 text-[13px]">

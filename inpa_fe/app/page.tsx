@@ -59,7 +59,7 @@ function HeroSection() {
               설계사님은<br />클로징만 준비하세요
             </h1>
             <p className="mt-5 text-[16px] sm:text-[19px] text-white/80 leading-relaxed max-w-xl mx-auto md:mx-0">
-              발굴부터 보장분석, 갈아타기 제안까지 — 인파가 준비하고, 설계사님이 완성합니다.
+              발굴부터 보장분석, 비교 분석까지 — 인파가 준비하고, 설계사님이 완성합니다.
             </p>
             <p className="mt-2 text-[14px] sm:text-[15px] text-white/55 leading-relaxed max-w-lg mx-auto md:mx-0">
               증권 한 장으로 고객 보장 공백을 한 화면에. 합법적인 비교안내서 초안까지.
@@ -88,7 +88,7 @@ function HeroSection() {
                 </div>
                 <div className="mt-4 rounded-xl border border-[var(--line)] p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-[12px] font-bold text-[var(--ink)]">갈아타기 분석</span>
+                    <span className="text-[12px] font-bold text-[var(--ink)]">비교 분석</span>
                     <span className="inline-flex items-center gap-1 text-[11px] font-bold rounded-full px-2 py-0.5" style={{ color: "var(--brand)", background: "var(--accent-tint)" }}>
                       <ArrowLeftRight size={12} strokeWidth={2.2} /> 유지·전환 변동 비교
                     </span>
@@ -122,7 +122,7 @@ function TrustBar() {
         </div>
         <div className="flex items-center gap-2.5 justify-center sm:justify-start">
           <ShieldCheck size={18} strokeWidth={1.75} className="text-[var(--accent-blue)]" aria-hidden />
-          <span className="text-[14px] font-semibold text-[var(--ink-2)]">갈아타기 불이익 항목 점검</span>
+          <span className="text-[14px] font-semibold text-[var(--ink-2)]">비교 시 유의사항 점검</span>
         </div>
       </div>
     </section>
@@ -133,7 +133,7 @@ function FeaturesSection() {
   const cards = [
     { icon: LayoutGrid, title: "보장 한눈표 (히트맵)", desc: "고객의 현재 보장을 100개 이상 담보 항목으로 한 화면에. 보유·공백을 색으로 즉시 확인합니다." },
     { icon: BarChart3, title: "보장 공백 분석", desc: "보유 0인 담보를 모아 우선순위로 정렬합니다. 충분·부족 판단은 설계사님이 설정한 기준선을 따릅니다." },
-    { icon: ArrowLeftRight, title: "갈아타기 비교안내서", desc: "기존과 제안을 나란히 정리하고, 해지손실·면책기간 재적용·예정이율 같은 갈아타기 불이익을 빠짐없이 짚어줍니다. (AI 초안 — 최종 비교안내·책임은 설계사)" },
+    { icon: ArrowLeftRight, title: "비교 분석 안내서", desc: "기존과 제안을 나란히 정리하고, 해지손실·면책기간 재적용·예정이율 같은 비교 시 불이익을 빠짐없이 짚어줍니다. (AI 초안 — 최종 비교안내·책임은 설계사)" },
   ];
   return (
     <section id="features" className="py-20 md:py-28 bg-[var(--surface)]">
@@ -158,8 +158,8 @@ function FeaturesSection() {
 
 function DifferentiatorsSection() {
   const items = [
-    { icon: ShieldCheck, badge: "갈아타기 불이익 가드레일 — 점검 전엔 발행 잠금", title: "갈아타기 불이익을 놓치지 않는 비교안내",
-      desc: "갈아타기 시 고객에게 불리할 수 있는 항목(해지환급금 손실·면책기간 재적용·예정이율 등)을 빠짐없이 점검하도록 돕습니다. 점검 전에는 고객 발행을 잠가 빠뜨림을 줄여요. 법적 비교안내(공식 확인서)는 설계사가 최종 확인·책임집니다." },
+    { icon: ShieldCheck, badge: "비교 분석 가드레일 — 점검 전엔 발행 잠금", title: "비교 시 불이익을 빠짐없이 점검하는 비교안내",
+      desc: "다른 상품으로 바꿀 때 고객에게 불리할 수 있는 항목(해지환급금 손실·면책기간 재적용·예정이율 등)을 빠짐없이 점검하도록 돕습니다. 점검 전에는 고객 발행을 잠가 빠뜨림을 줄여요. 법적 비교안내(공식 확인서)는 설계사가 최종 확인·책임집니다." },
     { icon: LayoutGrid, badge: "담보 100+ 표준화 · 보험사별 명칭 자동 매핑", title: "어떤 보험사 증권도 같은 틀로",
       desc: "'암진단급부금', '일반암진단비', '암진단 특약' — 회사마다 다른 이름을 100개 이상 표준 담보로 자동 정규화합니다. 데이터가 쌓일수록 매칭 정확도가 높아집니다." },
   ];
@@ -293,7 +293,7 @@ function LandingFooter() {
         <div className="flex flex-col md:flex-row gap-8 md:gap-0 md:justify-between">
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2"><InpaMark size={24} /><span className="font-extrabold text-[17px]">인파 (Inpa)</span></div>
-            <p className="text-[13px] text-white/55 max-w-xs leading-relaxed">보험설계사의 AI 영업 파트너. 발굴부터 보장분석, 갈아타기 제안까지.</p>
+            <p className="text-[13px] text-white/55 max-w-xs leading-relaxed">보험설계사의 AI 영업 파트너. 발굴부터 보장분석, 비교 분석까지.</p>
           </div>
           <div className="flex flex-col gap-2.5 text-[13px]">
             <Link href="/legal/terms" className="text-white/70 hover:text-white transition">이용약관</Link>
