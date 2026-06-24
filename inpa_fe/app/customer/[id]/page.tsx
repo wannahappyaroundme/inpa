@@ -733,10 +733,10 @@ function SwitchTab({ customerId }: { customerId: number }) {
         ) : (
           <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50 px-4 py-5 text-center">
             <p className="text-[13px] font-semibold text-amber-800">
-              AI 비교안내서는 §97 법무 확정 후 활성화됩니다
+              AI 비교안내서는 법무 검토 완료 후 활성화됩니다
             </p>
             <p className="mt-1.5 text-[12px] text-amber-700 leading-5">
-              비교 분석 안내는 보험업법 §97 부당승환 관련 법적 요건이 확정되어야 제공돼요.
+              비교 분석 안내는 부당승환 관련 법적 요건이 확정되어야 제공돼요.
               가짜 데이터로 화면을 채우지 않습니다(정직성 레드라인).
             </p>
           </div>

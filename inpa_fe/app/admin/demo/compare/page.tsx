@@ -68,7 +68,7 @@ export default function DemoCompare() {
       <Card className="mt-3 p-4">
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-[12px] font-bold rounded-full border px-2.5 py-0.5 ${dec.cls}`}>{dec.label}</span>
-          <span className="text-[12px] text-ink3">설계사 내부 판단 근거 · 고객 노출 금지 (§97)</span>
+          <span className="text-[12px] text-ink3">설계사 내부 판단 근거 · 고객 노출 금지</span>
         </div>
         <p className="mt-2 text-[13px] text-ink2 leading-5">{c.verdict.reason}</p>
         <div className="mt-2 text-[13px] text-ink2">1년 추정 순이득 <b className="text-emerald-600">+{amt(c.verdict.netBenefitYear)}</b></div>

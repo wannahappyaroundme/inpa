@@ -42,7 +42,7 @@ COMPARE_DISCLAIMER = (
 )
 
 # 발행 하드블록 사유 (COMPARE_PUBLISH_ENABLED=False)
-PUBLISH_BLOCKED_REASON = '§97 법무 확정 전 발행 금지'
+PUBLISH_BLOCKED_REASON = '법무 검토 완료 전 발행 금지'
 
 
 def _credit_exhausted_response(exc: LimitExceeded, user) -> Response:
@@ -345,7 +345,7 @@ class CustomerComparePublishView(_CustomerScopedCompareMixin, APIView):
         # 지금은 게이트가 열려도 발행 미구현임을 명시(거짓 성공 금지).
         return Response(
             {
-                'detail': '발행 기능은 §97 법무 확정 후 구현 예정입니다.',
+                'detail': '발행 기능은 법무 검토 완료 후 구현 예정입니다.',
                 'code': 'compare_publish_not_implemented',
                 'publishable': False,
             },

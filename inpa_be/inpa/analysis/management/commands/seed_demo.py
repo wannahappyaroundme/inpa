@@ -673,7 +673,7 @@ class Command(BaseCommand):
             category='기능문의',
             question=f'{DEMO_CATALOG_TAG} 비교 분석표는 어떻게 활용하나요?',
             answer=(
-                '[DEMO] 보험업법 §97 기준 부당승환 방지 안내서를 AI가 초안 생성합니다.\n'
+                '[DEMO] 부당승환 방지 안내서를 AI가 초안 생성합니다.\n'
                 '★ AI 생성물 = 초안이며 최종 책임은 설계사 본인에게 있습니다. (면책 고정)'
             ),
             order=2,
