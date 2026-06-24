@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
-/* ── 라이트(기본): 메인=흰색, 서브=표지판 파랑 ── */
+/* ── 라이트(기본): 메인=흰색, 서브=표지판 파랑 ──
+   ★ 서비스 페이지는 시스템이 다크여도 항상 라이트. 다크는 어드민(.theme-system)만 적용.
+   color-scheme:light → 네이티브 컨트롤(스크롤바·입력·셀렉트)도 서비스에선 라이트 고정. */
 :root {
+  color-scheme: light;
   --surface: #FFFFFF; --surface-2: #F4F6FA;
   --ink: #14171F; --ink-2: #475569; --ink-3: #6B7280; --muted: #9CA3AF;
   --line: #E6E9EF; --line-2: #CDD3DD;
@@ -55,9 +58,12 @@
   .cell-pop { animation: none; }
 }
 
-/* ── 다크: 시스템 설정 따름 ── */
+/* ── 다크: 어드민(.theme-system)만 시스템 설정을 따름 ──
+   서비스 페이지엔 .theme-system 이 없어 항상 라이트(:root). 어드민 레이아웃/로그인 루트에만
+   .theme-system 을 붙인다. CSS 변수는 하위로 상속되어 어드민 서브트리 전체가 다크가 된다. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  .theme-system {
+    color-scheme: dark;
     --surface: #161A21; --surface-2: #0E1116;
     --ink: #EDF0F5; --ink-2: #B6BDC8; --ink-3: #8A92A0; --muted: #6B7280;
     --line: #272D38; --line-2: #353C49;

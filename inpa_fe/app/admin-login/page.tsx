@@ -31,7 +31,7 @@ function AdminLoginForm() {
   }
 
   return (
-    <div className="min-h-dvh flex items-center justify-center bg-surface2 px-4">
+    <div className="theme-system min-h-dvh flex items-center justify-center bg-surface2 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <div className="text-[22px] font-extrabold text-brand-ink mb-1">인파 Admin</div>

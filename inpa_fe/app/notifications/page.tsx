@@ -20,12 +20,12 @@ const NOTIF_META: Record<
   NotifType,
   { icon: string; colorClass: string; label: string }
 > = {
-  expiry_soon:       { icon: "🟣", colorClass: "text-purple-600 dark:text-purple-400",   label: "만기 임박" },
-  birthday_soon:     { icon: "🎂", colorClass: "text-pink-500 dark:text-pink-400",        label: "고객 생일" },
+  expiry_soon:       { icon: "🟣", colorClass: "text-purple-600",   label: "만기 임박" },
+  birthday_soon:     { icon: "🎂", colorClass: "text-pink-500",        label: "고객 생일" },
   consult_reminder:  { icon: "💬", colorClass: "text-brand",                              label: "상담 약속" },
   task_due:          { icon: "✅", colorClass: "text-success",                            label: "할 일 마감" },
   share_unread:      { icon: "📨", colorClass: "text-ink3",                               label: "미열람 공유" },
-  unpaid_d_alert:    { icon: "⚠️",  colorClass: "text-rose-600 dark:text-rose-400",        label: "환수 위험" },
+  unpaid_d_alert:    { icon: "⚠️",  colorClass: "text-rose-600",        label: "환수 위험" },
   self_diagnosis_lead: { icon: "🎯", colorClass: "text-brand",                            label: "셀프진단 리드" },
   board_comment:     { icon: "💬", colorClass: "text-brand",                              label: "댓글" },
   board_like:        { icon: "❤️",  colorClass: "text-danger",                            label: "좋아요" },

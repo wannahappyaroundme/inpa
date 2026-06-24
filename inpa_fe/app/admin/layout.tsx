@@ -23,7 +23,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
 
   return (
-    <div className="min-h-dvh flex">
+    // theme-system: 어드민만 시스템 다크/라이트를 따름(서비스는 라이트 고정).
+    // bg-surface2: 다크 시 본문(main)까지 배경이 덮이도록 루트에 배경 지정.
+    <div className="theme-system min-h-dvh flex bg-surface2">
       {/* 사이드바 */}
       <aside className="w-56 shrink-0 bg-surface border-r border-line flex flex-col hidden lg:flex">
         <div className="h-14 flex items-center px-5 border-b border-line">
