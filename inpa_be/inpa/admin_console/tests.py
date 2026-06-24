@@ -110,6 +110,22 @@ class AdminAuthTest(TestCase):
         self.assertIn('token', res.json())
         self.assertIn('admin', res.json())
 
+    def test_AC1b_admin_login_ignores_stale_token(self):
+        """AC1b(회귀): 무효 Authorization 토큰 헤더가 붙어도 로그인은 401 아님 → 200.
+
+        버그: DRF 전역 TokenAuthentication 이 공개 로그인 뷰에서도 돌아, 브라우저
+        localStorage 의 헌 토큰이 로그인 요청에 실리면 뷰 실행 전에 401 로 막았다
+        (비번 검증조차 안 됨). authentication_classes=[] 로 공개 로그인은 토큰 무시해야 한다.
+        """
+        res = self.client.post(
+            '/api/v1/admin/auth/login/',
+            {'email': 'admin@inpa.kr', 'password': 'inpaPass123!'},
+            content_type='application/json',
+            HTTP_AUTHORIZATION='Token stale_invalid_token_123',
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertIn('token', res.json())
+
     def test_AC2_planner_cannot_admin_login(self):
         """AC2: 설계사(is_admin=False)로 admin 로그인 → 403."""
         res = self.client.post('/api/v1/admin/auth/login/', {

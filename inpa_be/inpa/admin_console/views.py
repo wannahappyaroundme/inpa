@@ -755,6 +755,8 @@ class AdminLoginView(APIView):
     admin 전용 이메일/비밀번호 로그인.
     is_admin=False 설계사는 403 반환 (설계사 로그인과 완전 분리).
     """
+    authentication_classes = []  # 공개 로그인 — 전역 TokenAuthentication 비활성화.
+    # (브라우저 localStorage 의 헌 토큰이 로그인 요청에 실리면 뷰 실행 전 401 로 막히던 버그 방지.)
     permission_classes = []  # AllowAny
 
     def post(self, request):

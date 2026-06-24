@@ -63,6 +63,9 @@ def _send_reset_email(user):
 
 
 class RegisterView(APIView):
+    # 공개 엔드포인트 — 전역 TokenAuthentication 비활성화. (브라우저 localStorage 의
+    # 헌/무효 토큰이 요청에 실려도 401 로 막히지 않도록. 로그인/가입은 토큰 무관.)
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -76,6 +79,7 @@ class RegisterView(APIView):
 
 
 class VerifyEmailView(APIView):
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def _verify(self, token):
@@ -106,6 +110,7 @@ class VerifyEmailView(APIView):
 
 
 class ResendVerificationView(APIView):
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -118,6 +123,7 @@ class ResendVerificationView(APIView):
 
 
 class LoginView(APIView):
+    authentication_classes = []   # 공개 로그인 — 헌 토큰 무시 (401 차단 버그 방지)
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -305,6 +311,7 @@ class LogoutView(APIView):
 
 
 class PasswordResetView(APIView):
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -317,6 +324,7 @@ class PasswordResetView(APIView):
 
 
 class PasswordResetConfirmView(APIView):
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):

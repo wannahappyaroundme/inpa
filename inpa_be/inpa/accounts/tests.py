@@ -53,6 +53,25 @@ class AuthFlowTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json()['ref_code'])
 
+    def test_login_ignores_stale_token_header(self):
+        """회귀: 무효 Authorization 토큰 헤더가 붙어도 로그인은 401 아님 → 200.
+
+        버그: 브라우저 localStorage 의 헌 토큰이 로그인 요청에 실리면 DRF 전역
+        TokenAuthentication 이 그 무효 토큰을 보고 뷰 실행 전에 401 로 막았다.
+        공개 로그인은 authentication_classes=[] 로 토큰을 무시해야 한다.
+        """
+        # 정상 플로우로 활성+인증 사용자 준비
+        self._register()
+        user = User.objects.get(email=self.reg['email'])
+        self.c.post('/api/v1/auth/verify-email/', {'token': make_email_verify_token(user)}, format='json')
+        # 무효 토큰 헤더를 달고 로그인
+        stale = APIClient()
+        stale.credentials(HTTP_AUTHORIZATION='Token stale_invalid_token_123')
+        r = stale.post('/api/v1/auth/login/',
+                       {'email': self.reg['email'], 'password': self.reg['password']}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertTrue(r.json().get('token'))
+
     def test_unauthenticated_blocked(self):
         self.assertEqual(self.c.get('/api/v1/auth/profile/').status_code, 401)
 
