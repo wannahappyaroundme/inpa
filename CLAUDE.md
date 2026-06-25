@@ -2,8 +2,8 @@
 
 > 보험설계사용 AI 영업지원 웹앱 신사업. **인파(Inpa) = 인슈어(Insure) + 파트너(Partner)** = 보험설계사 곁의 영업 파트너.
 > 코드는 `~/Desktop/foliio`(Foliio 분석판, 고년차용)에서 포팅·재활용.
-> **현재: Phase 1 진행 중 — BE 12개 Django 앱 + FE 전체 라우트(공개·인증·관리자 60+ 페이지) 구현됨.**
-> 구글 연동(소셜로그인+캘린더)·미팅예약·동의흐름까지 동작. 컴플라이언스 게이트(병력수집·§97 발행·국외이전)는 정식 출시 전까지 env 플래그로 닫힌 상태. `docs/dev/00~24` 개발 문서 + `docs/dev/00-INDEX.md`(SSOT)도 함께 유지.
+> **현재: Phase 1 진행 중 — BE 13개 Django 앱 + FE 전체 라우트(공개·인증·관리자 60+ 페이지) 구현됨.**
+> 구글 연동(소셜로그인+캘린더)·미팅예약·개인 일정·동의흐름까지 동작. 컴플라이언스 게이트(병력수집·§97 발행·국외이전)는 정식 출시 전까지 env 플래그로 닫힌 상태. `docs/dev/00~25` 개발 문서 + `docs/dev/00-INDEX.md`(SSOT)도 함께 유지.
 
 ## 핵심 컨텍스트
 - **타겟**: 원수사·GA 위촉직(개인사업자) 보험설계사. 1순위 신입(발굴 절박), 2순위 중견(관리).
@@ -35,6 +35,7 @@
 - 셋업: `npm ci`. 개발: `npm run dev` → http://localhost:3000. 빌드: `npm run build`(타입체크 겸함). 운영: `npm start`.
 - BE 주소 = `NEXT_PUBLIC_API_BASE`(미설정 시 `localhost:8000/api/v1` 폴백 + 콘솔 경고). **빌드타임 인라인이라 Vercel 환경변수 변경 후 재배포 필요.**
 - 린트/테스트 스크립트 없음. ⚠️ `inpa_fe/AGENTS.md` 경고: **Next 16은 훈련데이터와 다름 — 코드 전 `node_modules/next/dist/docs/` 해당 가이드 확인.**
+- **테마 가드레일**: 서비스 페이지 = **라이트 고정**, 다크모드는 **어드민 한정**(`app/admin/layout.tsx`가 `.theme-system`로 시스템 다크/라이트 추종). 서비스 화면에 `dark:` 변형 추가 금지. 제품 UI 카피는 `§`·법조문 표기 빼고 쉬운 말(레드라인).
 
 ### CI / 배포 (`.github/workflows/ci.yml`)
 - push/PR(main·master) 시 3개 잡: ①BE `check`+`test inpa` ②FE `npm ci`+`build` ③gitleaks 시크릿 스캔.
@@ -48,12 +49,13 @@
 ### 멀티테넌시(가시성)는 한 곳에서 강제 — 우회 금지
 `inpa/core/mixins.py` `OwnedQuerySetMixin`(본인 데이터만 조회 + 생성 시 owner 자동 주입) + `inpa/core/permissions.py` `IsOwner`/`IsAdmin`/`IsEmailVerified`. **소유자 전용 ViewSet엔 이 믹스인+IsOwner를 반드시 부착.** 관리자(`profile.is_admin`)는 조회 우회. 공유(게시판·공지·FAQ·판촉샘플)만 예외. (정본: `docs/dev/02` §0 가시성 매트릭스.)
 
-### Django 앱 지도 (`inpa_be/inpa/`, 12개 — `settings/base.py` LOCAL_APPS)
+### Django 앱 지도 (`inpa_be/inpa/`, 13개 — `settings/base.py` LOCAL_APPS / `core`는 공유 패키지로 별도)
 - `accounts` — User(이메일 PK)·Profile·인증(가입/이메일인증/로그인잠금/비번재설정)·구글(`google.py` 소셜로그인, `google_calendar.py` 캘린더)·온보딩·지점장 대시보드(`manager.py`).
 - `customers` — 고객 CRUD·동의로그(`ConsentLog`)·고객 본인 동의 공개링크(`public_consent.py` `/c/<token>`)·기준선 프리셋(`presets.py`).
 - `insurances` — 보험/담보(소유자 전용, `customer__owner` 경유)·환수레이더(`churn.py`)·셀프진단 공개(`self_diagnosis.py` `/d/<ref>`)·OCR 교차검증(`verify.py`).
 - `analysis` — **표준 담보 트리 + 보험사별 담보명 정규화 사전(공유 전역 마스터)**. 계산엔진 `calculate.py`(히트맵), 갈아타기 `compare.py`+`switch_verdict.py`(KEEP/SWITCH/NEUTRAL = 설계사 내부 전용, 고객 노출 금지 §97). foliio 포팅 핵심 자산.
 - `booking` — 미팅예약(Calendly식): 슬롯/미팅 + 공개 예약링크(`public_booking.py` `/b/<token>`).
+- `schedule` — 개인 일정/할일/고정차단(`ScheduleItem` 1모델, 소유자 전용, FE `/schedule`). **`booking`과 별개** — 캘린더는 둘을 같이 그리기만(예약 이중락 비파괴). ⚠️ 타임존 규약: 단건 start/end=UTC 저장·KST 표시 / 반복차단 `recur_*_time`=KST 벽시계 그대로(변환 금지, 변환 시 9h 밀림) / all_day·시각없는 todo=KST 정오 저장.
 - `dashboard` — 월별 목표(수동)+실적(계산), 예상월급 배율.
 - `notifications`(알림+리마인더) · `billing`(요금제·사용량 한도) · `boards`(게시판·공지·FAQ·문의, 혼합 가시성) · `promotion`(판촉물 주문) · `admin_console`(IsAdmin 백오피스) · `analytics`(북극성 이벤트 계측).
 - `core` — 공통 믹스인·권한 + `core/ocr/`(foliio 벤더링: `claude_parser.py`·`ocrparsing.py`·`ocrdata.py` 보험사 코드).
@@ -81,7 +83,7 @@
 ## 문서 (`docs/`)
 - **`docs/dev/00-INDEX.md` = 개발 문서 마스터 지도(SSOT 진입점)**. 전체 라우트맵·문서 인덱스·스트림↔엔티티 매핑.
 - `docs/dev/02-data-model-and-api.md` — **데이터모델 정본(SSOT, 42 엔티티 + 가시성 매트릭스)**.
-- `docs/dev/01`(아키텍처) `11`(인증) `12`(고객/OCR) `13`(공유) `14·16`(컴플라이언스/법무) `15`(대시보드) `17`(게시판) `18`(모바일) `19`(관리자) `20`(데브옵스) `21`(판촉물) `22`(알림) `23`(요금제) `24`(랜딩) — 스트림별 명세.
+- `docs/dev/01`(아키텍처) `11`(인증) `12`(고객/OCR) `13`(공유) `14·16`(컴플라이언스/법무) `15`(대시보드) `17`(게시판) `18`(모바일) `19`(관리자) `20`(데브옵스) `21`(판촉물) `22`(알림) `23`(요금제) `24`(랜딩) `25`(배포 실전 가이드, PM용) — 스트림별 명세.
 - `docs/01~07`(루트) — 사업·제품 기획 원본(Foliio 영업지원 에디션 명칭). `docs/_archive-foliio/` — 구 기획 아카이브.
 
 ## 개발 착수 전 게이트 (코드 0줄, 선결)
