@@ -331,7 +331,7 @@ class CompareFactsTests(TestCase):
                     'disclaimer'):
             self.assertIn(key, body)
         self.assertFalse(body['publishable'])
-        self.assertEqual(body['publish_blocked_reason'], '§97 법무 확정 전 발행 금지')
+        self.assertEqual(body['publish_blocked_reason'], '법무 검토 완료 전 발행 금지')
         self.assertIn('AI', body['disclaimer'])
 
     @override_settings(COMPARE_AI_ENABLED=False)
@@ -428,7 +428,7 @@ class ComparePublishHardblockTests(TestCase):
         self.assertEqual(r.status_code, 403)
         body = r.json()
         self.assertFalse(body['publishable'])
-        self.assertEqual(body['publish_blocked_reason'], '§97 법무 확정 전 발행 금지')
+        self.assertEqual(body['publish_blocked_reason'], '법무 검토 완료 전 발행 금지')
 
 
 class CompareOwnerIsolationTests(TestCase):
