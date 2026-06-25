@@ -345,7 +345,7 @@ export default function CustomersPage() {
         {/* ── 칸반 보기 (영업 4단계: DB·TA·FA·청약) ── */}
         {view === "kanban" && customers.length > 0 && (
           <>
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="mt-4 flex gap-3 overflow-x-auto pb-2 snap-x">
               {SALES_STAGES.map((stage) => {
                 const col = sorted.filter((c) => c.sales_stage === stage.key);
                 return (
@@ -356,7 +356,7 @@ export default function CustomersPage() {
                       if (dragId != null) moveCustomer(dragId, stage.key);
                       setDragId(null);
                     }}
-                    className="rounded-2xl bg-surface2 border border-line p-2.5 min-h-[120px]"
+                    className="rounded-2xl bg-surface2 border border-line p-2.5 min-h-[120px] w-[78vw] sm:w-64 shrink-0 snap-start"
                   >
                     <div className="flex items-center justify-between px-1 pb-2">
                       <span className="inline-flex items-center gap-1 text-[13px] font-bold text-ink">

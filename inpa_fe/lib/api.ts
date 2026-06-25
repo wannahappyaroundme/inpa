@@ -1611,10 +1611,14 @@ export async function cancelMeeting(id: number): Promise<Meeting> {
 
 // ── 개인 일정(schedule) — 일정/할일/고정 차단 ──────────────────────────────
 export type ScheduleKind = "event" | "todo" | "block";
+/** 사용자 5분류(색/범례) — kind(동작)와 직교 (PM 06.24) */
+export type ScheduleCategory = "meeting" | "anniversary" | "renewal" | "task" | "etc";
 
 export interface ScheduleItem {
   id: number;
   kind: ScheduleKind;
+  category: ScheduleCategory;
+  anniversary_md: string;             // "MM-DD" — 생일·기념일 매년 반복(빈값=미사용)
   title: string;
   memo: string;
   customer: number | null;
@@ -1633,6 +1637,8 @@ export interface ScheduleItem {
 
 export interface ScheduleItemPayload {
   kind: ScheduleKind;
+  category?: ScheduleCategory;
+  anniversary_md?: string;
   title: string;
   memo?: string;
   customer?: number | null;

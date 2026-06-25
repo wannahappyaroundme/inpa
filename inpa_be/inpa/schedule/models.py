@@ -21,10 +21,29 @@ class ScheduleItem(models.Model):
         (KIND_BLOCK, '차단'),
     )
 
+    # ── 분류(category) — 사용자 5분류(색/범례). kind(동작)와 직교 (PM 06.24) ──
+    #   meeting=고객미팅 / anniversary=생일·기념일 / renewal=만기·갱신 / task=업무 / etc=기타
+    CAT_MEETING = 'meeting'
+    CAT_ANNIVERSARY = 'anniversary'
+    CAT_RENEWAL = 'renewal'
+    CAT_TASK = 'task'
+    CAT_ETC = 'etc'
+    CATEGORY_CHOICES = (
+        (CAT_MEETING, '고객미팅'),
+        (CAT_ANNIVERSARY, '생일·기념일'),
+        (CAT_RENEWAL, '만기·갱신'),
+        (CAT_TASK, '업무'),
+        (CAT_ETC, '기타'),
+    )
+
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
         related_name='schedule_items', verbose_name='설계사(소유자)')
     kind = models.CharField('종류', max_length=10, choices=KIND_CHOICES, default=KIND_EVENT)
+    category = models.CharField('분류', max_length=12, choices=CATEGORY_CHOICES,
+                                default=CAT_ETC, db_index=True)
+    # 생일·기념일 전용: 매년 같은 날 반복 표시(MM-DD 매칭). 단건 start_at 과 병행.
+    anniversary_md = models.CharField('기념일(MM-DD)', max_length=5, blank=True, default='')
     title = models.CharField('제목', max_length=120)
     memo = models.TextField('메모', blank=True, default='')
     customer = models.ForeignKey(
