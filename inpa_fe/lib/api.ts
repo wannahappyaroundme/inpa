@@ -346,6 +346,17 @@ export interface CustomerTag {
 }
 
 /** 목록 카드용 경량 타입 (CustomerListSerializer 대응) */
+/** 영업 4단계(파이프라인) — BE Customer.SALES_STAGE_CHOICES 대응. 칸반/퍼널 공용. */
+export type SalesStage = "db" | "contact" | "meeting" | "contract";
+
+/** 단계 메타(순서·라벨) — 칸반 컬럼/퍼널 셀이 이 순서·라벨을 그대로 쓴다. */
+export const SALES_STAGES: { key: SalesStage; label: string; short: string }[] = [
+  { key: "db", label: "DB확보", short: "01" },
+  { key: "contact", label: "전화·메신저", short: "02" },
+  { key: "meeting", label: "대면상담", short: "03" },
+  { key: "contract", label: "계약", short: "04" },
+];
+
 export interface CustomerListItem {
   id: number;
   name: string;
@@ -356,6 +367,7 @@ export interface CustomerListItem {
   color: string | null;
   tags: CustomerTag[];
   family_count: number;
+  sales_stage: SalesStage;
   share_token: string | null;
   created_at: string;
 }
@@ -392,6 +404,7 @@ export interface CustomerWritePayload {
   color?: string;
   is_agree_term?: boolean;
   tag_ids?: number[];
+  sales_stage?: SalesStage;     // 칸반 단계이동 = updateCustomer({sales_stage})
 }
 
 // ─── Customer endpoints ──────────────────────────────────────────────────────
@@ -1693,6 +1706,34 @@ export async function updateDashboardGoal(
 ): Promise<DashboardSummary> {
   const q = month ? `?month=${encodeURIComponent(month)}` : "";
   return request<DashboardSummary>("PATCH", `/dashboard/${q}`, payload, true);
+}
+
+// ─── Dashboard insights (홈 차트 — 막대추이·퍼널·유지현황 도넛) ──────────────
+
+export interface MonthlyTrendPoint {
+  ym: string;            // "YYYY-MM"
+  premium: number;
+  new_customers: number;
+  meetings: number;
+}
+
+/** 보유계약 유지현황(도넛) — churn 판정 재사용 버킷. */
+export interface PortfolioBreakdown {
+  at_risk: number;       // 환수 위험
+  watch: number;         // 주의(13/25회차 전, 위험 아님)
+  stable: number;        // 유지 안정(25회차+)
+  unknown: number;       // 회차 미입력
+}
+
+export interface DashboardInsights {
+  monthly_trend: MonthlyTrendPoint[];           // 최근 6개월
+  funnel: Record<SalesStage, number>;           // 영업 4단계 카운트
+  portfolio: PortfolioBreakdown;
+}
+
+/** GET /api/v1/dashboard/insights/ — 홈 차트 집계(인증, owner 전용) */
+export async function getDashboardInsights(): Promise<DashboardInsights> {
+  return request<DashboardInsights>("GET", "/dashboard/insights/", undefined, true);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
