@@ -9,7 +9,8 @@ from rest_framework.views import APIView
 from inpa.core.permissions import IsEmailVerified
 
 from .aggregation import (
-    compute_actuals, compute_funnel, compute_portfolio_breakdown, compute_trend,
+    compute_actuals, compute_funnel, compute_portfolio_breakdown,
+    compute_retention, compute_trend,
 )
 from .models import MonthlyGoal
 from .serializers import MonthlyGoalSerializer
@@ -78,4 +79,5 @@ class InsightsView(APIView):
             'monthly_trend': compute_trend(request.user, n=6),
             'funnel': compute_funnel(request.user),
             'portfolio': compute_portfolio_breakdown(request.user),
+            'retention': compute_retention(request.user),
         })

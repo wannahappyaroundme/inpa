@@ -336,6 +336,28 @@ export default function HomePage() {
           </div>
         )}
 
+        {/* 계약 유지율(추정) 1/2/3년 — PM 06.24 */}
+        {insights && (
+          <Card className="mt-4 p-4 sm:p-5">
+            <div className="text-[15px] font-bold text-ink mb-3">
+              계약 유지율 <span className="text-[11px] font-normal text-ink3">(추정)</span>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {([["y1", "1년"], ["y2", "2년"], ["y3", "3년"]] as const).map(([k, label]) => {
+                const r = insights.retention[k];
+                return (
+                  <div key={k} className="rounded-xl bg-surface2 px-3 py-3 text-center">
+                    <div className="text-[11px] text-ink3">{label}</div>
+                    <div className="mt-1 text-[20px] font-extrabold tnum text-ink">{r.rate == null ? "—" : `${r.rate}%`}</div>
+                    <div className="text-[11px] text-ink3 tnum">{r.survived}/{r.reached}건</div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[11px] text-ink3">해지 입력 기준 추정치예요. 환수 레이더에서 해지를 표시하면 정확해집니다.</p>
+          </Card>
+        )}
+
         {/* 이번 달 목표 — 수동 설정 + 실적 진행률 */}
         {dash && (
           <Card className="mt-4 p-4 sm:p-5">

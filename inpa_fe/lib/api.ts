@@ -298,11 +298,22 @@ export interface ManagerAgentKpi {
   customer_count: number;
   churn_risk_count: number;
   share_view_count: number;
+  retention_y1: number | null;
+}
+export interface ManagerTeamRoi {
+  agent_count: number;
+  hours_saved_per_agent: number;
+  team_hours_saved: number;
+  extra_consults: number;
+  note: string;
 }
 export interface ManagerDashboardResponse {
   agent_count: number;
   agents: ManagerAgentKpi[];
   totals: { customer_count: number; churn_risk_count: number; share_view_count: number };
+  team_funnel: Record<SalesStage, number>;
+  team_retention: RetentionYears;
+  roi: ManagerTeamRoi;
 }
 export async function getManagerDashboard(): Promise<ManagerDashboardResponse> {
   return request<ManagerDashboardResponse>("GET", "/manager/dashboard/", undefined, true);
@@ -1765,10 +1776,23 @@ export interface PortfolioBreakdown {
   unknown: number;       // 회차 미입력
 }
 
+/** 계약 유지율(추정) — rate=null 이면 평가 모수 부족 */
+export interface RetentionStat {
+  rate: number | null;   // %
+  reached: number;       // N년 평가 가능 모수
+  survived: number;      // N년 유지
+}
+export interface RetentionYears {
+  y1: RetentionStat;
+  y2: RetentionStat;
+  y3: RetentionStat;
+}
+
 export interface DashboardInsights {
   monthly_trend: MonthlyTrendPoint[];           // 최근 6개월
   funnel: Record<SalesStage, number>;           // 영업 4단계 카운트
   portfolio: PortfolioBreakdown;
+  retention: RetentionYears;                    // 1/2/3년 유지율(추정)
 }
 
 /** GET /api/v1/dashboard/insights/ — 홈 차트 집계(인증, owner 전용) */
@@ -1941,6 +1965,8 @@ export interface ChurnRadarItem {
   persistency_stage: PersistencyStage;
   is_at_risk: boolean;
   risk_reason: string;
+  is_cancelled: boolean;
+  cancelled_at: string | null;       // YYYY-MM-DD — 유지율 계산용
 }
 
 export interface ChurnRadarResponse {
@@ -1955,6 +1981,8 @@ export interface ChurnInputPayload {
   payment_status?: number | null;
   next_payment_date?: string | null; // YYYY-MM-DD
   expected_recovery_amount?: number | null;
+  is_cancelled?: boolean;
+  cancelled_at?: string | null;      // YYYY-MM-DD
 }
 
 /** GET /api/v1/churn-radar/ — 환수 위험 집계 + 보유정책 리스트 */

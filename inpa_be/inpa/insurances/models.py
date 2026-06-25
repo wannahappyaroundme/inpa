@@ -232,6 +232,10 @@ class CustomerInsurance(models.Model):
     next_payment_date = models.DateField('다음 납입일', default=None, null=True, blank=True)
     expected_recovery_amount = models.IntegerField('예상 환수액(추정)', default=None, null=True, blank=True)
 
+    # ── 계약 유지율(1/2/3년) 추적 — 해지 여부/해지일(수기). retention 집계용(추정 라벨). ──
+    is_cancelled = models.BooleanField('해지 여부', default=False)
+    cancelled_at = models.CharField('해지일', max_length=10, default=None, null=True, blank=True)  # YYYY-MM-DD
+
     # ── 파싱 정확도 다중검사 결과(Claude 교차검증) — verify.py 산출. null=미검증. ──
     # {checked, confidence(high|medium|low), issues[], missing[], note} — 설계사 확인용 플래그.
     verification = models.JSONField('파싱 검증 결과', default=None, null=True, blank=True)

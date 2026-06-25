@@ -43,6 +43,8 @@ type Draft = {
   payment_status: string;
   next_payment_date: string;
   expected_recovery_amount: string;
+  is_cancelled: boolean;
+  cancelled_at: string;
 };
 
 function toDraft(it: ChurnRadarItem): Draft {
@@ -51,6 +53,8 @@ function toDraft(it: ChurnRadarItem): Draft {
     payment_status: it.payment_status?.toString() ?? "",
     next_payment_date: it.next_payment_date ?? "",
     expected_recovery_amount: it.expected_recovery_amount?.toString() ?? "",
+    is_cancelled: it.is_cancelled,
+    cancelled_at: it.cancelled_at ?? "",
   };
 }
 
@@ -102,6 +106,8 @@ export default function ChurnRadarPage() {
         payment_status: numOrNull(d.payment_status),
         next_payment_date: d.next_payment_date.trim() === "" ? null : d.next_payment_date,
         expected_recovery_amount: numOrNull(d.expected_recovery_amount),
+        is_cancelled: d.is_cancelled,
+        cancelled_at: d.is_cancelled && d.cancelled_at.trim() !== "" ? d.cancelled_at : null,
       });
       setSavedId(it.insurance_id);
       setTimeout(() => setSavedId(null), 1800);
@@ -244,6 +250,31 @@ export default function ChurnRadarPage() {
                       />
                     </label>
                   </div>
+
+                  {/* 해지 여부 — 계약 유지율 계산용 (PM 06.24) */}
+                  <label className="mt-2.5 flex items-center gap-2 text-[13px] text-ink2">
+                    <input
+                      type="checkbox"
+                      checked={d?.is_cancelled ?? false}
+                      onChange={(e) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [it.insurance_id]: { ...prev[it.insurance_id], is_cancelled: e.target.checked },
+                        }))
+                      }
+                      className="w-4 h-4 accent-rose-500"
+                    />
+                    해지된 계약
+                    {d?.is_cancelled && (
+                      <input
+                        type="date"
+                        value={d?.cancelled_at ?? ""}
+                        onChange={(e) => setField(it.insurance_id, "cancelled_at", e.target.value)}
+                        className="ml-1 rounded-lg border border-line bg-surface px-2 py-1 text-[13px] text-ink"
+                        aria-label="해지일"
+                      />
+                    )}
+                  </label>
 
                   <div className="mt-2.5 flex items-center justify-end gap-2">
                     {savedId === it.insurance_id && (

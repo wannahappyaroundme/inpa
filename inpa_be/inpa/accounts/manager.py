@@ -16,6 +16,9 @@ from rest_framework.views import APIView
 from inpa.analytics.models import NorthStarEvent
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer
+from inpa.dashboard.aggregation import (
+    compute_funnel, compute_retention, compute_team_roi,
+)
 from inpa.insurances.churn import _assess
 from inpa.insurances.models import CustomerInsurance
 
@@ -38,6 +41,11 @@ class ManagerDashboardView(APIView):
 
         agents = []
         tot_customers = tot_risk = tot_share = 0
+        # 팀 집계(PM 06.24): 퍼널·유지율은 기존 개별 집계 함수를 팀 루프로 재사용 — PII 비노출(수치만).
+        STAGES = (Customer.STAGE_DB, Customer.STAGE_CONTACT,
+                  Customer.STAGE_MEETING, Customer.STAGE_CONTRACT)
+        team_funnel = {k: 0 for k in STAGES}
+        ret_acc = {f'y{n}': {'reached': 0, 'survived': 0} for n in (1, 2, 3)}
         for profile in profiles:
             agent = profile.user
             customer_count = Customer.objects.filter(owner=agent).count()
@@ -46,15 +54,31 @@ class ManagerDashboardView(APIView):
             risk = sum(1 for ci in held if _assess(ci, today)[0])
             share_view = NorthStarEvent.objects.filter(
                 sender=agent, event_type=NorthStarEvent.SHARE_VIEW).count()
+            for k, v in compute_funnel(agent).items():
+                team_funnel[k] = team_funnel.get(k, 0) + v
+            ret = compute_retention(agent, today)
+            for n in (1, 2, 3):
+                ret_acc[f'y{n}']['reached'] += ret[f'y{n}']['reached']
+                ret_acc[f'y{n}']['survived'] += ret[f'y{n}']['survived']
             agents.append({
                 'name_masked': _mask(agent.email.split('@')[0]),
                 'customer_count': customer_count,
                 'churn_risk_count': risk,
                 'share_view_count': share_view,
+                'retention_y1': ret['y1']['rate'],
             })
             tot_customers += customer_count
             tot_risk += risk
             tot_share += share_view
+
+        team_retention = {}
+        for n in (1, 2, 3):
+            r = ret_acc[f'y{n}']
+            team_retention[f'y{n}'] = {
+                'rate': round(r['survived'] / r['reached'] * 100) if r['reached'] else None,
+                'reached': r['reached'],
+                'survived': r['survived'],
+            }
 
         return Response({
             'agent_count': len(agents),
@@ -64,4 +88,7 @@ class ManagerDashboardView(APIView):
                 'churn_risk_count': tot_risk,
                 'share_view_count': tot_share,
             },
+            'team_funnel': team_funnel,
+            'team_retention': team_retention,
+            'roi': compute_team_roi(len(agents)),
         })
