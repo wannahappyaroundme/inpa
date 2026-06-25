@@ -10,17 +10,17 @@ django-cors-headers==4.3.1
 psycopg2-binary==2.9.9
 
 # AI / OCR / 계산 (Phase 1.1 foliio vendoring 시 사용)
-anthropic
+anthropic==0.111.0
 pdfplumber==0.11.8       # 증권 PDF 텍스트 추출 (claude_parser 선행 — 운영 OCR 필수)
 numpy==1.24.4
 numpy-financial==1.0.0
-python-dateutil
+python-dateutil==2.9.0.post0
 Pillow==10.1.0
 
 # 운영
 gunicorn==21.2.0
 whitenoise==6.6.0          # prod 정적파일 서빙 (prod.py 미들웨어에서만 활성)
-sentry-sdk[django]
+sentry-sdk[django]==2.63.0  # prod에서 SENTRY_DSN 설정 시에만 활성
 
 # === 구글 연동 (소셜 로그인 + 캘린더) — 함수 내부 lazy import, env 게이트 ===
 google-auth==2.38.0              # ID 토큰 검증(소셜 로그인)

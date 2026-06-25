@@ -287,6 +287,7 @@ class Command(BaseCommand):
         self._seed_billing(planner, plans)
         manager = self._seed_manager(planner, neutral_planner)  # 13) 지점장 + 동의 연결
         self._seed_lead_and_alerts(planner, customers)          # 14) 셀프진단 리드 + 환수 알림
+        self._seed_history(planner)                             # 14b) 월별 이력 백필(홈 막대 추이)
         # 15~18) 어드민 운영 화면 채우기: 신고·미매칭·문의·동의로그
         self._seed_reports(extra_planners + [neutral_planner], posts)
         self._seed_unmatched()
@@ -476,6 +477,63 @@ class Command(BaseCommand):
             customers.append(cust)
         self.stdout.write(f'  [5] 고객 {len(customers)}명 생성 (owner={planner.email})')
         return customers
+
+    # ── 14b) 월별 이력 백필 — 홈 '월별 보험료 추이' 막대/신규 추이를 직전 5개월치 채움 ──
+    def _seed_history(self, planner):
+        """직전 5개월(현재월 제외)에 과거 고객 + 보유보험을 만들고 created_at 을 백데이트.
+
+        - created_at 은 auto_now_add 라 create() 인자로는 무시됨 → 생성 후
+          queryset.update(created_at=...) 로 덮어쓴다(update 는 auto_now 미발동).
+        - 멱등성은 _cleanup()(@inpa.local owner CASCADE)이 보장 → 별도 가드 불필요.
+        - 부수효과(의도): 과거 고객은 칸반/퍼널을, 보유보험(26회차=유지안정)은
+          환수 4색 카드 '유지안정'·도넛 'stable' 버킷을 함께 채운다.
+        """
+        today = timezone.now().date()
+        months = []
+        y, m = today.year, today.month
+        for _ in range(5):                  # 현재월 제외 직전 5개월
+            m -= 1
+            if m == 0:
+                m, y = 12, y - 1
+            months.append((y, m))
+        months.reverse()                    # 오래된 → 최근
+        # (그 달 신규 고객 수, 보유보험 월납 리스트) — 완만한 우상향
+        plan = [
+            (2, [120_000]),
+            (3, [90_000, 110_000]),
+            (2, [160_000]),
+            (3, [130_000, 120_000]),
+            (4, [180_000, 140_000]),
+        ]
+        stages = [Customer.STAGE_CONTRACT, Customer.STAGE_MEETING,
+                  Customer.STAGE_CONTACT, Customer.STAGE_DB]
+        nc = ni = 0
+        for (yy, mm), (cust_n, premiums) in zip(months, plan):
+            dt = timezone.now().replace(year=yy, month=mm, day=14,
+                                        hour=12, minute=0, second=0, microsecond=0)
+            month_customers = []
+            for j in range(cust_n):
+                c = Customer.objects.create(
+                    owner=planner, name=f'[DEMO-H] {yy}{mm:02d}-{j + 1}',
+                    mobile_phone_number='010-0000-0000', is_agree_term=True,
+                    sales_stage=stages[(nc + j) % len(stages)])
+                Customer.objects.filter(pk=c.pk).update(created_at=dt)
+                month_customers.append(c)
+                nc += 1
+            for k, prem in enumerate(premiums):
+                owner_c = month_customers[k % len(month_customers)]
+                ci = CustomerInsurance.objects.create(
+                    customer=owner_c, insurance_type=2,
+                    name=f'[DEMO-H]보유보험 {yy}{mm:02d}-{k + 1}',
+                    portfolio_type=1, payment_period_type=1, payment_period=20,
+                    warranty_period_type=1, warranty_period=100,
+                    contract_date=f'{yy}.{mm:02d}.14', expiry_date='2060.01.01',
+                    monthly_premiums=prem, monthly_assurance_premium=prem,
+                    insured_name=owner_c.name, contractor_name=owner_c.name,
+                    is_same_insured=True, current_payment_period=26)  # 26회차→유지안정
+                CustomerInsurance.objects.filter(pk=ci.pk).update(created_at=dt)
+                ni += 1
+        self.stdout.write(f'  [14b] 월별 이력 백필: 과거 고객 {nc}명 + 보유보험 {ni}건 (직전 5개월)')
 
     # ── 6) 고객 2명 포트폴리오 (held_amount > 0) ─────────────────────────
     def _seed_portfolios(self, customers, catalog_by_std_name):

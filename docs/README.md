@@ -3,10 +3,11 @@
 > **인파(Inpa)** = 인슈어 + 파트너. 위촉직 보험설계사가 **[발굴 → 분석 → 갈아타기 제안 → 성사]** 를 한 흐름으로 끝내는 **AI 영업 파트너**.
 > 분석=무료 미끼 / 콘텐츠=발굴 wedge / 리텐션=복리. foliio 코드 90% 재활용, **갈아타기 자동 비교안내서(§97 방패)** + **보험사별 담보명 정규화 사전(데이터 복리)** 가 해자.
 > 작성: 6역할(대표·사업관리·기획·마케터·디자이너·개발) 라운드테이블 토론 → 도출. 2026-06-18.
+> ⚠️ **이 문서는 2026-06-18 기획 스냅샷.** 현재 개발 상태·확정 스택의 SSOT는 [/CLAUDE.md](../CLAUDE.md) + **[dev/00-INDEX.md](dev/00-INDEX.md)**. 이후 변경된 결정: DB MariaDB→**PostgreSQL/Neon**(2026-06-21), 인증에 **구글 OAuth 병행** 추가. 아래 '라운드테이블 합의 12'·'충돌 해소'는 당시 기록 그대로 보존(역사 — 현재 상태와 다를 수 있음).
 
 ---
 
-## 문서 (기획 7 + 개발 4)
+## 문서 (기획 7 + 개발 dev/00~25)
 
 ### 기획
 | 문서 | 내용 |
@@ -19,13 +20,14 @@
 | [06-business-model.md](06-business-model.md) | Freemium·가격·유닛이코노믹스 |
 | [07-gtm-and-roadmap.md](07-gtm-and-roadmap.md) | 방문영업·마케팅·바이럴·로드맵·마일스톤 |
 
-### 개발 (`dev/`)
-| 문서 | 내용 |
+### 개발 (`dev/`, 00~25 — 26개 문서)
+**[dev/00-INDEX.md](dev/00-INDEX.md) = 마스터 지도(SSOT 진입점)** · 데이터모델 정본 = [dev/02-data-model-and-api.md](dev/02-data-model-and-api.md)(42 엔티티 + 가시성 매트릭스).
+
+| 범위 | 내용 |
 |---|---|
-| [dev/01-architecture-and-stack.md](dev/01-architecture-and-stack.md) | 아키텍처·스택·셋업·보안 |
-| [dev/02-data-model-and-api.md](dev/02-data-model-and-api.md) | DB 스키마·담보 트리·정규화 사전·API |
-| [dev/03-porting-map.md](dev/03-porting-map.md) | foliio → 인파 포팅 지도(파일별 등급) |
-| [dev/04-build-plan.md](dev/04-build-plan.md) | Phase·스프린트·게이트 |
+| [00 INDEX](dev/00-INDEX.md) · [01 아키텍처](dev/01-architecture-and-stack.md) · [02 데이터모델·API](dev/02-data-model-and-api.md) · [03 포팅지도](dev/03-porting-map.md) · [04 빌드계획](dev/04-build-plan.md) | 진입점·아키텍처·DB/API 정본·포팅·빌드 |
+| 05 사전준비 · 06 MVP슬라이스 · 07 API계약 · 08 히트맵 · 09 컴플라이언스라인 · 10 기준선 | 설계·계약 |
+| 11 인증 · 12 고객/OCR · 13 공유 · 14 카피규칙 · 15 대시보드 · 16 법무/동의 · 17 게시판 · 18 모바일 · 19 관리자 · 20 데브옵스 · 21 판촉물 · 22 알림 · 23 요금제 · 24 랜딩 · 25 배포가이드 | 스트림별 명세 |
 
 > `_brief.json` = 라운드테이블 원본 브리프(토론·결정·문서가이드). `_archive-foliio/` = 이전 'Foliio 영업지원 에디션' 명칭 기획 원본(보존).
 

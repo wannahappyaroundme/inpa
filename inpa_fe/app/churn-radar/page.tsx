@@ -120,8 +120,8 @@ export default function ChurnRadarPage() {
   const items = data?.items ?? [];
   const reminderCards = [
     { tone: "var(--danger)", icon: "!", label: "환수 위험", count: items.filter((i) => i.is_at_risk).length },
-    { tone: "#F97316", icon: "⏰", label: "13회차 이내", count: items.filter((i) => !i.is_at_risk && i.persistency_stage === "pre_13").length },
-    { tone: "var(--warning)", icon: "📅", label: "25회차 이내", count: items.filter((i) => !i.is_at_risk && i.persistency_stage === "pre_25").length },
+    { tone: "var(--warning)", icon: "⏰", label: "13회차 이내", count: items.filter((i) => !i.is_at_risk && i.persistency_stage === "pre_13").length },
+    { tone: "var(--accent-blue)", icon: "📅", label: "25회차 이내", count: items.filter((i) => !i.is_at_risk && i.persistency_stage === "pre_25").length },
     { tone: "var(--success)", icon: "✓", label: "유지 안정", count: items.filter((i) => i.persistency_stage === "safe").length },
   ];
 

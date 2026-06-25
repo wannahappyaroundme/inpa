@@ -12,17 +12,17 @@
   /* 랜딩 헤더 높이 — 버튼(44px) 위아래로 충분한 여백 확보(상하 ~10px). 미정의 시 헤더가 버튼에 붙어 답답함. */
   --header-h: 64px;
 
-  --brand: #0B57D0; --brand-ink: #0A3A86;          /* 표지판 파랑 = 메인 서브컬러 */
-  --accent-blue: #0B57D0; --accent-tint: #E8F0FE;
-  --proposal: #0B57D0; --existing: #12B5A4;
+  --brand: #2F58DC; --brand-ink: #22409E;          /* 신호등 파랑 = 메인 서브컬러 */
+  --accent-blue: #2F58DC; --accent-tint: #E9EEFC;
+  --proposal: #2F58DC; --existing: #12B5A4;
 
-  /* 담보 상태 = 신호등 + 안내 파랑 (범례 4색) */
-  --cov-over:   #0B57D0;  /* 넉넉(과보장) — 파랑 */
-  --cov-enough: #15803D;  /* 적정 — 초록 */
-  --cov-short:  #F59E0B;  /* 부족 — 노랑 */
-  --cov-none:   #DC2626;  /* 없음 — 빨강 */
+  /* 담보 상태 = 신호등 4색 (범례) — 파랑 #2F58DC / 초록 #6AAC72 / 노랑 #E7B23E / 빨강 #C73E38 */
+  --cov-over:   #2F58DC;  /* 넉넉(과보장) — 파랑 */
+  --cov-enough: #6AAC72;  /* 적정 — 초록 */
+  --cov-short:  #E7B23E;  /* 부족 — 노랑 */
+  --cov-none:   #C73E38;  /* 없음 — 빨강 */
 
-  --success: #15803D; --warning: #F59E0B; --danger: #DC2626;
+  --success: #6AAC72; --warning: #E7B23E; --danger: #C73E38;
 }
 
 /* 인파 로고 신호(ping) — 빨간 점에서 방사형으로 퍼지며 옅어짐(InpaMark live). */
