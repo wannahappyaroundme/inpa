@@ -1,6 +1,6 @@
-"""운영 설정 — MariaDB(매니지드), 보안 헤더, whitenoise 정적서빙.
+"""운영 설정 — PostgreSQL(Neon 매니지드), 보안 헤더, whitenoise 정적서빙.
 
-Railway(BE+MySQL/MariaDB) 환경변수 주입을 전제로 한다.
+Render(BE) + Neon(PostgreSQL) 환경변수 주입을 전제로 한다.
 모든 호스트/오리진/시크릿은 코드에 하드코딩하지 않고 env에서 읽는다.
 base.py / local.py 는 건드리지 않는다(로컬 테스트 보호) — whitenoise 미들웨어는 이 파일에만 추가.
 """
@@ -11,24 +11,25 @@ from .base import *  # noqa: F401,F403
 DEBUG = False
 
 # ── 안전판: 운영에서 데모 SECRET_KEY 로 토큰 서명되는 사고 차단 (fail-loud) ──
-# Railway Variables 에 SECRET_KEY 미설정 시 base 의 데모 default 가 들어오는데,
+# Render 환경변수에 SECRET_KEY 미설정 시 base 의 데모 default 가 들어오는데,
 # 그 상태로 gunicorn 이 뜨면 토큰 위조가 가능해진다. 빌드(collectstatic)는 더미키를 주입하므로 통과.
 if SECRET_KEY == 'dev-insecure-change-me':  # noqa: F405
     raise ImproperlyConfigured(
-        'SECRET_KEY 가 설정되지 않았습니다. Railway Variables 에 SECRET_KEY 를 넣어주세요. '
+        'SECRET_KEY 가 설정되지 않았습니다. Render 환경변수에 SECRET_KEY 를 넣어주세요. '
         "(생성: python3 -c \"import secrets; print(secrets.token_urlsafe(64))\")"
     )
 
 # ── 호스트 / 오리진 (전부 env 주입) ───────────────────────────────
-# Railway 도메인·커스텀 도메인을 콤마로 구분해 ALLOWED_HOSTS 에 넣는다.
-# 예: ALLOWED_HOSTS=inpa-be.up.railway.app,api.inpa.kr
+# Render 도메인·커스텀 도메인을 콤마로 구분해 ALLOWED_HOSTS 에 넣는다.
+# (Render 도메인은 RENDER_EXTERNAL_HOSTNAME 으로 자동 추가됨 — 아래 참조)
+# 예: ALLOWED_HOSTS=inpa-be.onrender.com,api.inpa.kr
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])  # noqa: F405
 
 # CSRF (Django admin·세션쿠키 사용 시 필수). https 스킴 포함 전체 URL.
-# 예: CSRF_TRUSTED_ORIGINS=https://inpa.kr,https://inpa-be.up.railway.app
+# 예: CSRF_TRUSTED_ORIGINS=https://inpa.kr,https://inpa-be.onrender.com
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])  # noqa: F405
 
-# CORS (Vercel FE → Railway BE). https 스킴 포함 전체 URL.
+# CORS (Vercel FE → Render BE). https 스킴 포함 전체 URL.
 # 예: CORS_ALLOWED_ORIGINS=https://inpa.vercel.app,https://inpa.kr
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])  # noqa: F405
 CORS_ALLOW_CREDENTIALS = True
@@ -41,7 +42,7 @@ if _render_host:
     CSRF_TRUSTED_ORIGINS = list(CSRF_TRUSTED_ORIGINS) + [f'https://{_render_host}']
 
 # ── DB ───────────────────────────────────────────────────────────
-# DATABASE_URL=mysql://user:pass@host:3306/db (Railway MySQL 플러그인 주입, django-environ 파싱)
+# DATABASE_URL=postgres://user:pass@host:5432/db (Neon PostgreSQL, django-environ 파싱)
 DATABASES = {
     'default': env.db('DATABASE_URL'),  # noqa: F405
 }

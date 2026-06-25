@@ -17,6 +17,7 @@
 - DB: **PostgreSQL**(운영=Neon 무료, 로컬=SQLite) — 2026-06-21 Railway 무료티어 폐지로 MariaDB→PG 전환(Django ORM이라 코드 영향 0, `psycopg2-binary`). / AI: Claude API(비교안내서·정규화=Opus 4.8 / 다건OCR=Haiku / 야간=Batches).
 - **재사용=Python 백엔드 / 신규=Next.js 프론트**(3축 화면은 어차피 신규). Angular 컴포넌트는 재구현.
 - 디자인 토큰: `design/tokens/inpa-tokens.css`(:root CSS변수) → Tailwind config 매핑. 로고: `design/logo/*.svg`.
+- 로컬 전용 디렉터리(커밋 금지, `.gitignore` 차단): `samples/` = 실제 증권·가입설계서 PDF(PII·민감정보 — 절대 커밋·인용 금지) · `benchmark/` = UI 벤치마킹 참조 스크린샷(디자인 레퍼런스 전용). 루트의 `*.jpeg`·`calender*.webp`는 커밋된 디자인 참조 이미지.
 - CPO=CTO 겸임(사용자 결정). 외부 법무 자문 계약 없음 → 컴플라이언스 게이트는 보수적 기본값+공개 가이드(협회·금감원)로 자체 처리, 유료 정식출시 전 재검토.
 
 ## 개발 명령어 (commands)
@@ -28,7 +29,7 @@
 - 마이그레이션: `python manage.py makemigrations` → `python manage.py migrate`.
 - 전체 테스트: `python manage.py test inpa` / 단일: `python manage.py test inpa.booking` · `python manage.py test inpa.accounts.tests.LoginTests.test_x`(점 표기).
 - 배포 전 점검(필수): `python manage.py check`.
-- 시드(화면 렌더 확인용, 멱등): 데모 데이터 `python manage.py seed_demo` · 정규화 사전 `python manage.py seed_normalization`.
+- 시드(화면 렌더 확인용, 멱등): 데모 데이터 `python manage.py seed_demo` · 정규화 사전 `python manage.py seed_normalization` · 백오피스 관리자 계정 `python manage.py create_admin`. (배포 시 Render `startCommand`는 `seed_normalization`만 자동 실행 — `seed_demo`는 수동.)
 - Django admin: `/admin/`. (운영 백오피스는 별도 `admin_console` API + FE `/admin/*`.)
 
 ### 프론트엔드 (`inpa_fe/`, Node 20, **Next.js 16 + React 19**)

@@ -1,4 +1,4 @@
-"""인파 백엔드 공통 설정. 환경별 분리: local(SQLite) / prod(MariaDB)."""
+"""인파 백엔드 공통 설정. 환경별 분리: local(SQLite) / prod(PostgreSQL)."""
 from pathlib import Path
 
 import environ
@@ -74,7 +74,7 @@ TEMPLATES = [
     },
 ]
 
-# ── DB (기본 SQLite — local 상속, prod에서 MariaDB로 override) ────
+# ── DB (기본 SQLite — local 상속, prod에서 PostgreSQL로 override) ────
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',

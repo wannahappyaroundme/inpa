@@ -34,6 +34,9 @@ db.sqlite3
 # === 샘플 증권/가입설계서 (실제 고객 PII·민감정보 가능 — 절대 커밋 금지) ===
 samples/
 
+# === UI 벤치마킹 참조 이미지 (디자인 레퍼런스 — 저장소에 안 넣음) ===
+benchmark/
+
 # === OS / editor ===
 .DS_Store
 Thumbs.db
