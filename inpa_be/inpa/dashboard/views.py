@@ -8,7 +8,9 @@ from rest_framework.views import APIView
 
 from inpa.core.permissions import IsEmailVerified
 
-from .aggregation import compute_actuals
+from .aggregation import (
+    compute_actuals, compute_funnel, compute_portfolio_breakdown, compute_trend,
+)
 from .models import MonthlyGoal
 from .serializers import MonthlyGoalSerializer
 
@@ -62,3 +64,18 @@ class DashboardView(APIView):
         serializer.save()
         goal.refresh_from_db()
         return Response(self._payload(goal, request.user))
+
+
+class InsightsView(APIView):
+    """GET /api/v1/dashboard/insights/ — 홈 차트용 집계(저장 없이 on-demand). owner 전용.
+
+    monthly_trend(최근 6개월 막대) · funnel(영업 4단계) · portfolio(보유계약 유지현황 도넛).
+    """
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+
+    def get(self, request):
+        return Response({
+            'monthly_trend': compute_trend(request.user, n=6),
+            'funnel': compute_funnel(request.user),
+            'portfolio': compute_portfolio_breakdown(request.user),
+        })

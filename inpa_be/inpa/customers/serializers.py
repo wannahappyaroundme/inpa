@@ -62,7 +62,7 @@ class CustomerListSerializer(serializers.ModelSerializer):
         model = Customer
         fields = ('id', 'name', 'gender', 'birth_day', 'mobile_phone_number',
                   'consent_overseas_at', 'color', 'tags', 'family_count',
-                  'share_token', 'created_at')
+                  'sales_stage', 'share_token', 'created_at')
 
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -81,7 +81,7 @@ class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
         fields = ('id', 'name', 'mobile_phone_number', 'birth_day', 'gender', 'job_code',
-                  'memo', 'color', 'is_agree_term', 'consent_overseas_at',
+                  'memo', 'color', 'is_agree_term', 'consent_overseas_at', 'sales_stage',
                   'share_token', 'share_expires_at', 'share_sent_at', 'user_view_at',
                   'tags', 'tag_ids', 'family_members', 'medical_histories',
                   'created_at', 'updated_at')

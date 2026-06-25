@@ -113,6 +113,12 @@
   display: none;
 }
 
+/* 모바일 하단 탭바(.app-bottom-nav)가 있는 인증 페이지에서만 본문 하단 여백 확보(콘텐츠 가림 방지).
+   랜딩/로그인 등 하단탭 없는 페이지엔 적용 안 됨(:has 스코프). 데스크탑(sm+)은 탭바 숨김이라 불필요. */
+@media (max-width: 639px) {
+  body:has(.app-bottom-nav) main { padding-bottom: 76px; }
+}
+
 html, body { background: var(--surface-2); color: var(--ink); }
 body {
   font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,

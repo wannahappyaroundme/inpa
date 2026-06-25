@@ -79,3 +79,28 @@ class DashboardTests(TestCase):
         self.client_b.patch('/api/v1/dashboard/', {'target_meetings': 99}, format='json')
         r = self.client.get('/api/v1/dashboard/')
         self.assertEqual(r.json()['target_meetings'], 0)
+
+
+class InsightsTests(TestCase):
+    """홈 차트 집계 — trend 6개월·funnel 4단계·portfolio 도넛·owner 격리."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('ins@test.com')
+        self.user_b, self.client_b = _make_planner('insb@test.com')
+
+    def test_shape(self):
+        r = self.client.get('/api/v1/dashboard/insights/')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(len(body['monthly_trend']), 6)
+        self.assertEqual(set(body['funnel']), {'db', 'contact', 'meeting', 'contract'})
+        self.assertEqual(set(body['portfolio']), {'at_risk', 'watch', 'stable', 'unknown'})
+
+    def test_funnel_counts_by_stage_owner_scoped(self):
+        Customer.objects.create(owner=self.user, name='가', sales_stage=Customer.STAGE_DB)
+        Customer.objects.create(owner=self.user, name='나', sales_stage=Customer.STAGE_CONTRACT)
+        Customer.objects.create(owner=self.user_b, name='타인', sales_stage=Customer.STAGE_DB)
+        funnel = self.client.get('/api/v1/dashboard/insights/').json()['funnel']
+        self.assertEqual(funnel['db'], 1)       # 타인(B) 미포함
+        self.assertEqual(funnel['contract'], 1)
+        self.assertEqual(funnel['meeting'], 0)

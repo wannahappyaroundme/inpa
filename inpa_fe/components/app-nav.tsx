@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getProfile, getUnreadCount, tokenStore } from "@/lib/api";
+import { BottomNav } from "./bottom-nav";
 
 function Logo() {
   return (
@@ -71,6 +72,7 @@ export function AppNav({ active }: { active?: NavKey }) {
   ];
 
   return (
+    <>
     <header className="sticky top-0 z-30 bg-surface/90 backdrop-blur border-b border-line">
       <div className="mx-auto max-w-5xl px-4 sm:px-6 h-14 flex items-center justify-between">
         <div className="flex items-center gap-4 sm:gap-6 min-w-0">
@@ -78,7 +80,8 @@ export function AppNav({ active }: { active?: NavKey }) {
             <Logo />
             <span className="font-extrabold text-brand-ink text-[17px]">인파</span>
           </Link>
-          <nav className="flex items-center gap-0.5 overflow-x-auto">
+          {/* 데스크탑 헤더 내비 — 모바일에선 숨기고 하단 탭바(BottomNav)로 대체 */}
+          <nav className="hidden sm:flex items-center gap-0.5 overflow-x-auto">
             {items.map((it) => (
               <Link
                 key={it.key}
@@ -140,5 +143,7 @@ export function AppNav({ active }: { active?: NavKey }) {
         </div>
       </div>
     </header>
+    <BottomNav active={active} isAdmin={isAdmin} isManager={isManager} />
+    </>
   );
 }
