@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation";
 import { tokenStore } from "@/lib/api";
 import { InpaMark } from "@/components/inpa-logo";
 import { Reveal, CountUp } from "@/components/reveal";
+import { LineCompareChart } from "@/components/charts";
 import {
   LayoutGrid, BarChart3, ArrowLeftRight, ShieldCheck, ScanLine,
-  Upload, Sparkles, Share2, Check, FileCheck, Ban, type LucideIcon,
+  Upload, Sparkles, Share2, Check, FileCheck, Ban,
+  Users, CalendarDays, MessageSquare, Target, Package, type LucideIcon,
 } from "lucide-react";
 
 // 인파 랜딩 — Phase B: Phase A(다크 명암 리듬·lucide·타이포) + 경량 모션(스크롤 등장·카운트업·히트맵 팝).
@@ -148,6 +150,125 @@ function FeaturesSection() {
               <FeatureIcon icon={c.icon} />
               <h3 className="mt-4 font-bold text-[17px] text-[var(--ink)]">{c.title}</h3>
               <p className="mt-2 text-[14px] text-[var(--ink-3)] leading-relaxed">{c.desc}</p>
+            </Reveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// 기능 미리보기(벤치마킹 002~007) — 카드별 작은 데모 비주얼. 마케팅용 예시(실데이터 아님).
+function ShowcaseViz({ kind }: { kind: "analysis" | "funnel" | "calendar" | "message" | "kpi" | "promo" }) {
+  switch (kind) {
+    case "analysis":
+      return (
+        <div className="w-full">
+          <LineCompareChart
+            series={[
+              { label: "기존", color: "var(--existing)", points: [18, 30, 24, 38, 32] },
+              { label: "제안", color: "var(--proposal)", points: [26, 40, 38, 52, 60] },
+            ]}
+          />
+          <div className="mt-1 flex gap-3 text-[10px] text-ink3">
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-[3px] rounded" style={{ background: "var(--existing)" }} />기존</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-[3px] rounded" style={{ background: "var(--proposal)" }} />제안</span>
+          </div>
+        </div>
+      );
+    case "funnel": {
+      const cols = [{ l: "DB", v: 12 }, { l: "전화", v: 8 }, { l: "대면", v: 5 }, { l: "계약", v: 3 }];
+      return (
+        <div className="grid grid-cols-4 gap-1.5 h-full w-full items-end">
+          {cols.map((c, i) => (
+            <div key={c.l} className="flex flex-col items-center">
+              <span className="text-[10px] font-bold text-ink tnum">{c.v}</span>
+              <div className="w-full h-10 flex items-end">
+                <div className="w-full rounded-t" style={{ height: `${(c.v / 12) * 100}%`, background: i === 3 ? "var(--brand)" : "var(--accent-tint)" }} />
+              </div>
+              <span className="text-[9px] text-ink3 mt-0.5">{c.l}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    case "calendar":
+      return (
+        <div className="grid grid-cols-7 gap-1 w-full">
+          {Array.from({ length: 14 }, (_, i) => i + 1).map((d) => (
+            <span
+              key={d}
+              className={`text-[8.5px] text-center rounded-full py-0.5 ${d === 12 ? "bg-brand text-white font-bold" : "text-ink3"}`}
+            >
+              {d}
+            </span>
+          ))}
+        </div>
+      );
+    case "message":
+      return (
+        <div className="w-full space-y-1">
+          <div className="inline-block max-w-full rounded-lg rounded-bl-none bg-accent-tint text-ink2 text-[10px] px-2 py-1 leading-snug">
+            안녕하세요 김OO님, 상담 일정을 예약해 주세요 🙂
+          </div>
+          <div className="text-[10px] font-semibold text-brand">🔗 booking.inpa.co/1234</div>
+        </div>
+      );
+    case "kpi":
+      return (
+        <div className="w-full">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[10px] text-ink3">목표 달성률</span>
+            <span className="text-[14px] font-extrabold text-brand tnum">85%</span>
+          </div>
+          <div className="mt-1 h-2 rounded-full bg-surface overflow-hidden">
+            <div className="h-full rounded-full bg-brand" style={{ width: "85%" }} />
+          </div>
+          <div className="mt-1.5 text-[9px] text-ink3 tnum">목표 1억 · 실적 8,500만</div>
+        </div>
+      );
+    case "promo":
+      return (
+        <div className="flex gap-1.5 w-full h-full items-center">
+          {["달력", "다이어리", "생활용품"].map((l) => (
+            <div key={l} className="flex-1 rounded-lg bg-surface border border-line py-3 text-center text-[9px] text-ink3">
+              {l}
+            </div>
+          ))}
+        </div>
+      );
+  }
+}
+
+function FeatureShowcaseSection() {
+  const cards: { icon: LucideIcon; title: string; sub: string; kind: "analysis" | "funnel" | "calendar" | "message" | "kpi" | "promo" }[] = [
+    { icon: ArrowLeftRight, title: "보험 분석 & 비교", sub: "기존 증권 분석 및 비교 차트 제공", kind: "analysis" },
+    { icon: Users, title: "고객 관리 시스템", sub: "영업 4단계별 고객 분류·관리", kind: "funnel" },
+    { icon: CalendarDays, title: "일정 & 예약 관리", sub: "상담 일정 예약 및 자동 등록", kind: "calendar" },
+    { icon: MessageSquare, title: "문자 & 예약 링크", sub: "고객에게 예약 링크 문자 발송", kind: "message" },
+    { icon: Target, title: "성과 관리 & KPI", sub: "목표 설정 및 성과 추적", kind: "kpi" },
+    { icon: Package, title: "판촉물 디자인 & 발주", sub: "디자인 요청부터 발주까지 한번에", kind: "promo" },
+  ];
+  return (
+    <section className="py-20 md:py-28 bg-[var(--surface-2)]">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
+        <Reveal>
+          <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">기능 한눈에 보기</h2>
+          <p className="mt-3 text-center text-[16px] text-[var(--ink-3)]">분석부터 고객관리·일정·성과까지, 영업 한 동선을 한 앱에서.</p>
+        </Reveal>
+        <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {cards.map((c, i) => (
+            <Reveal
+              key={c.title}
+              delay={(i % 3) * 90}
+              className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-6 shadow-[0_1px_2px_rgba(16,24,40,.04),0_12px_28px_-12px_rgba(16,24,40,.10)] hover:-translate-y-0.5 transition"
+            >
+              <FeatureIcon icon={c.icon} />
+              <h3 className="mt-4 font-bold text-[16px] text-[var(--ink)]">{c.title}</h3>
+              <p className="mt-1.5 text-[13px] text-[var(--ink-3)] leading-relaxed">{c.sub}</p>
+              <div className="mt-4 rounded-xl bg-[var(--surface-2)] border border-[var(--line)] px-3 min-h-[84px] flex items-center">
+                <ShowcaseViz kind={c.kind} />
+              </div>
             </Reveal>
           ))}
         </div>
@@ -321,6 +442,7 @@ export default function LandingPage() {
         <HeroSection />
         <TrustBar />
         <FeaturesSection />
+        <FeatureShowcaseSection />
         <DifferentiatorsSection />
         <HowItWorksSection />
         <PricingSection />
