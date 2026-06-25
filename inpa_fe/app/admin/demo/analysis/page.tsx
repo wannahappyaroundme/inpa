@@ -61,7 +61,7 @@ export default function DemoAnalysis() {
 
       <p className="px-1 py-5 text-[12px] leading-5 text-muted">
         이 자료는 입력된 증권 정보를 정리한 거예요. 보장이 충분한지 등 <b className="font-semibold text-ink3">판단과 권유는
-        담당 설계사</b>를 통해 확인하세요. 최종 책임은 설계사에게 있습니다.
+        설계사님이 직접</b> 확인해주세요. 최종 책임은 설계사에게 있습니다.
       </p>
     </div>
   );

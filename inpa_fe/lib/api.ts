@@ -349,13 +349,16 @@ export interface CustomerTag {
 /** 영업 4단계(파이프라인) — BE Customer.SALES_STAGE_CHOICES 대응. 칸반/퍼널 공용. */
 export type SalesStage = "db" | "contact" | "meeting" | "contract";
 
-/** 단계 메타(순서·라벨) — 칸반 컬럼/퍼널 셀이 이 순서·라벨을 그대로 쓴다. */
-export const SALES_STAGES: { key: SalesStage; label: string; short: string }[] = [
-  { key: "db", label: "DB확보", short: "01" },
-  { key: "contact", label: "전화·메신저", short: "02" },
-  { key: "meeting", label: "대면상담", short: "03" },
-  { key: "contract", label: "계약", short: "04" },
+/** 단계 메타(순서·라벨·? 툴팁 설명) — 칸반 컬럼/퍼널 셀이 이 순서·라벨을 그대로 쓴다. */
+export const SALES_STAGES: { key: SalesStage; label: string; short: string; desc: string }[] = [
+  { key: "db", label: "DB", short: "01", desc: "아직 상담 전인 예비 고객 명단이에요. 이름·연락처만 확보된 단계." },
+  { key: "contact", label: "TA", short: "02", desc: "TA(Telephone Approach): 전화·문자로 첫 접촉해 약속을 잡는 단계." },
+  { key: "meeting", label: "FA", short: "03", desc: "FA(Face-to-face Approach): 직접 만나 보장분석·상담하는 대면 단계." },
+  { key: "contract", label: "청약", short: "04", desc: "고객이 보험계약을 신청(청약서 작성)하는 계약 체결 단계." },
 ];
+
+/** 마케팅(개인정보 수집·이용) 동의 상태 — 'none'(기록 없음)도 비동의로 취급해 영업 자동화에서 제외. */
+export type MarketingConsent = "agreed" | "revoked" | "none";
 
 export interface CustomerListItem {
   id: number;
@@ -370,16 +373,25 @@ export interface CustomerListItem {
   sales_stage: SalesStage;
   share_token: string | null;
   created_at: string;
+  // ── 고객 관리(PM 06.24) ──
+  last_contacted_at: string | null;  // 방치 색상경보·정렬 기준
+  is_favorite: boolean;
+  is_pinned: boolean;
+  insurance_age: number | null;      // 보험나이(상령일)
+  job_risk_grade: number | null;     // 직업 위험등급 1|2|3|9
+  marketing_consent: MarketingConsent;
 }
 
 /** 상세 타입 (CustomerSerializer 대응) */
 export interface CustomerDetail extends CustomerListItem {
   job_code: string | null;
+  job_name: string | null;
   memo: string | null;
   is_agree_term: boolean;
   share_expires_at: string | null;
   share_sent_at: string | null;
   user_view_at: string | null;
+  business_card: string | null;      // 명함 이미지 URL
   updated_at: string;
   family_members: unknown[];
   medical_histories: unknown[];
@@ -405,6 +417,9 @@ export interface CustomerWritePayload {
   is_agree_term?: boolean;
   tag_ids?: number[];
   sales_stage?: SalesStage;     // 칸반 단계이동 = updateCustomer({sales_stage})
+  is_favorite?: boolean;
+  is_pinned?: boolean;
+  last_contacted_at?: string | null;  // '연락함' = updateCustomer({last_contacted_at: now})
 }
 
 // ─── Customer endpoints ──────────────────────────────────────────────────────
@@ -436,6 +451,24 @@ export async function updateCustomer(
   payload: Partial<CustomerWritePayload>
 ): Promise<CustomerDetail> {
   return request<CustomerDetail>("PATCH", `/customers/${id}/`, payload, true);
+}
+
+/** PATCH /api/v1/customers/{id}/ — 명함 이미지 멀티파트 업로드(C8). Content-Type은 브라우저가 boundary 설정. */
+export async function uploadBusinessCard(id: number, file: File): Promise<CustomerDetail> {
+  const form = new FormData();
+  form.append("business_card", file);
+  const headers: Record<string, string> = {};
+  const tok = tokenStore.get();
+  if (tok) headers["Authorization"] = `Token ${tok}`;
+  const res = await fetch(`${API_BASE}/customers/${id}/`, { method: "PATCH", headers, body: form });
+  let data: Record<string, unknown> = {};
+  try { data = await res.json(); } catch { /* empty */ }
+  if (!res.ok) {
+    const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
+    const detail = (data["detail"] as string) ?? (data["message"] as string) ?? res.statusText;
+    throw new ApiError(res.status, code, detail);
+  }
+  return data as unknown as CustomerDetail;
 }
 
 /** DELETE /api/v1/customers/{id}/ — 204 No Content → void */
@@ -495,6 +528,7 @@ export interface HeatmapResponse {
   customer_id: number;
   mode: "neutral" | "graded";
   baseline_present: boolean;
+  baseline_count: number;       // graded 근거(보유한 살아있는 기준 수) — PM 06.24 명확화
   insurance_count: number;
   summary: HeatmapSummary;
   chart_list: unknown[];

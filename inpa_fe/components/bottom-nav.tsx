@@ -84,7 +84,7 @@ export function BottomNav({
     { href: "/boards", label: "게시판" },
     { href: "/promotion", label: "판촉물" },
     { href: "/notifications", label: "알림" },
-    ...(isManager ? [{ href: "/manager", label: "지점 KPI" }] : []),
+    ...(isManager ? [{ href: "/manager", label: "관리직 KPI" }] : []),
     ...(isAdmin ? [{ href: "/admin", label: "관리자" }] : []),
     { href: "/settings/account", label: "내 계정" },
   ];

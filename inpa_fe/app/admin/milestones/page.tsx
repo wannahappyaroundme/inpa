@@ -110,7 +110,7 @@ const MILESTONES: Milestone[] = [
   {
     id: "P7c", track: "product", priority: "P1", status: "todo", owner: "공동",
     title: "베타 범위 축소 — '16개 끄고 1개 루프'",
-    detail: "게시판·판촉물·캘린더·KPI·지점장대시보드는 PMF 신호를 흐리는 노이즈(다수 합의).",
+    detail: "게시판·판촉물·캘린더·KPI·관리직 대시보드는 PMF 신호를 흐리는 노이즈(다수 합의).",
     how: "남길 단일 동선 = 증권 업로드 → 담보 한눈표(정규화) → 셀프진단 인바운드. 나머지는 숨김/비활성.",
   },
   {

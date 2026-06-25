@@ -168,7 +168,7 @@ export default function OnboardingPage() {
                 ))}
               </div>
               <label className="mt-4 block">
-                <span className="text-[13px] text-[var(--ink-3)]">지점장 이메일 (선택 — KPI 공유 시)</span>
+                <span className="text-[13px] text-[var(--ink-3)]">관리직 이메일 (선택 — KPI 공유 시)</span>
                 <input
                   type="email"
                   value={managerEmail}

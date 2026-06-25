@@ -7,7 +7,7 @@ from rest_framework import serializers
 
 from .models import (
     ConsentLog, Customer, CustomerMedicalHistory, CustomerTag, FamilyMember,
-    PlannerBaseline,
+    PlannerBaseline, compute_insurance_age,
 )
 
 
@@ -53,19 +53,49 @@ class PlannerBaselineSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'created_at', 'updated_at')
 
 
-class CustomerListSerializer(serializers.ModelSerializer):
+class _CustomerComputedMethods:
+    """List/Detail 공용 계산 필드 get_* 메서드 (SerializerMethodField 선언은 각 시리얼라이저 본문).
+
+    - insurance_age: 보험나이(상령일 — 만나이 +6개월 반올림).
+    - job_risk_grade / job_name: 직업 위험등급(1/2/3/9급)·직업명.
+    - marketing_consent: 'agreed'(유효 동의) | 'revoked'(철회) | 'none'(기록 없음).
+      consent_logs 는 ViewSet에서 prefetch — 캐시 순회로 N+1 회피.
+    """
+    def get_insurance_age(self, obj):
+        return compute_insurance_age(obj.birth_day)
+
+    def get_job_risk_grade(self, obj):
+        return obj.job_code.risk_grade if obj.job_code_id else None
+
+    def get_job_name(self, obj):
+        return obj.job_code.name if obj.job_code_id else None
+
+    def get_marketing_consent(self, obj):
+        log = next((c for c in obj.consent_logs.all()
+                    if c.scope == ConsentLog.SCOPE_MARKETING), None)
+        if log is None:
+            return 'none'
+        return 'revoked' if log.revoked_at else 'agreed'
+
+
+class CustomerListSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
     """목록 카드용 경량 직렬화 (dev/12 §5.1)."""
     tags = CustomerTagSerializer(many=True, read_only=True)
     family_count = serializers.IntegerField(source='family_members.count', read_only=True)
+    insurance_age = serializers.SerializerMethodField()
+    job_risk_grade = serializers.SerializerMethodField()
+    marketing_consent = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
         fields = ('id', 'name', 'gender', 'birth_day', 'mobile_phone_number',
                   'consent_overseas_at', 'color', 'tags', 'family_count',
-                  'sales_stage', 'share_token', 'created_at')
+                  'sales_stage', 'share_token', 'created_at',
+                  'last_contacted_at', 'is_favorite', 'is_pinned',
+                  'insurance_age', 'job_risk_grade', 'marketing_consent')
 
 
-class CustomerSerializer(serializers.ModelSerializer):
+class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
     """상세/생성/수정 (dev/12 §5.3·§5.4).
 
     tags는 쓰기 시 태그 id 배열(tag_ids)로 받고, 읽기 시 중첩 객체로 내린다.
@@ -77,6 +107,10 @@ class CustomerSerializer(serializers.ModelSerializer):
         queryset=CustomerTag.objects.all())
     family_members = FamilyMemberSerializer(many=True, read_only=True)
     medical_histories = CustomerMedicalHistorySerializer(many=True, read_only=True)
+    insurance_age = serializers.SerializerMethodField()
+    job_risk_grade = serializers.SerializerMethodField()
+    job_name = serializers.SerializerMethodField()
+    marketing_consent = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
@@ -84,6 +118,8 @@ class CustomerSerializer(serializers.ModelSerializer):
                   'memo', 'color', 'is_agree_term', 'consent_overseas_at', 'sales_stage',
                   'share_token', 'share_expires_at', 'share_sent_at', 'user_view_at',
                   'tags', 'tag_ids', 'family_members', 'medical_histories',
+                  'last_contacted_at', 'is_favorite', 'is_pinned', 'business_card',
+                  'insurance_age', 'job_risk_grade', 'job_name', 'marketing_consent',
                   'created_at', 'updated_at')
         read_only_fields = ('id', 'share_token', 'consent_overseas_at', 'share_sent_at',
                             'user_view_at', 'created_at', 'updated_at')

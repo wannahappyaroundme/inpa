@@ -1,6 +1,6 @@
 "use client";
 
-// 계정·모드 설정 — 위촉 형태(전속/GA), 지점장 KPI 공유, 익명 코호트 동의.
+// 계정·모드 설정 — 위촉 형태(전속/GA), 관리직 KPI 공유, 익명 코호트 동의.
 // updateProfile(PATCH /auth/profile/) 로 저장. 동의는 모두 기본 거부(opt-in).
 
 import { useState, useEffect } from "react";
@@ -116,10 +116,10 @@ export default function AccountSettingsPage() {
           </div>
         </Card>
 
-        {/* 지점장 KPI 공유 */}
+        {/* 관리직 KPI 공유 */}
         <Card className="px-5 py-4">
           <div className="flex items-center justify-between">
-            <div className="text-[15px] font-bold text-ink">지점장에게 KPI 공유</div>
+            <div className="text-[15px] font-bold text-ink">관리직에게 KPI 공유</div>
             <button
               disabled={saving}
               onClick={() => patch({ manager_share_opt_in: !p.manager_share_opt_in }, "공유 설정을 저장했어요")}
@@ -130,10 +130,10 @@ export default function AccountSettingsPage() {
             </button>
           </div>
           <p className="mt-1 text-[12px] text-ink3 leading-5">
-            켜면 지점장이 내 <b>집계 KPI</b>(고객수·환수위험·공유열람)만 봅니다. 개별 고객 정보는 공유되지 않아요.
+            켜면 관리직이 내 <b>집계 KPI</b>(고객수·환수위험·공유열람)만 봅니다. 개별 고객 정보는 공유되지 않아요.
           </p>
           <label className="mt-3 block">
-            <span className="text-[12px] text-ink3">지점장 이메일</span>
+            <span className="text-[12px] text-ink3">관리직 이메일</span>
             <div className="mt-1 flex gap-2">
               <input
                 type="email"
@@ -144,7 +144,7 @@ export default function AccountSettingsPage() {
               />
               <button
                 disabled={saving}
-                onClick={() => patch({ manager_email: managerEmail.trim() }, "지점장을 연결했어요")}
+                onClick={() => patch({ manager_email: managerEmail.trim() }, "관리직을 연결했어요")}
                 className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 disabled:opacity-60"
               >
                 연결
