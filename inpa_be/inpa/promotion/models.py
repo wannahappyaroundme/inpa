@@ -60,6 +60,12 @@ class PromotionSample(models.Model):
         help_text='[{"key":str,"label":str,"type":str,"required":bool,...}]',
     )
 
+    # ── 전자자료(전자명함·전자팜플렛·전자영업자료) — PM 06.24 ──
+    # is_digital=True: 1회 무료 다운로드(digital_file) 후, 2회차+는 어드민 주문 큐로.
+    is_digital = models.BooleanField('전자자료', default=False)
+    digital_file = models.FileField('전자자료 파일(1회 무료 다운로드)',
+                                    upload_to='promotion/digital/', null=True, blank=True)
+
     sort_order = models.IntegerField('노출 순서', default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -213,6 +219,33 @@ class PromotionOrder(models.Model):
             to_status=new_status,
             changed_by=changed_by,
         )
+
+
+class PromotionDownload(models.Model):
+    """전자자료 다운로드/요청 이력 — 소유자 전용 (PM 06.24).
+
+    1회차(is_free=True) = 무료 다운로드. 2회차+ = 어드민 주문(order) 연결 → 운영팀 수동 제작.
+    """
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='promotion_downloads', verbose_name='설계사(소유자)')
+    sample = models.ForeignKey(
+        PromotionSample, on_delete=models.CASCADE,
+        related_name='downloads', verbose_name='전자자료 샘플')
+    is_free = models.BooleanField('무료(1회차)', default=False)
+    order = models.ForeignKey(
+        'PromotionOrder', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='downloads', verbose_name='연결 주문(2회차+)')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'promotion_download'
+        ordering = ['-created_at']
+        verbose_name = '전자자료 다운로드'
+        verbose_name_plural = '전자자료 다운로드'
+
+    def __str__(self):
+        return f'{self.owner_id}/{self.sample_id} {"free" if self.is_free else "queued"}'
 
 
 class PromotionOrderStatusLog(models.Model):

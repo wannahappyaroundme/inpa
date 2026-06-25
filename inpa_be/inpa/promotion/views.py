@@ -41,6 +41,7 @@ from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsAdmin, IsEmailVerified, IsOwner
 
 from .models import (
+    PromotionDownload,
     PromotionOrder,
     PromotionOrderStatusLog,
     PromotionSample,
@@ -88,19 +89,70 @@ def _send_order_status_notification(order: PromotionOrder) -> None:
     if order.owner is None:
         return
     try:
-        from inpa.notifications.models import Notification
+        from inpa.notifications.models import NotifType, Notification
         status_label = order.get_status_display()
         sample_name = order.sample.name if order.sample else '판촉물'
+        ready = (bool(order.sample and order.sample.is_digital)
+                 and order.status == PromotionOrder.STATUS_COMPLETED)
         Notification.objects.create(
             owner=order.owner,
-            notif_type='promotion_status',  # 확장용 type — Notification.notif_type에 없으면 저장 실패 허용
-            title=f'판촉물 주문 상태 변경: {status_label}',
-            body=f'"{sample_name}" 주문이 "{status_label}" 상태로 변경되었습니다.'
-                 + (f' 관리자 메모: {order.admin_note}' if order.admin_note else ''),
+            notif_type=NotifType.PROMOTION_DIGITAL_READY if ready else NotifType.PROMOTION_STATUS,
+            title=(f'전자자료 준비 완료: {sample_name}' if ready
+                   else f'판촉물 주문 상태 변경: {status_label}'),
+            body=((f'"{sample_name}" 전자자료가 준비됐어요. 운영팀이 전달해 드립니다.' if ready
+                   else f'"{sample_name}" 주문이 "{status_label}" 상태로 변경되었습니다.')
+                  + (f' 관리자 메모: {order.admin_note}' if order.admin_note else '')),
         )
     except Exception:
-        # 알림 실패 무시 (notif_type 미등록 등) — 주문 주 동작 보호
+        # 알림 실패 무시 — 주문 주 동작 보호
         pass
+
+
+def _notify_admins(notif_type, title, body) -> None:
+    """관리자(profile.is_admin) 전원에게 인앱 알림(전자자료 요청 등). 실패 무시."""
+    try:
+        from django.contrib.auth import get_user_model
+        from inpa.notifications.models import Notification
+        User = get_user_model()
+        for admin in User.objects.filter(profile__is_admin=True):
+            Notification.objects.create(owner=admin, notif_type=notif_type, title=title, body=body)
+    except Exception:
+        pass
+
+
+class PromotionDigitalRequestView(APIView):
+    """POST /api/v1/promotion/samples/<id>/request/ — 전자자료 1회 무료 / 2회차+ 어드민 큐 (PM 06.24).
+
+    1회차: PromotionDownload(is_free) 기록 + digital_file URL 반환(무료 다운로드, 크레딧 무차감).
+    2회차+: PromotionOrder(pending) 생성 + 관리자 알림 → 운영팀이 수동 제작·발송.
+    """
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+
+    def post(self, request, sample_id):
+        sample = get_object_or_404(PromotionSample, pk=sample_id)
+        if not sample.is_digital:
+            return Response({'detail': '전자자료가 아니에요.', 'code': 'NOT_DIGITAL'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        prior = PromotionDownload.objects.filter(owner=request.user, sample=sample).count()
+        if prior == 0:
+            PromotionDownload.objects.create(owner=request.user, sample=sample, is_free=True)
+            url = request.build_absolute_uri(sample.digital_file.url) if sample.digital_file else None
+            return Response({'mode': 'free', 'file_url': url,
+                             'detail': '첫 1회는 무료예요. 바로 다운로드하세요.'})
+        with transaction.atomic():
+            order = PromotionOrder.objects.create(
+                owner=request.user, sample=sample, status=PromotionOrder.STATUS_PENDING,
+                form_response={'channel': 'digital', 'note': '전자자료 추가 요청(2회차+)'})
+            PromotionOrderStatusLog.objects.create(
+                order=order, to_status=PromotionOrder.STATUS_PENDING, changed_by=request.user)
+            PromotionDownload.objects.create(owner=request.user, sample=sample, is_free=False, order=order)
+        _notify_admins(
+            'promotion_digital_requested',
+            f'전자자료 요청: {sample.name}',
+            f'{request.user.email} 설계사가 "{sample.name}" 전자자료 추가 제작을 요청했어요.')
+        return Response({'mode': 'queued', 'order_id': order.id,
+                         'detail': '요청이 접수됐어요. 운영팀이 제작해 전달해 드려요.'},
+                        status=status.HTTP_201_CREATED)
 
 
 # ─── 설계사 공개 — 샘플 ───────────────────────────────────────────────

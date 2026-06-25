@@ -39,6 +39,10 @@ class NotifType(models.TextChoices):
     BOARD_LIKE = 'board_like', '게시글 좋아요'
     # ── 미팅 예약(영업) — 고객이 공개 링크에서 예약 확정 시 설계사에게. 즉시 이벤트. ──
     MEETING_BOOKED = 'meeting_booked', '미팅 예약됨'
+    # ── 판촉물/전자자료 (PM 06.24) ──
+    PROMOTION_STATUS = 'promotion_status', '판촉물 상태'
+    PROMOTION_DIGITAL_REQUESTED = 'promotion_digital_requested', '전자자료 요청'   # → 어드민
+    PROMOTION_DIGITAL_READY = 'promotion_digital_ready', '전자자료 준비됨'         # → 설계사
 
 
 class Notification(models.Model):

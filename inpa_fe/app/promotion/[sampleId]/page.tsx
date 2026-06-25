@@ -9,9 +9,11 @@ import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   getSample,
   createOrder,
+  requestDigitalSample,
   ApiError,
   type PromotionSampleDetail,
   type PromotionFormField,
+  type DigitalRequestResult,
 } from "@/lib/api";
 
 // ── 동적 폼 필드 단일 렌더러 ─────────────────────────────────────────────────
@@ -216,6 +218,10 @@ export default function SampleDetailPage({
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [creditError, setCreditError] = useState<string | null>(null);
+  // 전자자료(1회 무료 / 어드민 큐) — PM 06.24
+  const [digital, setDigital] = useState<DigitalRequestResult | null>(null);
+  const [digitalLoading, setDigitalLoading] = useState(false);
+  const [digitalError, setDigitalError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!ready) return;
@@ -283,6 +289,23 @@ export default function SampleDetailPage({
       }
     } finally {
       setSubmitLoading(false);
+    }
+  }
+
+  async function handleDigital() {
+    if (!sample) return;
+    setDigitalLoading(true);
+    setDigitalError(null);
+    try {
+      const res = await requestDigitalSample(sample.id);
+      setDigital(res);
+      if (res.mode === "free" && res.file_url) {
+        window.open(res.file_url, "_blank", "noopener");
+      }
+    } catch {
+      setDigitalError("요청에 실패했어요. 다시 시도해 주세요.");
+    } finally {
+      setDigitalLoading(false);
     }
   }
 
@@ -406,7 +429,44 @@ export default function SampleDetailPage({
               </div>
             </div>
 
-            {/* 동적 폼 */}
+            {/* 전자자료 — 1회 무료 다운로드 / 2회차+ 어드민 큐 (PM 06.24) */}
+            {sample.is_digital && (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-accent-tint bg-accent-tint/40 p-4">
+                  <div className="text-[14px] font-bold text-ink">전자자료 — 첫 1회 무료</div>
+                  <p className="mt-1 text-[12px] text-ink2 leading-5">
+                    처음 1회는 무료로 바로 받을 수 있어요. 그 다음부터는 요청하면 운영팀이 직접 제작해 전달해 드립니다.
+                  </p>
+                </div>
+                {digital && (
+                  <div className={`rounded-xl border p-3.5 text-[13px] ${digital.mode === "free" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-blue-200 bg-blue-50 text-blue-800"}`}>
+                    {digital.detail}
+                    {digital.mode === "free" && digital.file_url && (
+                      <> <a href={digital.file_url} target="_blank" rel="noreferrer" className="font-semibold underline">다운로드 링크 열기</a></>
+                    )}
+                    {digital.mode === "queued" && (
+                      <> 진행 상황은 <Link href="/promotion/orders" className="font-semibold underline">주문 목록</Link>에서 확인하세요.</>
+                    )}
+                  </div>
+                )}
+                {digitalError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] text-red-700">{digitalError}</div>
+                )}
+                <button
+                  onClick={handleDigital}
+                  disabled={digitalLoading || !sample.is_available}
+                  className="w-full rounded-xl bg-brand text-white text-[15px] font-bold py-3.5 disabled:opacity-40 transition"
+                >
+                  {digitalLoading ? "처리 중…" : digital ? "다시 요청" : "무료 다운로드 / 요청하기"}
+                </button>
+                <p className="text-[12px] text-muted leading-5 border-t border-line pt-4">
+                  광고심의 적합성은 설계사 본인이 확인해야 합니다. 인파는 내용의 법적 적합성을 보증하지 않습니다.
+                </p>
+              </div>
+            )}
+
+            {/* 동적 폼 (실물 판촉물) */}
+            {!sample.is_digital && (
             <form onSubmit={handleSubmit} className="space-y-5">
               {sample.form_fields.map((field) => (
                 <FormField
@@ -450,6 +510,7 @@ export default function SampleDetailPage({
                 주문 후 관리자가 직접 확인하여 제작·발송합니다. 자동 발송은 없으며, 진행 상황은 주문 목록에서 확인하세요.
               </p>
             </form>
+            )}
           </div>
         </div>
       </main>

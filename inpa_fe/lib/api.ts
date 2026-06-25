@@ -997,6 +997,7 @@ export interface PromotionSampleListItem {
   category: PromotionCategory;
   description: string;
   is_available: boolean;
+  is_digital: boolean;            // 전자자료(1회 무료 다운로드)
   primary_image: string | null;
   sort_order: number;
 }
@@ -1024,9 +1025,22 @@ export interface PromotionSampleDetail {
   category: PromotionCategory;
   description: string;
   is_available: boolean;
+  is_digital: boolean;            // 전자자료(1회 무료 다운로드 후 어드민 큐)
   images: PromotionSampleImage[];
   form_fields: PromotionFormField[];
   sort_order: number;
+}
+
+/** 전자자료 요청 결과 — free(무료 다운로드) | queued(어드민 큐) */
+export interface DigitalRequestResult {
+  mode: "free" | "queued";
+  file_url?: string | null;
+  order_id?: number;
+  detail: string;
+}
+/** POST /promotion/samples/<id>/request/ — 1회 무료 / 2회차+ 어드민 큐 */
+export async function requestDigitalSample(sampleId: number): Promise<DigitalRequestResult> {
+  return request<DigitalRequestResult>("POST", `/promotion/samples/${sampleId}/request/`, {}, true);
 }
 
 export type PromotionOrderStatus =
