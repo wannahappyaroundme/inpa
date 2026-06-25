@@ -482,6 +482,38 @@ export async function uploadBusinessCard(id: number, file: File): Promise<Custom
   return data as unknown as CustomerDetail;
 }
 
+// ── 계약 설명의무 체크리스트 (PM 06.24) ──
+export interface ContractChecklistItem {
+  id: number;
+  label: string;
+  is_done: boolean;
+  done_at: string | null;
+  order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** GET /api/v1/customers/<id>/checklist/ */
+export async function listChecklist(customerId: number): Promise<PaginatedResult<ContractChecklistItem>> {
+  return request<PaginatedResult<ContractChecklistItem>>("GET", `/customers/${customerId}/checklist/`, undefined, true);
+}
+/** POST .../checklist/apply-template/ — 기본 설명의무 항목 일괄 생성(멱등) */
+export async function applyChecklistTemplate(customerId: number): Promise<{ created: number; detail?: string }> {
+  return request("POST", `/customers/${customerId}/checklist/apply-template/`, {}, true);
+}
+/** POST .../checklist/<itemId>/toggle/ */
+export async function toggleChecklistItem(customerId: number, itemId: number): Promise<ContractChecklistItem> {
+  return request<ContractChecklistItem>("POST", `/customers/${customerId}/checklist/${itemId}/toggle/`, {}, true);
+}
+/** POST .../checklist/ — 사용자 정의 항목 추가 */
+export async function addChecklistItem(customerId: number, label: string): Promise<ContractChecklistItem> {
+  return request<ContractChecklistItem>("POST", `/customers/${customerId}/checklist/`, { label }, true);
+}
+/** DELETE .../checklist/<itemId>/ */
+export async function deleteChecklistItem(customerId: number, itemId: number): Promise<void> {
+  await requestVoid("DELETE", `/customers/${customerId}/checklist/${itemId}/`, true);
+}
+
 /** DELETE /api/v1/customers/{id}/ — 204 No Content → void */
 export async function deleteCustomer(id: number): Promise<void> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };

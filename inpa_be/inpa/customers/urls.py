@@ -35,6 +35,7 @@ def _nested(viewset):
 _family = _nested(views.FamilyMemberViewSet)
 _medical = _nested(views.CustomerMedicalHistoryViewSet)
 _consent = _nested(views.ConsentLogViewSet)
+_checklist = _nested(views.ContractChecklistViewSet)
 
 urlpatterns = router.urls + [
     path('customers/<int:customer_pk>/family/', _family['list'], name='family-list'),
@@ -43,6 +44,13 @@ urlpatterns = router.urls + [
     path('customers/<int:customer_pk>/medical/<int:pk>/', _medical['detail'], name='medical-detail'),
     path('customers/<int:customer_pk>/consents/', _consent['list'], name='consent-list'),
     path('customers/<int:customer_pk>/consents/<int:pk>/', _consent['detail'], name='consent-detail'),
+    # 계약 설명의무 체크리스트 (PM 06.24)
+    path('customers/<int:customer_pk>/checklist/', _checklist['list'], name='checklist-list'),
+    path('customers/<int:customer_pk>/checklist/apply-template/',
+         views.ContractChecklistViewSet.as_view({'post': 'apply_template'}), name='checklist-template'),
+    path('customers/<int:customer_pk>/checklist/<int:pk>/', _checklist['detail'], name='checklist-detail'),
+    path('customers/<int:customer_pk>/checklist/<int:pk>/toggle/',
+         views.ContractChecklistViewSet.as_view({'post': 'toggle'}), name='checklist-toggle'),
     # P3c — 동의 요청 링크 생성(설계사) + 고객 본인 동의(공개)
     path('customers/<int:customer_pk>/consent-requests/',
          views.ConsentRequestCreateView.as_view(), name='consent-request-create'),

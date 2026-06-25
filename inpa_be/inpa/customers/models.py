@@ -297,6 +297,44 @@ class ConsentLog(models.Model):
         return f'{self.get_scope_display()}@{self.agreed_at:%Y-%m-%d}'
 
 
+DEFAULT_CONTRACT_CHECKLIST = [
+    '가입설계서 주요 내용 설명',
+    '약관·상품설명서 교부',
+    '청약서 자필서명 안내·확인',
+    '청약철회권(청약일+15일) 안내',
+    '품질보증해지(가입 3개월 내) 안내',
+    '주요 보장·면책사항 설명',
+    '보험료 납입·실효·부활 안내',
+]
+
+
+class ContractChecklistItem(models.Model):
+    """계약 설명의무(완전판매) 체크리스트 항목 — 소유자 전용 (PM 06.24).
+
+    상담 시 설명 의무 이행 자가 점검 + 이력 보존. 완전판매 모니터링(해피콜) 대체 성격.
+    체크 이력이 쌓이면 분쟁 방어 자산이 된다(데이터 복리·해자).
+    """
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                              related_name='contract_checklist_items')
+    customer = models.ForeignKey('Customer', on_delete=models.CASCADE,
+                                 related_name='contract_checklist_items')
+    label = models.CharField('항목', max_length=200)
+    is_done = models.BooleanField('완료', default=False)
+    done_at = models.DateTimeField('완료 시각', null=True, blank=True)
+    order = models.PositiveSmallIntegerField('순서', default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'contract_checklist_item'
+        verbose_name = '계약 체크리스트 항목'
+        verbose_name_plural = '계약 체크리스트 항목'
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f'{self.customer_id}:{self.label}'
+
+
 class PlannerBaseline(models.Model):
     """설계사 기준선 (소유자 전용 — ★ 준법 통제점, dev/02 §6 · dev/10).
 

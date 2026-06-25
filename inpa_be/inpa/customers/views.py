@@ -9,6 +9,7 @@
   CustomerMedicalHistory 생성을 412(PRECONDITION_FAILED)로 물리 차단. UI 숨김은 방어가 아니다.
 """
 from django.conf import settings
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -20,16 +21,16 @@ from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 
 from .models import (
-    ConsentLog, Customer, CustomerMedicalHistory, CustomerTag, FamilyMember,
-    PlannerBaseline,
+    ConsentLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
+    CustomerTag, FamilyMember, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
 )
 from .presets import (
     BASELINE_SOURCE_PRESET, PRESET_NOTE, PRESET_ORIGIN_V0, PRESET_V0,
     iter_preset_rows,
 )
 from .serializers import (
-    ConsentLogSerializer, CustomerListSerializer, CustomerSerializer,
-    CustomerMedicalHistorySerializer, CustomerTagSerializer,
+    ConsentLogSerializer, ContractChecklistItemSerializer, CustomerListSerializer,
+    CustomerSerializer, CustomerMedicalHistorySerializer, CustomerTagSerializer,
     FamilyMemberSerializer, PlannerBaselineSerializer,
 )
 from .tokens import make_consent_token
@@ -148,6 +149,34 @@ class ConsentLogViewSet(_CustomerScopedViewSet):
         # 설계사 기록 = planner_attested. 스냅샷(consent_overseas_at)은 건드리지 않는다(대리동의 강등).
         serializer.save(customer=customer, ip=ip,
                         subject=ConsentLog.SUBJECT_PLANNER_ATTESTED)
+
+
+class ContractChecklistViewSet(_CustomerScopedViewSet):
+    """계약 설명의무 체크리스트 — /api/v1/customers/<customer_pk>/checklist/ (소유자 전용).
+
+    apply-template = 기본 설명의무 항목 일괄 생성(멱등). toggle = 완료 토글(done_at 기록).
+    """
+    serializer_class = ContractChecklistItemSerializer
+    queryset = ContractChecklistItem.objects.all()
+
+    def perform_create(self, serializer):
+        serializer.save(customer=self.get_customer(), owner=self.request.user)
+
+    def apply_template(self, request, customer_pk=None):
+        customer = self.get_customer()
+        if ContractChecklistItem.objects.filter(customer=customer).exists():
+            return Response({'created': 0, 'detail': '이미 체크리스트가 있어요.'})
+        items = [ContractChecklistItem(owner=request.user, customer=customer, label=lbl, order=i)
+                 for i, lbl in enumerate(DEFAULT_CONTRACT_CHECKLIST)]
+        ContractChecklistItem.objects.bulk_create(items)
+        return Response({'created': len(items)}, status=status.HTTP_201_CREATED)
+
+    def toggle(self, request, customer_pk=None, pk=None):
+        item = self.get_object()
+        item.is_done = not item.is_done
+        item.done_at = timezone.now() if item.is_done else None
+        item.save(update_fields=['is_done', 'done_at', 'updated_at'])
+        return Response(self.get_serializer(item).data)
 
 
 class ConsentRequestCreateView(APIView):
