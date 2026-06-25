@@ -24,7 +24,6 @@ services:
     startCommand: >-
       python manage.py migrate --noinput &&
       python manage.py seed_normalization &&
-      (python manage.py seed_demo || echo "[startup] seed_demo 실패/스킵 — BE는 계속 기동") &&
       gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
       - key: DJANGO_SETTINGS_MODULE
