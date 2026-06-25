@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { AppNav } from "@/components/app-nav";
-import { Card } from "@/components/ui";
+import { Card, ReminderCard } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   getChurnRadar,
@@ -115,6 +115,16 @@ export default function ChurnRadarPage() {
 
   if (!ready) return null;
 
+  // 4색 리마인드 버킷 — 우리 데이터(환수위험·유지회차)에 정직하게 매핑(가짜 '갱신' 개념 안 씀).
+  // 위험도 그라데이션: 위험(빨강) → 13회차 이내(주황) → 25회차 이내(노랑) → 유지 안정(초록).
+  const items = data?.items ?? [];
+  const reminderCards = [
+    { tone: "var(--danger)", icon: "!", label: "환수 위험", count: items.filter((i) => i.is_at_risk).length },
+    { tone: "#F97316", icon: "⏰", label: "13회차 이내", count: items.filter((i) => !i.is_at_risk && i.persistency_stage === "pre_13").length },
+    { tone: "var(--warning)", icon: "📅", label: "25회차 이내", count: items.filter((i) => !i.is_at_risk && i.persistency_stage === "pre_25").length },
+    { tone: "var(--success)", icon: "✓", label: "유지 안정", count: items.filter((i) => i.persistency_stage === "safe").length },
+  ];
+
   return (
     <div className="min-h-dvh">
       <AppNav active="home" />
@@ -124,22 +134,20 @@ export default function ChurnRadarPage() {
           보유 계약의 납입상태와 유지율(13/25회차)을 점검해, 환수(차지백) 위험을 미리 막으세요.
         </p>
 
-        {/* 요약 */}
+        {/* 요약 — 4색 리마인드 카드(sample_2) + 예상 환수액 */}
         {data && (
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <Card className="px-4 py-3.5">
-              <div className="text-[12px] text-ink3">환수 위험</div>
-              <div className="mt-1 text-[24px] font-extrabold tnum text-rose-600">
-                {data.risk_count}<span className="text-[13px] text-ink3 ml-1">건</span>
+          <>
+            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {reminderCards.map((c) => (
+                <ReminderCard key={c.label} tone={c.tone} icon={c.icon} label={c.label} count={c.count} unit="건" />
+              ))}
+            </div>
+            {data.expected_recovery_total > 0 && (
+              <div className="mt-3 text-[13px] text-ink2">
+                예상 환수액(추정) <b className="text-ink tnum">₩{krw.format(data.expected_recovery_total)}</b>
               </div>
-            </Card>
-            <Card className="px-4 py-3.5">
-              <div className="text-[12px] text-ink3">예상 환수액(추정)</div>
-              <div className="mt-1 text-[18px] font-extrabold tnum text-ink">
-                ₩{krw.format(data.expected_recovery_total)}
-              </div>
-            </Card>
-          </div>
+            )}
+          </>
         )}
 
         {/* 면책 */}

@@ -3,13 +3,15 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
-import { Card } from "@/components/ui";
+import { Card, StatCard } from "@/components/ui";
+import { BarChart, DonutChart } from "@/components/charts";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings,
   getDashboard, updateDashboardGoal, listNotifications, listScheduleItems,
+  getDashboardInsights, SALES_STAGES,
   type ProfileResponse, type ChurnRadarResponse, type Meeting, type DashboardSummary, type NotificationItem,
-  type ScheduleItem,
+  type ScheduleItem, type DashboardInsights,
 } from "@/lib/api";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
@@ -112,6 +114,7 @@ export default function HomePage() {
   const [notifs, setNotifs] = useState<NotificationItem[]>([]);
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [dash, setDash] = useState<DashboardSummary | null>(null);
+  const [insights, setInsights] = useState<DashboardInsights | null>(null);
   const [editGoal, setEditGoal] = useState(false);
   const [gMeet, setGMeet] = useState(0);
   const [gPrem, setGPrem] = useState(0);
@@ -150,6 +153,7 @@ export default function HomePage() {
         setGMeet(d.target_meetings); setGPrem(d.target_premium); setGMult(d.income_multiplier);
       })
       .catch(() => setDash(null));
+    getDashboardInsights().then(setInsights).catch(() => setInsights(null));
     syncChurnAlerts().catch(() => { /* 무시 */ }).finally(() => {
       getChurnRadar().then((res) => setChurn(res)).catch(() => setChurn(null));
     });
@@ -215,14 +219,29 @@ export default function HomePage() {
 
   const displayName = profile ? profile.email.split("@")[0] : "설계사";
 
-  // KPI — 전부 실데이터(이미 로딩한 상태에서 파생)
-  const kpiRows = [
-    { label: "내 고객", value: customerCount !== null ? String(customerCount) : "—", unit: "명", accent: false },
-    { label: "이번 달 신규", value: dash ? String(dash.actual_new_customers) : "—", unit: "명", accent: false },
-    { label: "이번 달 미팅", value: dash ? String(dash.actual_meetings) : "—", unit: "건", accent: false },
-    { label: "환수 위험", value: churn ? String(churn.risk_count) : "—", unit: "건", accent: !!churn && churn.risk_count > 0 },
-    { label: "다가오는 미팅", value: String(meetings.length), unit: "건", accent: false },
-  ];
+  // 전월 대비 증감률(%) — 최근 6개월 추이의 마지막 두 점에서 파생. 데이터 부족 시 null(배지 숨김).
+  const trend = insights?.monthly_trend ?? [];
+  const tCur = trend[trend.length - 1];
+  const tPrev = trend[trend.length - 2];
+  const momDelta = (key: "premium" | "new_customers" | "meetings"): number | null => {
+    if (!tCur || !tPrev) return null;
+    const a = tCur[key], b = tPrev[key];
+    if (b === 0) return a > 0 ? 100 : null;
+    return Math.round(((a - b) / b) * 100);
+  };
+
+  // 막대 추이(월별 보험료) · 도넛(보유계약 유지현황)
+  const trendBars = trend.map((t) => ({ label: `${Number(t.ym.slice(5, 7))}월`, value: t.premium }));
+  const pf = insights?.portfolio;
+  const portfolioSegs = pf
+    ? [
+        { label: "유지 안정", value: pf.stable, color: "var(--success)" },
+        { label: "주의(13/25회차)", value: pf.watch, color: "var(--warning)" },
+        { label: "환수 위험", value: pf.at_risk, color: "var(--danger)" },
+        { label: "회차 미입력", value: pf.unknown, color: "var(--muted)" },
+      ]
+    : [];
+  const portfolioTotal = portfolioSegs.reduce((s, x) => s + x.value, 0);
 
   // 캘린더 셀
   const first = new Date(viewY, viewM - 1, 1).getDay();
@@ -250,20 +269,72 @@ export default function HomePage() {
           </span>
         </div>
 
-        {/* KPI 한 줄 — 전부 실데이터 */}
+        {/* KPI 한 줄 — 전부 실데이터(+ 전월 대비 증감률) */}
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {kpiRows.map((k) => (
-            <Card key={k.label} className="px-4 py-3.5">
-              <div className="text-[12px] text-ink3">{k.label}</div>
-              <div className="mt-1 flex items-baseline gap-1">
-                <span className={`text-[24px] font-extrabold tnum ${k.accent ? "text-accent" : "text-ink"}`}>
-                  {k.value}
-                </span>
-                <span className="text-[13px] text-ink3">{k.unit}</span>
+          <StatCard label="내 고객" value={customerCount !== null ? String(customerCount) : "—"} unit="명" />
+          <StatCard label="이번 달 신규" value={dash ? String(dash.actual_new_customers) : "—"} unit="명" delta={momDelta("new_customers")} />
+          <StatCard label="이번 달 미팅" value={dash ? String(dash.actual_meetings) : "—"} unit="건" delta={momDelta("meetings")} />
+          <StatCard label="이번 달 보험료" value={dash ? fmtWonShort(dash.actual_premium) : "—"} unit="원" delta={momDelta("premium")} />
+          <StatCard label="환수 위험" value={churn ? String(churn.risk_count) : "—"} unit="건" accent={!!churn && churn.risk_count > 0} />
+        </div>
+
+        {/* 영업 4단계 퍼널 — 단계별 고객(클릭 시 칸반) */}
+        {insights && (
+          <button onClick={() => router.push("/customers")} className="mt-4 block w-full text-left">
+            <Card className="p-4 sm:p-5 hover:bg-surface2 transition">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[15px] font-bold text-ink">영업 단계별 고객</div>
+                <span className="text-[12px] font-semibold text-brand">칸반 보기 →</span>
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {SALES_STAGES.map((s) => (
+                  <div key={s.key}>
+                    <div className="text-[11px] text-ink3 tnum">{s.short}</div>
+                    <div className="text-[12px] text-ink2 truncate">{s.label}</div>
+                    <div className="mt-0.5 text-[20px] font-extrabold text-ink tnum">
+                      {insights.funnel[s.key]}
+                      <span className="ml-0.5 text-[12px] font-normal text-ink3">{s.key === "contract" ? "건" : "명"}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </Card>
-          ))}
-        </div>
+          </button>
+        )}
+
+        {/* 월별 보험료 추이(막대) + 보유계약 유지현황(도넛) */}
+        {insights && (
+          <div className="mt-4 lg:grid lg:grid-cols-3 lg:gap-4">
+            <Card className="lg:col-span-2 p-4 sm:p-5">
+              <div className="text-[15px] font-bold text-ink mb-3">월별 보험료 추이</div>
+              <BarChart data={trendBars} format={(n) => fmtWonShort(n)} />
+            </Card>
+            <Card className="mt-4 lg:mt-0 p-4 sm:p-5">
+              <div className="text-[15px] font-bold text-ink mb-3">보유계약 유지현황</div>
+              {portfolioTotal > 0 ? (
+                <div className="flex items-center gap-4">
+                  <DonutChart className="w-24 shrink-0" segments={portfolioSegs} centerValue={String(portfolioTotal)} centerLabel="보유계약" />
+                  <ul className="flex-1 space-y-1.5">
+                    {portfolioSegs.map((s) => (
+                      <li key={s.label} className="flex items-center justify-between text-[12px]">
+                        <span className="inline-flex items-center gap-1.5 text-ink2">
+                          <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />
+                          {s.label}
+                        </span>
+                        <span className="tnum font-semibold text-ink">{s.value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="py-6 text-center text-[13px] text-ink3">
+                  보유계약이 아직 없어요.
+                  <div className="text-[12px] mt-1">증권을 등록하면 유지현황이 표시돼요.</div>
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
 
         {/* 이번 달 목표 — 수동 설정 + 실적 진행률 */}
         {dash && (
