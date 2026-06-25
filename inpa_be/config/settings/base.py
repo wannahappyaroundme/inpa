@@ -169,6 +169,12 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+
+# ── 미디어(업로드 파일 — 명함 등) ───────────────────────────────────
+# 로컬·단일 인스턴스용. 운영 다중 인스턴스는 S3 등 오브젝트 스토리지로 전환 필요(추후).
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ── 요금제 베타 스위치 (dev/23 §3, G4) ──────────────────────────────

@@ -1,6 +1,6 @@
 "use client";
 
-// 지점장 대시보드 — 동의(manager_share_opt_in)한 소속 설계사의 KPI '집계만'.
+// 관리직 대시보드 — 동의(manager_share_opt_in)한 소속 설계사의 KPI '집계만'.
 // ★ 개별 고객 이름·병력 등 PII는 절대 표시하지 않음(BE가 집계 수치만 반환).
 
 import { useState, useEffect } from "react";
@@ -31,7 +31,7 @@ export default function ManagerPage() {
     <div className="min-h-dvh">
       <AppNav active="manager" />
       <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6">
-        <h1 className="text-[22px] font-extrabold text-ink">지점 KPI</h1>
+        <h1 className="text-[22px] font-extrabold text-ink">관리직 KPI</h1>
         <p className="mt-1 text-[13px] text-ink3 leading-5">
           KPI 공유에 <b>동의한</b> 소속 설계사의 집계 수치예요. 개별 고객 정보는 표시되지 않습니다(프라이버시).
         </p>
@@ -68,7 +68,7 @@ export default function ManagerPage() {
             <Card className="px-4 py-10 text-center">
               <p className="text-[14px] text-ink3">아직 KPI 공유에 동의한 소속 설계사가 없어요.</p>
               <p className="mt-1 text-[12px] text-ink3">
-                설계사가 설정에서 “지점장에게 KPI 공유”를 켜고 매니저 이메일을 연결하면 여기에 표시돼요.
+                설계사가 설정에서 “관리직에게 KPI 공유”를 켜고 관리직 이메일을 연결하면 여기에 표시돼요.
               </p>
             </Card>
           ) : (

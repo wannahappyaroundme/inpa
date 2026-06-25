@@ -213,6 +213,19 @@ export function HeatmapGrid({
 
   return (
     <div>
+      {/* BE 판정 모드 안내 (PM 06.24 — graded 가 왜 켜졌는지 명확화) */}
+      <div className="mb-3 text-[12px] leading-5">
+        {heatmap.mode === "graded" ? (
+          <span className="inline-block rounded-lg bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-indigo-700">
+            ✓ 내 기준 {heatmap.baseline_count}개 적용 중 — 부족·적정·넉넉은 <b className="font-semibold">설정한 기준</b>에 따른 결과예요.
+          </span>
+        ) : (
+          <span className="inline-block rounded-lg bg-surface2 border border-line px-2.5 py-1 text-ink3">
+            기준 미설정(중립) — 보유 0만 표시하고 부족·충분은 단정하지 않아요. <b className="font-semibold text-ink2">설정 › 기준선</b>에서 기준을 추가하면 판정이 켜져요.
+          </span>
+        )}
+      </div>
+
       {/* 뷰 세그먼트 + 필터 칩 */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex rounded-xl bg-line p-1 text-[13px] font-semibold">
@@ -305,17 +318,17 @@ export function HeatmapGrid({
             <LegendItem
               label="넉넉"
               chip="bg-blue-50 border border-blue-200 text-over"
-              pattern="채움"
+              pattern="진한 채움"
             />
             <LegendItem
               label="적정"
               chip="bg-indigo-50 border border-indigo-200 text-enough"
-              pattern="채움"
+              pattern="옅은 채움"
             />
             <LegendItem
               label="부족"
               chip="bg-amber-50 border-l-4 border-l-short border border-amber-200 text-ink"
-              pattern="좌4px바"
+              pattern="왼쪽 띠"
             />
             <LegendItem
               label="중립"

@@ -529,8 +529,9 @@ class Command(BaseCommand):
                     warranty_period_type=1, warranty_period=100,
                     contract_date=f'{yy}.{mm:02d}.14', expiry_date='2060.01.01',
                     monthly_premiums=prem, monthly_assurance_premium=prem,
-                    insured_name=owner_c.name, contractor_name=owner_c.name,
-                    is_same_insured=True, current_payment_period=26)  # 26회차→유지안정
+                    # ★ insured_name/contractor_name(max_length=10)에 17자 고객명 넣으면
+                    #   Postgres가 'value too long for varchar(10)'로 거부(SQLite는 통과) → 생략(nullable).
+                    current_payment_period=26)  # 26회차→유지안정
                 CustomerInsurance.objects.filter(pk=ci.pk).update(created_at=dt)
                 ni += 1
         self.stdout.write(f'  [14b] 월별 이력 백필: 과거 고객 {nc}명 + 보유보험 {ni}건 (직전 5개월)')

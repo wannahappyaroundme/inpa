@@ -16,6 +16,30 @@ from django.conf import settings
 from django.db import models
 
 
+def compute_insurance_age(birth_day, as_of=None):
+    """보험나이(보험상령일 규칙): 만나이 기준 + 마지막 생일로부터 6개월 이상 지나면 +1.
+
+    PM 피드백(06.24): "보험나이는 만으로 계산한거 + 6개월". calculate.py의 contract-time
+    'years+1' 관습과는 다른 정확한 상령일 규칙이라 별도 헬퍼로 둔다.
+    birth_day='YYYY-MM-DD'. 파싱 불가/미래 생일이면 None.
+    """
+    from datetime import date
+
+    from dateutil.relativedelta import relativedelta
+
+    if not birth_day:
+        return None
+    try:
+        parts = str(birth_day).split('-')
+        bd = date(int(parts[0]), int(parts[1]), int(parts[2]))
+    except (ValueError, TypeError, IndexError):
+        return None
+    rd = relativedelta(as_of or date.today(), bd)
+    if rd.years < 0:
+        return None
+    return rd.years + (1 if rd.months >= 6 else 0)
+
+
 class Customer(models.Model):
     """고객 — 설계사 자산 (소유자 전용).
 
@@ -68,10 +92,10 @@ class Customer(models.Model):
     STAGE_MEETING = 'meeting'   # 대면 상담
     STAGE_CONTRACT = 'contract'  # 계약
     SALES_STAGE_CHOICES = (
-        (STAGE_DB, 'DB확보'),
-        (STAGE_CONTACT, '전화·메신저'),
-        (STAGE_MEETING, '대면상담'),
-        (STAGE_CONTRACT, '계약'),
+        (STAGE_DB, 'DB'),          # 잠재고객 풀(이름·연락처만)
+        (STAGE_CONTACT, 'TA'),     # Telephone Approach — 전화·문자 접근
+        (STAGE_MEETING, 'FA'),     # Face-to-face Approach — 대면 상담
+        (STAGE_CONTRACT, '청약'),  # 보험 계약 청약
     )
     sales_stage = models.CharField('영업 단계', max_length=10,
                                    choices=SALES_STAGE_CHOICES, default=STAGE_DB,
@@ -79,6 +103,13 @@ class Customer(models.Model):
 
     # ── 태그 (설계사 자유 분류) ────────────────────────────────────
     tags = models.ManyToManyField('CustomerTag', blank=True, related_name='customers')
+
+    # ── 고객 관리 (최종연락·즐겨찾기·상단고정·명함) — PM 06.24 피드백 ─────
+    # last_contacted_at: 방치 색상경보(3일↑ 노랑/7일↑ 빨강)·정렬 기준. 수동 '연락함' 또는 미팅·발송 시 갱신.
+    last_contacted_at = models.DateTimeField('최종 연락일', null=True, blank=True, default=None)
+    is_favorite = models.BooleanField('즐겨찾기', default=False)
+    is_pinned = models.BooleanField('상단 고정', default=False)
+    business_card = models.ImageField('명함 이미지', upload_to='business_cards/', null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

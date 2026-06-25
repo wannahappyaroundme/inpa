@@ -46,9 +46,11 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
     queryset = Customer.objects.all()
 
     def get_queryset(self):
-        # N+1 가드 — 목록/상세 모두 태그·가족·병력 prefetch
+        # N+1 가드 — 태그·가족·병력·동의(마케팅 배지) prefetch + 직업등급 select_related
         return (super().get_queryset()
-                .prefetch_related('tags', 'family_members', 'medical_histories'))
+                .select_related('job_code')
+                .prefetch_related('tags', 'family_members', 'medical_histories',
+                                  'consent_logs'))
 
     def get_serializer_class(self):
         if self.action == 'list':

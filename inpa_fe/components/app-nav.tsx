@@ -100,7 +100,7 @@ export function AppNav({ active }: { active?: NavKey }) {
                   active === "manager" ? "text-brand bg-accent-tint" : "text-ink2 hover:bg-surface2"
                 }`}
               >
-                지점 KPI
+                관리직 KPI
               </Link>
             )}
             {isAdmin && (

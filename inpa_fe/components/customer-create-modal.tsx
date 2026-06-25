@@ -5,6 +5,7 @@
 
 import { useState, useCallback } from "react";
 import { createCustomer, ApiError, type CustomerDetail } from "@/lib/api";
+import { AVATAR_PALETTE, CustomerAvatar } from "@/components/ui";
 
 export function CustomerCreateModal({
   onClose,
@@ -15,9 +16,10 @@ export function CustomerCreateModal({
 }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [gender, setGender] = useState<"" | "M" | "F">("");
+  const [gender, setGender] = useState<"" | "1" | "2">("");
   const [birth, setBirth] = useState("");
   const [memo, setMemo] = useState("");
+  const [color, setColor] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +37,7 @@ export function CustomerCreateModal({
         birth_day: birth || undefined,
         mobile_phone_number: phone.trim() || undefined,
         memo: memo.trim() || undefined,
+        color: color || undefined,
       });
       onCreated(c);
     } catch (e) {
@@ -44,7 +47,7 @@ export function CustomerCreateModal({
     } finally {
       setSaving(false);
     }
-  }, [name, gender, birth, phone, memo, onCreated]);
+  }, [name, gender, birth, phone, memo, color, onCreated]);
 
   const inputCls =
     "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition";
@@ -97,7 +100,7 @@ export function CustomerCreateModal({
             <div className="flex flex-col gap-1">
               <span className="text-[12px] font-semibold text-ink3">성별</span>
               <div className="flex gap-1.5">
-                {([["M", "남"], ["F", "여"]] as const).map(([v, label]) => (
+                {([["1", "남"], ["2", "여"]] as const).map(([v, label]) => (
                   <button
                     key={v}
                     type="button"
@@ -134,6 +137,32 @@ export function CustomerCreateModal({
               className={inputCls}
             />
           </label>
+
+          {/* 아바타 색상 — 분류용(선택). 미선택 = 인파 로고 디폴트 */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[12px] font-semibold text-ink3">아바타 색상 (선택 — 분류용)</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <CustomerAvatar name={name || "?"} color={color || null} size={34} />
+              <button
+                type="button"
+                onClick={() => setColor("")}
+                className={`h-7 px-2 rounded-full border text-[10px] font-semibold ${color === "" ? "border-brand text-brand" : "border-line text-ink3"}`}
+                title="기본(인파 로고)"
+              >
+                로고
+              </button>
+              {AVATAR_PALETTE.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  onClick={() => setColor(hex)}
+                  aria-label={`색상 ${hex}`}
+                  className={`w-7 h-7 rounded-full border-2 ${color === hex ? "border-brand" : "border-transparent"}`}
+                  style={{ backgroundColor: hex }}
+                />
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="mt-6 flex flex-col gap-2.5">

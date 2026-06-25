@@ -13,11 +13,11 @@
 //  - 공백 탭: 부족/충분 단정은 mode='graded' 일 때만.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense, type ChangeEvent } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
-import { Card, DisclaimerFooter } from "@/components/ui";
+import { Card, DisclaimerFooter, CustomerAvatar, AVATAR_PALETTE } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   HeatmapGrid,
@@ -40,6 +40,8 @@ import {
   compareCustomer,
   getCustomerHistory,
   getProfile,
+  updateCustomer,
+  uploadBusinessCard,
   ApiError,
   type CustomerDetail,
   type HeatmapResponse,
@@ -49,12 +51,13 @@ import {
   type ProfileResponse,
 } from "@/lib/api";
 
-type TabKey = "analysis" | "switch" | "gap" | "history";
+type TabKey = "analysis" | "switch" | "gap" | "history" | "info";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "analysis", label: "분석" },
   { key: "switch", label: "비교 분석" },
   { key: "gap", label: "공백" },
+  { key: "info", label: "정보" },
   { key: "history", label: "이력" },
 ];
 
@@ -69,8 +72,9 @@ function calcAge(birthDay: string | null): string {
   return `${age}세`;
 }
 function genderLabel(g: string | null): string {
-  if (g === "M") return "남";
-  if (g === "F") return "여";
+  const s = g == null ? "" : String(g);
+  if (s === "1" || s === "M") return "남";
+  if (s === "2" || s === "F") return "여";
   return "";
 }
 
@@ -295,6 +299,9 @@ function CustomerDetailInner() {
                   isExclusive={isExclusive}
                 />
               )}
+              {activeTab === "info" && customer && (
+                <InfoTab customer={customer} onUpdated={setCustomer} />
+              )}
               {activeTab === "history" && <HistoryTab customerId={customerId} />}
             </div>
           </>
@@ -308,17 +315,14 @@ function CustomerDetailInner() {
 
 // ── 고객 요약 헤더 ────────────────────────────────────────────────────────
 function CustomerSummary({ customer }: { customer: CustomerDetail }) {
-  const sub = [calcAge(customer.birth_day), genderLabel(customer.gender)]
+  const age =
+    customer.insurance_age != null ? `${customer.insurance_age}세` : calcAge(customer.birth_day);
+  const sub = [age, genderLabel(customer.gender)]
     .filter(Boolean)
     .join(" · ");
   return (
     <Card className="mt-3 p-4 flex items-center gap-3">
-      <div
-        className="w-12 h-12 rounded-full flex items-center justify-center text-[18px] font-bold shrink-0 text-brand"
-        style={{ backgroundColor: customer.color ?? "var(--accent-tint)" }}
-      >
-        {customer.name[0]}
-      </div>
+      <CustomerAvatar name={customer.name} color={customer.color} size={48} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[18px] font-bold text-ink">{customer.name}</span>
@@ -347,6 +351,188 @@ function CustomerSummary({ customer }: { customer: CustomerDetail }) {
         </div>
       </div>
     </Card>
+  );
+}
+
+// ── 정보 탭 (폴리오식: 좌=메모 / 우=상세정보 / 하단=명함) — PM 06.24 ──
+function InfoTab({
+  customer,
+  onUpdated,
+}: {
+  customer: CustomerDetail;
+  onUpdated: (c: CustomerDetail) => void;
+}) {
+  const [name, setName] = useState(customer.name);
+  const [phone, setPhone] = useState(customer.mobile_phone_number ?? "");
+  const [gender, setGender] = useState(customer.gender == null ? "" : String(customer.gender));
+  const [birth, setBirth] = useState(customer.birth_day ?? "");
+  const [color, setColor] = useState(customer.color ?? "");
+  const [memo, setMemo] = useState(customer.memo ?? "");
+  const [savingInfo, setSavingInfo] = useState(false);
+  const [savingMemo, setSavingMemo] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const flash = (m: string) => { setMsg(m); setErr(null); };
+  const fail = (e: unknown) => { setErr(e instanceof ApiError ? e.message : "저장에 실패했어요."); setMsg(null); };
+
+  async function saveInfo() {
+    setSavingInfo(true);
+    try {
+      const c = await updateCustomer(customer.id, {
+        name: name.trim(),
+        mobile_phone_number: phone.trim(),
+        gender: gender || undefined,
+        birth_day: birth || undefined,
+        color,
+      });
+      onUpdated(c);
+      flash("상세정보를 저장했어요.");
+    } catch (e) { fail(e); } finally { setSavingInfo(false); }
+  }
+  async function saveMemo() {
+    setSavingMemo(true);
+    try {
+      const c = await updateCustomer(customer.id, { memo });
+      onUpdated(c);
+      flash("메모를 저장했어요.");
+    } catch (e) { fail(e); } finally { setSavingMemo(false); }
+  }
+  async function onPickCard(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const c = await uploadBusinessCard(customer.id, file);
+      onUpdated(c);
+      flash("명함을 업로드했어요.");
+    } catch (e2) { fail(e2); } finally { setUploading(false); e.target.value = ""; }
+  }
+
+  const inputCls =
+    "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition";
+  const consentLabel =
+    customer.marketing_consent === "agreed" ? "마케팅 동의"
+    : customer.marketing_consent === "revoked" ? "마케팅 철회" : "마케팅 비동의";
+  const riskLabel =
+    customer.job_risk_grade && customer.job_risk_grade <= 3 ? `위험 ${customer.job_risk_grade}급` : null;
+
+  return (
+    <div className="space-y-4">
+      {(msg || err) && (
+        <div className={`rounded-xl px-4 py-2.5 text-[13px] ${err ? "border border-rose-200 bg-rose-50 text-rose-700" : "border border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+          {err ?? msg}
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-[1fr_1.2fr] gap-4">
+        {/* 왼쪽: 메모 */}
+        <Card className="p-4 flex flex-col">
+          <h3 className="text-[15px] font-bold text-ink">메모</h3>
+          <textarea
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            rows={10}
+            placeholder="상담 내용·특이사항·다음 액션을 적어두세요."
+            className={`${inputCls} mt-2 flex-1 resize-none`}
+          />
+          <button
+            onClick={saveMemo}
+            disabled={savingMemo}
+            className="mt-2 self-end rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-60"
+          >
+            {savingMemo ? "저장 중…" : "메모 저장"}
+          </button>
+        </Card>
+
+        {/* 오른쪽: 상세정보 */}
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <CustomerAvatar name={name || customer.name} color={color || null} size={44} />
+            <h3 className="text-[15px] font-bold text-ink">상세정보</h3>
+          </div>
+
+          <div className="mt-3 grid sm:grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[12px] font-semibold text-ink3">이름</span>
+              <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[12px] font-semibold text-ink3">연락처</span>
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" className={inputCls} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[12px] font-semibold text-ink3">생년월일</span>
+              <input type="date" value={birth} onChange={(e) => setBirth(e.target.value)} className={inputCls} />
+            </label>
+            <div className="flex flex-col gap-1">
+              <span className="text-[12px] font-semibold text-ink3">성별</span>
+              <div className="flex gap-1.5">
+                {([["1", "남"], ["2", "여"]] as const).map(([v, l]) => (
+                  <button key={v} type="button"
+                    onClick={() => setGender((g) => (g === v ? "" : v))}
+                    className={`flex-1 rounded-xl border py-2.5 text-[14px] font-semibold ${gender === v ? "border-brand bg-accent-tint text-brand" : "border-line text-ink3"}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 아바타 색상 팔레트 */}
+          <div className="mt-3 flex flex-col gap-1.5">
+            <span className="text-[12px] font-semibold text-ink3">아바타 색상</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button type="button" onClick={() => setColor("")}
+                className={`h-7 px-2 rounded-full border text-[10px] font-semibold ${color === "" ? "border-brand text-brand" : "border-line text-ink3"}`}>로고</button>
+              {AVATAR_PALETTE.map((hex) => (
+                <button key={hex} type="button" onClick={() => setColor(hex)} aria-label={`색상 ${hex}`}
+                  className={`w-7 h-7 rounded-full border-2 ${color === hex ? "border-brand" : "border-transparent"}`}
+                  style={{ backgroundColor: hex }} />
+              ))}
+            </div>
+          </div>
+
+          {/* 읽기 전용 파생 정보 */}
+          <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-[13px]">
+            <dt className="text-ink3">보험나이</dt>
+            <dd className="text-ink2 text-right">{customer.insurance_age != null ? `${customer.insurance_age}세` : "—"}</dd>
+            <dt className="text-ink3">직업</dt>
+            <dd className="text-ink2 text-right">{customer.job_name ?? "—"}{riskLabel ? ` (${riskLabel})` : ""}</dd>
+            <dt className="text-ink3">마케팅 동의</dt>
+            <dd className="text-ink2 text-right">{consentLabel}</dd>
+            <dt className="text-ink3">영업 단계</dt>
+            <dd className="text-ink2 text-right">{customer.sales_stage.toUpperCase()}</dd>
+          </dl>
+
+          <button onClick={saveInfo} disabled={savingInfo}
+            className="mt-4 w-full rounded-xl bg-brand text-white text-[14px] font-bold py-2.5 disabled:opacity-60">
+            {savingInfo ? "저장 중…" : "상세정보 저장"}
+          </button>
+        </Card>
+      </div>
+
+      {/* 하단: 명함 */}
+      <Card className="p-4">
+        <h3 className="text-[15px] font-bold text-ink">명함</h3>
+        <p className="mt-1 text-[12px] text-ink3">명함·방명록 사진을 올려두면 보관돼요. (자동 인식은 준비 중 — 정보는 위에서 직접 입력해 주세요.)</p>
+        <div className="mt-3 flex items-center gap-4 flex-wrap">
+          {customer.business_card ? (
+            <a href={customer.business_card} target="_blank" rel="noreferrer">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={customer.business_card} alt="명함" className="h-28 rounded-xl border border-line object-contain bg-surface2" />
+            </a>
+          ) : (
+            <div className="h-28 w-44 rounded-xl border border-dashed border-line bg-surface2 flex items-center justify-center text-[12px] text-ink3">명함 없음</div>
+          )}
+          <label className="rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink2 cursor-pointer hover:bg-surface2">
+            {uploading ? "업로드 중…" : customer.business_card ? "명함 교체" : "명함 업로드"}
+            <input type="file" accept="image/*" onChange={onPickCard} disabled={uploading} className="hidden" />
+          </label>
+        </div>
+      </Card>
+    </div>
   );
 }
 
@@ -859,7 +1045,7 @@ function GapTab({
     <div>
       <div className="flex items-baseline justify-between">
         <h3 className="text-[15px] font-bold text-ink">
-          {isExclusive ? "🎯 자사 보장공백" : "보장 공백"}{" "}
+          {isExclusive ? "🎯 보장 공백(채울 기회)" : "보장 공백"}{" "}
           <span className="text-ink3 tnum">{gaps.length}</span>
         </h3>
         <span className="text-[12px] text-ink3">보유 0 담보</span>
@@ -868,7 +1054,7 @@ function GapTab({
       {/* graded 일 때만 '부족' 단정 가능, neutral 이면 '미보유' 사실만 */}
       <p className="mt-1.5 text-[12px] leading-5 text-ink3">
         {isExclusive
-          ? "보유하지 않은 담보예요. 자사 상품으로 채울 수 있는 보장 기회를 검토하세요(판정·최종책임은 설계사)."
+          ? "보유하지 않은 담보예요. 새로운 상품으로 채울 수 있는 보장 기회를 검토하세요(판정·최종책임은 설계사)."
           : heatmap.mode === "graded"
           ? "보유 금액이 0인 담보예요. 부족 여부 판정은 설정한 기준에 따른 결과이며, 권유·최종책임은 설계사에게 있습니다."
           : "보유 금액이 0인 담보(객관적 사실)만 모았어요. 기준 미설정(중립)이라 부족·충분은 단정하지 않습니다."}
