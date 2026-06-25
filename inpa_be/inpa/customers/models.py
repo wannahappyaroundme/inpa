@@ -61,6 +61,22 @@ class Customer(models.Model):
     lead_source = models.CharField('리드 출처', max_length=30, null=True, blank=True, default=None)
     lead_created_at = models.DateTimeField('리드 생성 시각', null=True, blank=True, default=None)
 
+    # ── 영업 단계 (파이프라인 — 칸반/퍼널 공용 데이터) ───────────────
+    # 발굴→계약 4단계. 칸반 드래그·단계이동이 이 값만 PATCH한다. 홈 퍼널(011) 카운트도 이 필드.
+    STAGE_DB = 'db'              # DB확보
+    STAGE_CONTACT = 'contact'   # 전화·메신저 영업
+    STAGE_MEETING = 'meeting'   # 대면 상담
+    STAGE_CONTRACT = 'contract'  # 계약
+    SALES_STAGE_CHOICES = (
+        (STAGE_DB, 'DB확보'),
+        (STAGE_CONTACT, '전화·메신저'),
+        (STAGE_MEETING, '대면상담'),
+        (STAGE_CONTRACT, '계약'),
+    )
+    sales_stage = models.CharField('영업 단계', max_length=10,
+                                   choices=SALES_STAGE_CHOICES, default=STAGE_DB,
+                                   db_index=True)
+
     # ── 태그 (설계사 자유 분류) ────────────────────────────────────
     tags = models.ManyToManyField('CustomerTag', blank=True, related_name='customers')
 

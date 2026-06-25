@@ -446,3 +446,45 @@ class ApplyPresetTests(TestCase):
         missing = preset_keys - std_names
         self.assertEqual(missing, set(),
                          f'표준 담보 트리에 없는 프리셋 coverage_key: {missing}')
+
+
+class SalesStageTests(TestCase):
+    """영업 단계(칸반/퍼널) — 기본값·PATCH 단계이동·목록 노출·owner 격리."""
+
+    def setUp(self):
+        self.user_a, self.client_a = _make_planner('sa@test.com')
+        self.user_b, self.client_b = _make_planner('sb@test.com')
+
+    def test_default_stage_is_db(self):
+        r = self.client_a.post('/api/v1/customers/', {'name': '신규리드'}, format='json')
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()['sales_stage'], Customer.STAGE_DB)
+
+    def test_patch_moves_stage(self):
+        cust = Customer.objects.create(owner=self.user_a, name='이동대상')
+        r = self.client_a.patch(f'/api/v1/customers/{cust.id}/',
+                                {'sales_stage': Customer.STAGE_MEETING}, format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['sales_stage'], Customer.STAGE_MEETING)
+        cust.refresh_from_db()
+        self.assertEqual(cust.sales_stage, Customer.STAGE_MEETING)
+
+    def test_invalid_stage_rejected(self):
+        cust = Customer.objects.create(owner=self.user_a, name='검증')
+        r = self.client_a.patch(f'/api/v1/customers/{cust.id}/',
+                                {'sales_stage': 'bogus'}, format='json')
+        self.assertEqual(r.status_code, 400)
+
+    def test_stage_in_list_serializer(self):
+        Customer.objects.create(owner=self.user_a, name='목록', sales_stage=Customer.STAGE_CONTACT)
+        r = self.client_a.get('/api/v1/customers/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['results'][0]['sales_stage'], Customer.STAGE_CONTACT)
+
+    def test_cannot_move_others_customer(self):
+        cust_b = Customer.objects.create(owner=self.user_b, name='B고객')
+        r = self.client_a.patch(f'/api/v1/customers/{cust_b.id}/',
+                                {'sales_stage': Customer.STAGE_CONTRACT}, format='json')
+        self.assertEqual(r.status_code, 404)
+        cust_b.refresh_from_db()
+        self.assertEqual(cust_b.sales_stage, Customer.STAGE_DB)

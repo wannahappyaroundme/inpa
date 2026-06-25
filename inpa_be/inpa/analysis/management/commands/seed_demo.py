@@ -455,10 +455,16 @@ class Command(BaseCommand):
     def _seed_customers(self, planner):
         customers = []
         tag_cache = {}
-        for spec in CUSTOMERS:
+        # 영업 4단계 분포(칸반/퍼널 데모 가시성) — 발굴 많고 계약 적은 자연스러운 깔때기.
+        stage_cycle = [
+            Customer.STAGE_DB, Customer.STAGE_DB, Customer.STAGE_CONTACT,
+            Customer.STAGE_MEETING, Customer.STAGE_MEETING, Customer.STAGE_CONTRACT,
+        ]
+        for idx, spec in enumerate(CUSTOMERS):
             cust = Customer.objects.create(
                 owner=planner, name=spec['name'], birth_day=spec['birth_day'],
                 gender=spec['gender'], memo=spec['memo'], color=spec['color'],
+                sales_stage=stage_cycle[idx % len(stage_cycle)],
                 mobile_phone_number='010-0000-0000', is_agree_term=True)
             for label in spec['tags']:
                 tag = tag_cache.get(label)
