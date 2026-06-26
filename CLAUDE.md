@@ -69,7 +69,7 @@
 
 ### 설정·기능 게이트 (`settings/base.py` — env로 제어, 코드 우회 금지)
 - 환경 분리: `local`(SQLite·DEBUG·콘솔이메일·`/media/` 로컬서빙) ↔ `prod`(Postgres `DATABASE_URL`·whitenoise·보안헤더·Sentry, SECRET_KEY 미설정 시 fail-loud).
-- 미디어(업로드: 명함·전자자료) 저장: `AWS_STORAGE_BUCKET_NAME` 설정 시 **S3(호환, django-storages)** — 비공개 서명URL(PII 보호)·`AWS_S3_ENDPOINT_URL`로 R2 등 호환. 미설정 시 로컬 디스크 폴백(단일 인스턴스·임시). 로컬은 `MEDIA_ROOT`.
+- 미디어(업로드: 명함·전자자료) 저장 — **AWS 불필요**, 3모드(prod, 우선순위): ①**S3 호환 오브젝트 스토리지**(`AWS_STORAGE_BUCKET_NAME`+`AWS_*`, django-storages·boto3 — **Cloudflare R2** 무료 권장: `AWS_S3_ENDPOINT_URL`=R2·`REGION=auto`. Supabase/B2도 동일. 비공개 서명URL=PII 보호) ②**Render 영속 디스크**(`MEDIA_DISK_PATH`=마운트경로, 유료·단일 인스턴스) ③**로컬 임시**(미설정 — 재배포 시 소실). 로컬 개발은 base `/media/` 직접 서빙.
 - **컴플라이언스 게이트(기본 닫힘)**: `COMPARE_AI_ENABLED`(갈아타기 AI초안) · `COMPARE_PUBLISH_ENABLED`(고객 발송 — §97 법무 전 하드블록) · `ANALYZE_MEDICAL_ENABLED`(병력 수집 BE 차단) · `REQUIRE_CUSTOMER_SELF_CONSENT`.
 - 기능 플래그: `FREE_TIER_UNLIMITED`(베타 한도 우회) · `BOOKING_ENABLED` · `OCR_VERIFY_ENABLED` · `GOOGLE_OAUTH_*`(미설정 = 기능 숨김).
 - Claude 모델은 하드코딩 금지 — `CLAUDE_MODEL_PARSE`(Opus) · `CLAUDE_MODEL_BULK`(Haiku)를 env에서만 주입.
