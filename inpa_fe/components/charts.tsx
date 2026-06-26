@@ -187,3 +187,51 @@ export function LineCompareChart({
     </div>
   );
 }
+
+export interface CompareBarItem {
+  label: string;
+  current: number;
+  proposed: number;
+}
+
+/** 기존 vs 제안 그룹 막대 — 담보별 2줄(기존 청록·제안 파랑). 행마다 max로 스케일해 증감을
+    한눈에. 정확 수치는 같이 표시 + 아래 비교표. 라인보다 범주형 비교에 적합(006). */
+export function CompareBarChart({
+  items,
+  format = (n) => KO.format(n),
+  className = "",
+}: {
+  items: CompareBarItem[];
+  format?: (n: number) => string;
+  className?: string;
+}) {
+  const aria = items
+    .map((it) => `${it.label} 기존 ${format(it.current)} 제안 ${format(it.proposed)}`)
+    .join(", ");
+  const Bar = ({ w, color, val }: { w: number; color: string; val: string }) => (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-2.5 rounded-full bg-surface2 overflow-hidden">
+        <div className="h-full rounded-full transition-all" style={{ width: `${w}%`, background: color }} />
+      </div>
+      <span className="w-16 shrink-0 text-right text-[10px] tnum text-ink3">{val}</span>
+    </div>
+  );
+  return (
+    <div className={className} role="img" aria-label={aria}>
+      <div className="space-y-3">
+        {items.map((it, i) => {
+          const m = Math.max(1, it.current, it.proposed);
+          return (
+            <div key={i}>
+              <div className="text-[11px] font-medium text-ink2 truncate mb-1">{it.label}</div>
+              <div className="space-y-1">
+                <Bar w={(it.current / m) * 100} color="var(--existing)" val={format(it.current)} />
+                <Bar w={(it.proposed / m) * 100} color="var(--proposal)" val={format(it.proposed)} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
