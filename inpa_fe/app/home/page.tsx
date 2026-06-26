@@ -342,19 +342,28 @@ export default function HomePage() {
             <div className="text-[15px] font-bold text-ink mb-3">
               계약 유지율 <span className="text-[11px] font-normal text-ink3">(추정)</span>
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              {([["y1", "1년"], ["y2", "2년"], ["y3", "3년"]] as const).map(([k, label]) => {
-                const r = insights.retention[k];
-                return (
-                  <div key={k} className="rounded-xl bg-surface2 px-3 py-3 text-center">
-                    <div className="text-[11px] text-ink3">{label}</div>
-                    <div className="mt-1 text-[20px] font-extrabold tnum text-ink">{r.rate == null ? "—" : `${r.rate}%`}</div>
-                    <div className="text-[11px] text-ink3 tnum">{r.survived}/{r.reached}건</div>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="mt-2 text-[11px] text-ink3">해지 입력 기준 추정치예요. 환수 레이더에서 해지를 표시하면 정확해집니다.</p>
+            {insights.retention.has_cancellation_data ? (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  {([["y1", "1년"], ["y2", "2년"], ["y3", "3년"]] as const).map(([k, label]) => {
+                    const r = insights.retention[k];
+                    return (
+                      <div key={k} className="rounded-xl bg-surface2 px-3 py-3 text-center">
+                        <div className="text-[11px] text-ink3">{label}</div>
+                        <div className="mt-1 text-[20px] font-extrabold tnum text-ink">{r.rate == null ? "—" : `${r.rate}%`}</div>
+                        <div className="text-[11px] text-ink3 tnum">{r.survived}/{r.reached}건</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-[11px] text-ink3">해지 입력 기준 추정치예요.</p>
+              </>
+            ) : (
+              <div className="rounded-xl bg-surface2 px-4 py-5 text-center text-[13px] text-ink3 leading-6">
+                아직 해지 입력이 없어 유지율을 계산하지 않았어요.
+                <div className="text-[12px] mt-0.5">환수 레이더에서 해지된 계약을 표시하면 1·2·3년 유지율이 나와요.</div>
+              </div>
+            )}
           </Card>
         )}
 

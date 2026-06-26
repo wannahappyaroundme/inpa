@@ -114,7 +114,8 @@ def compute_retention(user, today=None):
     rows = list(CustomerInsurance.objects
                 .filter(customer__owner=user, portfolio_type=1)
                 .values('contract_date', 'is_cancelled', 'cancelled_at'))
-    out = {}
+    # 해지 입력이 하나도 없으면 유지율이 무조건 100%로 보여 오해 소지 → has_cancellation_data 로 구분.
+    out = {'has_cancellation_data': any(r['is_cancelled'] for r in rows)}
     for n in (1, 2, 3):
         reached = survived = 0
         for r in rows:

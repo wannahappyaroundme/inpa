@@ -21,6 +21,8 @@ Pillow==10.1.0
 gunicorn==21.2.0
 whitenoise==6.6.0          # prod 정적파일 서빙 (prod.py 미들웨어에서만 활성)
 sentry-sdk[django]==2.63.0  # prod에서 SENTRY_DSN 설정 시에만 활성
+django-storages==1.14.6     # prod 미디어 S3(호환) 저장 — AWS_STORAGE_BUCKET_NAME 설정 시 활성
+boto3==1.40.40              # S3 SDK (django-storages 의존)
 
 # === 구글 연동 (소셜 로그인 + 캘린더) — 함수 내부 lazy import, env 게이트 ===
 google-auth==2.38.0              # ID 토큰 검증(소셜 로그인)

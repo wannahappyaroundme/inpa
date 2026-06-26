@@ -69,20 +69,26 @@ export default function ManagerPage() {
             <h2 className="mt-5 text-[15px] font-bold text-ink">
               팀 계약 유지율 <span className="text-[11px] font-normal text-ink3">(추정)</span>
             </h2>
-            <div className="mt-2 grid grid-cols-3 gap-3">
-              {([["y1", "1년"], ["y2", "2년"], ["y3", "3년"]] as const).map(([k, label]) => {
-                const r = data.team_retention[k];
-                return (
-                  <Card key={k} className="px-4 py-3.5">
-                    <div className="text-[12px] text-ink3">{label} 유지율</div>
-                    <div className="mt-1 text-[22px] font-extrabold tnum text-ink">
-                      {r.rate == null ? "—" : `${r.rate}%`}
-                    </div>
-                    <div className="text-[11px] text-ink3 tnum">{r.survived}/{r.reached}건</div>
-                  </Card>
-                );
-              })}
-            </div>
+            {data.team_retention.has_cancellation_data ? (
+              <div className="mt-2 grid grid-cols-3 gap-3">
+                {([["y1", "1년"], ["y2", "2년"], ["y3", "3년"]] as const).map(([k, label]) => {
+                  const r = data.team_retention[k];
+                  return (
+                    <Card key={k} className="px-4 py-3.5">
+                      <div className="text-[12px] text-ink3">{label} 유지율</div>
+                      <div className="mt-1 text-[22px] font-extrabold tnum text-ink">
+                        {r.rate == null ? "—" : `${r.rate}%`}
+                      </div>
+                      <div className="text-[11px] text-ink3 tnum">{r.survived}/{r.reached}건</div>
+                    </Card>
+                  );
+                })}
+              </div>
+            ) : (
+              <Card className="mt-2 px-4 py-4 text-[12px] text-ink3 leading-5">
+                아직 팀의 해지 입력이 없어 유지율을 계산하지 않았어요. 팀원이 환수 레이더에서 해지를 표시하면 집계됩니다.
+              </Card>
+            )}
 
             <h2 className="mt-5 text-[15px] font-bold text-ink">팀 영업 퍼널</h2>
             <div className="mt-2 grid grid-cols-4 gap-2">

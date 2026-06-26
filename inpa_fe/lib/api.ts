@@ -1832,6 +1832,7 @@ export interface RetentionYears {
   y1: RetentionStat;
   y2: RetentionStat;
   y3: RetentionStat;
+  has_cancellation_data: boolean;   // false면 유지율 미계산(해지 입력 전 — 100% 오해 방지)
 }
 
 export interface DashboardInsights {

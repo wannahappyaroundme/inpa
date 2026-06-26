@@ -46,6 +46,7 @@ class ManagerDashboardView(APIView):
                   Customer.STAGE_MEETING, Customer.STAGE_CONTRACT)
         team_funnel = {k: 0 for k in STAGES}
         ret_acc = {f'y{n}': {'reached': 0, 'survived': 0} for n in (1, 2, 3)}
+        team_has_cancel = False
         for profile in profiles:
             agent = profile.user
             customer_count = Customer.objects.filter(owner=agent).count()
@@ -57,6 +58,7 @@ class ManagerDashboardView(APIView):
             for k, v in compute_funnel(agent).items():
                 team_funnel[k] = team_funnel.get(k, 0) + v
             ret = compute_retention(agent, today)
+            team_has_cancel = team_has_cancel or ret['has_cancellation_data']
             for n in (1, 2, 3):
                 ret_acc[f'y{n}']['reached'] += ret[f'y{n}']['reached']
                 ret_acc[f'y{n}']['survived'] += ret[f'y{n}']['survived']
@@ -71,7 +73,7 @@ class ManagerDashboardView(APIView):
             tot_risk += risk
             tot_share += share_view
 
-        team_retention = {}
+        team_retention = {'has_cancellation_data': team_has_cancel}
         for n in (1, 2, 3):
             r = ret_acc[f'y{n}']
             team_retention[f'y{n}'] = {
