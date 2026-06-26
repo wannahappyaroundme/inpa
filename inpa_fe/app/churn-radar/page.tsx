@@ -23,9 +23,9 @@ import {
 
 const STAGE_META: Record<PersistencyStage, { label: string; cls: string }> = {
   unknown: { label: "미입력", cls: "bg-surface2 text-ink3 border-line" },
-  pre_13: { label: "13회차 전", cls: "bg-rose-50 text-rose-700 border-rose-200" },
-  pre_25: { label: "25회차 전", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  safe: { label: "유지 안정", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  pre_13: { label: "13회차 전", cls: "bg-warning-tint text-warning-ink border-short/40" },
+  pre_25: { label: "25회차 전", cls: "bg-accent-tint text-brand border-accent/30" },
+  safe: { label: "유지 안정", cls: "bg-success-tint text-success-ink border-enough/30" },
 };
 
 const STATUS_OPTIONS = [
@@ -164,7 +164,7 @@ export default function ChurnRadarPage() {
         )}
 
         {error && (
-          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] text-rose-700">
+          <div className="mt-3 rounded-xl border border-cnone/30 bg-danger-tint px-4 py-2.5 text-[13px] text-danger-ink">
             {error}
           </div>
         )}
@@ -189,7 +189,7 @@ export default function ChurnRadarPage() {
               return (
                 <Card
                   key={it.insurance_id}
-                  className={`px-4 py-3.5 ${it.is_at_risk ? "border-rose-200" : ""}`}
+                  className={`px-4 py-3.5 ${it.is_at_risk ? "border-cnone/50" : ""}`}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[15px] font-bold text-ink">{it.customer_name}</span>
@@ -199,7 +199,7 @@ export default function ChurnRadarPage() {
                     </span>
                   </div>
                   {it.is_at_risk && it.risk_reason && (
-                    <div className="mt-1.5 text-[12px] font-semibold text-rose-700">
+                    <div className="mt-1.5 text-[12px] font-semibold text-danger-ink">
                       ⚠️ {it.risk_reason}
                     </div>
                   )}
@@ -262,7 +262,7 @@ export default function ChurnRadarPage() {
                           [it.insurance_id]: { ...prev[it.insurance_id], is_cancelled: e.target.checked },
                         }))
                       }
-                      className="w-4 h-4 accent-rose-500"
+                      className="w-4 h-4 accent-cnone"
                     />
                     해지된 계약
                     {d?.is_cancelled && (
@@ -278,7 +278,7 @@ export default function ChurnRadarPage() {
 
                   <div className="mt-2.5 flex items-center justify-end gap-2">
                     {savedId === it.insurance_id && (
-                      <span className="text-[12px] font-semibold text-emerald-600">저장됐어요</span>
+                      <span className="text-[12px] font-semibold text-success-ink">저장됐어요</span>
                     )}
                     <button
                       onClick={() => save(it)}

@@ -177,7 +177,7 @@ function ShowcaseViz({ kind }: { kind: "analysis" | "funnel" | "calendar" | "mes
         </div>
       );
     case "funnel": {
-      const cols = [{ l: "DB", v: 12 }, { l: "전화", v: 8 }, { l: "대면", v: 5 }, { l: "계약", v: 3 }];
+      const cols = [{ l: "DB", v: 12 }, { l: "TA", v: 8 }, { l: "FA", v: 5 }, { l: "청약", v: 3 }];
       return (
         <div className="grid grid-cols-4 gap-1.5 h-full w-full items-end">
           {cols.map((c, i) => (
