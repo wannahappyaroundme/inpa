@@ -216,7 +216,7 @@ export default function CustomersPage() {
   // 정렬: 상단고정 > 즐겨찾기 > 방치(red>amber) > 최근 등록
   const sortCustomers = useCallback((list: CustomerListItem[]) => {
     const rank = (c: CustomerListItem) => {
-      const lvl = stalenessLevel(c.last_contacted_at, c.created_at);
+      const lvl = (c.sales_stage === "contract" ? null : stalenessLevel(c.last_contacted_at, c.created_at));
       return lvl === "red" ? 2 : lvl === "amber" ? 1 : 0;
     };
     return [...list].sort((a, b) => {
@@ -297,7 +297,7 @@ export default function CustomersPage() {
         {view === "list" && customers.length > 0 && (
           <div className="mt-4 grid sm:grid-cols-2 gap-3">
             {sorted.map((c) => {
-              const lvl = stalenessLevel(c.last_contacted_at, c.created_at);
+              const lvl = (c.sales_stage === "contract" ? null : stalenessLevel(c.last_contacted_at, c.created_at));
               return (
                 <Card key={c.id} className={`p-4 flex items-center gap-3 ${ringCls(lvl)}`}>
                   <CustomerAvatar name={c.name} color={c.color} size={44} />
@@ -368,7 +368,7 @@ export default function CustomersPage() {
                     </div>
                     <div className="space-y-2">
                       {col.map((c) => {
-                        const lvl = stalenessLevel(c.last_contacted_at, c.created_at);
+                        const lvl = (c.sales_stage === "contract" ? null : stalenessLevel(c.last_contacted_at, c.created_at));
                         return (
                           <div
                             key={c.id}

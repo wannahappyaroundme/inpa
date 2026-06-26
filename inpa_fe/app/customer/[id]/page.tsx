@@ -33,7 +33,7 @@ import {
   ConsentModal,
 } from "@/components/ocr-upload";
 import { BookingModal } from "@/components/booking-modal";
-import { LineCompareChart } from "@/components/charts";
+import { CompareBarChart } from "@/components/charts";
 import {
   getCustomer,
   getHeatmap,
@@ -945,27 +945,29 @@ function SwitchTab({ customerId }: { customerId: number }) {
         </div>
       </div>
 
-      {/* 기존 vs 제안 보장 라인차트(006) — 상대 흐름. 정확 수치는 아래 비교표(가짜데이터 금지 원칙: rows 그대로) */}
+      {/* 기존 vs 제안 보장 그룹 막대(006) — 담보별 2줄(기존·제안). 정확 수치 같이 표시 + 아래 비교표 */}
       {data.rows.length >= 2 && (
         <div className="rounded-xl border border-line bg-surface px-4 py-3.5 mb-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-3">
             <span className="text-[13px] font-bold text-ink">보장 비교 (기존 vs 제안)</span>
             <div className="flex items-center gap-3 text-[11px]">
               <span className="inline-flex items-center gap-1 text-ink2">
-                <span className="w-2.5 h-[3px] rounded" style={{ background: "var(--existing)" }} />기존
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "var(--existing)" }} />기존
               </span>
               <span className="inline-flex items-center gap-1 text-ink2">
-                <span className="w-2.5 h-[3px] rounded" style={{ background: "var(--proposal)" }} />제안
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "var(--proposal)" }} />제안
               </span>
             </div>
           </div>
-          <LineCompareChart
-            series={[
-              { label: "기존", color: "var(--existing)", points: data.rows.map((r) => r.current_amount ?? 0) },
-              { label: "제안", color: "var(--proposal)", points: data.rows.map((r) => r.proposed_amount ?? 0) },
-            ]}
+          <CompareBarChart
+            items={data.rows.map((r) => ({
+              label: r.coverage,
+              current: r.current_amount ?? 0,
+              proposed: r.proposed_amount ?? 0,
+            }))}
+            format={fmtAmount}
           />
-          <p className="mt-1.5 text-[11px] text-ink3">담보별 보장금액의 상대 흐름이에요. 정확한 수치는 아래 비교표에서 확인하세요.</p>
+          <p className="mt-2 text-[11px] text-ink3">담보별 기존·제안 보장금액 비교예요. 정확한 수치는 아래 비교표에서 확인하세요.</p>
         </div>
       )}
 
