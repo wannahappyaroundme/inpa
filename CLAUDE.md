@@ -52,13 +52,13 @@
 
 ### Django 앱 지도 (`inpa_be/inpa/`, 13개 — `settings/base.py` LOCAL_APPS / `core`는 공유 패키지로 별도)
 - `accounts` — User(이메일 PK)·Profile·인증(가입/이메일인증/로그인잠금/비번재설정)·구글(`google.py` 소셜로그인, `google_calendar.py` 캘린더)·온보딩·지점장 대시보드(`manager.py`).
-- `customers` — 고객 CRUD·동의로그(`ConsentLog`)·고객 본인 동의 공개링크(`public_consent.py` `/c/<token>`)·기준선 프리셋(`presets.py`).
-- `insurances` — 보험/담보(소유자 전용, `customer__owner` 경유)·환수레이더(`churn.py`)·셀프진단 공개(`self_diagnosis.py` `/d/<ref>`)·OCR 교차검증(`verify.py`).
+- `customers` — 고객 CRUD·동의로그(`ConsentLog`)·고객 본인 동의 공개링크(`public_consent.py` `/c/<token>`)·기준선 프리셋(`presets.py`). 영업 4단계(`sales_stage` db/contact/meeting/contract = **DB/TA/FA/청약** 표시)·즐겨찾기/상단고정/최종연락(방치 색상경보)·아바타색·명함(`business_card`)·보험나이(`compute_insurance_age` 상령일)·계약 설명의무 체크리스트(`ContractChecklistItem`, `/customers/<id>/checklist/`).
+- `insurances` — 보험/담보(소유자 전용, `customer__owner` 경유)·환수레이더(`churn.py`, 해지 추적 `is_cancelled`/`cancelled_at` → 유지율)·셀프진단 공개(`self_diagnosis.py` `/d/<ref>`)·OCR 교차검증(`verify.py`).
 - `analysis` — **표준 담보 트리 + 보험사별 담보명 정규화 사전(공유 전역 마스터)**. 계산엔진 `calculate.py`(히트맵), 갈아타기 `compare.py`+`switch_verdict.py`(KEEP/SWITCH/NEUTRAL = 설계사 내부 전용, 고객 노출 금지 §97). foliio 포팅 핵심 자산.
 - `booking` — 미팅예약(Calendly식): 슬롯/미팅 + 공개 예약링크(`public_booking.py` `/b/<token>`).
-- `schedule` — 개인 일정/할일/고정차단(`ScheduleItem` 1모델, 소유자 전용, FE `/schedule`). **`booking`과 별개** — 캘린더는 둘을 같이 그리기만(예약 이중락 비파괴). ⚠️ 타임존 규약: 단건 start/end=UTC 저장·KST 표시 / 반복차단 `recur_*_time`=KST 벽시계 그대로(변환 금지, 변환 시 9h 밀림) / all_day·시각없는 todo=KST 정오 저장.
-- `dashboard` — 월별 목표(수동)+실적(계산), 예상월급 배율.
-- `notifications`(알림+리마인더) · `billing`(요금제·사용량 한도) · `boards`(게시판·공지·FAQ·문의, 혼합 가시성) · `promotion`(판촉물 주문) · `admin_console`(IsAdmin 백오피스) · `analytics`(북극성 이벤트 계측).
+- `schedule` — 개인 일정/할일/고정차단(`ScheduleItem` 1모델, 소유자 전용, FE `/schedule`). **`booking`과 별개** — 캘린더는 둘을 같이 그리기만(예약 이중락 비파괴). `kind`(event/todo/block=동작) ⟂ `category`(5분류=색/범례: 고객미팅·생일/기념일·만기/갱신·업무·기타) + 생일·기념일 매년 반복(`anniversary_md`). ⚠️ 타임존 규약: 단건 start/end=UTC 저장·KST 표시 / 반복차단 `recur_*_time`=KST 벽시계 그대로(변환 금지, 변환 시 9h 밀림) / all_day·시각없는 todo=KST 정오 저장.
+- `dashboard` — 월별 목표(수동)+실적(계산), 예상월급 배율. 계약 유지율 1/2/3년(`compute_retention` — 해지 입력 0건이면 `has_cancellation_data=false`로 미계산) + 관리직 팀집계(`accounts/manager.py`가 `compute_funnel`·`compute_retention`·`compute_team_roi` 팀 루프 재사용, PII 비노출, ROI=추정 라벨).
+- `notifications`(알림+리마인더, 판촉물/전자자료 타입 포함) · `billing`(요금제·사용량 한도) · `boards`(게시판·공지·FAQ·문의, 혼합 가시성) · `promotion`(판촉물 주문 + **전자자료** `is_digital`/`digital_file`: 1회 무료 다운로드 → 2회차+ 어드민 큐 `PromotionDownload` + 관리자 알림) · `admin_console`(IsAdmin 백오피스) · `analytics`(북극성 이벤트 계측).
 - `core` — 공통 믹스인·권한 + `core/ocr/`(foliio 벤더링: `claude_parser.py`·`ocrparsing.py`·`ocrdata.py` 보험사 코드).
 
 ### 증권 분석 파이프라인 (foliio 재사용의 핵심 동선)
@@ -68,7 +68,8 @@
 `/s/<token>`(공유뷰) · `/b/<token>`(예약) · `/c/<token>`(고객 본인 동의) · `/d/<ref>`(셀프진단). 전부 TimestampSigner 토큰 + ScopedRateThrottle. FE는 `app/s|b|c|d/[token]/`.
 
 ### 설정·기능 게이트 (`settings/base.py` — env로 제어, 코드 우회 금지)
-- 환경 분리: `local`(SQLite·DEBUG·콘솔이메일) ↔ `prod`(Postgres `DATABASE_URL`·whitenoise·보안헤더·Sentry, SECRET_KEY 미설정 시 fail-loud).
+- 환경 분리: `local`(SQLite·DEBUG·콘솔이메일·`/media/` 로컬서빙) ↔ `prod`(Postgres `DATABASE_URL`·whitenoise·보안헤더·Sentry, SECRET_KEY 미설정 시 fail-loud).
+- 미디어(업로드: 명함·전자자료) 저장: `AWS_STORAGE_BUCKET_NAME` 설정 시 **S3(호환, django-storages)** — 비공개 서명URL(PII 보호)·`AWS_S3_ENDPOINT_URL`로 R2 등 호환. 미설정 시 로컬 디스크 폴백(단일 인스턴스·임시). 로컬은 `MEDIA_ROOT`.
 - **컴플라이언스 게이트(기본 닫힘)**: `COMPARE_AI_ENABLED`(갈아타기 AI초안) · `COMPARE_PUBLISH_ENABLED`(고객 발송 — §97 법무 전 하드블록) · `ANALYZE_MEDICAL_ENABLED`(병력 수집 BE 차단) · `REQUIRE_CUSTOMER_SELF_CONSENT`.
 - 기능 플래그: `FREE_TIER_UNLIMITED`(베타 한도 우회) · `BOOKING_ENABLED` · `OCR_VERIFY_ENABLED` · `GOOGLE_OAUTH_*`(미설정 = 기능 숨김).
 - Claude 모델은 하드코딩 금지 — `CLAUDE_MODEL_PARSE`(Opus) · `CLAUDE_MODEL_BULK`(Haiku)를 env에서만 주입.
@@ -80,6 +81,13 @@
 - **랜딩페이지**(`/`, 공개): 히어로 "**설계사님은 클로징만 준비하세요**".
 - **판촉물** = 샘플 사진 + 구글폼식 입력 + 예약 → 운영팀 수동 주문제작(자동발송 없음). (구 'promotion 14종 자동생성' 모델 폐기)
 - 한도(Freemium): 베타 무제한(`FREE_TIER_UNLIMITED`), 수치·결제는 정식 전. planner_baseline 프리셋: 베타는 직접입력만.
+
+## PM 06.24 피드백 반영 (2026-06-26 세션)
+- **고객 영업화면**: 4단계 칸반 = **DB→TA→FA→청약**(내부값 `db/contact/meeting/contract` 유지, 표시라벨만). 칸반=가로 스크롤 4열 보드(각 단계 세로 일렬). 방치 색상경보(최종연락 없으면 등록일 기준 3일↑ amber/7일↑ red **ring**, 정렬: 고정>즐겨찾기>방치). 아바타 디폴트=인파 로고+파스텔 팔레트(`color`). 직업 위험등급 배지·보험나이(상령일). 고객상세 **정보 탭**(좌 메모/우 상세/하단 명함) + **계약 탭**(설명의무 체크리스트, 해피콜 대체).
+- **캘린더 5분류**(위 schedule), **유지율·관리직 ROI**(위 dashboard).
+- **판촉물 전자자료**(위 promotion): 1회 무료→어드민 큐+알림. 운영팀이 Django admin에서 `digital_file` 등록·발송.
+- **마케팅 방향**(토론): 개인="잡일 줄이고 첫 고객 만들기", 관리직="팀 성과·ROI"(추정 라벨). 랜딩 `AudienceSection` + 관리직 태그라인.
+- **컴플라이언스 결정**: 명함 Vision OCR=보류(수기 폴백). 포인트/현금 보상=보험업법 §98 특별이익 소지 → **폐기**, 자사 SaaS 혜택·활동기반으로 재설계 후 법무(보류). "지점장"→"관리직" 용어는 UI 카피만.
 
 ## 문서 (`docs/`)
 - **`docs/dev/00-INDEX.md` = 개발 문서 마스터 지도(SSOT 진입점)**. 전체 라우트맵·문서 인덱스·스트림↔엔티티 매핑.
