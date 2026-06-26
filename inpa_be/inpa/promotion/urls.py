@@ -30,6 +30,7 @@ from .views import (
     AdminSampleImageCreateView,
     AdminSampleImageDeleteView,
     AdminSampleListCreateView,
+    PromotionDigitalRequestView,
     PromotionOrderDetailView,
     PromotionOrderListCreateView,
     PromotionSampleDetailView,
@@ -42,6 +43,8 @@ urlpatterns = [
     # ── 설계사 공개 — 샘플 ────────────────────────────────────────
     path('promotion/samples/', PromotionSampleListView.as_view(), name='sample-list'),
     path('promotion/samples/<int:pk>/', PromotionSampleDetailView.as_view(), name='sample-detail'),
+    # 전자자료 1회 무료 / 2회차+ 어드민 큐 (PM 06.24)
+    path('promotion/samples/<int:sample_id>/request/', PromotionDigitalRequestView.as_view(), name='sample-digital-request'),
 
     # ── 설계사 공개 — 주문 ────────────────────────────────────────
     path('promotion/orders/', PromotionOrderListCreateView.as_view(), name='order-list-create'),

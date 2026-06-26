@@ -87,8 +87,24 @@ export function BarChart({
   className?: string;
 }) {
   const max = Math.max(1, ...data.map((d) => d.value));
+  const total = data.reduce((s, d) => s + Math.max(0, d.value), 0);
   const lastIdx = data.length - 1;
-  const aria = data.map((d) => `${d.label} ${format(d.value)}`).join(", ");
+  const aria = total > 0 ? data.map((d) => `${d.label} ${format(d.value)}`).join(", ") : "데이터 없음";
+
+  // 전체 0 → 막대를 똑같은 작은 그루터기로 그리면 '데이터 있음'처럼 보임 → 빈상태로 명시
+  if (total === 0) {
+    return (
+      <div className={className} role="img" aria-label={aria}>
+        <div className="h-24 flex items-center justify-center text-[12px] text-ink3">데이터가 아직 없어요</div>
+        <div className="flex gap-1.5 mt-1">
+          {data.map((d, i) => (
+            <span key={i} className="flex-1 text-center text-[10px] text-ink3">{d.label}</span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={className} role="img" aria-label={aria}>
       <div className="flex items-end gap-1.5">
@@ -98,7 +114,7 @@ export function BarChart({
           return (
             <div key={i} className="flex-1 flex flex-col items-center">
               {hot && (
-                <span className="mb-1 text-[10px] font-semibold text-brand tnum whitespace-nowrap">
+                <span className="mb-1 text-[9px] font-semibold text-brand tnum whitespace-nowrap">
                   {format(d.value)}
                 </span>
               )}

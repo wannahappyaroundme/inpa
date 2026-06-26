@@ -23,9 +23,9 @@ import {
 
 const STAGE_META: Record<PersistencyStage, { label: string; cls: string }> = {
   unknown: { label: "미입력", cls: "bg-surface2 text-ink3 border-line" },
-  pre_13: { label: "13회차 전", cls: "bg-rose-50 text-rose-700 border-rose-200" },
-  pre_25: { label: "25회차 전", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  safe: { label: "유지 안정", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  pre_13: { label: "13회차 전", cls: "bg-warning-tint text-warning-ink border-short/40" },
+  pre_25: { label: "25회차 전", cls: "bg-accent-tint text-brand border-accent/30" },
+  safe: { label: "유지 안정", cls: "bg-success-tint text-success-ink border-enough/30" },
 };
 
 const STATUS_OPTIONS = [
@@ -43,6 +43,8 @@ type Draft = {
   payment_status: string;
   next_payment_date: string;
   expected_recovery_amount: string;
+  is_cancelled: boolean;
+  cancelled_at: string;
 };
 
 function toDraft(it: ChurnRadarItem): Draft {
@@ -51,6 +53,8 @@ function toDraft(it: ChurnRadarItem): Draft {
     payment_status: it.payment_status?.toString() ?? "",
     next_payment_date: it.next_payment_date ?? "",
     expected_recovery_amount: it.expected_recovery_amount?.toString() ?? "",
+    is_cancelled: it.is_cancelled,
+    cancelled_at: it.cancelled_at ?? "",
   };
 }
 
@@ -102,6 +106,8 @@ export default function ChurnRadarPage() {
         payment_status: numOrNull(d.payment_status),
         next_payment_date: d.next_payment_date.trim() === "" ? null : d.next_payment_date,
         expected_recovery_amount: numOrNull(d.expected_recovery_amount),
+        is_cancelled: d.is_cancelled,
+        cancelled_at: d.is_cancelled && d.cancelled_at.trim() !== "" ? d.cancelled_at : null,
       });
       setSavedId(it.insurance_id);
       setTimeout(() => setSavedId(null), 1800);
@@ -158,7 +164,7 @@ export default function ChurnRadarPage() {
         )}
 
         {error && (
-          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] text-rose-700">
+          <div className="mt-3 rounded-xl border border-cnone/30 bg-danger-tint px-4 py-2.5 text-[13px] text-danger-ink">
             {error}
           </div>
         )}
@@ -183,7 +189,7 @@ export default function ChurnRadarPage() {
               return (
                 <Card
                   key={it.insurance_id}
-                  className={`px-4 py-3.5 ${it.is_at_risk ? "border-rose-200" : ""}`}
+                  className={`px-4 py-3.5 ${it.is_at_risk ? "border-cnone/50" : ""}`}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[15px] font-bold text-ink">{it.customer_name}</span>
@@ -193,7 +199,7 @@ export default function ChurnRadarPage() {
                     </span>
                   </div>
                   {it.is_at_risk && it.risk_reason && (
-                    <div className="mt-1.5 text-[12px] font-semibold text-rose-700">
+                    <div className="mt-1.5 text-[12px] font-semibold text-danger-ink">
                       ⚠️ {it.risk_reason}
                     </div>
                   )}
@@ -245,9 +251,34 @@ export default function ChurnRadarPage() {
                     </label>
                   </div>
 
+                  {/* 해지 여부 — 계약 유지율 계산용 (PM 06.24) */}
+                  <label className="mt-2.5 flex items-center gap-2 text-[13px] text-ink2">
+                    <input
+                      type="checkbox"
+                      checked={d?.is_cancelled ?? false}
+                      onChange={(e) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [it.insurance_id]: { ...prev[it.insurance_id], is_cancelled: e.target.checked },
+                        }))
+                      }
+                      className="w-4 h-4 accent-cnone"
+                    />
+                    해지된 계약
+                    {d?.is_cancelled && (
+                      <input
+                        type="date"
+                        value={d?.cancelled_at ?? ""}
+                        onChange={(e) => setField(it.insurance_id, "cancelled_at", e.target.value)}
+                        className="ml-1 rounded-lg border border-line bg-surface px-2 py-1 text-[13px] text-ink"
+                        aria-label="해지일"
+                      />
+                    )}
+                  </label>
+
                   <div className="mt-2.5 flex items-center justify-end gap-2">
                     {savedId === it.insurance_id && (
-                      <span className="text-[12px] font-semibold text-emerald-600">저장됐어요</span>
+                      <span className="text-[12px] font-semibold text-success-ink">저장됐어요</span>
                     )}
                     <button
                       onClick={() => save(it)}

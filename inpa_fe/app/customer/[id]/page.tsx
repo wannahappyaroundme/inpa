@@ -42,6 +42,11 @@ import {
   getProfile,
   updateCustomer,
   uploadBusinessCard,
+  listChecklist,
+  applyChecklistTemplate,
+  toggleChecklistItem,
+  addChecklistItem,
+  deleteChecklistItem,
   ApiError,
   type CustomerDetail,
   type HeatmapResponse,
@@ -49,15 +54,17 @@ import {
   type CompareResponse,
   type HistoryEvent,
   type ProfileResponse,
+  type ContractChecklistItem,
 } from "@/lib/api";
 
-type TabKey = "analysis" | "switch" | "gap" | "history" | "info";
+type TabKey = "analysis" | "switch" | "gap" | "info" | "contract" | "history";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "analysis", label: "분석" },
   { key: "switch", label: "비교 분석" },
   { key: "gap", label: "공백" },
   { key: "info", label: "정보" },
+  { key: "contract", label: "계약" },
   { key: "history", label: "이력" },
 ];
 
@@ -302,6 +309,7 @@ function CustomerDetailInner() {
               {activeTab === "info" && customer && (
                 <InfoTab customer={customer} onUpdated={setCustomer} />
               )}
+              {activeTab === "contract" && <ChecklistTab customerId={customerId} />}
               {activeTab === "history" && <HistoryTab customerId={customerId} />}
             </div>
           </>
@@ -533,6 +541,93 @@ function InfoTab({
         </div>
       </Card>
     </div>
+  );
+}
+
+// ── 계약 탭 (설명의무 체크리스트) — PM 06.24 ──
+function ChecklistTab({ customerId }: { customerId: number }) {
+  const [items, setItems] = useState<ContractChecklistItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    listChecklist(customerId)
+      .then((r) => setItems(r.results))
+      .catch(() => setErr("불러오지 못했어요."))
+      .finally(() => setLoading(false));
+  }, [customerId]);
+  useEffect(() => { load(); }, [load]);
+
+  async function applyTemplate() {
+    setBusy(true); setErr(null);
+    try { await applyChecklistTemplate(customerId); load(); }
+    catch { setErr("템플릿 적용에 실패했어요."); } finally { setBusy(false); }
+  }
+  async function toggle(id: number) {
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, is_done: !it.is_done } : it)));
+    try { await toggleChecklistItem(customerId, id); } catch { load(); }
+  }
+  async function addItem() {
+    if (!newLabel.trim()) return;
+    setBusy(true);
+    try { await addChecklistItem(customerId, newLabel.trim()); setNewLabel(""); load(); }
+    catch { setErr("추가에 실패했어요."); } finally { setBusy(false); }
+  }
+  async function remove(id: number) {
+    setItems((prev) => prev.filter((it) => it.id !== id));
+    try { await deleteChecklistItem(customerId, id); } catch { load(); }
+  }
+
+  const doneCount = items.filter((i) => i.is_done).length;
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-[15px] font-bold text-ink">설명의무 체크리스트</h3>
+        {items.length > 0 && <span className="text-[12px] text-ink3 tnum">{doneCount}/{items.length} 완료</span>}
+      </div>
+      <p className="mt-1 text-[12px] text-ink3 leading-5">
+        상담 시 설명 의무 이행을 직접 점검·기록해요. 체크 이력은 분쟁 대비 자료가 됩니다(자동발송·해피콜 아님).
+      </p>
+      {err && <div className="mt-2 text-[13px] text-rose-700">{err}</div>}
+
+      {loading ? (
+        <div className="mt-4 h-20 rounded-xl bg-line animate-pulse" />
+      ) : items.length === 0 ? (
+        <div className="mt-5 text-center">
+          <p className="text-[13px] text-ink3">아직 체크리스트가 없어요.</p>
+          <button onClick={applyTemplate} disabled={busy}
+            className="mt-3 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-60">
+            {busy ? "생성 중…" : "기본 템플릿 불러오기"}
+          </button>
+        </div>
+      ) : (
+        <>
+          <ul className="mt-3 space-y-1.5">
+            {items.map((it) => (
+              <li key={it.id} className="flex items-center gap-2.5">
+                <button onClick={() => toggle(it.id)} aria-label="완료 토글"
+                  className={`w-5 h-5 rounded border shrink-0 flex items-center justify-center ${it.is_done ? "bg-brand border-brand" : "border-line"}`}>
+                  {it.is_done && <span className="text-white text-[11px] leading-none">✓</span>}
+                </button>
+                <span className={`flex-1 text-[14px] ${it.is_done ? "line-through text-ink3" : "text-ink"}`}>{it.label}</span>
+                <button onClick={() => remove(it.id)} aria-label="삭제" className="text-ink3 hover:text-rose-600 text-[13px] px-1">✕</button>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 flex gap-2">
+            <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") addItem(); }}
+              placeholder="항목 추가" className="flex-1 rounded-xl border border-line px-3 py-2 text-[13px]" />
+            <button onClick={addItem} disabled={busy || !newLabel.trim()}
+              className="rounded-xl border border-line text-ink2 text-[13px] font-semibold px-3 disabled:opacity-50">추가</button>
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 

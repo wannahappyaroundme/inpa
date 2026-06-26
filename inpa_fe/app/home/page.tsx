@@ -35,7 +35,7 @@ const META: Record<Kind, { dot: string; label: string }> = {
   meeting: { dot: "bg-enough", label: "미팅" },
   expiry: { dot: "bg-cnone", label: "만기·미납" },
   birthday: { dot: "bg-short", label: "생일" },
-  consult: { dot: "bg-enough", label: "상담" },
+  consult: { dot: "bg-existing", label: "상담" },
   task: { dot: "bg-over", label: "리드·알림" },
   other: { dot: "bg-muted", label: "알림" },
 };
@@ -336,6 +336,37 @@ export default function HomePage() {
           </div>
         )}
 
+        {/* 계약 유지율(추정) 1/2/3년 — PM 06.24 */}
+        {insights && (
+          <Card className="mt-4 p-4 sm:p-5">
+            <div className="text-[15px] font-bold text-ink mb-3">
+              계약 유지율 <span className="text-[11px] font-normal text-ink3">(추정)</span>
+            </div>
+            {insights.retention.has_cancellation_data ? (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  {([["y1", "1년"], ["y2", "2년"], ["y3", "3년"]] as const).map(([k, label]) => {
+                    const r = insights.retention[k];
+                    return (
+                      <div key={k} className="rounded-xl bg-surface2 px-3 py-3 text-center">
+                        <div className="text-[11px] text-ink3">{label}</div>
+                        <div className="mt-1 text-[20px] font-extrabold tnum text-ink">{r.rate == null ? "—" : `${Math.round(r.rate)}%`}</div>
+                        <div className="text-[11px] text-ink3 tnum">{r.survived}/{r.reached}건</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-[11px] text-ink3">해지 입력 기준 추정치예요.</p>
+              </>
+            ) : (
+              <div className="rounded-xl bg-surface2 px-4 py-5 text-center text-[13px] text-ink3 leading-6">
+                아직 해지 입력이 없어 유지율을 계산하지 않았어요.
+                <div className="text-[12px] mt-0.5">환수 레이더에서 해지된 계약을 표시하면 1·2·3년 유지율이 나와요.</div>
+              </div>
+            )}
+          </Card>
+        )}
+
         {/* 이번 달 목표 — 수동 설정 + 실적 진행률 */}
         {dash && (
           <Card className="mt-4 p-4 sm:p-5">
@@ -413,7 +444,7 @@ export default function HomePage() {
           onClick={() => router.push("/churn-radar")}
           className={`mt-4 w-full text-left rounded-2xl border px-4 py-3.5 flex items-center gap-3 transition active:scale-[0.997] ${
             churn && churn.risk_count > 0
-              ? "border-rose-200 bg-rose-50 hover:bg-rose-100"
+              ? "border-cnone/30 bg-danger-tint hover:bg-danger-tint/70"
               : "border-line bg-surface2 hover:bg-surface"
           }`}
         >
@@ -422,14 +453,14 @@ export default function HomePage() {
             <div className="text-[14px] font-bold text-ink">
               환수 레이더
               {churn && churn.risk_count > 0 && (
-                <span className="ml-2 text-rose-700">위험 {churn.risk_count}건</span>
+                <span className="ml-2 text-danger-ink">위험 {churn.risk_count}건</span>
               )}
             </div>
             <div className="text-[12px] text-ink3 mt-0.5">
               {churn === null
                 ? "보유계약 납입상태·유지율(13/25회차)을 점검하세요"
                 : churn.risk_count > 0
-                ? `예상 환수액(추정) ₩${new Intl.NumberFormat("ko-KR").format(churn.expected_recovery_total)} · 지금 확인`
+                ? `예상 환수액(추정) ${fmtWonShort(churn.expected_recovery_total)}원 · 지금 확인`
                 : "현재 환수 위험 없음 · 납입정보 입력·점검"}
             </div>
           </div>
@@ -497,6 +528,8 @@ export default function HomePage() {
                   <div key={i} className="flex flex-col items-center pt-1.5 pb-1 min-h-[52px]">
                     <button
                       onClick={() => setSelDay(d)}
+                      aria-label={`${viewM}월 ${d}일${kinds.length > 0 ? ` · 일정 ${items?.length ?? 0}건` : ""}`}
+                      aria-pressed={d === selDay}
                       className={`w-9 h-9 rounded-full flex items-center justify-center text-[14px] font-medium ${cls}`}
                     >
                       {d}

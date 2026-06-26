@@ -51,7 +51,7 @@ class PromotionSampleListSerializer(serializers.ModelSerializer):
         model = PromotionSample
         fields = [
             'id', 'name', 'category', 'description',
-            'is_available', 'primary_image', 'sort_order',
+            'is_available', 'is_digital', 'primary_image', 'sort_order',
         ]
         read_only_fields = fields
 
@@ -70,7 +70,7 @@ class PromotionSampleDetailSerializer(serializers.ModelSerializer):
         model = PromotionSample
         fields = [
             'id', 'name', 'category', 'description',
-            'is_available', 'images', 'form_fields', 'sort_order',
+            'is_available', 'is_digital', 'images', 'form_fields', 'sort_order',
         ]
         read_only_fields = fields
 

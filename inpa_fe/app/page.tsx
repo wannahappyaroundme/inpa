@@ -177,7 +177,7 @@ function ShowcaseViz({ kind }: { kind: "analysis" | "funnel" | "calendar" | "mes
         </div>
       );
     case "funnel": {
-      const cols = [{ l: "DB", v: 12 }, { l: "전화", v: 8 }, { l: "대면", v: 5 }, { l: "계약", v: 3 }];
+      const cols = [{ l: "DB", v: 12 }, { l: "TA", v: 8 }, { l: "FA", v: 5 }, { l: "청약", v: 3 }];
       return (
         <div className="grid grid-cols-4 gap-1.5 h-full w-full items-end">
           {cols.map((c, i) => (
@@ -432,6 +432,42 @@ function LandingFooter() {
   );
 }
 
+// 두 청중(개인/관리직) 가치 — 마케팅 방향(PM 06.24 토론)
+function AudienceSection() {
+  const cards = [
+    {
+      tag: "개인 설계사",
+      title: "잡일은 88% 줄이고,\n그 시간으로 첫 고객을 만드세요",
+      body: "증권 분석 30분 → 3분, 제안서 40분 → 5분. 번 시간은 발굴에. 셀프진단 링크 하나면 잠재고객이 알아서 내 리드가 됩니다.",
+    },
+    {
+      tag: "관리직(팀장·지점장)",
+      title: "팀원이 상담에 집중할수록,\n팀장님 마감 숫자가 올라갑니다",
+      body: "월말 취합 엑셀은 그만. 팀 퍼널·유지율·환수위험을 실시간으로 — 보고 받지 말고 인파에서 바로 보세요. (성과 수치는 추정)",
+    },
+  ];
+  return (
+    <section className="py-20 md:py-28 bg-[var(--surface)]">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6">
+        <Reveal>
+          <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">누구에게 좋은가요?</h2>
+        </Reveal>
+        <div className="mt-10 grid gap-5 md:grid-cols-2">
+          {cards.map((c) => (
+            <Reveal key={c.tag}>
+              <div className="h-full rounded-2xl border border-[var(--line)] bg-[var(--surface-2)] p-6">
+                <span className="inline-block text-[12px] font-bold text-brand bg-accent-tint px-2.5 py-1 rounded-full">{c.tag}</span>
+                <h3 className="mt-3 text-[20px] font-extrabold text-[var(--brand-ink)] leading-snug whitespace-pre-line">{c.title}</h3>
+                <p className="mt-2.5 text-[14px] text-[var(--ink-2)] leading-6">{c.body}</p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function LandingPage() {
   const router = useRouter();
   useEffect(() => { if (tokenStore.get()) router.replace("/home"); }, [router]);
@@ -444,6 +480,7 @@ export default function LandingPage() {
         <FeaturesSection />
         <FeatureShowcaseSection />
         <DifferentiatorsSection />
+        <AudienceSection />
         <HowItWorksSection />
         <PricingSection />
         <TrustSection />

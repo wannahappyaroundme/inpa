@@ -43,3 +43,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# 로컬 UI 스크린샷(커밋 금지)
+screenshots/

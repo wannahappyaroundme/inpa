@@ -298,11 +298,22 @@ export interface ManagerAgentKpi {
   customer_count: number;
   churn_risk_count: number;
   share_view_count: number;
+  retention_y1: number | null;
+}
+export interface ManagerTeamRoi {
+  agent_count: number;
+  hours_saved_per_agent: number;
+  team_hours_saved: number;
+  extra_consults: number;
+  note: string;
 }
 export interface ManagerDashboardResponse {
   agent_count: number;
   agents: ManagerAgentKpi[];
   totals: { customer_count: number; churn_risk_count: number; share_view_count: number };
+  team_funnel: Record<SalesStage, number>;
+  team_retention: RetentionYears;
+  roi: ManagerTeamRoi;
 }
 export async function getManagerDashboard(): Promise<ManagerDashboardResponse> {
   return request<ManagerDashboardResponse>("GET", "/manager/dashboard/", undefined, true);
@@ -469,6 +480,38 @@ export async function uploadBusinessCard(id: number, file: File): Promise<Custom
     throw new ApiError(res.status, code, detail);
   }
   return data as unknown as CustomerDetail;
+}
+
+// ── 계약 설명의무 체크리스트 (PM 06.24) ──
+export interface ContractChecklistItem {
+  id: number;
+  label: string;
+  is_done: boolean;
+  done_at: string | null;
+  order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** GET /api/v1/customers/<id>/checklist/ */
+export async function listChecklist(customerId: number): Promise<PaginatedResult<ContractChecklistItem>> {
+  return request<PaginatedResult<ContractChecklistItem>>("GET", `/customers/${customerId}/checklist/`, undefined, true);
+}
+/** POST .../checklist/apply-template/ — 기본 설명의무 항목 일괄 생성(멱등) */
+export async function applyChecklistTemplate(customerId: number): Promise<{ created: number; detail?: string }> {
+  return request("POST", `/customers/${customerId}/checklist/apply-template/`, {}, true);
+}
+/** POST .../checklist/<itemId>/toggle/ */
+export async function toggleChecklistItem(customerId: number, itemId: number): Promise<ContractChecklistItem> {
+  return request<ContractChecklistItem>("POST", `/customers/${customerId}/checklist/${itemId}/toggle/`, {}, true);
+}
+/** POST .../checklist/ — 사용자 정의 항목 추가 */
+export async function addChecklistItem(customerId: number, label: string): Promise<ContractChecklistItem> {
+  return request<ContractChecklistItem>("POST", `/customers/${customerId}/checklist/`, { label }, true);
+}
+/** DELETE .../checklist/<itemId>/ */
+export async function deleteChecklistItem(customerId: number, itemId: number): Promise<void> {
+  await requestVoid("DELETE", `/customers/${customerId}/checklist/${itemId}/`, true);
 }
 
 /** DELETE /api/v1/customers/{id}/ — 204 No Content → void */
@@ -954,6 +997,7 @@ export interface PromotionSampleListItem {
   category: PromotionCategory;
   description: string;
   is_available: boolean;
+  is_digital: boolean;            // 전자자료(1회 무료 다운로드)
   primary_image: string | null;
   sort_order: number;
 }
@@ -981,9 +1025,22 @@ export interface PromotionSampleDetail {
   category: PromotionCategory;
   description: string;
   is_available: boolean;
+  is_digital: boolean;            // 전자자료(1회 무료 다운로드 후 어드민 큐)
   images: PromotionSampleImage[];
   form_fields: PromotionFormField[];
   sort_order: number;
+}
+
+/** 전자자료 요청 결과 — free(무료 다운로드) | queued(어드민 큐) */
+export interface DigitalRequestResult {
+  mode: "free" | "queued";
+  file_url?: string | null;
+  order_id?: number;
+  detail: string;
+}
+/** POST /promotion/samples/<id>/request/ — 1회 무료 / 2회차+ 어드민 큐 */
+export async function requestDigitalSample(sampleId: number): Promise<DigitalRequestResult> {
+  return request<DigitalRequestResult>("POST", `/promotion/samples/${sampleId}/request/`, {}, true);
 }
 
 export type PromotionOrderStatus =
@@ -1611,10 +1668,14 @@ export async function cancelMeeting(id: number): Promise<Meeting> {
 
 // ── 개인 일정(schedule) — 일정/할일/고정 차단 ──────────────────────────────
 export type ScheduleKind = "event" | "todo" | "block";
+/** 사용자 5분류(색/범례) — kind(동작)와 직교 (PM 06.24) */
+export type ScheduleCategory = "meeting" | "anniversary" | "renewal" | "task" | "etc";
 
 export interface ScheduleItem {
   id: number;
   kind: ScheduleKind;
+  category: ScheduleCategory;
+  anniversary_md: string;             // "MM-DD" — 생일·기념일 매년 반복(빈값=미사용)
   title: string;
   memo: string;
   customer: number | null;
@@ -1633,6 +1694,8 @@ export interface ScheduleItem {
 
 export interface ScheduleItemPayload {
   kind: ScheduleKind;
+  category?: ScheduleCategory;
+  anniversary_md?: string;
   title: string;
   memo?: string;
   customer?: number | null;
@@ -1759,10 +1822,24 @@ export interface PortfolioBreakdown {
   unknown: number;       // 회차 미입력
 }
 
+/** 계약 유지율(추정) — rate=null 이면 평가 모수 부족 */
+export interface RetentionStat {
+  rate: number | null;   // %
+  reached: number;       // N년 평가 가능 모수
+  survived: number;      // N년 유지
+}
+export interface RetentionYears {
+  y1: RetentionStat;
+  y2: RetentionStat;
+  y3: RetentionStat;
+  has_cancellation_data: boolean;   // false면 유지율 미계산(해지 입력 전 — 100% 오해 방지)
+}
+
 export interface DashboardInsights {
   monthly_trend: MonthlyTrendPoint[];           // 최근 6개월
   funnel: Record<SalesStage, number>;           // 영업 4단계 카운트
   portfolio: PortfolioBreakdown;
+  retention: RetentionYears;                    // 1/2/3년 유지율(추정)
 }
 
 /** GET /api/v1/dashboard/insights/ — 홈 차트 집계(인증, owner 전용) */
@@ -1935,6 +2012,8 @@ export interface ChurnRadarItem {
   persistency_stage: PersistencyStage;
   is_at_risk: boolean;
   risk_reason: string;
+  is_cancelled: boolean;
+  cancelled_at: string | null;       // YYYY-MM-DD — 유지율 계산용
 }
 
 export interface ChurnRadarResponse {
@@ -1949,6 +2028,8 @@ export interface ChurnInputPayload {
   payment_status?: number | null;
   next_payment_date?: string | null; // YYYY-MM-DD
   expected_recovery_amount?: number | null;
+  is_cancelled?: boolean;
+  cancelled_at?: string | null;      // YYYY-MM-DD
 }
 
 /** GET /api/v1/churn-radar/ — 환수 위험 집계 + 보유정책 리스트 */

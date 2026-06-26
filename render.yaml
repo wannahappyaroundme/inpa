@@ -40,6 +40,17 @@ services:
         sync: false                  # Claude 키(비우면 OCR/AI만 비활성)
       - key: FRONTEND_BASE_URL
         sync: false                  # https://<vercel-fe-도메인> (이메일 링크용)
+      # ── 미디어(명함·전자자료) S3 저장 — 설정 시 활성, 미설정 시 로컬(임시) 폴백 ──
+      - key: AWS_STORAGE_BUCKET_NAME
+        sync: false                  # 버킷명(설정해야 S3 사용). 비우면 로컬 임시저장
+      - key: AWS_S3_REGION_NAME
+        sync: false                  # 예: ap-northeast-2 (서울)
+      - key: AWS_ACCESS_KEY_ID
+        sync: false                  # IAM 키(S3 PutObject/GetObject 권한)
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false                  # IAM 시크릿
+      - key: AWS_S3_ENDPOINT_URL
+        sync: false                  # (선택) Cloudflare R2 등 S3 호환 엔드포인트. AWS면 비움
       # ALLOWED_HOSTS·CSRF 는 Render 가 RENDER_EXTERNAL_HOSTNAME 주입 → prod.py 가 자동 포함.
       # 커스텀 도메인 붙이면 ALLOWED_HOSTS·CSRF_TRUSTED_ORIGINS 를 여기에 추가.
       # 이메일(Resend) 쓸 때: EMAIL_BACKEND/EMAIL_HOST/EMAIL_PORT/EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/EMAIL_USE_SSL/DEFAULT_FROM_EMAIL 추가.

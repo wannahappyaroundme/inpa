@@ -15,21 +15,34 @@ import {
   listScheduleItems, createScheduleItem, updateScheduleItem, deleteScheduleItem,
   toggleScheduleDone, listMeetings, listNotifications, listCustomers,
   ApiError,
-  type ScheduleItem, type ScheduleKind, type Meeting, type NotificationItem,
+  type ScheduleItem, type ScheduleKind, type ScheduleCategory,
+  type Meeting, type NotificationItem,
   type CustomerListItem,
 } from "@/lib/api";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 const pad = (n: number) => String(n).padStart(2, "0");
 
+// 동작 구분(kind): todo 완료체크·block 차단 판정용
 type Kind = ScheduleKind | "meeting" | "notif";
-const META: Record<Kind, { dot: string; label: string }> = {
-  event: { dot: "bg-brand", label: "일정" },
-  todo: { dot: "bg-over", label: "할일" },
-  block: { dot: "bg-muted", label: "차단(불가)" },
-  meeting: { dot: "bg-enough", label: "미팅" },
+// 색/범례 분류(5분류 + 알림) — PM 06.24
+type Cat = ScheduleCategory | "notif";
+const CAT_META: Record<Cat, { dot: string; label: string }> = {
+  meeting: { dot: "bg-brand", label: "고객미팅" },
+  anniversary: { dot: "bg-pink-400", label: "생일·기념일" },
+  renewal: { dot: "bg-amber-400", label: "만기·갱신" },
+  task: { dot: "bg-emerald-500", label: "업무" },
+  etc: { dot: "bg-muted", label: "기타" },
   notif: { dot: "bg-short", label: "알림" },
 };
+// 분류 선택지(생성 폼) — kind/올데이 기본값 매핑
+const CAT_OPTIONS: { cat: ScheduleCategory; label: string; kind: ScheduleKind; allDay?: boolean }[] = [
+  { cat: "meeting", label: "고객미팅", kind: "event" },
+  { cat: "anniversary", label: "생일·기념일", kind: "event", allDay: true },
+  { cat: "renewal", label: "만기·갱신", kind: "event", allDay: true },
+  { cat: "task", label: "업무", kind: "todo" },
+  { cat: "etc", label: "기타", kind: "event" },
+];
 
 function kstYmd(iso: string): string {
   try {
@@ -62,13 +75,14 @@ function isoToLocalInput(iso: string): string {
 function notifKind(_t: string): Kind { return "notif"; }
 
 interface DayItem {
-  key: string; time: string; title: string; kind: Kind; sort: number;
+  key: string; time: string; title: string; kind: Kind; cat: Cat; sort: number;
   item?: ScheduleItem;       // 편집 가능(schedule)
   isDone?: boolean;
 }
 
 const BLANK = {
-  id: 0 as number, kind: "event" as ScheduleKind, title: "", memo: "",
+  id: 0 as number, kind: "event" as ScheduleKind, category: "meeting" as ScheduleCategory,
+  title: "", memo: "",
   customer: null as number | null, dateTime: "", date: "", allDay: false,
   recurWeekday: 1, recurStart: "12:00", recurEnd: "13:00", blockRepeat: true,
 };
@@ -120,8 +134,17 @@ export default function SchedulePage() {
         for (let d = 1; d <= dim; d++) {
           if (pyWeekday(new Date(viewY, viewM - 1, d)) === s.recur_weekday) {
             add({ key: `${monthStr}-${pad(d)}`, time: st || "종일", sort: st ? Number(st.replace(":", "")) : -1,
-              title: `${s.title} (${st}~${et}, 예약불가)`, kind: "block", item: s });
+              title: `${s.title} (${st}~${et}, 예약불가)`, kind: "block", cat: "etc", item: s });
           }
+        }
+        continue;
+      }
+      // 생일·기념일: anniversary_md(MM-DD)로 매년 반복 — 이 달이면 해당 일에 표시
+      if (s.category === "anniversary" && s.anniversary_md) {
+        const [mm, dd] = s.anniversary_md.split("-");
+        if (mm === pad(viewM)) {
+          add({ key: `${monthStr}-${dd}`, time: "종일", sort: -1,
+            title: `🎂 ${s.title}`, kind: "event", cat: "anniversary", item: s });
         }
         continue;
       }
@@ -129,16 +152,16 @@ export default function SchedulePage() {
       const ymd = kstYmd(s.start_at);
       const tm = s.all_day ? "종일" : kstTime(s.start_at);
       add({ key: ymd, time: tm || "종일", sort: tm && tm !== "종일" ? Number(tm.replace(":", "")) : -1,
-        title: s.title, kind: s.kind, item: s, isDone: s.kind === "todo" ? s.is_done : undefined });
+        title: s.title, kind: s.kind, cat: s.category, item: s, isDone: s.kind === "todo" ? s.is_done : undefined });
     }
     for (const m of meetings) {
       const t = kstTime(m.start_at);
       add({ key: kstYmd(m.start_at), time: t || "—", sort: t ? Number(t.replace(":", "")) : 0,
-        title: `${m.customer_name} · ${m.method_display}`, kind: "meeting" });
+        title: `${m.customer_name} · ${m.method_display}`, kind: "meeting", cat: "meeting" });
     }
     for (const n of notifs) {
       if (!n.target_date) continue;
-      add({ key: n.target_date, time: "종일", sort: -2, title: n.title, kind: notifKind(n.notif_type) });
+      add({ key: n.target_date, time: "종일", sort: -2, title: n.title, kind: notifKind(n.notif_type), cat: "notif" });
     }
     for (const [, arr] of map) arr.sort((a, b) => a.sort - b.sort);
     return map;
@@ -161,13 +184,13 @@ export default function SchedulePage() {
   function openEdit(s: ScheduleItem) {
     setErr(null);
     if (s.kind === "block" && s.recur_weekday !== null) {
-      setModal({ ...BLANK, id: s.id, kind: "block", title: s.title, memo: s.memo, blockRepeat: true,
+      setModal({ ...BLANK, id: s.id, kind: "block", category: s.category, title: s.title, memo: s.memo, blockRepeat: true,
         recurWeekday: s.recur_weekday, recurStart: (s.recur_start_time || "12:00").slice(0, 5),
         recurEnd: (s.recur_end_time || "13:00").slice(0, 5) });
       return;
     }
     setModal({
-      ...BLANK, id: s.id, kind: s.kind, title: s.title, memo: s.memo, customer: s.customer,
+      ...BLANK, id: s.id, kind: s.kind, category: s.category, title: s.title, memo: s.memo, customer: s.customer,
       allDay: s.all_day, blockRepeat: false,
       date: s.start_at ? kstYmd(s.start_at) : selYmd,
       dateTime: s.start_at ? isoToLocalInput(s.start_at) : `${selYmd}T10:00`,
@@ -181,15 +204,17 @@ export default function SchedulePage() {
     try {
       let payload: Parameters<typeof createScheduleItem>[0];
       if (modal.kind === "block" && modal.blockRepeat) {
-        payload = { kind: "block", title: modal.title.trim(), memo: modal.memo,
+        payload = { kind: "block", category: "etc", title: modal.title.trim(), memo: modal.memo,
           recur_weekday: modal.recurWeekday, recur_start_time: modal.recurStart, recur_end_time: modal.recurEnd };
       } else if (modal.kind === "todo") {
-        payload = { kind: "todo", title: modal.title.trim(), memo: modal.memo, customer: modal.customer,
-          start_at: modal.date ? dateToNoonIso(modal.date) : null, all_day: true };
+        payload = { kind: "todo", category: modal.category, title: modal.title.trim(), memo: modal.memo,
+          customer: modal.customer, start_at: modal.date ? dateToNoonIso(modal.date) : null, all_day: true };
       } else {
         // event 또는 단건 block
         const startIso = modal.allDay ? dateToNoonIso(modal.date) : localToIso(modal.dateTime);
-        payload = { kind: modal.kind, title: modal.title.trim(), memo: modal.memo,
+        const annivMd = modal.category === "anniversary" && modal.date ? modal.date.slice(5) : "";
+        payload = { kind: modal.kind, category: modal.category, anniversary_md: annivMd,
+          title: modal.title.trim(), memo: modal.memo,
           customer: modal.kind === "event" ? modal.customer : null,
           start_at: startIso, all_day: modal.allDay };
       }
@@ -254,14 +279,14 @@ export default function SchedulePage() {
                 const ymd = `${monthStr}-${pad(d)}`;
                 const dayItems = agenda.get(ymd);
                 const hasBlock = dayItems?.some((it) => it.kind === "block");
-                const kinds = dayItems ? Array.from(new Set(dayItems.map((it) => it.kind))).slice(0, 4) : [];
+                const cats = dayItems ? Array.from(new Set(dayItems.map((it) => it.cat))).slice(0, 4) : [];
                 return (
                   <div key={i} className={`flex flex-col items-center pt-1.5 pb-1 min-h-[56px] rounded-lg ${hasBlock ? "bg-surface2/60" : ""}`}>
                     <button onClick={() => setSelDay(d)}
                       className={`w-9 h-9 rounded-full flex items-center justify-center text-[14px] font-medium ${cls}`}>{d}</button>
-                    {kinds.length > 0 && (
+                    {cats.length > 0 && (
                       <div className="flex gap-0.5 mt-1">
-                        {kinds.map((k, j) => <span key={j} className={`w-1.5 h-1.5 rounded-full ${META[k].dot}`} />)}
+                        {cats.map((c, j) => <span key={j} className={`w-1.5 h-1.5 rounded-full ${CAT_META[c].dot}`} />)}
                       </div>
                     )}
                   </div>
@@ -269,9 +294,9 @@ export default function SchedulePage() {
               })}
             </div>
             <div className="mt-3 flex flex-wrap gap-3 text-[12px] text-ink3">
-              {(Object.keys(META) as Kind[]).map((k) => (
-                <span key={k} className="inline-flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${META[k].dot}`} />{META[k].label}
+              {(Object.keys(CAT_META) as Cat[]).map((c) => (
+                <span key={c} className="inline-flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${CAT_META[c].dot}`} />{CAT_META[c].label}
                 </span>
               ))}
             </div>
@@ -296,7 +321,7 @@ export default function SchedulePage() {
                           {t.isDone && <span className="text-white text-[10px] leading-none">✓</span>}
                         </button>
                       ) : (
-                        <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${META[t.kind].dot}`} />
+                        <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${CAT_META[t.cat].dot}`} />
                       )}
                       <button disabled={!editable} onClick={() => editable && openEdit(t.item!)}
                         className={`flex-1 text-left text-[14px] leading-5 ${t.isDone ? "line-through text-ink3" : "text-ink"} ${editable ? "hover:text-brand" : ""}`}>
@@ -325,13 +350,22 @@ export default function SchedulePage() {
           <div className="bg-surface w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="text-[17px] font-bold text-ink mb-3">{modal.id ? "수정" : "추가"}</div>
             {!modal.id && (
-              <div className="flex gap-1.5 mb-4">
-                {(["event", "todo", "block"] as ScheduleKind[]).map((k) => (
-                  <button key={k} onClick={() => setModal({ ...modal, kind: k })}
-                    className={`flex-1 rounded-lg py-2 text-[13px] font-semibold ${modal.kind === k ? "bg-brand text-white" : "bg-surface2 text-ink2"}`}>
-                    {k === "event" ? "일정" : k === "todo" ? "할일" : "차단"}
-                  </button>
-                ))}
+              <div className="grid grid-cols-3 gap-1.5 mb-4">
+                {CAT_OPTIONS.map((o) => {
+                  const active = modal.category === o.cat && modal.kind !== "block";
+                  return (
+                    <button key={o.cat}
+                      onClick={() => setModal({ ...modal, category: o.cat, kind: o.kind, allDay: o.allDay ?? modal.allDay })}
+                      className={`rounded-lg py-2 text-[12px] font-semibold ${active ? "bg-brand text-white" : "bg-surface2 text-ink2"}`}>
+                      {o.label}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => setModal({ ...modal, kind: "block", category: "etc", blockRepeat: true })}
+                  className={`rounded-lg py-2 text-[12px] font-semibold ${modal.kind === "block" ? "bg-brand text-white" : "bg-surface2 text-ink2"}`}>
+                  예약차단
+                </button>
               </div>
             )}
             {err && <div className="mb-3 rounded-lg bg-rose-50 text-rose-700 text-[13px] px-3 py-2">{err}</div>}

@@ -7,7 +7,7 @@ import { useState, useEffect } from "react";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
-import { getManagerDashboard, type ManagerDashboardResponse } from "@/lib/api";
+import { getManagerDashboard, SALES_STAGES, type ManagerDashboardResponse } from "@/lib/api";
 
 const krw = new Intl.NumberFormat("ko-KR");
 
@@ -32,8 +32,11 @@ export default function ManagerPage() {
       <AppNav active="manager" />
       <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6">
         <h1 className="text-[22px] font-extrabold text-ink">관리직 KPI</h1>
+        <p className="mt-1.5 text-[14px] font-semibold text-brand leading-5">
+          팀원이 상담에 집중할수록, 팀장님 마감 숫자가 올라갑니다.
+        </p>
         <p className="mt-1 text-[13px] text-ink3 leading-5">
-          KPI 공유에 <b>동의한</b> 소속 설계사의 집계 수치예요. 개별 고객 정보는 표시되지 않습니다(프라이버시).
+          월말 취합 엑셀은 그만 — KPI 공유에 <b>동의한</b> 소속 설계사의 집계를 실시간으로 봐요. 개별 고객 정보는 표시되지 않습니다(프라이버시).
         </p>
 
         {error && (
@@ -60,6 +63,57 @@ export default function ManagerPage() {
           </div>
         )}
 
+        {/* 팀 계약 유지율(추정) · 팀 퍼널 · ROI — PM 06.24 */}
+        {data && data.agent_count > 0 && (
+          <>
+            <h2 className="mt-5 text-[15px] font-bold text-ink">
+              팀 계약 유지율 <span className="text-[11px] font-normal text-ink3">(추정)</span>
+            </h2>
+            {data.team_retention.has_cancellation_data ? (
+              <div className="mt-2 grid grid-cols-3 gap-3">
+                {([["y1", "1년"], ["y2", "2년"], ["y3", "3년"]] as const).map(([k, label]) => {
+                  const r = data.team_retention[k];
+                  return (
+                    <Card key={k} className="px-4 py-3.5">
+                      <div className="text-[12px] text-ink3">{label} 유지율</div>
+                      <div className="mt-1 text-[22px] font-extrabold tnum text-ink">
+                        {r.rate == null ? "—" : `${r.rate}%`}
+                      </div>
+                      <div className="text-[11px] text-ink3 tnum">{r.survived}/{r.reached}건</div>
+                    </Card>
+                  );
+                })}
+              </div>
+            ) : (
+              <Card className="mt-2 px-4 py-4 text-[12px] text-ink3 leading-5">
+                아직 팀의 해지 입력이 없어 유지율을 계산하지 않았어요. 팀원이 환수 레이더에서 해지를 표시하면 집계됩니다.
+              </Card>
+            )}
+
+            <h2 className="mt-5 text-[15px] font-bold text-ink">팀 영업 퍼널</h2>
+            <div className="mt-2 grid grid-cols-4 gap-2">
+              {SALES_STAGES.map((s) => (
+                <Card key={s.key} className="px-3 py-3 text-center">
+                  <div className="text-[11px] text-ink3">{s.label}</div>
+                  <div className="mt-1 text-[18px] font-extrabold tnum text-ink">{data.team_funnel[s.key] ?? 0}</div>
+                </Card>
+              ))}
+            </div>
+
+            <Card className="mt-5 p-4 border-accent-tint">
+              <h2 className="text-[15px] font-bold text-ink">
+                팀 성과 ROI <span className="text-[11px] font-normal text-ink3">(추정)</span>
+              </h2>
+              <p className="mt-1.5 text-[13px] text-ink2 leading-5">
+                팀원 1인당 월 <b>{data.roi.hours_saved_per_agent}시간</b> 절약 × <b>{data.roi.agent_count}명</b>
+                {" "}= 팀 전체 <b className="text-brand">{data.roi.team_hours_saved}시간</b> → 상담{" "}
+                <b className="text-brand">약 {data.roi.extra_consults}건</b> 환산.
+              </p>
+              <p className="mt-1 text-[11px] text-ink3">{data.roi.note}</p>
+            </Card>
+          </>
+        )}
+
         {/* 설계사별 */}
         <div className="mt-5 space-y-2.5">
           {loading ? (
@@ -81,6 +135,7 @@ export default function ManagerPage() {
                   <div className="text-[14px] font-bold text-ink">{a.name_masked}</div>
                   <div className="text-[12px] text-ink3 mt-0.5">
                     고객 {a.customer_count} · 공유열람 {krw.format(a.share_view_count)}
+                    {a.retention_y1 != null && <> · 1년유지 {a.retention_y1}%</>}
                   </div>
                 </div>
                 {a.churn_risk_count > 0 && (

@@ -23,6 +23,13 @@
   --cov-none:   #C73E38;  /* 없음 — 빨강 */
 
   --success: #6AAC72; --warning: #E7B23E; --danger: #C73E38;
+
+  /* 상태색 틴트(연한 배경)/잉크(진한 텍스트) — 배지·알림이 신호등 색을 쓰되 대비 확보.
+     솔리드 토큰(예: --success #6AAC72)은 흰 배경 텍스트로 쓰면 대비 부족 → 잉크 변형 사용. */
+  --danger-tint:  #FBEAE9; --danger-ink:  #9A2D28;
+  --warning-tint: #FBF1DC; --warning-ink: #8A6418;
+  --success-tint: #E7F1E9; --success-ink: #3F7A48;
+  --brand-tint:   #E9EEFC; --brand-ink2:  #22409E;
 }
 
 /* 인파 로고 신호(ping) — 빨간 점에서 방사형으로 퍼지며 옅어짐(InpaMark live). */
@@ -94,6 +101,12 @@
   --color-success: var(--success);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
+  --color-danger-tint: var(--danger-tint);
+  --color-danger-ink: var(--danger-ink);
+  --color-warning-tint: var(--warning-tint);
+  --color-warning-ink: var(--warning-ink);
+  --color-success-tint: var(--success-tint);
+  --color-success-ink: var(--success-ink);
   --color-ink: var(--ink);
   --color-ink2: var(--ink-2);
   --color-ink3: var(--ink-3);

@@ -75,6 +75,8 @@ def _serialize(ci, today):
         'persistency_stage': stage,
         'is_at_risk': is_at_risk,
         'risk_reason': reason,
+        'is_cancelled': ci.is_cancelled,
+        'cancelled_at': ci.cancelled_at,
     }
 
 
@@ -114,7 +116,7 @@ class ChurnRadarView(_OwnerScopedMixin, APIView):
 class InsuranceChurnView(_OwnerScopedMixin, APIView):
     """PATCH /api/v1/insurances/<pk>/churn/ — 4개 환수 필드 수기 저장(owner 전용)."""
     ALLOWED = ('current_payment_period', 'payment_status', 'next_payment_date',
-               'expected_recovery_amount')
+               'expected_recovery_amount', 'is_cancelled', 'cancelled_at')
 
     def patch(self, request, pk):
         try:
@@ -127,8 +129,26 @@ class InsuranceChurnView(_OwnerScopedMixin, APIView):
             if field not in request.data:
                 continue
             val = request.data.get(field)
+            if field == 'is_cancelled':
+                # 해지 여부(bool). 빈값 = False.
+                ci.is_cancelled = str(val).lower() in ('1', 'true', 'yes', 'on')
+                continue
             if val in ('', None):
                 setattr(ci, field, None)
+                continue
+            if field == 'cancelled_at':
+                # 해지일은 'YYYY-MM-DD' 문자열로 보관(형식 검증만).
+                parsed = None
+                for fmt in ('%Y-%m-%d', '%Y.%m.%d', '%Y/%m/%d'):
+                    try:
+                        parsed = datetime.datetime.strptime(val, fmt).date()
+                        break
+                    except (ValueError, TypeError):
+                        parsed = None
+                if parsed is None:
+                    errors[field] = '날짜 형식(YYYY-MM-DD)이 올바르지 않습니다.'
+                else:
+                    ci.cancelled_at = parsed.isoformat()
                 continue
             if field == 'next_payment_date':
                 parsed = None

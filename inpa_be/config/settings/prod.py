@@ -50,8 +50,33 @@ DATABASES = {
 # ── 정적파일 (whitenoise — prod 전용) ─────────────────────────────
 # collectstatic 산출물을 gunicorn 단독으로 압축·캐시 서빙.
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # noqa: F405
+
+# ── 미디어(업로드 파일: 명함·전자자료) 저장 ───────────────────────
+# AWS_STORAGE_BUCKET_NAME 설정 시 S3 호환 오브젝트 스토리지(다중 인스턴스·영속).
+#   - Render 등 다중·임시 디스크에서 업로드 소실 방지(PM 06.24).
+#   - 비공개 버킷 + 서명 URL(querystring_auth) — 명함 등 PII 보호.
+#   - endpoint_url 설정 시 Cloudflare R2 등 S3 호환 스토리지도 사용 가능.
+# 미설정 시 로컬 디스크(base.MEDIA_ROOT) 폴백 — 단일 인스턴스/임시.
+_s3_bucket = env('AWS_STORAGE_BUCKET_NAME', default='')  # noqa: F405
+if _s3_bucket:
+    _default_storage = {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'bucket_name': _s3_bucket,
+            'region_name': env('AWS_S3_REGION_NAME', default='ap-northeast-2'),  # noqa: F405
+            'access_key': env('AWS_ACCESS_KEY_ID', default=''),  # noqa: F405
+            'secret_key': env('AWS_SECRET_ACCESS_KEY', default=''),  # noqa: F405
+            'endpoint_url': env('AWS_S3_ENDPOINT_URL', default='') or None,  # noqa: F405
+            'querystring_auth': True,    # 서명 URL(비공개 버킷 — PII 보호)
+            'file_overwrite': False,
+            'default_acl': None,
+        },
+    }
+else:
+    _default_storage = {'BACKEND': 'django.core.files.storage.FileSystemStorage'}
+
 STORAGES = {
-    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'default': _default_storage,
     'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
 }
 # SecurityMiddleware 바로 뒤에 whitenoise 삽입 (base.MIDDLEWARE 복사본 수정 — base 원본 불변).

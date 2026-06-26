@@ -80,3 +80,76 @@ def compute_portfolio_breakdown(user, today=None):
         else:  # pre_13 / pre_25 (위험 아님) = 주의 관찰
             buckets['watch'] += 1
     return buckets
+
+
+# ── 계약 유지율(1/2/3년) — PM 06.24. 추정 라벨 강제(회사 전산이 권위) ──────────
+def _parse_ymd(s):
+    """'YYYY-MM-DD'|'YYYY.MM.DD'|'YYYY/MM/DD' → date 또는 None."""
+    if not s:
+        return None
+    for fmt in ('%Y-%m-%d', '%Y.%m.%d', '%Y/%m/%d'):
+        try:
+            return datetime.datetime.strptime(str(s).strip(), fmt).date()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _years_between(d0, d1):
+    """d0~d1 만 년수(정수). d1 ≥ d0 가정."""
+    y = d1.year - d0.year
+    if (d1.month, d1.day) < (d0.month, d0.day):
+        y -= 1
+    return y
+
+
+def compute_retention(user, today=None):
+    """보유계약 1/2/3년 유지율(추정).
+
+    분모(reached) = 계약일이 N년 이상 지난 보유계약(=N년 평가 가능 모수).
+    분자(survived) = 그 중 N년 도달 시점까지 미해지(해지일이 계약일+N년 이후 포함).
+    rate(%) = survived/reached 반올림. reached==0이면 None(평가 불가).
+    """
+    today = today or datetime.date.today()
+    rows = list(CustomerInsurance.objects
+                .filter(customer__owner=user, portfolio_type=1)
+                .values('contract_date', 'is_cancelled', 'cancelled_at'))
+    # 해지 입력이 하나도 없으면 유지율이 무조건 100%로 보여 오해 소지 → has_cancellation_data 로 구분.
+    out = {'has_cancellation_data': any(r['is_cancelled'] for r in rows)}
+    for n in (1, 2, 3):
+        reached = survived = 0
+        for r in rows:
+            cd = _parse_ymd(r['contract_date'])
+            if cd is None or _years_between(cd, today) < n:
+                continue
+            reached += 1
+            if not r['is_cancelled']:
+                survived += 1
+            else:
+                cad = _parse_ymd(r['cancelled_at'])
+                if cad is not None and _years_between(cd, cad) >= n:
+                    survived += 1
+        out[f'y{n}'] = {
+            'rate': round(survived / reached * 100) if reached else None,
+            'reached': reached,
+            'survived': survived,
+        }
+    return out
+
+
+# ── 관리직 ROI 환산(추정) — PM 06.24. 가설 변수, 광고 단정 금지 ──────────────
+ROI_HOURS_SAVED_PER_AGENT_MONTH = 6   # 1인당 월 절약(OCR·AI비교·분석 자동화 가설)
+ROI_HOURS_PER_CONSULT = 1.5           # 상담 1건 준비+진행 시간
+
+
+def compute_team_roi(agent_count):
+    """팀 절약시간 → 추가 상담 건수 환산(추정). 광고엔 '추정'·범위로만 사용."""
+    team_hours = agent_count * ROI_HOURS_SAVED_PER_AGENT_MONTH
+    extra_consults = round(team_hours / ROI_HOURS_PER_CONSULT)
+    return {
+        'agent_count': agent_count,
+        'hours_saved_per_agent': ROI_HOURS_SAVED_PER_AGENT_MONTH,
+        'team_hours_saved': team_hours,
+        'extra_consults': extra_consults,
+        'note': '시간 절약 가설에 기반한 추정치예요(보장 아님). 팀 규모·업무 구성에 따라 달라집니다.',
+    }

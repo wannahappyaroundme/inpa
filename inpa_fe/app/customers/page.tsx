@@ -21,23 +21,23 @@ import { CustomerCreateModal } from "@/components/customer-create-modal";
 // ── 직업 위험등급 배지 (1/2/3급만 표시, 9=기타·null=미표시) ──
 function riskBadge(grade: number | null): { label: string; cls: string } | null {
   switch (grade) {
-    case 1: return { label: "위험 1급", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
-    case 2: return { label: "위험 2급", cls: "bg-amber-50 text-amber-700 border-amber-200" };
-    case 3: return { label: "위험 3급", cls: "bg-rose-50 text-rose-700 border-rose-200" };
+    case 1: return { label: "위험 1급", cls: "bg-success-tint text-success-ink border-enough/30" };
+    case 2: return { label: "위험 2급", cls: "bg-warning-tint text-warning-ink border-short/40" };
+    case 3: return { label: "위험 3급", cls: "bg-danger-tint text-danger-ink border-cnone/30" };
     default: return null;
   }
 }
 
 // ── 마케팅 동의 배지 ('none'·'revoked' = 비동의) ──
 function consentBadge(c: MarketingConsent): { label: string; cls: string } {
-  if (c === "agreed") return { label: "마케팅 동의", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+  if (c === "agreed") return { label: "마케팅 동의", cls: "bg-success-tint text-success-ink border-enough/30" };
   return { label: "마케팅 비동의", cls: "bg-surface2 text-ink3 border-line" };
 }
 
 // ── 방치 경보 → 카드 테두리(ring, 배경 X — PM 06.24) ──
 function ringCls(level: "red" | "amber" | null): string {
-  if (level === "red") return "ring-2 ring-rose-400";
-  if (level === "amber") return "ring-2 ring-amber-400";
+  if (level === "red") return "ring-2 ring-cnone";
+  if (level === "amber") return "ring-2 ring-short";
   return "";
 }
 
@@ -274,13 +274,13 @@ export default function CustomersPage() {
 
         {/* 방치 경보 범례 */}
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink3">
-          <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-[4px] border-2 border-amber-400" />3일+ 미연락</span>
-          <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-[4px] border-2 border-rose-400" />7일+ 미연락</span>
+          <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-[4px] border-2 border-short" />3일+ 미연락</span>
+          <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-[4px] border-2 border-cnone" />7일+ 미연락</span>
           <span className="text-muted">테두리 = 방치 정도 · ★ 즐겨찾기 · 📌 상단고정</span>
         </div>
 
         {error && (
-          <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>
+          <div className="mt-4 p-3 rounded-xl bg-danger-tint border border-cnone/30 text-[13px] text-danger-ink">{error}</div>
         )}
 
         {loading && !customers.length && (
@@ -321,7 +321,7 @@ export default function CustomersPage() {
                     <div className="text-[12px] text-ink3 mt-0.5">
                       {c.mobile_phone_number ?? "연락처 없음"}
                       {c.family_count > 0 && <span> · 가족 {c.family_count}명</span>}
-                      {lvl && <span className={lvl === "red" ? "text-rose-600" : "text-amber-600"}> · 미연락 경보</span>}
+                      {lvl && <span className={lvl === "red" ? "text-danger-ink" : "text-warning-ink"}> · 미연락 경보</span>}
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -345,7 +345,7 @@ export default function CustomersPage() {
         {/* ── 칸반 보기 (영업 4단계: DB·TA·FA·청약) ── */}
         {view === "kanban" && customers.length > 0 && (
           <>
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="mt-4 flex gap-3 overflow-x-auto pb-2 snap-x">
               {SALES_STAGES.map((stage) => {
                 const col = sorted.filter((c) => c.sales_stage === stage.key);
                 return (
@@ -356,7 +356,7 @@ export default function CustomersPage() {
                       if (dragId != null) moveCustomer(dragId, stage.key);
                       setDragId(null);
                     }}
-                    className="rounded-2xl bg-surface2 border border-line p-2.5 min-h-[120px]"
+                    className="rounded-2xl bg-surface2 border border-line p-2.5 min-h-[120px] w-[78vw] shrink-0 sm:w-auto sm:flex-1 sm:min-w-0 snap-start"
                   >
                     <div className="flex items-center justify-between px-1 pb-2">
                       <span className="inline-flex items-center gap-1 text-[13px] font-bold text-ink">

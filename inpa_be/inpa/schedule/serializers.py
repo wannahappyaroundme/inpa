@@ -13,7 +13,8 @@ class ScheduleItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ScheduleItem
-        fields = ('id', 'kind', 'title', 'memo', 'customer', 'customer_name',
+        fields = ('id', 'kind', 'category', 'anniversary_md', 'title', 'memo',
+                  'customer', 'customer_name',
                   'start_at', 'end_at', 'all_day', 'is_done', 'done_at',
                   'recur_weekday', 'recur_start_time', 'recur_end_time',
                   'created_at', 'updated_at')
