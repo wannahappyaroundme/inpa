@@ -851,3 +851,51 @@ class ManualInsuranceTests(TestCase):
         _other, other_client = _make_planner('manual-b@inpa.local')
         r = other_client.post(self._url(), {'name': 'x', 'portfolio_type': 1}, format='json')
         self.assertEqual(r.status_code, 404)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 셀프진단 동의 기록 — personal_info(필수) + marketing(선택) ConsentLog
+# ──────────────────────────────────────────────────────────────────────
+@override_settings(ANTHROPIC_API_KEY='test-key')
+class SelfDiagnosisConsentTests(TestCase):
+    """셀프진단 리드 생성 시 personal_info 동의가 항상, marketing은 선택으로 기록되는지."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()  # ScopedRateThrottle 카운터 격리
+        self.planner, _ = _make_planner('sdconsent@test.com')
+        self.ref = self.planner.profile.ref_code
+        self.anon = APIClient()
+
+    def _pdf(self):
+        return SimpleUploadedFile('p.pdf', b'%PDF-1.4 test', content_type='application/pdf')
+
+    @mock.patch('inpa.insurances.self_diagnosis._persist_ocr')
+    @mock.patch('inpa.insurances.self_diagnosis.claude_parse', return_value={'insurances': []})
+    @mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines', return_value=(['line'], None))
+    def test_lead_gets_personal_info_consent(self, *_):
+        from inpa.customers.models import ConsentLog, Customer
+        r = self.anon.post(f'/api/v1/d/{self.ref}/', {
+            'file': self._pdf(), 'consent_overseas': 'true', 'consent_share': 'true',
+            'name': '셀프김', 'phone': '010-9999-0000',
+        }, format='multipart')
+        self.assertEqual(r.status_code, 201, r.content)
+        cust = Customer.objects.get(owner=self.planner, mobile_phone_number='010-9999-0000')
+        self.assertTrue(ConsentLog.objects.filter(
+            customer=cust, scope=ConsentLog.SCOPE_PERSONAL_INFO,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF).exists())
+
+    @mock.patch('inpa.insurances.self_diagnosis._persist_ocr')
+    @mock.patch('inpa.insurances.self_diagnosis.claude_parse', return_value={'insurances': []})
+    @mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines', return_value=(['line'], None))
+    def test_marketing_optional(self, *_):
+        from inpa.customers.models import ConsentLog, Customer
+        r = self.anon.post(f'/api/v1/d/{self.ref}/', {
+            'file': self._pdf(), 'consent_overseas': 'true', 'consent_share': 'true',
+            'consent_marketing': 'true', 'phone': '010-8888-0000',
+        }, format='multipart')
+        self.assertEqual(r.status_code, 201, r.content)
+        cust = Customer.objects.get(owner=self.planner, mobile_phone_number='010-8888-0000')
+        self.assertTrue(ConsentLog.objects.filter(
+            customer=cust, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF).exists())
