@@ -641,6 +641,18 @@ function ChecklistTab({ customerId }: { customerId: number }) {
       <p className="mt-1 text-[12px] text-ink3 leading-5">
         상담 시 설명 의무 이행을 직접 점검·기록해요. 체크 이력은 분쟁 대비 자료가 됩니다(자동발송·해피콜 아님).
       </p>
+
+      {/* §97 불리사항 구두고지 안내 — 설계사 내부 전용(고객 화면·공유뷰 비노출) */}
+      <div className="mt-3 rounded-xl border border-amber-300/70 bg-amber-50 px-3.5 py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-bold text-amber-900">갈아타기(승환) 계약이면 — 불리사항 구두 고지</span>
+          <span className="ml-auto shrink-0 text-[10px] font-semibold rounded-full bg-white/70 text-amber-800 px-2 py-0.5">설계사 내부 · 고객 비노출</span>
+        </div>
+        <p className="mt-1.5 text-[12px] leading-5 text-amber-900/90">
+          기존 계약을 해지하고 새로 가입하는 경우 <b>해지 환급 손실·면책(감액) 기간 리셋</b> 등 고객에게 불리할 수 있는 점을 상담에서 <b>반드시 구두로 고지</b>하세요. 고객별 구체 항목은 <b>비교 탭</b>에서 확인할 수 있어요.
+        </p>
+      </div>
+
       {err && <div className="mt-2 text-[13px] text-rose-700">{err}</div>}
 
       {loading ? (
