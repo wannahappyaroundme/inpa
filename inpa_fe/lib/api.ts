@@ -389,6 +389,13 @@ export const SALES_STAGES: { key: SalesStage; label: string; short: string; desc
 
 /** 마케팅(개인정보 수집·이용) 동의 상태 — 'none'(기록 없음)도 비동의로 취급해 영업 자동화에서 제외. */
 export type MarketingConsent = "agreed" | "revoked" | "none";
+export type ConsentStatus = MarketingConsent;
+export type ConsentSubject = "customer_self" | "planner_attested" | null;
+export interface ConsentState {
+  status: ConsentStatus;
+  subject: ConsentSubject;
+  agreed_at: string | null;
+}
 
 /** 유입 경로(측정) — 수기등록 select / self_diagnosis는 자동 */
 export const LEAD_SOURCES: { value: string; label: string }[] = [
@@ -420,6 +427,7 @@ export interface CustomerListItem {
   insurance_age: number | null;      // 보험나이(상령일)
   job_risk_grade: number | null;     // 직업 위험등급 1|2|3|9
   marketing_consent: MarketingConsent;
+  personal_info_consent: ConsentStatus;
 }
 
 /** 상세 타입 (CustomerSerializer 대응) */
@@ -435,6 +443,8 @@ export interface CustomerDetail extends CustomerListItem {
   updated_at: string;
   family_members: unknown[];
   medical_histories: unknown[];
+  // 동의 상태(본인/대리 구분) — 상세에서만.
+  consents?: { marketing: ConsentState; personal_info: ConsentState };
 }
 
 /** DRF 페이지네이션 래퍼 */
@@ -1572,14 +1582,16 @@ export interface ConsentRequestResponse {
   already_consented: boolean;
 }
 
-/** POST /api/v1/customers/<id>/consent-requests/ — 설계사가 동의 요청 링크 생성(인증) */
+/** POST /api/v1/customers/<id>/consent-requests/ — 설계사가 동의 요청 링크 생성(인증).
+ *  scopes 미지정 시 BE 기본=국외이전(OCR 동선 호환). */
 export async function createConsentRequest(
-  customerId: number
+  customerId: number,
+  scopes?: string[]
 ): Promise<ConsentRequestResponse> {
   return request<ConsentRequestResponse>(
     "POST",
     `/customers/${customerId}/consent-requests/`,
-    undefined,
+    scopes ? { scopes } : undefined,
     true
   );
 }
