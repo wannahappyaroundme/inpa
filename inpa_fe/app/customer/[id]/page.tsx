@@ -49,6 +49,7 @@ import {
   toggleChecklistItem,
   addChecklistItem,
   deleteChecklistItem,
+  createConsentRequest,
   SALES_STAGES,
   ApiError,
   type CustomerDetail,
@@ -60,6 +61,7 @@ import {
   type ProfileResponse,
   type ContractChecklistItem,
 } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 
 type TabKey = "analysis" | "switch" | "gap" | "info" | "contract" | "history";
 
@@ -460,9 +462,34 @@ function InfoTab({
 
   const inputCls =
     "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition";
-  const consentLabel =
-    customer.marketing_consent === "agreed" ? "마케팅 동의"
-    : customer.marketing_consent === "revoked" ? "마케팅 철회" : "마케팅 비동의";
+
+  // 동의 배지 헬퍼
+  const piState = customer.consents?.personal_info;
+  const mkState = customer.consents?.marketing;
+  const subjectTag = (s: string | null | undefined) =>
+    s === "customer_self" ? "본인 동의" : s === "planner_attested" ? "설계사 기록" : "";
+  const consentLine = (label: string, state: { status: string; subject: string | null } | undefined) => {
+    if (!state || state.status === "none") return `${label} 미동의`;
+    if (state.status === "revoked") return `${label} 철회`;
+    const tag = subjectTag(state.subject);
+    return `${label} 동의${tag ? ` · ${tag}` : ""}`;
+  };
+
+  // 동의 요청 링크 — 클립보드 복사까지만(자동발송 없음).
+  const [consentBusy, setConsentBusy] = useState(false);
+  const sendConsentLink = useCallback(async () => {
+    setConsentBusy(true);
+    try {
+      const res = await createConsentRequest(customer.id, ["personal_info", "marketing"]);
+      const ok = await copyText(res.consent_url);
+      flash(ok ? "동의 요청 링크를 복사했어요. 고객에게 보내세요." : res.consent_url);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setConsentBusy(false);
+    }
+  }, [customer.id]);
+
   const riskLabel =
     customer.job_risk_grade && customer.job_risk_grade <= 3 ? `위험 ${customer.job_risk_grade}급` : null;
 
@@ -559,11 +586,28 @@ function InfoTab({
             <dd className="text-ink2 text-right">{customer.insurance_age != null ? `${customer.insurance_age}세` : "—"}</dd>
             <dt className="text-ink3">직업</dt>
             <dd className="text-ink2 text-right">{customer.job_name ?? "—"}{riskLabel ? ` (${riskLabel})` : ""}</dd>
-            <dt className="text-ink3">마케팅 동의</dt>
-            <dd className="text-ink2 text-right">{consentLabel}</dd>
             <dt className="text-ink3">영업 단계</dt>
             <dd className="text-ink2 text-right">{customer.sales_stage.toUpperCase()}</dd>
           </dl>
+
+          {/* 동의 배지 + 요청 링크 */}
+          <div className="mt-3 rounded-xl border border-line bg-surface px-4 py-3">
+            <div className="text-[12px] font-semibold text-ink3">동의</div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
+              <span className="rounded-full bg-accent-tint px-2 py-0.5 text-brand">{consentLine("개인정보", piState)}</span>
+              <span className="rounded-full bg-accent-tint px-2 py-0.5 text-brand">{consentLine("마케팅", mkState)}</span>
+            </div>
+            <button
+              onClick={sendConsentLink}
+              disabled={consentBusy}
+              className="mt-2.5 w-full rounded-xl border border-brand text-brand text-[13px] font-semibold py-2 disabled:opacity-60"
+            >
+              {consentBusy ? "링크 생성 중…" : "동의 요청 링크 복사(고객 본인용)"}
+            </button>
+            <p className="mt-1.5 text-[11px] text-ink3 leading-4">
+              가장 안전한 건 고객 본인이 링크로 직접 동의하는 거예요. (자동발송 없음 — 복사해 전달)
+            </p>
+          </div>
 
           <button onClick={saveInfo} disabled={savingInfo}
             className="mt-4 w-full rounded-xl bg-brand text-white text-[14px] font-bold py-2.5 disabled:opacity-60">
