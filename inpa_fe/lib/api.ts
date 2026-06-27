@@ -1558,7 +1558,7 @@ export interface ConsentLogCreateResponse {
 
 /**
  * POST /api/v1/customers/<customerId>/consents/
- * scope: 'overseas_medical' → Customer.consent_overseas_at 스냅샷 동기화
+ * 설계사가 기록한 동의 메모(subject=planner_attested, 서버강제). consent_overseas_at 동기화 없음.
  */
 export async function createConsentLog(
   customerId: number,

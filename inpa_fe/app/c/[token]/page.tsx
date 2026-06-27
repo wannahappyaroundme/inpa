@@ -135,7 +135,7 @@ export default function CustomerConsentPage() {
                 </span>
               </label>
               <ul className="mt-2.5 ml-7 space-y-1 text-[12px] text-ink3 leading-5">
-                {item.lines.map((l, i) => (<li key={i}>{l}</li>))}
+                {item.lines.map((l, i) => (<li key={`${item.scope}-${i}`}>{l}</li>))}
               </ul>
               <p className="mt-2 ml-7 text-[11px] text-muted leading-5">{item.notice}</p>
             </Card>

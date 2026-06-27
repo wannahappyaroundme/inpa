@@ -89,6 +89,7 @@ class PublicConsentView(_NoIndexMixin, APIView):
         return customer, scopes, None
 
     def _already(self, customer, scope):
+        # 이미 동의 = unrevoked 로그 존재. serializers._consent_state는 latest만 쓰므로 동의→철회→재요청 후 불일치 가능(beta YAGNI).
         if scope == ConsentLog.SCOPE_OVERSEAS_MEDICAL:
             return customer.consent_overseas_at is not None
         return ConsentLog.objects.filter(
