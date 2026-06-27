@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
+import { SettingsTabs } from "@/components/settings-tabs";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
@@ -154,6 +155,7 @@ function RemindersContent() {
     <div className="min-h-dvh">
       <AppNav />
       <main className="mx-auto max-w-lg px-4 sm:px-6 py-6">
+        <SettingsTabs active="reminders" />
         {/* 헤더 */}
         <div className="flex items-center gap-3 mb-5">
           <Link href="/notifications" className="text-[13px] text-ink3 hover:text-ink">
