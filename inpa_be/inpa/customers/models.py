@@ -273,10 +273,12 @@ class ConsentLog(models.Model):
     SCOPE_OVERSEAS_MEDICAL = 'overseas_medical'
     SCOPE_MEDICAL_SENSITIVE = 'medical_sensitive'
     SCOPE_MARKETING = 'marketing'
+    SCOPE_PERSONAL_INFO = 'personal_info'          # ✦ 개인정보 수집·이용(DB 보유 근거)
     SCOPE_CHOICES = (
         (SCOPE_OVERSEAS_MEDICAL, '병력 국외이전 (Claude API, 미국)'),
         (SCOPE_MEDICAL_SENSITIVE, '민감정보(병력) 처리'),
         (SCOPE_MARKETING, '마케팅 수신'),
+        (SCOPE_PERSONAL_INFO, '개인정보 수집·이용'),
     )
 
     # ★ 동의 주체(council P3c): 누가 동의했나 = 감사 핵심.

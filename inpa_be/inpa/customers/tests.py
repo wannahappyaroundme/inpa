@@ -215,7 +215,7 @@ class CustomerSelfConsentTests(TestCase):
     # ── 토큰 ──
     def test_token_roundtrip(self):
         token = make_consent_token(self.customer)
-        self.assertEqual(read_consent_token(token), self.customer.id)
+        self.assertEqual(read_consent_token(token)['pk'], self.customer.id)
 
     def test_token_expired(self):
         token = make_consent_token(self.customer)
@@ -235,7 +235,7 @@ class CustomerSelfConsentTests(TestCase):
         self.assertIn('token', body)
         self.assertIn('/c/', body['consent_url'])
         self.assertFalse(body['already_consented'])
-        self.assertEqual(read_consent_token(body['token']), self.customer.id)
+        self.assertEqual(read_consent_token(body['token'])['pk'], self.customer.id)
 
     def test_consent_request_owner_isolation(self):
         """타 설계사(B)는 A의 고객으로 링크를 만들 수 없다(404)."""
@@ -488,3 +488,32 @@ class SalesStageTests(TestCase):
         self.assertEqual(r.status_code, 404)
         cust_b.refresh_from_db()
         self.assertEqual(cust_b.sales_stage, Customer.STAGE_DB)
+
+
+class ConsentTokenScopeTests(TestCase):
+    """토큰 다목적화 + 하위호환 + personal_info scope."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('tok@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='김보장')
+
+    def test_personal_info_scope_exists(self):
+        self.assertEqual(ConsentLog.SCOPE_PERSONAL_INFO, 'personal_info')
+        self.assertIn('personal_info', dict(ConsentLog.SCOPE_CHOICES))
+
+    def test_token_roundtrip_with_scopes(self):
+        tok = make_consent_token(self.customer, scopes=['personal_info', 'marketing'])
+        data = read_consent_token(tok)
+        self.assertEqual(data['pk'], self.customer.pk)
+        self.assertEqual(set(data['scopes']), {'personal_info', 'marketing'})
+
+    def test_token_default_scope_is_overseas(self):
+        data = read_consent_token(make_consent_token(self.customer))
+        self.assertEqual(data['scopes'], ['overseas_medical'])
+
+    def test_legacy_int_token_backward_compat(self):
+        from .tokens import CONSENT_SALT
+        legacy = signing.dumps(self.customer.pk, salt=CONSENT_SALT)  # 구 형식: pk(int) 직접
+        data = read_consent_token(legacy)
+        self.assertEqual(data['pk'], self.customer.pk)
+        self.assertEqual(data['scopes'], ['overseas_medical'])

@@ -42,7 +42,7 @@ class PublicConsentView(_NoIndexMixin, APIView):
     def _resolve(self, token):
         """토큰 → Customer. 만료=410, 위조/없음=404(존재 은폐). (customer, err_response)."""
         try:
-            pk = read_consent_token(token)
+            token_data = read_consent_token(token)
         except signing.SignatureExpired:
             return None, Response(
                 {'code': 'LINK_EXPIRED',
@@ -52,6 +52,7 @@ class PublicConsentView(_NoIndexMixin, APIView):
             return None, Response(
                 {'code': 'LINK_INVALID', 'detail': '유효하지 않은 링크입니다.'},
                 status=status.HTTP_404_NOT_FOUND)
+        pk = token_data['pk']
         customer = Customer.objects.filter(pk=pk).select_related('owner__profile').first()
         if customer is None:
             return None, Response(
