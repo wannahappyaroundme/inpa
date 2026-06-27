@@ -2008,6 +2008,42 @@ export async function publishCompare(id: number): Promise<CompareResponse> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// 수기 보험 등록(보유/제안) — OCR 폴백 + 제안 입력. /customers/<id>/insurances/manual/
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface ManualInsuranceItem {
+  id: number;
+  name: string | null;
+  insurance_type: number;        // 1 생명 / 2 손해
+  portfolio_type: number;        // 1 보유 / 2 제안
+  monthly_premiums: number | null;
+  contract_date: string | null;
+  expiry_date: string | null;
+  payment_status: number | null;
+  is_cancelled: boolean;
+  cancelled_at: string | null;
+  created_at: string;
+}
+
+export interface ManualInsuranceWritePayload {
+  name?: string;
+  insurance_type?: number;
+  portfolio_type: number;        // 1 보유 / 2 제안 (필수)
+  monthly_premiums?: number;
+  contract_date?: string;        // YYYY-MM-DD
+  expiry_date?: string;
+}
+
+/** 수기 보험 등록 — OCR 불가(스캔/이미지/키없음) 폴백 + 갈아타기 제안 입력. */
+export async function createManualInsurance(
+  customerId: number,
+  payload: ManualInsuranceWritePayload
+): Promise<ManualInsuranceItem> {
+  return request<ManualInsuranceItem>(
+    "POST", `/customers/${customerId}/insurances/manual/`, payload, true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // 환수 레이더(A/S) — GET /api/v1/churn-radar/  ·  PATCH /api/v1/insurances/<id>/churn/
 // ★ 보유 정책만 / owner 전용 / 수기입력 추정. 정확액은 보험사·회사 전산 권위.
 // ════════════════════════════════════════════════════════════════════════════

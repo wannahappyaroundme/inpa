@@ -33,6 +33,7 @@ import {
   ConsentModal,
 } from "@/components/ocr-upload";
 import { BookingModal } from "@/components/booking-modal";
+import { InsuranceManualModal } from "@/components/insurance-manual-modal";
 import { CompareBarChart } from "@/components/charts";
 import {
   getCustomer,
@@ -719,6 +720,7 @@ function AnalysisTab({
   ocr: OcrCtl;
 }) {
   const [bookingOpen, setBookingOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
   return (
     <div>
       {/* 증권 OCR 업로드 입구 (분석 탭으로 이동) */}
@@ -744,10 +746,27 @@ function AnalysisTab({
             phase={ocr.phase}
             onFileChange={ocr.onFileChange}
           />
+          <button
+            type="button"
+            onClick={() => setManualOpen(true)}
+            className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
+          >
+            수기 등록
+          </button>
         </div>
       </div>
       {bookingOpen && (
         <BookingModal customerId={customerId} onClose={() => setBookingOpen(false)} />
+      )}
+      {manualOpen && (
+        <InsuranceManualModal
+          customerId={customerId}
+          onClose={() => setManualOpen(false)}
+          onCreated={() => {
+            setManualOpen(false);
+            onRetry();
+          }}
+        />
       )}
 
       <OcrStatusBanner
@@ -834,12 +853,19 @@ function AnalysisTab({
           <p className="mt-1 text-[13px] text-ink3">
             증권을 등록하면 보장 한눈표가 보여요.
           </p>
-          <div className="mt-3 inline-flex">
+          <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-2">
             <OcrUploadButton
               customerId={customerId}
               phase={ocr.phase}
               onFileChange={ocr.onFileChange}
             />
+            <button
+              type="button"
+              onClick={() => setManualOpen(true)}
+              className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
+            >
+              수기 등록
+            </button>
           </div>
         </div>
       )}
