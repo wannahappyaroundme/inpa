@@ -605,3 +605,27 @@ class ConsentRequestScopeTests(TestCase):
         r = self.client.post(f'/api/v1/customers/{self.customer.id}/consent-requests/',
                              {'scopes': ['hacker']}, format='json')
         self.assertEqual(r.status_code, 400)
+
+
+class ConsentSerializerTests(TestCase):
+    def setUp(self):
+        self.user, self.client = _make_planner('ser@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='김보장')
+
+    def test_list_has_personal_info_consent_none(self):
+        r = self.client.get('/api/v1/customers/')
+        row = next(c for c in r.json()['results'] if c['id'] == self.customer.id)
+        self.assertEqual(row['personal_info_consent'], 'none')
+
+    def test_detail_consents_reflect_logs(self):
+        ConsentLog.objects.create(customer=self.customer,
+                                  scope=ConsentLog.SCOPE_PERSONAL_INFO,
+                                  subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        ConsentLog.objects.create(customer=self.customer,
+                                  scope=ConsentLog.SCOPE_MARKETING,
+                                  subject=ConsentLog.SUBJECT_PLANNER_ATTESTED)
+        r = self.client.get(f'/api/v1/customers/{self.customer.id}/')
+        consents = r.json()['consents']
+        self.assertEqual(consents['personal_info']['status'], 'agreed')
+        self.assertEqual(consents['personal_info']['subject'], 'customer_self')
+        self.assertEqual(consents['marketing']['subject'], 'planner_attested')
