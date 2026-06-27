@@ -570,3 +570,13 @@ class PublicConsentMultiScopeTests(TestCase):
         self.assertEqual(r.status_code, 201)
         self.customer.refresh_from_db()
         self.assertIsNotNone(self.customer.consent_overseas_at)
+
+    def test_post_ignores_scope_not_in_token(self):
+        """위조 방지 — 토큰에 없는 scope를 agreed에 넣어도 무시된다."""
+        tok = self._token(['overseas_medical'])
+        r = self.anon.post(f'/api/v1/c/{tok}/',
+                           {'agreed': ['overseas_medical', 'personal_info']}, format='json')
+        self.assertEqual(r.status_code, 201)
+        scopes = set(ConsentLog.objects.filter(customer=self.customer)
+                     .values_list('scope', flat=True))
+        self.assertEqual(scopes, {'overseas_medical'})  # 토큰 밖 personal_info는 무시됨

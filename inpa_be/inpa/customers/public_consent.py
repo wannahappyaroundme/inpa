@@ -61,10 +61,6 @@ _SCOPE_META = {
 }
 
 
-def _truthy(v):
-    return str(v).lower() in ('1', 'true', 'on', 'yes', 'y')
-
-
 class PublicConsentView(_NoIndexMixin, APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
