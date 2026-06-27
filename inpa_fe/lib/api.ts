@@ -119,14 +119,17 @@ export interface VerifyEmailResponse {
 }
 
 /**
- * GET /api/v1/auth/verify-email/?uid=...&token=...
- * Passes uid and token as query params.
+ * 이메일 인증 — BE 토큰은 self-contained(signing.dumps(pk))라 token 1개로 충분.
+ * reset-password와 달리 uid 불필요. (이전 버그: FE가 없는 uid를 요구해 인증 전면 차단)
+ * POST /api/v1/auth/verify-email/  body: { token }
  */
-export async function verifyEmail(uid: string, token: string): Promise<VerifyEmailResponse> {
-  return request<VerifyEmailResponse>(
-    "GET",
-    `/auth/verify-email/?uid=${encodeURIComponent(uid)}&token=${encodeURIComponent(token)}`
-  );
+export async function verifyEmail(token: string): Promise<VerifyEmailResponse> {
+  return request<VerifyEmailResponse>("POST", "/auth/verify-email/", { token });
+}
+
+/** 인증 메일 재발송 — 미인증 계정이면 재발송(계정 존재 노출 방지로 항상 200). */
+export async function resendVerification(email: string): Promise<{ message: string }> {
+  return request<{ message: string }>("POST", "/auth/resend-verification/", { email });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

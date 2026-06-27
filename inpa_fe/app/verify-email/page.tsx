@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { verifyEmail, ApiError } from "@/lib/api";
+import { verifyEmail, resendVerification, ApiError } from "@/lib/api";
 
 type VerifyState = "pending" | "success" | "error";
 
@@ -11,18 +11,21 @@ function VerifyEmailContent() {
   const params = useSearchParams();
   const [state, setState] = useState<VerifyState>("pending");
   const [errorMsg, setErrorMsg] = useState<string>("");
+  // 인증 메일 재발송(만료·무효 링크 복구 동선)
+  const [resendEmail, setResendEmail] = useState("");
+  const [resending, setResending] = useState(false);
+  const [resendMsg, setResendMsg] = useState("");
 
   useEffect(() => {
-    const uid = params.get("uid");
     const token = params.get("token");
 
-    if (!uid || !token) {
+    if (!token) {
       setState("error");
       setErrorMsg("인증 링크가 올바르지 않습니다. 이메일에서 링크를 다시 클릭해 주세요.");
       return;
     }
 
-    verifyEmail(uid, token)
+    verifyEmail(token)
       .then(() => {
         setState("success");
       })
@@ -42,6 +45,19 @@ function VerifyEmailContent() {
         }
       });
   }, [params]);
+
+  const handleResend = async () => {
+    if (!resendEmail.trim() || resending) return;
+    setResending(true);
+    setResendMsg("");
+    try {
+      await resendVerification(resendEmail.trim());
+      setResendMsg("입력하신 주소가 미인증 계정이면 인증 메일을 다시 보냈어요. 메일함을 확인해 주세요.");
+    } catch {
+      setResendMsg("재발송 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.");
+    }
+    setResending(false);
+  };
 
   if (state === "pending") {
     return (
@@ -93,6 +109,29 @@ function VerifyEmailContent() {
         >
           다시 가입하기
         </Link>
+      </div>
+      <div className="w-full mt-3 pt-3 border-t border-[var(--line)] text-left">
+        <p className="text-[12px] text-[var(--ink-3)] mb-2">
+          인증 메일을 다시 받으시려면 가입한 이메일을 입력하세요.
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="email"
+            value={resendEmail}
+            onChange={(e) => setResendEmail(e.target.value)}
+            placeholder="you@example.com"
+            className="flex-1 min-w-0 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)]"
+          />
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resending || !resendEmail.trim()}
+            className="shrink-0 rounded-xl bg-[var(--brand)] text-white text-[13px] font-bold px-3 py-2 disabled:opacity-50"
+          >
+            {resending ? "발송 중" : "재발송"}
+          </button>
+        </div>
+        {resendMsg && <p className="mt-2 text-[12px] text-[var(--ink-2)]">{resendMsg}</p>}
       </div>
     </div>
   );
