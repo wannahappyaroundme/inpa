@@ -34,6 +34,7 @@ import {
 } from "@/components/ocr-upload";
 import { BookingModal } from "@/components/booking-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { ShareLinkButton } from "@/components/share-link-button";
 import { CompareBarChart } from "@/components/charts";
 import {
   getCustomer,
@@ -753,6 +754,7 @@ function AnalysisTab({
           >
             수기 등록
           </button>
+          <ShareLinkButton customerId={customerId} />
         </div>
       </div>
       {bookingOpen && (

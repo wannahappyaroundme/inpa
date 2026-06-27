@@ -2044,6 +2044,22 @@ export async function createManualInsurance(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// 고객 공유 링크 발급 — POST /api/v1/customers/<id>/share/ (북극성 분석→공유 동선)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface ShareLinkResponse {
+  customer_id: number;
+  share_token: string;
+  share_expires_at: string;
+  share_url: string; // "/s/<token>" — origin 붙여 완성
+}
+
+/** 공유 토큰 발급(rotate) — 보장 한눈표 공유뷰(/s/<token>) 링크. §97 비교안내서 아님. */
+export async function createShareLink(customerId: number): Promise<ShareLinkResponse> {
+  return request<ShareLinkResponse>("POST", `/customers/${customerId}/share/`, undefined, true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // 환수 레이더(A/S) — GET /api/v1/churn-radar/  ·  PATCH /api/v1/insurances/<id>/churn/
 // ★ 보유 정책만 / owner 전용 / 수기입력 추정. 정확액은 보험사·회사 전산 권위.
 // ════════════════════════════════════════════════════════════════════════════
