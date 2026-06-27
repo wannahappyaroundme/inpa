@@ -45,7 +45,9 @@ from .models import (
     CustomerInsurance, CustomerInsuranceDetail, InsuranceCategory,
     InsuranceDetail, InsuranceSubCategory,
 )
-from .serializers import CustomerInsuranceSerializerForDetail
+from .serializers import (
+    CustomerInsuranceManualSerializer, CustomerInsuranceSerializerForDetail,
+)
 
 # 최대 업로드 크기 (foliio 동일 정책)
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -406,3 +408,39 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
              'verification': getattr(ci, 'verification', None),
              'insurance': data},
             status=status.HTTP_201_CREATED)
+
+
+class CustomerInsuranceManualViewSet(viewsets.ModelViewSet):
+    """고객 보유/제안 보험 수기 CRUD — OCR 폴백(이미지/실패/키없음) + 제안 입력.
+
+    GET/POST          /api/v1/customers/<customer_pk>/insurances/manual/
+    GET/PATCH/DELETE  /api/v1/customers/<customer_pk>/insurances/manual/<pk>/
+
+    owner 전용(customer__owner 경유 — 부모 Customer 가 본인 것이 아니면 404=존재 은폐).
+    담보 트리 없이 생성되므로 분석 히트맵엔 '보유 여부'만, 환수레이더·월보험료 요약에 반영.
+    portfolio_type 1=보유 / 2=제안(갈아타기 비교 우측 입력 경로도 겸함).
+    """
+    serializer_class = CustomerInsuranceManualSerializer
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+    parent_lookup = 'customer_pk'
+
+    def _is_admin(self):
+        profile = getattr(self.request.user, 'profile', None)
+        return bool(getattr(profile, 'is_admin', False))
+
+    def get_customer(self):
+        qs = Customer.objects.all()
+        if not self._is_admin():
+            qs = qs.filter(owner=self.request.user)
+        try:
+            return qs.get(pk=self.kwargs[self.parent_lookup])
+        except Customer.DoesNotExist:
+            raise NotFound('고객을 찾을 수 없습니다.')
+
+    def get_queryset(self):
+        return (CustomerInsurance.objects
+                .filter(customer=self.get_customer(), portfolio_type__in=(1, 2))
+                .order_by('-created_at'))
+
+    def perform_create(self, serializer):
+        serializer.save(customer=self.get_customer())

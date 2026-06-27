@@ -807,3 +807,47 @@ class InpatientSectionTests(TestCase):
         self._upload(_fake_ocr_section('입원', '암', '암입원비', 5000000))
         std = self._std('암입원비')
         self.assertEqual(self._held(std.id)['status'], 'neutral')
+
+
+class ManualInsuranceTests(TestCase):
+    """수기 보험 등록(보유/제안) — 생성·목록·portfolio_type 검증·owner 격리.
+
+    OCR 실패/이미지/키없음 폴백 + 갈아타기 제안(type=2) 입력 경로를 한 엔드포인트로 검증.
+    """
+
+    def setUp(self):
+        self.user, self.client = _make_planner('manual-a@inpa.local')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='김고객', mobile_phone_number='010-1111-2222')
+
+    def _url(self, cpk=None):
+        return f'/api/v1/customers/{cpk or self.customer.pk}/insurances/manual/'
+
+    def test_create_held_and_list(self):
+        payload = {'name': '삼성생명 무배당 종합보험', 'insurance_type': 1,
+                   'portfolio_type': 1, 'monthly_premiums': 85000,
+                   'contract_date': '2024-03-01', 'expiry_date': '2054-03-01'}
+        r = self.client.post(self._url(), payload, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.data['portfolio_type'], 1)
+        ci = CustomerInsurance.objects.get(pk=r.data['id'])
+        self.assertEqual(ci.customer_id, self.customer.pk)
+        rl = self.client.get(self._url())
+        self.assertEqual(rl.status_code, 200)
+        results = rl.data.get('results', rl.data)
+        self.assertEqual(len(results), 1)
+
+    def test_proposal_type_allowed(self):
+        r = self.client.post(self._url(), {'name': '제안상품', 'insurance_type': 2,
+                                           'portfolio_type': 2, 'monthly_premiums': 50000},
+                             format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+
+    def test_template_type_rejected(self):
+        r = self.client.post(self._url(), {'name': 'x', 'portfolio_type': 0}, format='json')
+        self.assertEqual(r.status_code, 400)
+
+    def test_owner_isolation_404(self):
+        _other, other_client = _make_planner('manual-b@inpa.local')
+        r = other_client.post(self._url(), {'name': 'x', 'portfolio_type': 1}, format='json')
+        self.assertEqual(r.status_code, 404)

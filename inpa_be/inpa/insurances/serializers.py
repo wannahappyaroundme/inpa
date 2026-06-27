@@ -46,6 +46,25 @@ class CustomerInsuranceDetailSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class CustomerInsuranceManualSerializer(serializers.ModelSerializer):
+    """수기 보험 등록(보유/제안) — OCR 없이 기본 정보만. 담보 트리 없이 환수레이더·요약용.
+
+    회사 전용 필드는 모델에 없어 상품명에 포함(예 '삼성생명 무배당...'). portfolio_type
+    1=보유 / 2=제안 만 허용(0=템플릿 금지). 격리는 ViewSet(customer__owner)이 책임.
+    """
+    class Meta:
+        model = CustomerInsurance
+        fields = ('id', 'name', 'insurance_type', 'portfolio_type',
+                  'monthly_premiums', 'contract_date', 'expiry_date',
+                  'payment_status', 'is_cancelled', 'cancelled_at', 'created_at')
+        read_only_fields = ('id', 'created_at')
+
+    def validate_portfolio_type(self, value):
+        if value not in (1, 2):
+            raise serializers.ValidationError('보유(1) 또는 제안(2)만 선택할 수 있어요.')
+        return value
+
+
 class CustomerInsuranceSerializer(serializers.ModelSerializer):
     """포트폴리오 기본정보 직렬화 (calculate.py 의존, ♻ foliio 무변경).
 
