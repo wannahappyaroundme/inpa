@@ -132,6 +132,21 @@ export async function resendVerification(email: string): Promise<{ message: stri
   return request<{ message: string }>("POST", "/auth/resend-verification/", { email });
 }
 
+/** 비밀번호 변경(로그인 상태) — 성공 시 새 토큰이 발급되므로 tokenStore 갱신(세션 유지). */
+export async function changePassword(oldPassword: string, newPassword: string): Promise<{ message: string }> {
+  const r = await request<{ message: string; token: string }>(
+    "POST", "/auth/password/change/", { old_password: oldPassword, new_password: newPassword }, true);
+  if (r.token) tokenStore.set(r.token);
+  return { message: r.message };
+}
+
+/** 회원 탈퇴 — 이메일가입=password / 구글가입=confirm(가입 이메일). 성공 시 토큰 폐기. */
+export async function withdrawAccount(payload: { password?: string; confirm?: string }): Promise<{ message: string }> {
+  const r = await request<{ message: string }>("POST", "/auth/withdraw/", payload, true);
+  tokenStore.remove();
+  return r;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface LoginPayload {
@@ -248,6 +263,7 @@ export interface ProfileResponse {
   booking_default_duration: number;
   google_calendar_connected: boolean;
   google_calendar_mask_name: boolean;
+  has_usable_password: boolean;   // false=구글 전용 가입(비번 없음) → 비번변경 숨김·탈퇴는 이메일 확인
   onboarding_completed_at: string | null;
   marketing_agreed_at: string | null;
   ref_code: string | null;

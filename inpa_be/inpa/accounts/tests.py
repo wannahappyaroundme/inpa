@@ -1,6 +1,7 @@
 """계정 도메인 happy-path + 핵심 게이트 테스트."""
 from django.core import mail
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from .models import Profile, User
@@ -143,3 +144,36 @@ class ManagerDashboardTests(TestCase):
         for k in ('affiliation_type', 'manager_share_opt_in', 'managed_agents_count', 'manager_email'):
             self.assertIn(k, body)
         self.assertEqual(body['managed_agents_count'], 2)  # 배정 총원(동의 무관)
+
+
+class WithdrawTests(TestCase):
+    """회원 탈퇴 — 이메일가입(비번 확인) / 구글가입(이메일 확인, 개인정보 삭제권)."""
+
+    def test_has_usable_password_flag(self):
+        _email_user, ec = _verified_planner('w-email@inpa.local')
+        self.assertTrue(ec.get('/api/v1/auth/profile/').json()['has_usable_password'])
+        guser = User.objects.create_user(email='w-google@inpa.local', password=None)
+        guser.is_active = True
+        guser.save(update_fields=['is_active'])
+        Profile.objects.create(user=guser, email_verified_at=timezone.now())
+        gc = APIClient(); gc.force_authenticate(user=guser)
+        self.assertFalse(gc.get('/api/v1/auth/profile/').json()['has_usable_password'])
+
+    def test_email_user_withdraw_requires_password(self):
+        user, c = _verified_planner('w1@inpa.local')
+        self.assertEqual(c.post('/api/v1/auth/withdraw/', {'password': 'wrong'}, format='json').status_code, 400)
+        r = c.post('/api/v1/auth/withdraw/', {'password': 'inpaPass123!'}, format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(User.objects.filter(email='w1@inpa.local').exists())
+
+    def test_google_user_withdraw_by_email_confirm(self):
+        guser = User.objects.create_user(email='w-g@inpa.local', password=None)
+        guser.is_active = True
+        guser.save(update_fields=['is_active'])
+        Profile.objects.create(user=guser, email_verified_at=timezone.now())
+        gc = APIClient(); gc.force_authenticate(user=guser)
+        # 비번 없으니 confirm(이메일) 필요 — 틀리면 400
+        self.assertEqual(gc.post('/api/v1/auth/withdraw/', {'confirm': 'nope'}, format='json').status_code, 400)
+        r = gc.post('/api/v1/auth/withdraw/', {'confirm': 'w-g@inpa.local'}, format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(User.objects.filter(email='w-g@inpa.local').exists())

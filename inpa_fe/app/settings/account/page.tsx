@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
+import { AccountSecurity } from "@/components/account-security";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import { getProfile, updateProfile, getGoogleCalendarConnectUrl, disconnectGoogleCalendar, logout, type ProfileResponse } from "@/lib/api";
 
@@ -252,6 +253,9 @@ export default function AccountSettingsPage() {
             구글 캘린더 연동 시 미팅 확정 시점에 <b>고객 이름·시간·방식</b>만 Google(미국 서버) 캘린더에 기록돼요. 병력·보험 정보는 전송되지 않습니다.
           </p>
         </Card>
+
+        {/* 비밀번호 변경 + 회원 탈퇴 */}
+        {p && <AccountSecurity hasPassword={p.has_usable_password} email={p.email} />}
 
         {/* 로그아웃 */}
         <Card className="px-5 py-4">
