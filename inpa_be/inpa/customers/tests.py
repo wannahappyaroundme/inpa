@@ -249,7 +249,10 @@ class CustomerSelfConsentTests(TestCase):
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertEqual(body['customer']['name_masked'], '홍**')
-        self.assertFalse(body['already_consented'])
+        # 다항목화: 구 overseas_medical 단일 토큰 → items[0]['already'] 확인
+        self.assertIn('items', body)
+        overseas_item = next(it for it in body['items'] if it['scope'] == 'overseas_medical')
+        self.assertFalse(overseas_item['already'])
         # PII 누출 금지 — 전화/생년/병력 미포함
         self.assertNotIn('010-0000-0000', r.content.decode())
 
@@ -266,7 +269,8 @@ class CustomerSelfConsentTests(TestCase):
     # ── 공개: 동의 제출 POST ──
     def test_public_post_consent_unlocks_gate(self):
         token = make_consent_token(self.customer)
-        r = self.public.post(f'/api/v1/c/{token}/', {'consent_overseas': 'true'}, format='json')
+        r = self.public.post(f'/api/v1/c/{token}/',
+                             {'agreed': ['overseas_medical']}, format='json')
         self.assertEqual(r.status_code, 201)
         self.customer.refresh_from_db()
         self.assertIsNotNone(self.customer.consent_overseas_at)  # OCR 게이트 해제
@@ -283,10 +287,12 @@ class CustomerSelfConsentTests(TestCase):
     def test_public_post_idempotent(self):
         """재동의가 기존 스냅샷 시각을 덮지 않는다(append-only 정신)."""
         token = make_consent_token(self.customer)
-        self.public.post(f'/api/v1/c/{token}/', {'consent_overseas': 'true'}, format='json')
+        self.public.post(f'/api/v1/c/{token}/',
+                         {'agreed': ['overseas_medical']}, format='json')
         self.customer.refresh_from_db()
         first = self.customer.consent_overseas_at
-        self.public.post(f'/api/v1/c/{token}/', {'consent_overseas': 'true'}, format='json')
+        self.public.post(f'/api/v1/c/{token}/',
+                         {'agreed': ['overseas_medical']}, format='json')
         self.customer.refresh_from_db()
         self.assertEqual(self.customer.consent_overseas_at, first)
 
@@ -294,7 +300,8 @@ class CustomerSelfConsentTests(TestCase):
     def test_customer_self_unlocks_in_strict_mode(self):
         """전방검증: strict 모드여도 고객 본인 동의는 정상적으로 게이트를 연다."""
         token = make_consent_token(self.customer)
-        r = self.public.post(f'/api/v1/c/{token}/', {'consent_overseas': 'true'}, format='json')
+        r = self.public.post(f'/api/v1/c/{token}/',
+                             {'agreed': ['overseas_medical']}, format='json')
         self.assertEqual(r.status_code, 201)
         self.customer.refresh_from_db()
         self.assertIsNotNone(self.customer.consent_overseas_at)
@@ -517,3 +524,49 @@ class ConsentTokenScopeTests(TestCase):
         data = read_consent_token(legacy)
         self.assertEqual(data['pk'], self.customer.pk)
         self.assertEqual(data['scopes'], ['overseas_medical'])
+
+
+class PublicConsentMultiScopeTests(TestCase):
+    """공개 /c 다항목 동의 — 개인정보(필수)+마케팅(선택)."""
+
+    def setUp(self):
+        cache.clear()  # throttle 격리
+        self.user, _ = _make_planner('pc@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='김보장')
+        self.anon = APIClient()  # 비인증(공개 경로)
+
+    def _token(self, scopes):
+        return make_consent_token(self.customer, scopes=scopes)
+
+    def test_get_returns_requested_items(self):
+        tok = self._token(['personal_info', 'marketing'])
+        r = self.anon.get(f'/api/v1/c/{tok}/')
+        self.assertEqual(r.status_code, 200)
+        scopes = [it['scope'] for it in r.json()['items']]
+        self.assertEqual(scopes, ['personal_info', 'marketing'])
+        pi = next(it for it in r.json()['items'] if it['scope'] == 'personal_info')
+        self.assertTrue(pi['required'])
+
+    def test_post_agreed_creates_customer_self_logs(self):
+        tok = self._token(['personal_info', 'marketing'])
+        r = self.anon.post(f'/api/v1/c/{tok}/',
+                           {'agreed': ['personal_info', 'marketing']}, format='json')
+        self.assertEqual(r.status_code, 201)
+        logs = ConsentLog.objects.filter(customer=self.customer)
+        self.assertEqual(logs.count(), 2)
+        self.assertTrue(all(l.subject == ConsentLog.SUBJECT_CUSTOMER_SELF for l in logs))
+
+    def test_post_missing_required_returns_412(self):
+        tok = self._token(['personal_info', 'marketing'])
+        r = self.anon.post(f'/api/v1/c/{tok}/',
+                           {'agreed': ['marketing']}, format='json')  # 필수 누락
+        self.assertEqual(r.status_code, 412)
+        self.assertEqual(ConsentLog.objects.filter(customer=self.customer).count(), 0)
+
+    def test_overseas_token_sets_snapshot(self):
+        tok = self._token(['overseas_medical'])
+        r = self.anon.post(f'/api/v1/c/{tok}/',
+                           {'agreed': ['overseas_medical']}, format='json')
+        self.assertEqual(r.status_code, 201)
+        self.customer.refresh_from_db()
+        self.assertIsNotNone(self.customer.consent_overseas_at)
