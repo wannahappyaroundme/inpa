@@ -1328,12 +1328,9 @@ function HistoryTab({ customerId }: { customerId: number }) {
                     {fmtEventAt(ev.at)}
                   </span>
                 </div>
-                {ev.meta && Object.keys(ev.meta).length > 0 && (
+                {historyDetail(ev.type, ev.meta) && (
                   <p className="mt-0.5 text-[12px] text-ink3 leading-5 truncate">
-                    {Object.entries(ev.meta)
-                      .slice(0, 2)
-                      .map(([k, v]) => `${k}: ${String(v)}`)
-                      .join(" · ")}
+                    {historyDetail(ev.type, ev.meta)}
                   </p>
                 )}
               </div>
@@ -1343,6 +1340,20 @@ function HistoryTab({ customerId }: { customerId: number }) {
       </ol>
     </div>
   );
+}
+
+/** 이력 부가설명 — 내부필드(scope·*_id·portfolio_type 등)는 노출 금지, 사람이 읽는 값만. */
+function historyDetail(type: string, meta: Record<string, unknown>): string | null {
+  if (!meta) return null;
+  if (type === "insurance_registered") {
+    const name = typeof meta.name === "string" ? meta.name.trim() : "";
+    return name || null; // 보험 상품명만(내부 id·종류 비노출)
+  }
+  if (type === "consent_agreed") {
+    const v = typeof meta.doc_version === "string" ? meta.doc_version.trim() : "";
+    return v ? `동의서 ${v}` : null;
+  }
+  return null; // 그 외(철회·공유·복사 등)는 label로 충분
 }
 
 /** 이벤트 타입 → 아이콘 문자 */
