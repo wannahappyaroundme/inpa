@@ -366,8 +366,8 @@ export type SalesStage = "db" | "contact" | "meeting" | "contract";
 /** 단계 메타(순서·라벨·? 툴팁 설명) — 칸반 컬럼/퍼널 셀이 이 순서·라벨을 그대로 쓴다. */
 export const SALES_STAGES: { key: SalesStage; label: string; short: string; desc: string }[] = [
   { key: "db", label: "DB", short: "01", desc: "아직 상담 전인 예비 고객 명단이에요. 이름·연락처만 확보된 단계." },
-  { key: "contact", label: "TA", short: "02", desc: "TA(Telephone Approach): 전화·문자로 첫 접촉해 약속을 잡는 단계." },
-  { key: "meeting", label: "FA", short: "03", desc: "FA(Face-to-face Approach): 직접 만나 보장분석·상담하는 대면 단계." },
+  { key: "contact", label: "TA", short: "02", desc: "전화·문자로 처음 연락해 만날 약속을 잡는 단계예요. (TA = Telephone Approach)" },
+  { key: "meeting", label: "FA", short: "03", desc: "직접 만나 보장을 분석·상담하는 대면 단계예요. (FA = Face-to-face Approach)" },
   { key: "contract", label: "청약", short: "04", desc: "고객이 보험계약을 신청(청약서 작성)하는 계약 체결 단계." },
 ];
 

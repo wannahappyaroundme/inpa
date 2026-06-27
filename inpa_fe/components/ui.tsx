@@ -1,6 +1,7 @@
 import React from "react";
 import type { CovStatus } from "@/lib/mock";
 import { InpaMark } from "./inpa-logo";
+import { InfoDot } from "./info-dot";
 
 export function Card({ className = "", children }: { className?: string; children: React.ReactNode }) {
   return <div className={`rounded-2xl bg-surface border border-line shadow-sm ${className}`}>{children}</div>;
@@ -13,6 +14,7 @@ export function StatCard({
   unit,
   delta,
   accent = false,
+  hint,
   className = "",
 }: {
   label: string;
@@ -20,11 +22,15 @@ export function StatCard({
   unit?: string;
   delta?: number | null;     // 전월 대비 %(있으면 배지)
   accent?: boolean;          // 강조(예: 환수 위험 > 0)
+  hint?: string;             // 라벨 옆 ? 툴팁(용어 풀이 — 쉬운말)
   className?: string;
 }) {
   return (
     <Card className={`p-3.5 ${className}`}>
-      <div className="text-[12px] text-ink3">{label}</div>
+      <div className="flex items-center gap-1 text-[12px] text-ink3">
+        <span>{label}</span>
+        {hint && <InfoDot text={hint} />}
+      </div>
       <div className="mt-1 flex items-baseline gap-1">
         <span className={`text-[20px] font-bold leading-none tnum ${accent ? "text-danger" : "text-ink"}`}>
           {value}

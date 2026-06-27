@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { Card, CustomerAvatar, stalenessLevel } from "@/components/ui";
 import { SelfDiagnosisShare } from "@/components/self-diagnosis-share";
+import { InfoDot } from "@/components/info-dot";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers,
@@ -55,27 +56,7 @@ function ageLabel(age: number | null): string {
 }
 
 // ── ? 툴팁(클릭 토글) — 단계 설명 ──
-function InfoDot({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="relative inline-flex">
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
-        onBlur={() => setOpen(false)}
-        aria-label="단계 설명"
-        className="w-4 h-4 rounded-full border border-line text-[10px] font-bold text-ink3 leading-none flex items-center justify-center hover:bg-surface2"
-      >
-        ?
-      </button>
-      {open && (
-        <span className="absolute left-0 top-5 z-30 w-56 rounded-lg border border-line bg-surface px-3 py-2 text-[11px] leading-4 text-ink2 shadow-lg">
-          {text}
-        </span>
-      )}
-    </span>
-  );
-}
+// InfoDot 은 공용 컴포넌트로 이동 → @/components/info-dot (StatCard 등과 재사용)
 
 // ── 즐겨찾기/고정 토글 버튼 ──
 function FavPinButtons({
@@ -277,7 +258,7 @@ export default function CustomersPage() {
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink3">
           <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-[4px] border-2 border-short" />3일+ 미연락</span>
           <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-[4px] border-2 border-cnone" />7일+ 미연락</span>
-          <span className="text-muted">테두리 = 방치 정도 · ★ 즐겨찾기 · 📌 상단고정</span>
+          <span className="text-muted">테두리 = 연락 끊긴 기간 · ★ 즐겨찾기 · 📌 상단고정</span>
         </div>
 
         <div className="mt-4">

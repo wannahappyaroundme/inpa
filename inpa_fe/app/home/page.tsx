@@ -218,7 +218,7 @@ export default function HomePage() {
   const monthDaysLeft = _dim - todayD;
   const monthPct = Math.round((todayD / _dim) * 100);
 
-  const displayName = profile ? profile.email.split("@")[0] : "설계사";
+  const displayName = profile ? (profile.name?.trim() || profile.email.split("@")[0]) : "설계사";
 
   // 전월 대비 증감률(%) — 최근 6개월 추이의 마지막 두 점에서 파생. 데이터 부족 시 null(배지 숨김).
   const trend = insights?.monthly_trend ?? [];
@@ -281,7 +281,8 @@ export default function HomePage() {
           <StatCard label="이번 달 신규" value={dash ? String(dash.actual_new_customers) : "—"} unit="명" delta={momDelta("new_customers")} />
           <StatCard label="이번 달 미팅" value={dash ? String(dash.actual_meetings) : "—"} unit="건" delta={momDelta("meetings")} />
           <StatCard label="이번 달 보험료" value={dash ? fmtWonShort(dash.actual_premium) : "—"} unit="원" delta={momDelta("premium")} />
-          <StatCard label="환수 위험" value={churn ? String(churn.risk_count) : "—"} unit="건" accent={!!churn && churn.risk_count > 0} />
+          <StatCard label="환수 위험" value={churn ? String(churn.risk_count) : "—"} unit="건" accent={!!churn && churn.risk_count > 0}
+            hint="고객이 계약을 해지하면 이미 받은 수수료가 환수(반환)될 수 있어요. 최근 해지·연락 두절 등 위험 신호가 있는 고객 수예요." />
         </div>
 
         {/* 영업 4단계 퍼널 — 단계별 고객(클릭 시 칸반) */}
