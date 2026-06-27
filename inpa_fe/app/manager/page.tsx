@@ -33,7 +33,7 @@ export default function ManagerPage() {
       <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6">
         <h1 className="text-[22px] font-extrabold text-ink">관리직 KPI</h1>
         <p className="mt-1.5 text-[14px] font-semibold text-brand leading-5">
-          팀원이 상담에 집중할수록, 팀장님 마감 숫자가 올라갑니다.
+          팀원 한 명 한 명의 인파(人波)를 정리하면 팀 전체의 성과가 보입니다.
         </p>
         <p className="mt-1 text-[13px] text-ink3 leading-5">
           월말 취합 엑셀은 그만 — KPI 공유에 <b>동의한</b> 소속 설계사의 집계를 실시간으로 봐요. 개별 고객 정보는 표시되지 않습니다(프라이버시).
