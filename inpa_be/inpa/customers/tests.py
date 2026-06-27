@@ -580,3 +580,28 @@ class PublicConsentMultiScopeTests(TestCase):
         scopes = set(ConsentLog.objects.filter(customer=self.customer)
                      .values_list('scope', flat=True))
         self.assertEqual(scopes, {'overseas_medical'})  # 토큰 밖 personal_info는 무시됨
+
+
+class ConsentRequestScopeTests(TestCase):
+    def setUp(self):
+        self.user, self.client = _make_planner('cr@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='김보장')
+
+    def test_default_scope_overseas(self):
+        r = self.client.post(f'/api/v1/customers/{self.customer.id}/consent-requests/',
+                             {}, format='json')
+        self.assertEqual(r.status_code, 201)
+        data = read_consent_token(r.json()['token'])
+        self.assertEqual(data['scopes'], ['overseas_medical'])
+
+    def test_custom_scopes_encoded(self):
+        r = self.client.post(f'/api/v1/customers/{self.customer.id}/consent-requests/',
+                             {'scopes': ['personal_info', 'marketing']}, format='json')
+        self.assertEqual(r.status_code, 201)
+        data = read_consent_token(r.json()['token'])
+        self.assertEqual(set(data['scopes']), {'personal_info', 'marketing'})
+
+    def test_unknown_scope_rejected(self):
+        r = self.client.post(f'/api/v1/customers/{self.customer.id}/consent-requests/',
+                             {'scopes': ['hacker']}, format='json')
+        self.assertEqual(r.status_code, 400)

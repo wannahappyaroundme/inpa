@@ -188,6 +188,13 @@ class ConsentRequestCreateView(APIView):
     """
     permission_classes = [IsAuthenticated, IsEmailVerified]
 
+    # 허용 동의 scope 화이트리스트(요청 링크로 받을 수 있는 것).
+    _ALLOWED_REQUEST_SCOPES = {
+        ConsentLog.SCOPE_PERSONAL_INFO,
+        ConsentLog.SCOPE_MARKETING,
+        ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+    }
+
     def _is_admin(self):
         profile = getattr(self.request.user, 'profile', None)
         return bool(getattr(profile, 'is_admin', False))
@@ -203,7 +210,15 @@ class ConsentRequestCreateView(APIView):
 
     def post(self, request, customer_pk):
         customer = self._get_customer(customer_pk)
-        token = make_consent_token(customer)
+        scopes = request.data.get('scopes')
+        if scopes is None:
+            scopes = [ConsentLog.SCOPE_OVERSEAS_MEDICAL]
+        if not isinstance(scopes, list) or not scopes:
+            raise ValidationError({'scopes': 'scopes는 비어있지 않은 배열이어야 합니다.'})
+        bad = [s for s in scopes if s not in self._ALLOWED_REQUEST_SCOPES]
+        if bad:
+            raise ValidationError({'scopes': f'허용되지 않은 동의 종류: {bad}'})
+        token = make_consent_token(customer, scopes=scopes)
         base = (getattr(settings, 'FRONTEND_BASE_URL', '') or '').rstrip('/')
         return Response(
             {'token': token,
