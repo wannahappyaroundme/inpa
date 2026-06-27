@@ -884,6 +884,8 @@ class SelfDiagnosisConsentTests(TestCase):
         self.assertTrue(ConsentLog.objects.filter(
             customer=cust, scope=ConsentLog.SCOPE_PERSONAL_INFO,
             subject=ConsentLog.SUBJECT_CUSTOMER_SELF).exists())
+        self.assertFalse(ConsentLog.objects.filter(
+            customer=cust, scope=ConsentLog.SCOPE_MARKETING).exists())
 
     @mock.patch('inpa.insurances.self_diagnosis._persist_ocr')
     @mock.patch('inpa.insurances.self_diagnosis.claude_parse', return_value={'insurances': []})
@@ -898,4 +900,7 @@ class SelfDiagnosisConsentTests(TestCase):
         cust = Customer.objects.get(owner=self.planner, mobile_phone_number='010-8888-0000')
         self.assertTrue(ConsentLog.objects.filter(
             customer=cust, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF).exists())
+        self.assertTrue(ConsentLog.objects.filter(
+            customer=cust, scope=ConsentLog.SCOPE_PERSONAL_INFO,
             subject=ConsentLog.SUBJECT_CUSTOMER_SELF).exists())
