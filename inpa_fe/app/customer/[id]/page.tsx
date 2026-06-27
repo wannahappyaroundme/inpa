@@ -47,8 +47,10 @@ import {
   toggleChecklistItem,
   addChecklistItem,
   deleteChecklistItem,
+  SALES_STAGES,
   ApiError,
   type CustomerDetail,
+  type SalesStage,
   type HeatmapResponse,
   type HeatmapDetail,
   type CompareResponse,
@@ -214,6 +216,19 @@ function CustomerDetailInner() {
     router.replace(`/customer/${customerId}?tab=${tab}`);
   }
 
+  // 영업 단계 변경(DB·TA·FA·청약) — 칸반 select 대체. 낙관적 업데이트 후 실패 시 재조회.
+  const changeStage = useCallback(
+    async (to: SalesStage) => {
+      setCustomer((c) => (c && c.sales_stage !== to ? { ...c, sales_stage: to } : c));
+      try {
+        setCustomer(await updateCustomer(customerId, { sales_stage: to }));
+      } catch {
+        getCustomer(customerId).then(setCustomer).catch(() => {});
+      }
+    },
+    [customerId]
+  );
+
   if (!ready) return null;
 
   // 잘못된 ID
@@ -250,6 +265,27 @@ function CustomerDetailInner() {
           </div>
         ) : (
           customer && <CustomerSummary customer={customer} />
+        )}
+
+        {/* ── 영업 단계 변경 (DB·TA·FA·청약) — 칸반에서 이동 ── */}
+        {customer && !custError && (
+          <div className="mt-3">
+            <div className="text-[11px] font-semibold text-ink3 mb-1">영업 단계</div>
+            <div className="inline-flex rounded-xl border border-line bg-surface2 p-0.5 text-[12px] font-semibold">
+              {SALES_STAGES.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => changeStage(s.key)}
+                  aria-pressed={customer.sales_stage === s.key}
+                  className={`px-3 py-1.5 rounded-[10px] transition ${
+                    customer.sales_stage === s.key ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* ── 탭 바 ── */}
@@ -330,7 +366,7 @@ function CustomerSummary({ customer }: { customer: CustomerDetail }) {
     .join(" · ");
   return (
     <Card className="mt-3 p-4 flex items-center gap-3">
-      <CustomerAvatar name={customer.name} color={customer.color} size={48} />
+      <CustomerAvatar label={customer.avatar_label} color={customer.color} size={48} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[18px] font-bold text-ink">{customer.name}</span>
@@ -375,6 +411,7 @@ function InfoTab({
   const [gender, setGender] = useState(customer.gender == null ? "" : String(customer.gender));
   const [birth, setBirth] = useState(customer.birth_day ?? "");
   const [color, setColor] = useState(customer.color ?? "");
+  const [avatarLabel, setAvatarLabel] = useState(customer.avatar_label ?? "");
   const [memo, setMemo] = useState(customer.memo ?? "");
   const [savingInfo, setSavingInfo] = useState(false);
   const [savingMemo, setSavingMemo] = useState(false);
@@ -394,6 +431,7 @@ function InfoTab({
         gender: gender || undefined,
         birth_day: birth || undefined,
         color,
+        avatar_label: avatarLabel.trim(),
       });
       onUpdated(c);
       flash("상세정보를 저장했어요.");
@@ -457,7 +495,7 @@ function InfoTab({
         {/* 오른쪽: 상세정보 */}
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <CustomerAvatar name={name || customer.name} color={color || null} size={44} />
+            <CustomerAvatar label={avatarLabel} color={color || null} size={44} />
             <h3 className="text-[15px] font-bold text-ink">상세정보</h3>
           </div>
 
@@ -488,14 +526,25 @@ function InfoTab({
             </div>
           </div>
 
-          {/* 아바타 색상 팔레트 */}
-          <div className="mt-3 flex flex-col gap-1.5">
-            <span className="text-[12px] font-semibold text-ink3">아바타 색상</span>
+          {/* 아바타 글씨·색상 — 글씨 비우면 인파 로고. 색은 공통 배경 */}
+          <div className="mt-3 flex flex-col gap-2">
+            <span className="text-[12px] font-semibold text-ink3">아바타 글씨·색상</span>
+            <div className="flex items-center gap-3">
+              <CustomerAvatar label={avatarLabel} color={color || null} size={40} />
+              <input
+                value={avatarLabel}
+                onChange={(e) => setAvatarLabel(e.target.value.slice(0, 3))}
+                placeholder="약자·숫자 (비우면 로고)"
+                maxLength={3}
+                className="flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+              />
+            </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-ink3 mr-0.5">배경</span>
               <button type="button" onClick={() => setColor("")}
-                className={`h-7 px-2 rounded-full border text-[10px] font-semibold ${color === "" ? "border-brand text-brand" : "border-line text-ink3"}`}>로고</button>
+                className={`h-7 px-2 rounded-full border text-[10px] font-semibold ${color === "" ? "border-brand text-brand" : "border-line text-ink3"}`}>기본</button>
               {AVATAR_PALETTE.map((hex) => (
-                <button key={hex} type="button" onClick={() => setColor(hex)} aria-label={`색상 ${hex}`}
+                <button key={hex} type="button" onClick={() => setColor(hex)} aria-label={`배경 ${hex}`}
                   className={`w-7 h-7 rounded-full border-2 ${color === hex ? "border-brand" : "border-transparent"}`}
                   style={{ backgroundColor: hex }} />
               ))}

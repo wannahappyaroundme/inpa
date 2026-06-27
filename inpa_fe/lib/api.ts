@@ -379,6 +379,7 @@ export interface CustomerListItem {
   mobile_phone_number: string | null;
   consent_overseas_at: string | null;
   color: string | null;
+  avatar_label: string;              // 아바타 글씨(약자·숫자, 빈값=색만/로고)
   tags: CustomerTag[];
   family_count: number;
   sales_stage: SalesStage;
@@ -425,6 +426,7 @@ export interface CustomerWritePayload {
   job_code?: string;
   memo?: string;
   color?: string;
+  avatar_label?: string;
   is_agree_term?: boolean;
   tag_ids?: number[];
   sales_stage?: SalesStage;     // 칸반 단계이동 = updateCustomer({sales_stage})

@@ -68,6 +68,7 @@ class Customer(models.Model):
                                  related_name='customers')
     memo = models.TextField('메모', blank=True, default='')
     color = models.CharField('색상 마커', max_length=10, blank=True, default='')  # 7색 팔레트 키워드 또는 ''
+    avatar_label = models.CharField('아바타 글씨', max_length=8, blank=True, default='')  # 약자·숫자(빈값=색만/디폴트 로고)
     is_agree_term = models.BooleanField('일반 동의 여부', default=False, blank=True)
     share_token = models.UUIDField('공유 토큰', default=uuid.uuid4, unique=True)
     share_expires_at = models.DateTimeField('공유 만료일', default=None, null=True, blank=True)

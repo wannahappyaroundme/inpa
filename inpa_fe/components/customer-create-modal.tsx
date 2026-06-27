@@ -20,6 +20,7 @@ export function CustomerCreateModal({
   const [birth, setBirth] = useState("");
   const [memo, setMemo] = useState("");
   const [color, setColor] = useState("");
+  const [avatarLabel, setAvatarLabel] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +39,7 @@ export function CustomerCreateModal({
         mobile_phone_number: phone.trim() || undefined,
         memo: memo.trim() || undefined,
         color: color || undefined,
+        avatar_label: avatarLabel.trim() || undefined,
       });
       onCreated(c);
     } catch (e) {
@@ -47,7 +49,7 @@ export function CustomerCreateModal({
     } finally {
       setSaving(false);
     }
-  }, [name, gender, birth, phone, memo, color, onCreated]);
+  }, [name, gender, birth, phone, memo, color, avatarLabel, onCreated]);
 
   const inputCls =
     "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition";
@@ -138,25 +140,35 @@ export function CustomerCreateModal({
             />
           </label>
 
-          {/* 아바타 색상 — 분류용(선택). 미선택 = 인파 로고 디폴트 */}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-semibold text-ink3">아바타 색상 (선택 — 분류용)</span>
+          {/* 아바타 글씨·색상 — 글씨 비우면 인파 로고. 색은 로고/글씨 공통 배경 */}
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] font-semibold text-ink3">아바타 글씨·색상 (선택 — 분류용)</span>
+            <div className="flex items-center gap-3">
+              <CustomerAvatar label={avatarLabel} color={color || null} size={40} />
+              <input
+                value={avatarLabel}
+                onChange={(e) => setAvatarLabel(e.target.value.slice(0, 3))}
+                placeholder="약자·숫자 (비우면 로고)"
+                maxLength={3}
+                className="flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+              />
+            </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <CustomerAvatar name={name || "?"} color={color || null} size={34} />
+              <span className="text-[11px] text-ink3 mr-0.5">배경</span>
               <button
                 type="button"
                 onClick={() => setColor("")}
                 className={`h-7 px-2 rounded-full border text-[10px] font-semibold ${color === "" ? "border-brand text-brand" : "border-line text-ink3"}`}
-                title="기본(인파 로고)"
+                title="기본 배경"
               >
-                로고
+                기본
               </button>
               {AVATAR_PALETTE.map((hex) => (
                 <button
                   key={hex}
                   type="button"
                   onClick={() => setColor(hex)}
-                  aria-label={`색상 ${hex}`}
+                  aria-label={`배경 ${hex}`}
                   className={`w-7 h-7 rounded-full border-2 ${color === hex ? "border-brand" : "border-transparent"}`}
                   style={{ backgroundColor: hex }}
                 />
