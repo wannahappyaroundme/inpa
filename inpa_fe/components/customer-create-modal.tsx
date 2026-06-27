@@ -4,7 +4,7 @@
 // booking-modal.tsx 와 동일한 시트형 모달 패턴.
 
 import { useState, useCallback } from "react";
-import { createCustomer, ApiError, type CustomerDetail } from "@/lib/api";
+import { createCustomer, LEAD_SOURCES, ApiError, type CustomerDetail } from "@/lib/api";
 import { AVATAR_PALETTE, CustomerAvatar } from "@/components/ui";
 
 export function CustomerCreateModal({
@@ -21,6 +21,7 @@ export function CustomerCreateModal({
   const [memo, setMemo] = useState("");
   const [color, setColor] = useState("");
   const [avatarLabel, setAvatarLabel] = useState("");
+  const [leadSource, setLeadSource] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,6 +41,7 @@ export function CustomerCreateModal({
         memo: memo.trim() || undefined,
         color: color || undefined,
         avatar_label: avatarLabel.trim() || undefined,
+        lead_source: leadSource || undefined,
       });
       onCreated(c);
     } catch (e) {
@@ -49,7 +51,7 @@ export function CustomerCreateModal({
     } finally {
       setSaving(false);
     }
-  }, [name, gender, birth, phone, memo, color, avatarLabel, onCreated]);
+  }, [name, gender, birth, phone, memo, color, avatarLabel, leadSource, onCreated]);
 
   const inputCls =
     "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition";
@@ -138,6 +140,21 @@ export function CustomerCreateModal({
               placeholder="상담 내용·특이사항 (선택)"
               className={inputCls}
             />
+          </label>
+
+          {/* 유입 경로 — 측정용(소개/명함/행사/직접). 셀프진단은 자동 태깅 */}
+          <label className="flex flex-col gap-1">
+            <span className="text-[12px] font-semibold text-ink3">유입 경로 (선택)</span>
+            <select
+              value={leadSource}
+              onChange={(e) => setLeadSource(e.target.value)}
+              className={`${inputCls} bg-surface`}
+            >
+              <option value="">선택 안 함</option>
+              {LEAD_SOURCES.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
           </label>
 
           {/* 아바타 글씨·색상 — 글씨 비우면 인파 로고. 색은 로고/글씨 공통 배경 */}

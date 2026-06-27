@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { Card, StatCard } from "@/components/ui";
 import { BarChart, DonutChart } from "@/components/charts";
+import { SelfDiagnosisShare } from "@/components/self-diagnosis-share";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings,
@@ -267,6 +268,11 @@ export default function HomePage() {
           <span className="hidden sm:block text-[13px] text-ink3 tnum">
             {todayY}.{pad(todayM)}.{pad(todayD)}
           </span>
+        </div>
+
+        {/* 발굴 입구 — 셀프진단 링크로 새 고객(인바운드) 받기. refCode 없으면 위젯이 null 반환 */}
+        <div className="mt-4">
+          <SelfDiagnosisShare />
         </div>
 
         {/* KPI 한 줄 — 전부 실데이터(+ 전월 대비 증감률) */}

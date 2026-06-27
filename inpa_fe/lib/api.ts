@@ -371,6 +371,14 @@ export const SALES_STAGES: { key: SalesStage; label: string; short: string; desc
 /** 마케팅(개인정보 수집·이용) 동의 상태 — 'none'(기록 없음)도 비동의로 취급해 영업 자동화에서 제외. */
 export type MarketingConsent = "agreed" | "revoked" | "none";
 
+/** 유입 경로(측정) — 수기등록 select / self_diagnosis는 자동 */
+export const LEAD_SOURCES: { value: string; label: string }[] = [
+  { value: "introduction", label: "소개" },
+  { value: "business_card", label: "명함" },
+  { value: "event", label: "행사" },
+  { value: "direct", label: "직접 등록" },
+];
+
 export interface CustomerListItem {
   id: number;
   name: string;
@@ -385,6 +393,7 @@ export interface CustomerListItem {
   sales_stage: SalesStage;
   share_token: string | null;
   created_at: string;
+  lead_source: string | null;        // 유입 경로(측정)
   // ── 고객 관리(PM 06.24) ──
   last_contacted_at: string | null;  // 방치 색상경보·정렬 기준
   is_favorite: boolean;
@@ -427,6 +436,7 @@ export interface CustomerWritePayload {
   memo?: string;
   color?: string;
   avatar_label?: string;
+  lead_source?: string;
   is_agree_term?: boolean;
   tag_ids?: number[];
   sales_stage?: SalesStage;     // 칸반 단계이동 = updateCustomer({sales_stage})

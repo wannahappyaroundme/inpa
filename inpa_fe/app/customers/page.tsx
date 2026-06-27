@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { Card, CustomerAvatar, stalenessLevel } from "@/components/ui";
+import { SelfDiagnosisShare } from "@/components/self-diagnosis-share";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers,
@@ -277,6 +278,10 @@ export default function CustomersPage() {
           <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-[4px] border-2 border-short" />3일+ 미연락</span>
           <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-[4px] border-2 border-cnone" />7일+ 미연락</span>
           <span className="text-muted">테두리 = 방치 정도 · ★ 즐겨찾기 · 📌 상단고정</span>
+        </div>
+
+        <div className="mt-4">
+          <SelfDiagnosisShare />
         </div>
 
         {error && (
