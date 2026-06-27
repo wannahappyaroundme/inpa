@@ -1596,16 +1596,24 @@ export async function createConsentRequest(
   );
 }
 
+export interface ConsentItem {
+  scope: string;
+  title: string;
+  required: boolean;
+  already: boolean;
+  lines: string[];
+  notice: string;
+}
+
 export interface ConsentDisclosure {
   customer: { name_masked: string };
   planner: { affiliation: string };
-  already_consented: boolean;
-  scope_text: string;
-  purpose_text: string;
+  items: ConsentItem[];
+  all_required_done: boolean;
   disclaimer: string;
 }
 
-/** GET /api/v1/c/<token>/ — 고객 본인이 보는 동의 고지 (공개, 비인증) */
+/** GET /api/v1/c/<token>/ — 고객 본인이 보는 동의 고지(공개, 비인증) */
 export async function getConsentDisclosure(token: string): Promise<ConsentDisclosure> {
   const res = await fetch(`${API_BASE}/c/${encodeURIComponent(token)}/`);
   const data = await res.json().catch(() => ({}));
@@ -1616,21 +1624,22 @@ export async function getConsentDisclosure(token: string): Promise<ConsentDisclo
   return data as ConsentDisclosure;
 }
 
-/** POST /api/v1/c/<token>/ — 고객 본인 국외이전 동의 제출 (공개, 비인증) */
+/** POST /api/v1/c/<token>/ — 동의 scope 배열 제출(공개, 비인증) */
 export async function submitConsent(
-  token: string
-): Promise<{ consented: boolean; consented_at: string }> {
+  token: string,
+  agreed: string[]
+): Promise<{ results: { scope: string; consented: boolean }[]; all_required_done: boolean }> {
   const res = await fetch(`${API_BASE}/c/${encodeURIComponent(token)}/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ consent_overseas: true }),
+    body: JSON.stringify({ agreed }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new ApiError(res.status, (data as { code?: string }).code ?? "ERROR",
       (data as { detail?: string }).detail ?? "동의 처리에 실패했어요.");
   }
-  return data as { consented: boolean; consented_at: string };
+  return data as { results: { scope: string; consented: boolean }[]; all_required_done: boolean };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
