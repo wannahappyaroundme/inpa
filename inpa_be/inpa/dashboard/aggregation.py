@@ -1,6 +1,7 @@
 """월별 실적(actual) 계산 — 저장 없이 on-demand. 추후 연동 시 이 계산식만 교체.
 
-meetings   = 이번달 확정 미팅 수(booking.Meeting)
+meetings   = 이번달 'FA(대면) 단계에 처음 도달한 고객' 수(Customer.fa_reached_at).
+             예약 확정(booking.Meeting) 개수와 무관. 같은 고객 재이동은 중복 카운트 안 함.
 premium    = 이번달 등록 증권의 월보험료 합(CustomerInsurance) — '등록 기준' 프록시(신규계약 한정 아님)
 new_customers = 이번달 신규 고객 수(Customer)
 ※ 예상 월급(income)은 산출 소스가 없어 수동값만(MonthlyGoal.target_income).
@@ -9,7 +10,6 @@ import datetime
 
 from django.db.models import Count, Sum
 
-from inpa.booking.models import Meeting
 from inpa.customers.models import Customer
 from inpa.insurances.models import CustomerInsurance
 from inpa.dashboard.models import MonthlyGoal
@@ -18,9 +18,9 @@ from inpa.dashboard.models import MonthlyGoal
 def compute_actuals(user, year_month):
     """year_month='YYYY-MM' → {meetings, premium, new_customers}."""
     y, m = int(year_month[:4]), int(year_month[5:7])
-    meetings = Meeting.objects.filter(
-        owner=user, status=Meeting.STATUS_CONFIRMED,
-        start_at__year=y, start_at__month=m).count()
+    # '이번 달 미팅' = 이번 달에 FA(meeting)에 처음 도달한 고객 수(fa_reached_at 기준).
+    meetings = Customer.objects.filter(
+        owner=user, fa_reached_at__year=y, fa_reached_at__month=m).count()
     premium = CustomerInsurance.objects.filter(
         customer__owner=user, created_at__year=y, created_at__month=m
     ).aggregate(s=Sum('monthly_premiums'))['s'] or 0

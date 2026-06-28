@@ -9,9 +9,9 @@ import { SelfDiagnosisShare } from "@/components/self-diagnosis-share";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings,
-  getDashboard, updateDashboardGoal, listNotifications, listScheduleItems,
+  getDashboard, updateDashboardGoal, listScheduleItems,
   getDashboardInsights, SALES_STAGES,
-  type ProfileResponse, type ChurnRadarResponse, type Meeting, type DashboardSummary, type NotificationItem,
+  type ProfileResponse, type ChurnRadarResponse, type Meeting, type DashboardSummary,
   type ScheduleItem, type DashboardInsights,
 } from "@/lib/api";
 
@@ -27,30 +27,14 @@ function pct(actual: number, target: number): number {
 }
 const pad = (n: number) => String(n).padStart(2, "0");
 
-// 일정/알림 종류별 점 색·라벨 (실데이터 = 내 일정/할일/차단 + 미팅 + 리마인더 알림)
-type Kind = "schedule" | "todo" | "block" | "meeting" | "expiry" | "birthday" | "consult" | "task" | "other";
+// 대시보드 캘린더 종류별 점 색·라벨 (내 일정/할일/차단 + 미팅). 알림은 우측 상단 종에서만.
+type Kind = "schedule" | "todo" | "block" | "meeting";
 const META: Record<Kind, { dot: string; label: string }> = {
   schedule: { dot: "bg-brand", label: "일정" },
   todo: { dot: "bg-over", label: "할일" },
   block: { dot: "bg-muted", label: "차단" },
   meeting: { dot: "bg-enough", label: "미팅" },
-  expiry: { dot: "bg-cnone", label: "만기·미납" },
-  birthday: { dot: "bg-short", label: "생일" },
-  consult: { dot: "bg-existing", label: "상담" },
-  task: { dot: "bg-over", label: "리드·알림" },
-  other: { dot: "bg-muted", label: "알림" },
 };
-function notifKind(t: string): Kind {
-  switch (t) {
-    case "expiry_soon":
-    case "unpaid_d_alert": return "expiry";
-    case "birthday_soon": return "birthday";
-    case "consult_reminder": return "consult";
-    case "self_diagnosis_lead":
-    case "task_due": return "task";
-    default: return "other";
-  }
-}
 
 // ISO(+09:00) → Asia/Seoul 기준 'YYYY-MM-DD' / 'HH:mm'
 function kstYmd(iso: string): string {
@@ -104,7 +88,7 @@ function fmtMeeting(iso: string): string {
   }
 }
 
-// 설계사 대시보드. KPI(실API) + 목표 + 환수레이더 + 캘린더(실제 미팅·리마인더) + 선택일 일정.
+// 설계사 대시보드. KPI(실API) + 목표 + 환수레이더 + 캘린더(실제 미팅·일정) + 선택일 일정.
 export default function HomePage() {
   const router = useRouter();
   const ready = useAuthGuard();
@@ -112,7 +96,6 @@ export default function HomePage() {
   const [customerCount, setCustomerCount] = useState<number | null>(null);
   const [churn, setChurn] = useState<ChurnRadarResponse | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [notifs, setNotifs] = useState<NotificationItem[]>([]);
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [dash, setDash] = useState<DashboardSummary | null>(null);
   const [insights, setInsights] = useState<DashboardInsights | null>(null);
@@ -146,9 +129,6 @@ export default function HomePage() {
     listMeetings(true)
       .then((res) => setMeetings(res.results))
       .catch(() => setMeetings([]));
-    listNotifications({ page: 1 })
-      .then((res) => setNotifs(res.results))
-      .catch(() => setNotifs([]));
     getDashboard()
       .then((d) => {
         setDash(d);
@@ -174,7 +154,7 @@ export default function HomePage() {
       .catch(() => setScheduleItems([]));
   }, [ready, viewY, viewM]);
 
-  // 내 일정/할일/차단 + 미팅 + 리마인더 알림 → 날짜별 일정 맵
+  // 내 일정/할일/차단 + 미팅 → 날짜별 일정 맵 (알림은 우측 상단 종에서만)
   const agenda = useMemo(() => {
     const map = new Map<string, AgendaItem[]>();
     const add = (it: AgendaItem) => { const a = map.get(it.ymd) ?? []; a.push(it); map.set(it.ymd, a); };
@@ -189,13 +169,9 @@ export default function HomePage() {
       const t = kstTime(m.start_at);
       add({ ymd: kstYmd(m.start_at), time: t || "-", title: `${m.customer_name} · ${m.method_display}`, kind: "meeting", sort: t ? hhmmToMin(t) : 0 });
     }
-    for (const n of notifs) {
-      if (!n.target_date) continue;
-      add({ ymd: n.target_date, time: "온종일", title: n.title, kind: notifKind(n.notif_type), sort: -1 });
-    }
     for (const [, arr] of map) arr.sort((a, b) => a.sort - b.sort);
     return map;
-  }, [scheduleItems, meetings, notifs]);
+  }, [scheduleItems, meetings]);
 
   async function saveGoal() {
     setGoalSaving(true);
@@ -536,7 +512,7 @@ export default function HomePage() {
           </Card>
         )}
 
-        {/* 캘린더(실제 월·미팅·리마인더) + 선택일 일정 */}
+        {/* 캘린더(실제 월·미팅·일정) + 선택일 일정 */}
         <div className="mt-5 lg:grid lg:grid-cols-3 lg:gap-5">
           <Card className="lg:col-span-2 p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
@@ -619,7 +595,7 @@ export default function HomePage() {
             ) : (
               <div className="py-6 text-center text-[13px] text-ink3">
                 예정된 일정이 없어요.
-                <div className="text-[12px] mt-1">미팅·리마인더가 생기면 여기에 표시돼요.</div>
+                <div className="text-[12px] mt-1">미팅·일정이 생기면 여기에 표시돼요.</div>
               </div>
             )}
             <button

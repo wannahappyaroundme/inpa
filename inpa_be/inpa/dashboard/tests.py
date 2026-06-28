@@ -65,14 +65,39 @@ class DashboardTests(TestCase):
         self.assertEqual(self.client.get('/api/v1/dashboard/?month=2026/06').status_code, 400)
 
     def test_actuals_count_this_month(self):
+        """이번 달 미팅 = FA(meeting) 최초 도달 고객 수. 이번 달 신규 = 생성 고객 수."""
         cust = Customer.objects.create(owner=self.user, name='홍길동')
+        cust.sales_stage = Customer.STAGE_MEETING
+        cust.save()
+        r = self.client.get('/api/v1/dashboard/')
+        self.assertEqual(r.json()['actual_meetings'], 1)
+        self.assertEqual(r.json()['actual_new_customers'], 1)
+
+    def test_meetings_count_first_fa_only(self):
+        """FA 최초 도달만 1회 카운트 — 청약 갔다 FA 재이동해도 fa_reached_at 불변·중복 없음."""
+        cust = Customer.objects.create(owner=self.user, name='재이동')
+        cust.sales_stage = Customer.STAGE_MEETING
+        cust.save()
+        first = cust.fa_reached_at
+        self.assertIsNotNone(first)
+        cust.sales_stage = Customer.STAGE_CONTRACT
+        cust.save()
+        cust.sales_stage = Customer.STAGE_MEETING  # FA 재도달
+        cust.save()
+        cust.refresh_from_db()
+        self.assertEqual(cust.fa_reached_at, first)  # 불변
+        r = self.client.get('/api/v1/dashboard/')
+        self.assertEqual(r.json()['actual_meetings'], 1)  # 중복 안 셈
+
+    def test_booking_meeting_does_not_count(self):
+        """예약 확정(booking.Meeting) 개수는 '이번 달 미팅'과 무관 — FA 미도달이면 0."""
+        cust = Customer.objects.create(owner=self.user, name='예약만')  # db 단계 유지
         slot = MeetingSlot.objects.create(owner=self.user, start_at=timezone.now() + timedelta(days=1))
         Meeting.objects.create(owner=self.user, customer=cust, slot=slot,
                                start_at=timezone.now() + timedelta(days=1), method='phone',
                                status=Meeting.STATUS_CONFIRMED)
         r = self.client.get('/api/v1/dashboard/')
-        self.assertEqual(r.json()['actual_meetings'], 1)
-        self.assertEqual(r.json()['actual_new_customers'], 1)
+        self.assertEqual(r.json()['actual_meetings'], 0)
 
     def test_owner_isolation(self):
         """B가 목표를 바꿔도 A의 목표는 영향 없음(각자 own row)."""
