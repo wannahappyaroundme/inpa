@@ -8,10 +8,11 @@ DEFAULT_BOOKING_MSG_TEMPLATE = (
 )
 
 
-def render_booking_message(template, customer_name, planner_name, url):
-    """{고객명}{설계사명}{링크} 치환. template이 비면 기본 템플릿 사용."""
+def render_booking_message(template, customer_name, planner_name, url, planner_label=''):
+    """{고객명}{소속직책}{설계사명}{링크} 치환. template이 비면 기본 템플릿 사용."""
     text = template or DEFAULT_BOOKING_MSG_TEMPLATE
     return (text
             .replace('{고객명}', customer_name or '고객')
+            .replace('{소속직책}', planner_label or '')
             .replace('{설계사명}', planner_name or '담당 설계사')
             .replace('{링크}', url))

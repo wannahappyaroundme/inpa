@@ -119,26 +119,32 @@ class GoogleCalendarTests(TestCase):
         self.assertTrue(r.json()['google_calendar_connected'])
 
     @patch('inpa.accounts.google_calendar.insert_meeting_event')
-    def test_meeting_confirm_inserts_event_when_connected(self, mock_insert):
+    def test_meeting_event_inserted_on_accept(self, mock_insert):
+        # 구글 이벤트는 '수락'(대기→확정) 시점에 등록된다(공개 신청 시점이 아님).
         mock_insert.return_value = 'evt-1'
         self.profile.google_calendar_refresh_token = 'rt'
         self.profile.save(update_fields=['google_calendar_refresh_token'])
         cust = Customer.objects.create(owner=self.user, name='홍길동')
-        slot = MeetingSlot.objects.create(owner=self.user, start_at=timezone.now() + timedelta(days=1))
-        token = make_booking_token(cust)
-        r = self.public.post(f'/api/v1/b/{token}/', {'slot_id': slot.id, 'method': 'phone'}, format='json')
-        self.assertEqual(r.status_code, 201)
-        meeting = Meeting.objects.get(slot=slot)
+        meeting = Meeting.objects.create(
+            owner=self.user, customer=cust, start_at=timezone.now() + timedelta(days=1),
+            method='phone', status=Meeting.STATUS_PENDING)
+        r = self.client.post(f'/api/v1/meetings/{meeting.id}/accept/')
+        self.assertEqual(r.status_code, 200)
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_CONFIRMED)
         self.assertEqual(meeting.google_event_id, 'evt-1')
         mock_insert.assert_called_once()
 
     @patch('inpa.accounts.google_calendar.insert_meeting_event', side_effect=Exception('google down'))
-    def test_meeting_confirm_survives_calendar_failure(self, mock_insert):
+    def test_meeting_accept_survives_calendar_failure(self, mock_insert):
         self.profile.google_calendar_refresh_token = 'rt'
         self.profile.save(update_fields=['google_calendar_refresh_token'])
         cust = Customer.objects.create(owner=self.user, name='김철수')
-        slot = MeetingSlot.objects.create(owner=self.user, start_at=timezone.now() + timedelta(days=2))
-        token = make_booking_token(cust)
-        r = self.public.post(f'/api/v1/b/{token}/', {'slot_id': slot.id, 'method': 'phone'}, format='json')
-        self.assertEqual(r.status_code, 201)  # 캘린더 실패해도 예약 확정
-        self.assertIsNone(Meeting.objects.get(slot=slot).google_event_id)
+        meeting = Meeting.objects.create(
+            owner=self.user, customer=cust, start_at=timezone.now() + timedelta(days=2),
+            method='phone', status=Meeting.STATUS_PENDING)
+        r = self.client.post(f'/api/v1/meetings/{meeting.id}/accept/')
+        self.assertEqual(r.status_code, 200)  # 캘린더 실패해도 수락(확정)은 성공
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_CONFIRMED)
+        self.assertIsNone(meeting.google_event_id)

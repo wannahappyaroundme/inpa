@@ -80,6 +80,14 @@ class Notification(models.Model):
         related_name='notifications',
         verbose_name='연관 고객',
     )
+    # 미팅 예약 알림(meeting_booked)에서 수락/거절 액션을 걸기 위한 연결. 미팅 삭제 시 이력 보존.
+    meeting = models.ForeignKey(
+        'booking.Meeting',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='notifications',
+        verbose_name='연관 미팅',
+    )
     # CalendarEvent 앱이 미생성 상태이므로 string 참조로 느슨하게 연결
     # (추후 calendar 앱 생성 시 'calendar.CalendarEvent' 로 변경)
     # 현재는 Integer FK로만 저장 — 정규 FK 없이 ID만 보관

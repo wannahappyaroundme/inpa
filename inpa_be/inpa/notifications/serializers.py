@@ -18,6 +18,7 @@ class NotificationSerializer(serializers.ModelSerializer):
     owner는 응답에 노출하지 않음 — 항상 request.user 본인 것.
     """
     customer_name = serializers.SerializerMethodField()
+    meeting_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Notification
@@ -30,6 +31,8 @@ class NotificationSerializer(serializers.ModelSerializer):
             'customer',
             'customer_name',
             'calendar_event_id',
+            'meeting',          # 미팅 예약 알림의 수락/거절 대상(없으면 null)
+            'meeting_status',   # 'pending'이면 수락/거절 버튼 노출
             'is_read',
             'created_at',
         ]
@@ -39,6 +42,9 @@ class NotificationSerializer(serializers.ModelSerializer):
         if obj.customer_id:
             return obj.customer.name if obj.customer else None
         return None
+
+    def get_meeting_status(self, obj):
+        return obj.meeting.status if obj.meeting_id else None
 
 
 class ReminderRuleSerializer(serializers.ModelSerializer):

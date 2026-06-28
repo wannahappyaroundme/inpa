@@ -101,6 +101,10 @@ class Profile(models.Model):
     booking_location = models.CharField('대면 기본 장소', max_length=200, blank=True, default='')
     # 슬롯 생성 시 기본 소요시간(분).
     booking_default_duration = models.PositiveSmallIntegerField('기본 미팅 시간(분)', default=30)
+    # 미팅 앞뒤로 비워둘 여유 시간(이동시간 등). 빈 슬롯 계산에서 이 만큼 양옆을 막는다.
+    booking_buffer_min = models.PositiveSmallIntegerField('미팅 앞뒤 여유(분)', default=60)
+    # 직책 — 예약 안내 문구의 {소속직책}에 소속과 함께 들어감(예: 부산지점 / FC).
+    title = models.CharField('직책', max_length=40, blank=True, default='')
 
     # ── 구글 연동 ────────────────────────────────────────────────────────
     # google_sub = 구글 계정 고유 id(병행 로그인 링크 키). unique+null → 비구글 계정 다수 NULL 허용.

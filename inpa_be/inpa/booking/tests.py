@@ -11,7 +11,7 @@ from inpa.accounts.models import Profile, User
 from inpa.customers.models import Customer
 from inpa.notifications.models import NotifType, Notification
 
-from .models import Meeting, MeetingSlot
+from .models import Meeting, MeetingSlot, WorkHour
 from .tokens import make_booking_token, read_booking_token
 
 
@@ -27,6 +27,20 @@ def _make_planner(email):
 
 def _future(hours=24):
     return timezone.now() + timedelta(hours=hours)
+
+
+def _all_week_workhours(owner):
+    """월~일 09:00~18:00 업무시간 — 향후 14일 내 빈 슬롯이 항상 생기게."""
+    from datetime import time
+    for wd in range(7):
+        WorkHour.objects.create(owner=owner, weekday=wd,
+                                start_time=time(9, 0), end_time=time(18, 0))
+
+
+def _first_slot(client, token):
+    body = client.get(f'/api/v1/b/{token}/').json()
+    slots = body.get('slots') or []
+    return slots[0]['start_at'] if slots else None
 
 
 @override_settings(BOOKING_ENABLED=True)
@@ -93,20 +107,23 @@ class BookingCoreTests(TestCase):
         r = self.client_b.post(f'/api/v1/customers/{self.customer.id}/booking-requests/')
         self.assertEqual(r.status_code, 404)
 
-    # ── 공개 GET ──
-    def test_public_get_masked_and_open_future_only(self):
-        open_slot = MeetingSlot.objects.create(owner=self.user_a, start_at=_future(24))
-        MeetingSlot.objects.create(owner=self.user_a, start_at=_future(48),
-                                   status=MeetingSlot.STATUS_BOOKED)  # booked 제외
-        MeetingSlot.objects.create(owner=self.user_b, start_at=_future(24))  # 타 owner 제외
+    # ── 공개 GET (업무시간 기준 빈 슬롯 자동 생성) ──
+    def test_public_get_masked_and_workhour_slots(self):
+        _all_week_workhours(self.user_a)
         token = make_booking_token(self.customer)
         r = self.public.get(f'/api/v1/b/{token}/')
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertEqual(body['customer']['name_masked'], '홍**')
         self.assertNotIn('010-0000-0000', r.content.decode())  # PII 미노출
-        slot_ids = [s['id'] for s in body['slots']]
-        self.assertEqual(slot_ids, [open_slot.id])  # 열린 미래 슬롯만
+        self.assertTrue(len(body['slots']) > 0)  # 업무시간 안의 빈 시간 자동 노출
+        self.assertIn('start_at', body['slots'][0])
+
+    def test_public_get_no_workhours_empty(self):
+        # 업무시간 미설정이면 빈 슬롯(설계사가 아직 설정 전)
+        token = make_booking_token(self.customer)
+        body = self.public.get(f'/api/v1/b/{token}/').json()
+        self.assertEqual(body['slots'], [])
 
     def test_public_get_expired_410(self):
         token = make_booking_token(self.customer)
@@ -118,39 +135,93 @@ class BookingCoreTests(TestCase):
         r = self.public.get('/api/v1/b/bad-token/')
         self.assertEqual(r.status_code, 404)
 
-    # ── 공개 POST(예약 확정) ──
-    def test_public_post_books_and_notifies(self):
-        slot = MeetingSlot.objects.create(owner=self.user_a, start_at=_future())
+    # ── 공개 POST(예약 신청 → 대기) ──
+    def test_public_post_requests_pending_and_notifies(self):
+        _all_week_workhours(self.user_a)
         token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
         r = self.public.post(f'/api/v1/b/{token}/',
-                             {'slot_id': slot.id, 'method': 'in_person', 'note': '상담 희망'},
+                             {'start_at': start_at, 'method': 'in_person', 'note': '상담 희망'},
                              format='json')
         self.assertEqual(r.status_code, 201)
-        slot.refresh_from_db()
-        self.assertEqual(slot.status, MeetingSlot.STATUS_BOOKED)
-        meeting = Meeting.objects.get(slot=slot)
-        self.assertEqual(meeting.customer_id, self.customer.id)
-        self.assertEqual(meeting.location_detail, '강남역 스타벅스')  # 대면 location 스냅샷
-        self.assertTrue(Notification.objects.filter(
-            owner=self.user_a, notif_type=NotifType.MEETING_BOOKED).exists())
+        self.assertEqual(r.json()['status'], Meeting.STATUS_PENDING)
+        meeting = Meeting.objects.get(customer=self.customer)
+        self.assertEqual(meeting.status, Meeting.STATUS_PENDING)
+        notif = Notification.objects.filter(
+            owner=self.user_a, notif_type=NotifType.MEETING_BOOKED).first()
+        self.assertIsNotNone(notif)
+        self.assertEqual(notif.meeting_id, meeting.id)  # 알림에 미팅 연결(수락/거절용)
 
     def test_public_post_method_invalid(self):
-        slot = MeetingSlot.objects.create(owner=self.user_a, start_at=_future())
+        _all_week_workhours(self.user_a)
         token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
         r = self.public.post(f'/api/v1/b/{token}/',
-                             {'slot_id': slot.id, 'method': 'telepathy'}, format='json')
+                             {'start_at': start_at, 'method': 'telepathy'}, format='json')
         self.assertEqual(r.status_code, 400)
 
     def test_public_post_double_booking_409(self):
-        slot = MeetingSlot.objects.create(owner=self.user_a, start_at=_future())
+        _all_week_workhours(self.user_a)
         token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
         r1 = self.public.post(f'/api/v1/b/{token}/',
-                              {'slot_id': slot.id, 'method': 'phone'}, format='json')
+                              {'start_at': start_at, 'method': 'phone'}, format='json')
         r2 = self.public.post(f'/api/v1/b/{token}/',
-                              {'slot_id': slot.id, 'method': 'phone'}, format='json')
+                              {'start_at': start_at, 'method': 'phone'}, format='json')
         self.assertEqual(r1.status_code, 201)
         self.assertEqual(r2.status_code, 409)
-        self.assertEqual(Meeting.objects.filter(slot=slot).count(), 1)
+        self.assertEqual(
+            Meeting.objects.filter(customer=self.customer,
+                                   status=Meeting.STATUS_PENDING).count(), 1)
+
+    # ── 수락/거절 + 버퍼 + 업무시간 격리 ──
+    def test_accept_confirms(self):
+        _all_week_workhours(self.user_a)
+        token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
+        self.public.post(f'/api/v1/b/{token}/',
+                         {'start_at': start_at, 'method': 'phone'}, format='json')
+        meeting = Meeting.objects.get(customer=self.customer)
+        r = self.client_a.post(f'/api/v1/meetings/{meeting.id}/accept/')
+        self.assertEqual(r.status_code, 200)
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_CONFIRMED)
+
+    def test_decline_frees_time(self):
+        _all_week_workhours(self.user_a)
+        token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
+        self.public.post(f'/api/v1/b/{token}/',
+                         {'start_at': start_at, 'method': 'phone'}, format='json')
+        meeting = Meeting.objects.get(customer=self.customer)
+        r = self.client_a.post(f'/api/v1/meetings/{meeting.id}/decline/')
+        self.assertEqual(r.status_code, 200)
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_DECLINED)
+        cache.clear()
+        slots = [s['start_at'] for s in self.public.get(f'/api/v1/b/{token}/').json()['slots']]
+        self.assertIn(start_at, slots)  # 거절되면 그 시간이 다시 비워진다
+
+    def test_buffer_blocks_adjacent(self):
+        _all_week_workhours(self.user_a)
+        token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
+        self.public.post(f'/api/v1/b/{token}/',
+                         {'start_at': start_at, 'method': 'phone'}, format='json')
+        cache.clear()
+        slots = [s['start_at'] for s in self.public.get(f'/api/v1/b/{token}/').json()['slots']]
+        self.assertNotIn(start_at, slots)  # 신청된 시간 제외(점유)
+        booked = timezone.datetime.fromisoformat(start_at)
+        near = (booked + timedelta(minutes=30)).isoformat()
+        self.assertNotIn(near, slots)  # 앞뒤 60분 버퍼 안(30분 뒤)도 제외
+
+    def test_workhour_owner_isolation(self):
+        from datetime import time
+        wh = WorkHour.objects.create(owner=self.user_a, weekday=0,
+                                     start_time=time(9, 0), end_time=time(10, 0))
+        r = self.client_b.get('/api/v1/work-hours/')
+        ids = [w['id'] for w in r.json()['results']] if isinstance(r.json(), dict) else []
+        self.assertNotIn(wh.id, ids)
 
     # ── 미팅 취소(슬롯 재오픈 X) ──
     def test_cancel_keeps_slot_booked(self):
