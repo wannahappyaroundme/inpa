@@ -495,6 +495,31 @@ export interface CustomerWritePayload {
   last_contacted_at?: string | null;  // '연락함' = updateCustomer({last_contacted_at: now})
 }
 
+// ─── 직업급수(JobRiskCode) 검색 ──────────────────────────────────────────────
+
+/** 직업급수 검색 결과 1건 (전역 마스터). job_code = id 로 고객에 적용. */
+export interface JobMatch {
+  id: number;
+  name: string;
+  alt_name: string;
+  risk_grade: number;        // 1/2/3/9
+  risk_grade_label: string;  // '1급'…'기타'
+  kidi_cd: string;
+  sctg_cd: string;
+  description_short: string;
+}
+
+/** GET /api/v1/jobs/search/?q=시의원 — 이름·약명·검색어 매칭, 관련도순 최대 limit(≤50). */
+export async function searchJobs(q: string, limit = 30): Promise<JobMatch[]> {
+  const query = q.trim();
+  if (!query) return [];
+  const qs = new URLSearchParams({ q: query, limit: String(limit) });
+  const data = await request<{ results: JobMatch[] }>(
+    "GET", `/jobs/search/?${qs.toString()}`, undefined, true
+  );
+  return data.results;
+}
+
 // ─── Customer endpoints ──────────────────────────────────────────────────────
 
 /** GET /api/v1/customers/?page=1&search=... */

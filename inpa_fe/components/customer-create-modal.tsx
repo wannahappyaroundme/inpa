@@ -3,9 +3,20 @@
 // 고객 등록 모달 — 이름만 필수, 나머지 선택. createCustomer 실 API 연결.
 // booking-modal.tsx 와 동일한 시트형 모달 패턴.
 
-import { useState, useCallback } from "react";
-import { createCustomer, createConsentLog, LEAD_SOURCES, ApiError, type CustomerDetail } from "@/lib/api";
+import { useState, useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  createCustomer, createConsentLog, searchJobs, LEAD_SOURCES, ApiError,
+  type CustomerDetail, type JobMatch,
+} from "@/lib/api";
 import { AVATAR_PALETTE, CustomerAvatar } from "@/components/ui";
+
+// 직업급수 칩 색 — 1급(저위험)=초록 … 3급(고위험)=빨강, 기타=회색
+function gradeChip(grade: number): string {
+  if (grade === 1) return "bg-emerald-100 text-emerald-700";
+  if (grade === 2) return "bg-amber-100 text-amber-700";
+  if (grade === 3) return "bg-rose-100 text-rose-700";
+  return "bg-surface2 text-ink3";
+}
 
 export function CustomerCreateModal({
   onClose,
@@ -27,6 +38,66 @@ export function CustomerCreateModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 직업급수 찾기
+  const [jobQuery, setJobQuery] = useState("");
+  const [jobResults, setJobResults] = useState<JobMatch[]>([]);
+  const [jobOpen, setJobOpen] = useState(false);
+  const [jobSearching, setJobSearching] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<JobMatch | null>(null);
+
+  // 바텀시트 드래그(아래로 내려 닫기)
+  const [dragY, setDragY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startYRef = useRef<number | null>(null);
+  const dragYRef = useRef(0);
+
+  // 직업급수 검색 — 250ms 디바운스. 빈 질의는 결과 비움.
+  useEffect(() => {
+    const q = jobQuery.trim();
+    if (!q) { setJobResults([]); setJobOpen(false); return; }
+    let alive = true;
+    setJobSearching(true);
+    const t = setTimeout(() => {
+      searchJobs(q)
+        .then((rows) => { if (alive) { setJobResults(rows); setJobOpen(true); } })
+        .catch(() => { if (alive) setJobResults([]); })
+        .finally(() => { if (alive) setJobSearching(false); });
+    }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [jobQuery]);
+
+  const pickJob = useCallback((j: JobMatch) => {
+    setSelectedJob(j);
+    setJobQuery("");
+    setJobResults([]);
+    setJobOpen(false);
+  }, []);
+
+  // 드래그: 핸들에서만(터치=touch-none). 120px 이상 내리면 닫기, 아니면 복귀.
+  const onDragDown = useCallback((e: ReactPointerEvent) => {
+    startYRef.current = e.clientY;
+    setDragging(true);
+    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* noop */ }
+  }, []);
+  const onDragMove = useCallback((e: ReactPointerEvent) => {
+    if (startYRef.current === null) return;
+    const dy = Math.max(0, e.clientY - startYRef.current);
+    dragYRef.current = dy;
+    setDragY(dy);
+  }, []);
+  const onDragUp = useCallback(() => {
+    if (startYRef.current === null) return;
+    const dy = dragYRef.current;
+    startYRef.current = null;
+    setDragging(false);
+    if (dy > 120) {
+      onClose();
+    } else {
+      dragYRef.current = 0;
+      setDragY(0);
+    }
+  }, [onClose]);
+
   const submit = useCallback(async () => {
     if (!name.trim()) {
       setError("이름을 입력해 주세요.");
@@ -44,6 +115,7 @@ export function CustomerCreateModal({
         color: color || undefined,
         avatar_label: avatarLabel.trim() || undefined,
         lead_source: leadSource || undefined,
+        job_code: selectedJob ? String(selectedJob.id) : undefined,
       });
       // 설계사 기록(planner_attested) — 체크된 동의를 감사 로그로 남김(법적 강건성은 본인 링크).
       const scopes: string[] = [];
@@ -58,7 +130,7 @@ export function CustomerCreateModal({
     } finally {
       setSaving(false);
     }
-  }, [name, gender, birth, phone, memo, color, avatarLabel, leadSource, piConsent, mkConsent, onCreated]);
+  }, [name, gender, birth, phone, memo, color, avatarLabel, leadSource, selectedJob, piConsent, mkConsent, onCreated]);
 
   const inputCls =
     "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition";
@@ -70,7 +142,24 @@ export function CustomerCreateModal({
       aria-modal="true"
       aria-labelledby="customer-create-title"
     >
-      <div className="w-full sm:max-w-md bg-surface rounded-t-3xl sm:rounded-2xl px-6 pt-6 pb-8 shadow-xl">
+      <div
+        className="w-full sm:max-w-md max-h-[92dvh] overflow-y-auto bg-surface rounded-t-3xl sm:rounded-2xl px-6 pt-3 pb-8 shadow-xl"
+        style={{
+          transform: dragY ? `translateY(${dragY}px)` : undefined,
+          transition: dragging ? "none" : "transform 0.25s ease",
+        }}
+      >
+        {/* 드래그 핸들 — 아래로 슬라이드하면 닫기(모바일 바텀시트). 데스크탑에선 장식 */}
+        <div
+          onPointerDown={onDragDown}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragUp}
+          onPointerCancel={onDragUp}
+          className="flex justify-center pt-1 pb-3 cursor-grab active:cursor-grabbing touch-none"
+          aria-hidden
+        >
+          <span className="h-1.5 w-10 rounded-full bg-line" />
+        </div>
         <h2 id="customer-create-title" className="text-[18px] font-extrabold text-ink">
           고객 등록
         </h2>
@@ -136,6 +225,71 @@ export function CustomerCreateModal({
                 className={inputCls}
               />
             </label>
+          </div>
+
+          {/* 직업급수 찾기 — 검색 → 선택 시 job_code 적용(미선택 가능) */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[12px] font-semibold text-ink3">직업급수 (선택 — 검색해서 적용)</span>
+            {selectedJob ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-line bg-accent-tint px-3.5 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-[14px] font-semibold text-ink truncate">{selectedJob.name}</div>
+                  {selectedJob.description_short && (
+                    <div className="text-[11px] text-ink3 truncate">{selectedJob.description_short}</div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`rounded-full text-[12px] font-bold px-2 py-0.5 ${gradeChip(selectedJob.risk_grade)}`}>
+                    {selectedJob.risk_grade_label}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedJob(null)}
+                    className="text-[12px] text-ink3 hover:text-ink underline"
+                  >
+                    변경
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  value={jobQuery}
+                  onChange={(e) => setJobQuery(e.target.value)}
+                  onFocus={() => { if (jobResults.length) setJobOpen(true); }}
+                  placeholder="직업명·키워드 (예: 의사, 시의원, 용접)"
+                  className={inputCls}
+                />
+                {jobOpen && jobQuery.trim() && (
+                  <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border border-line bg-surface shadow-lg">
+                    {jobSearching && jobResults.length === 0 ? (
+                      <div className="px-3.5 py-2.5 text-[13px] text-ink3">찾는 중…</div>
+                    ) : jobResults.length > 0 ? (
+                      jobResults.map((j) => (
+                        <button
+                          key={j.id}
+                          type="button"
+                          onClick={() => pickJob(j)}
+                          className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left hover:bg-surface2 border-b border-line last:border-b-0"
+                        >
+                          <span className="min-w-0">
+                            <span className="block text-[14px] text-ink truncate">{j.name}</span>
+                            {j.description_short && (
+                              <span className="block text-[11px] text-ink3 truncate">{j.description_short}</span>
+                            )}
+                          </span>
+                          <span className={`shrink-0 rounded-full text-[12px] font-bold px-2 py-0.5 ${gradeChip(j.risk_grade)}`}>
+                            {j.risk_grade_label}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3.5 py-2.5 text-[13px] text-ink3">검색 결과가 없어요.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <label className="flex flex-col gap-1">
