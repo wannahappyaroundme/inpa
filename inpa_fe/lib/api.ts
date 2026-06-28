@@ -1570,7 +1570,8 @@ export interface OcrUploadResponse {
  */
 export async function uploadInsuranceOcr(
   customerId: number,
-  file: File
+  file: File,
+  portfolioType: number = 1
 ): Promise<OcrUploadResponse> {
   const tok = tokenStore.get();
   const headers: Record<string, string> = {};
@@ -1578,6 +1579,7 @@ export async function uploadInsuranceOcr(
 
   const formData = new FormData();
   formData.append("file", file);
+  if (portfolioType !== 1) formData.append("portfolio_type", String(portfolioType));
 
   const res = await fetch(
     `${API_BASE}/customers/${customerId}/insurances/ocr/`,
@@ -2174,6 +2176,9 @@ export interface ManualInsuranceItem {
   monthly_premiums: number | null;
   contract_date: string | null;
   expiry_date: string | null;
+  contractor_name: string | null;   // 계약자
+  insured_name: string | null;      // 피보험자
+  is_same_insured: boolean | null;  // 계약자=피보험자
   payment_status: number | null;
   is_cancelled: boolean;
   cancelled_at: string | null;
@@ -2187,6 +2192,16 @@ export interface ManualInsuranceWritePayload {
   monthly_premiums?: number;
   contract_date?: string;        // YYYY-MM-DD
   expiry_date?: string;
+  contractor_name?: string;
+  insured_name?: string;
+}
+
+/** GET /api/v1/customers/<id>/insurances/manual/ — 고객의 보험 목록(보유+제안, 카드용) */
+export async function listManualInsurances(
+  customerId: number
+): Promise<PaginatedResult<ManualInsuranceItem>> {
+  return request<PaginatedResult<ManualInsuranceItem>>(
+    "GET", `/customers/${customerId}/insurances/manual/`, undefined, true);
 }
 
 /** 수기 보험 등록 — OCR 불가(스캔/이미지/키없음) 폴백 + 갈아타기 제안 입력. */

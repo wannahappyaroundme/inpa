@@ -206,9 +206,10 @@ def _parse_value(value):
     }
 
 
-def _persist_ocr(customer, ocr_data):
+def _persist_ocr(customer, ocr_data, portfolio_type=1):
     """Ocr_Data → CustomerInsurance + CustomerInsuranceDetail 생성 후 계산 엔진 실행.
 
+    portfolio_type: 1=보유(증권 업로드, 갈아타기 비교 좌측) / 2=제안(가입제안서 업로드, 우측).
     8케이스 보험료 엔진(set_renewal_month / calculate)은 foliio 무변경 호출만 한다.
     """
     # ── 1) head dict 선택 (생명/손해) ──
@@ -232,7 +233,7 @@ def _persist_ocr(customer, ocr_data):
     ci = CustomerInsurance.objects.create(
         customer=customer,
         insurance_type=insurance_type,
-        portfolio_type=1,  # 보유(기존가입) — 갈아타기 비교 좌측
+        portfolio_type=portfolio_type,  # 1=보유(좌측) / 2=제안(갈아타기 우측)
         name=head.get('상품명', '') or None,
         contractor_name=contractor,
         insured_name=insured,
@@ -339,6 +340,14 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
                 status=status.HTTP_412_PRECONDITION_FAILED)
 
         # ── 2) 파일 검증 ──
+        # 1=보유(증권) 기본 / 2=제안(가입제안서 업로드). 비교 분석 탭에서 2로 보낸다.
+        try:
+            portfolio_type = int(request.data.get('portfolio_type') or 1)
+        except (TypeError, ValueError):
+            portfolio_type = 1
+        if portfolio_type not in (1, 2):
+            portfolio_type = 1
+
         upload = request.FILES.get('file')
         if upload is None:
             return Response({'code': 'FILE_REQUIRED', 'detail': 'file(PDF) 업로드가 필요합니다.'},
@@ -392,7 +401,7 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
 
         # ── 7) 포트폴리오 + 담보 생성 (트랜잭션) + 계산 엔진 ──
         with transaction.atomic():
-            ci, created_cases = _persist_ocr(customer, ocr_data)
+            ci, created_cases = _persist_ocr(customer, ocr_data, portfolio_type=portfolio_type)
 
         # ── 7.1) 정확도 다중검사 — Claude 교차검증(원문↔파싱). 실패는 격리. ──
         if getattr(settings, 'OCR_VERIFY_ENABLED', False):

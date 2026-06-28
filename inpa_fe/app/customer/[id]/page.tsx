@@ -52,9 +52,11 @@ import {
   deleteChecklistItem,
   createConsentRequest,
   searchJobs,
+  listManualInsurances,
   SALES_STAGES,
   CUSTOMER_STATUSES,
   ApiError,
+  type ManualInsuranceItem,
   type CustomerDetail,
   type SalesStage,
   type CustomerStatus,
@@ -73,7 +75,6 @@ type TabKey = "analysis" | "switch" | "gap" | "info" | "contract" | "history";
 const TABS: { key: TabKey; label: string }[] = [
   { key: "analysis", label: "분석" },
   { key: "switch", label: "비교 분석" },
-  { key: "gap", label: "공백" },
   { key: "info", label: "정보" },
   { key: "contract", label: "계약" },
   { key: "history", label: "이력" },
@@ -247,7 +248,7 @@ function CustomerDetailInner() {
   // ── 히트맵 로드 (분석·공백 탭에서 필요) ──
   useEffect(() => {
     if (!ready || !idValid || custError) return;
-    if (activeTab === "analysis" || activeTab === "gap") {
+    if (activeTab === "analysis") {
       if (heatmap === null && !heatmapLoading && !heatmapError) {
         void fetchHeatmap(customerId);
       }
@@ -351,7 +352,7 @@ function CustomerDetailInner() {
             <div
               role="tablist"
               aria-label="고객 상세 탭"
-              className="mt-5 flex gap-1 border-b border-line overflow-x-auto"
+              className="mt-5 flex flex-wrap gap-1 border-b border-line"
             >
               {visibleTabs.map((t) => (
                 <button
@@ -391,15 +392,6 @@ function CustomerDetailInner() {
                 />
               )}
               {activeTab === "switch" && <SwitchTab customerId={customerId} />}
-              {activeTab === "gap" && (
-                <GapTab
-                  heatmap={heatmap}
-                  loading={heatmapLoading}
-                  error={heatmapError}
-                  onRetry={() => fetchHeatmap(customerId)}
-                  isExclusive={isExclusive}
-                />
-              )}
               {activeTab === "info" && customer && (
                 <InfoTab customer={customer} onUpdated={setCustomer} />
               )}
@@ -437,10 +429,11 @@ function CustomerSummary({
     `px-3 py-1.5 rounded-[10px] transition ${active ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"}`;
   return (
     <Card className="mt-3 p-4">
-      {/* 상단: 신원 + 최종연락/세부정보 */}
-      <div className="flex items-center gap-3">
+      {/* 한 줄: 왼쪽 신원 · 가운데 영업단계+상태 · 오른쪽 최종연락 — PM 06.29 */}
+      <div className="flex items-center gap-3 flex-wrap">
         <CustomerAvatar label={customer.avatar_label} color={customer.color} size={48} />
-        <div className="flex-1 min-w-0">
+        {/* 왼쪽: 신원 */}
+        <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[18px] font-bold text-ink">{customer.name}</span>
             {sub && <span className="text-[13px] text-ink3">{sub}</span>}
@@ -467,6 +460,32 @@ function CustomerSummary({
             )}
           </div>
         </div>
+        {/* 가운데: 영업 단계 + 상태 */}
+        <div className="flex-1 min-w-[240px] flex flex-wrap items-end justify-center gap-x-4 gap-y-2">
+          <div>
+            <div className="text-[11px] font-semibold text-ink3 mb-1">영업 단계</div>
+            <div className={seg}>
+              {SALES_STAGES.map((s) => (
+                <button key={s.key} onClick={() => onChangeStage(s.key)}
+                  aria-pressed={customer.sales_stage === s.key} className={segBtn(customer.sales_stage === s.key)}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-ink3 mb-1">상태</div>
+            <div className={seg}>
+              {CUSTOMER_STATUSES.map((s) => (
+                <button key={s.key} onClick={() => onChangeStatus(s.key)}
+                  aria-pressed={customer.status === s.key} className={segBtn(customer.status === s.key)}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        {/* 오른쪽: 최종연락 */}
         <div className="shrink-0 text-right">
           <div className="text-[11px] text-ink3">최종 연락</div>
           <div className="text-[13px] font-semibold text-ink tnum whitespace-nowrap">
@@ -478,32 +497,6 @@ function CustomerSummary({
           >
             세부정보 →
           </Link>
-        </div>
-      </div>
-
-      {/* 하단: 영업 단계 + 상태 (한 카드 안, 구분선 아래) — PM 06.29 */}
-      <div className="mt-3 pt-3 border-t border-line flex flex-wrap items-end gap-x-5 gap-y-2">
-        <div>
-          <div className="text-[11px] font-semibold text-ink3 mb-1">영업 단계</div>
-          <div className={seg}>
-            {SALES_STAGES.map((s) => (
-              <button key={s.key} onClick={() => onChangeStage(s.key)}
-                aria-pressed={customer.sales_stage === s.key} className={segBtn(customer.sales_stage === s.key)}>
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <div className="text-[11px] font-semibold text-ink3 mb-1">상태</div>
-          <div className={seg}>
-            {CUSTOMER_STATUSES.map((s) => (
-              <button key={s.key} onClick={() => onChangeStatus(s.key)}
-                aria-pressed={customer.status === s.key} className={segBtn(customer.status === s.key)}>
-                {s.label}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
     </Card>
@@ -673,16 +666,17 @@ function InfoTab({
             </label>
             <div className="flex flex-col gap-1">
               <span className="text-[12px] font-semibold text-ink3">생년월일</span>
+              {/* 년:월:일 = 2:1:1 너비 (년이 가장 넓게) — PM 06.29 */}
               <div className="flex gap-1.5">
-                <select value={by} onChange={(e) => setBy(e.target.value)} className={`${inputCls} flex-1`}>
+                <select value={by} onChange={(e) => setBy(e.target.value)} className={`${inputCls} flex-[2] min-w-0`}>
                   <option value="">년</option>
                   {BIRTH_YEARS.map((y) => <option key={y} value={String(y)}>{y}년</option>)}
                 </select>
-                <select value={bm} onChange={(e) => setBm(e.target.value)} className={`${inputCls} w-[72px]`}>
+                <select value={bm} onChange={(e) => setBm(e.target.value)} className={`${inputCls} flex-1 min-w-0`}>
                   <option value="">월</option>
                   {BIRTH_MONTHS.map((m) => <option key={m} value={pad2(m)}>{m}월</option>)}
                 </select>
-                <select value={bd} onChange={(e) => setBd(e.target.value)} className={`${inputCls} w-[72px]`}>
+                <select value={bd} onChange={(e) => setBd(e.target.value)} className={`${inputCls} flex-1 min-w-0`}>
                   <option value="">일</option>
                   {BIRTH_DAYS.map((d) => <option key={d} value={pad2(d)}>{d}일</option>)}
                 </select>
@@ -935,6 +929,51 @@ function ChecklistTab({ customerId }: { customerId: number }) {
   );
 }
 
+// ── 보험별 카드 (보유=portfolio 1 / 제안=portfolio 2) — 한 고객의 여러 보험을 카드로 — PM 06.29 ──
+function InsuranceCard({ it }: { it: ManualInsuranceItem }) {
+  const typeLabel = it.insurance_type === 1 ? "생명" : "손해";
+  const insured = it.insured_name ?? (it.is_same_insured ? "계약자와 동일" : "-");
+  return (
+    <div className="rounded-xl border border-line bg-surface p-3.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-[14px] font-bold text-ink truncate">{it.name ?? "이름 없는 보험"}</div>
+        <span className="shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-surface2 text-ink3 border border-line">{typeLabel}</span>
+      </div>
+      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
+        <dt className="text-ink3">계약자</dt><dd className="text-ink2 text-right truncate">{it.contractor_name ?? "-"}</dd>
+        <dt className="text-ink3">피보험자</dt><dd className="text-ink2 text-right truncate">{insured}</dd>
+        <dt className="text-ink3">월 보험료</dt><dd className="text-ink2 text-right tnum">{fmtWon(it.monthly_premiums)}</dd>
+        <dt className="text-ink3">기간</dt><dd className="text-ink2 text-right">{it.contract_date ?? "-"} ~ {it.expiry_date ?? "-"}</dd>
+      </dl>
+    </div>
+  );
+}
+
+function InsuranceCards({ customerId, portfolioType, refreshKey, emptyHint, title }: {
+  customerId: number; portfolioType: number; refreshKey?: number; emptyHint?: string; title?: string;
+}) {
+  const [items, setItems] = useState<ManualInsuranceItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    setLoading(true);
+    listManualInsurances(customerId)
+      .then((r) => setItems(r.results.filter((x) => x.portfolio_type === portfolioType)))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  }, [customerId, portfolioType, refreshKey]);
+  if (loading) return <div className="grid sm:grid-cols-2 gap-3">{[1, 2].map((i) => <div key={i} className="h-24 rounded-xl bg-line animate-pulse" />)}</div>;
+  if (items.length === 0)
+    return emptyHint ? <div className="rounded-xl border border-dashed border-line px-4 py-5 text-center text-[13px] text-ink3">{emptyHint}</div> : null;
+  return (
+    <div>
+      {title && <div className="text-[13px] font-bold text-ink mb-2">{title} <span className="text-ink3 tnum">{items.length}</span></div>}
+      <div className="grid sm:grid-cols-2 gap-3">
+        {items.map((it) => <InsuranceCard key={it.id} it={it} />)}
+      </div>
+    </div>
+  );
+}
+
 // ── 분석 탭 ───────────────────────────────────────────────────────────────
 type OcrCtl = ReturnType<typeof useOcrUpload>;
 
@@ -965,6 +1004,8 @@ function AnalysisTab({
 }) {
   const [bookingOpen, setBookingOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
+  const [insRefresh, setInsRefresh] = useState(0);
+  useEffect(() => { if (ocr.phase === "success") setInsRefresh((k) => k + 1); }, [ocr.phase]);
   return (
     <div>
       {/* 증권 OCR 업로드 입구 (분석 탭으로 이동) */}
@@ -1012,6 +1053,7 @@ function AnalysisTab({
           onCreated={() => {
             setManualOpen(false);
             onRetry();
+            setInsRefresh((k) => k + 1);
           }}
         />
       )}
@@ -1053,6 +1095,11 @@ function AnalysisTab({
           />
         </div>
       )}
+
+      {/* 보유 보험 — 보험별 카드(여러 개일 수 있음) */}
+      <div className="mt-4">
+        <InsuranceCards customerId={customerId} portfolioType={1} refreshKey={insRefresh} title="보유 보험" />
+      </div>
 
       {/* 로딩 */}
       {loading && (
@@ -1150,6 +1197,11 @@ function SwitchTab({ customerId }: { customerId: number }) {
       .finally(() => setLoading(false));
   }, [customerId]);
 
+  // 제안(가입제안서) 입력 — 업로드(OCR, portfolio 2) / 직접 입력. 추가 후 재비교.
+  const [manualOpen, setManualOpen] = useState(false);
+  const [insRefresh, setInsRefresh] = useState(0);
+  const propOcr = useOcrUpload(() => { setInsRefresh((k) => k + 1); doCompare(); }, 2);
+
   useEffect(() => {
     doCompare();
   }, [doCompare]);
@@ -1216,9 +1268,69 @@ function SwitchTab({ customerId }: { customerId: number }) {
     const sign = d > 0 ? "+" : "";
     return sign + new Intl.NumberFormat("ko-KR").format(d);
   }
+  // 담보 변동: 추가(신규)/삭제(빠짐)/변경/유지 — 현재 vs 제안 금액 기준.
+  function diffLabel(cur: number | null, prop: number | null): { text: string; cls: string } {
+    const c = cur ?? 0, p = prop ?? 0;
+    if (c <= 0 && p > 0) return { text: "추가", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+    if (c > 0 && p <= 0) return { text: "삭제", cls: "bg-rose-50 text-rose-600 border-rose-200" };
+    if (c > 0 && p > 0 && c !== p) return { text: "변경", cls: "bg-amber-50 text-amber-700 border-amber-200" };
+    if (c > 0 && p > 0) return { text: "유지", cls: "bg-surface2 text-ink3 border-line" };
+    return { text: "-", cls: "bg-surface2 text-ink3 border-line" };
+  }
 
   return (
     <div>
+      {/* 제안(가입제안서) 입력 + 제안 보험 카드 — PM 06.29 */}
+      <div className="mb-4 rounded-2xl border border-line bg-surface2 p-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-[13px] font-bold text-ink">제안 보험 (갈아타기 대상)</div>
+          <div className="flex items-center gap-2">
+            <OcrUploadButton
+              customerId={customerId}
+              phase={propOcr.phase}
+              onFileChange={propOcr.onFileChange}
+              inputId="proposal-ocr-input"
+              label="제안서 업로드"
+            />
+            <button
+              type="button"
+              onClick={() => setManualOpen(true)}
+              className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
+            >
+              직접 입력
+            </button>
+          </div>
+        </div>
+        <div className="mt-3">
+          <InsuranceCards
+            customerId={customerId}
+            portfolioType={2}
+            refreshKey={insRefresh}
+            emptyHint="아직 제안 보험이 없어요. 가입제안서를 올리거나 직접 입력하면 비교가 시작돼요."
+          />
+        </div>
+      </div>
+      <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} />
+      {propOcr.phase === "consent_required" && (
+        <ConsentModal
+          onGenerate={() => propOcr.generateConsentLink(customerId)}
+          consentUrl={propOcr.consentUrl}
+          consentCopied={propOcr.consentCopied}
+          onCopy={propOcr.copyConsentUrl}
+          onDismiss={propOcr.dismissConsent}
+          loading={propOcr.consentLoading}
+        />
+      )}
+      <UpgradeModal open={propOcr.phase === "limit_exceeded"} onClose={propOcr.dismissUpgrade} info={propOcr.upgradeInfo} />
+      {manualOpen && (
+        <InsuranceManualModal
+          customerId={customerId}
+          defaultPortfolioType={2}
+          onClose={() => setManualOpen(false)}
+          onCreated={() => { setManualOpen(false); setInsRefresh((k) => k + 1); doCompare(); }}
+        />
+      )}
+
       {/* AI 초안 면책 — 항상 노출, 접기 불가 */}
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4">
         <p className="text-[12px] leading-5 text-amber-800">
@@ -1330,6 +1442,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
                 <th className="px-3 py-2.5 text-right font-semibold text-ink2">현재</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-ink2">제안</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-ink2">증감</th>
+                <th className="px-3 py-2.5 text-center font-semibold text-ink2">변동</th>
               </tr>
             </thead>
             <tbody>
@@ -1358,6 +1471,16 @@ function SwitchTab({ customerId }: { customerId: number }) {
                     }`}
                   >
                     {fmtDelta(row.delta)}
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    {(() => {
+                      const d = diffLabel(row.current_amount, row.proposed_amount);
+                      return (
+                        <span className={`inline-block text-[10px] font-semibold rounded-full px-2 py-0.5 border ${d.cls}`}>
+                          {d.text}
+                        </span>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}
