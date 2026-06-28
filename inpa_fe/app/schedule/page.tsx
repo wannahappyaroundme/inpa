@@ -1,6 +1,7 @@
 "use client";
 
-// 일정(캘린더) — 개인 일정/할일/고정 차단 + 미팅·알림 통합 표시. 추가/수정/완료.
+// 일정(캘린더) — 개인 일정/할일/고정 차단 + 미팅 통합 표시. 추가/수정/완료.
+// (알림은 캘린더에 그리지 않고 우측 상단 종 알림함에서만 본다 — PM 06.29)
 // ★ 타임존: 단건 datetime은 new Date()↔toISOString(KST 브라우저), 표시는 Intl(Asia/Seoul).
 //   반복 차단 시각(HH:MM:SS 문자열)은 절대 new Date()에 넣지 말 것 → slice(0,5)로만.
 
@@ -13,10 +14,10 @@ import { AvailabilityShare } from "@/components/availability-share";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listScheduleItems, createScheduleItem, updateScheduleItem, deleteScheduleItem,
-  toggleScheduleDone, listMeetings, listNotifications, listCustomers,
+  toggleScheduleDone, listMeetings, listCustomers,
   ApiError,
   type ScheduleItem, type ScheduleKind, type ScheduleCategory,
-  type Meeting, type NotificationItem,
+  type Meeting,
   type CustomerListItem,
 } from "@/lib/api";
 
@@ -24,16 +25,15 @@ const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 const pad = (n: number) => String(n).padStart(2, "0");
 
 // 동작 구분(kind): todo 완료체크·block 차단 판정용
-type Kind = ScheduleKind | "meeting" | "notif";
-// 색/범례 분류(5분류 + 알림) — PM 06.24
-type Cat = ScheduleCategory | "notif";
+type Kind = ScheduleKind | "meeting";
+// 색/범례 분류(5분류) — PM 06.24·06.29 (알림 분류 제거, 종 알림함으로 일원화)
+type Cat = ScheduleCategory;
 const CAT_META: Record<Cat, { dot: string; label: string }> = {
   meeting: { dot: "bg-brand", label: "고객미팅" },
   anniversary: { dot: "bg-pink-400", label: "생일·기념일" },
   renewal: { dot: "bg-amber-400", label: "만기·갱신" },
   task: { dot: "bg-emerald-500", label: "업무" },
   etc: { dot: "bg-muted", label: "기타" },
-  notif: { dot: "bg-short", label: "알림" },
 };
 // 분류 선택지(생성 폼) — kind/올데이 기본값 매핑
 const CAT_OPTIONS: { cat: ScheduleCategory; label: string; kind: ScheduleKind; allDay?: boolean }[] = [
@@ -72,7 +72,6 @@ function isoToLocalInput(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-function notifKind(_t: string): Kind { return "notif"; }
 
 interface DayItem {
   key: string; time: string; title: string; kind: Kind; cat: Cat; sort: number;
@@ -92,7 +91,6 @@ export default function SchedulePage() {
   const ready = useAuthGuard();
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [notifs, setNotifs] = useState<NotificationItem[]>([]);
   const [customers, setCustomers] = useState<CustomerListItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
@@ -111,7 +109,6 @@ export default function SchedulePage() {
     listScheduleItems({ month: monthStr })
       .then((r) => setItems(r.results)).catch(() => setItems([]));
     listMeetings(true).then((r) => setMeetings(r.results)).catch(() => setMeetings([]));
-    listNotifications({ page: 1 }).then((r) => setNotifs(r.results)).catch(() => setNotifs([]));
   }, [monthStr]);
 
   useEffect(() => { if (ready) load(); }, [ready, load]);
@@ -159,13 +156,9 @@ export default function SchedulePage() {
       add({ key: kstYmd(m.start_at), time: t || "-", sort: t ? Number(t.replace(":", "")) : 0,
         title: `${m.customer_name} · ${m.method_display}`, kind: "meeting", cat: "meeting" });
     }
-    for (const n of notifs) {
-      if (!n.target_date) continue;
-      add({ key: n.target_date, time: "종일", sort: -2, title: n.title, kind: notifKind(n.notif_type), cat: "notif" });
-    }
     for (const [, arr] of map) arr.sort((a, b) => a.sort - b.sort);
     return map;
-  }, [items, meetings, notifs, viewY, viewM, monthStr]);
+  }, [items, meetings, viewY, viewM, monthStr]);
 
   function shiftMonth(delta: number) {
     let y = viewY, m = viewM + delta;
