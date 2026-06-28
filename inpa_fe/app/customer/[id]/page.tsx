@@ -974,6 +974,35 @@ function InsuranceCards({ customerId, portfolioType, refreshKey, emptyHint, titl
   );
 }
 
+// ── 선택형 보험 행 (비교 분석에서 비교 대상 고르기) ──
+function toggleSet(setter: (updater: (prev: Set<number>) => Set<number>) => void, id: number) {
+  setter((prev) => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+}
+function SelectInsRow({ it, selected, onToggle }: { it: ManualInsuranceItem; selected: boolean; onToggle: () => void }) {
+  const sub = [it.contractor_name && `계약 ${it.contractor_name}`, it.insured_name && `피보험 ${it.insured_name}`]
+    .filter(Boolean).join(" · ") || (it.insurance_type === 1 ? "생명" : "손해");
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`w-full text-left flex items-center gap-2.5 rounded-xl border px-3 py-2 transition ${selected ? "border-brand bg-accent-tint" : "border-line bg-surface"}`}
+    >
+      <span className={`w-4 h-4 rounded border shrink-0 flex items-center justify-center ${selected ? "bg-brand border-brand" : "border-line"}`}>
+        {selected && <span className="text-white text-[10px] leading-none">✓</span>}
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-[13px] font-semibold text-ink truncate">{it.name ?? "이름 없는 보험"}</span>
+        <span className="block text-[11px] text-ink3 truncate">{sub}</span>
+      </span>
+      <span className="shrink-0 text-[11px] text-ink2 tnum">{fmtWon(it.monthly_premiums)}</span>
+    </button>
+  );
+}
+
 // ── 분석 탭 ───────────────────────────────────────────────────────────────
 type OcrCtl = ReturnType<typeof useOcrUpload>;
 
@@ -1179,12 +1208,31 @@ function SwitchTab({ customerId }: { customerId: number }) {
   const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
 
+  // 보험 목록 + 비교 대상 선택(보유/제안). 처음엔 전체 선택. 토글하면 그 보험만 비교(총합·변동 반영).
+  const [insurances, setInsurances] = useState<ManualInsuranceItem[]>([]);
+  const [curSel, setCurSel] = useState<Set<number>>(new Set());
+  const [propSel, setPropSel] = useState<Set<number>>(new Set());
+  const [insLoaded, setInsLoaded] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+
+  const loadInsurances = useCallback(() => {
+    listManualInsurances(customerId)
+      .then((r) => {
+        setInsurances(r.results);
+        setCurSel(new Set(r.results.filter((x) => x.portfolio_type === 1).map((x) => x.id)));
+        setPropSel(new Set(r.results.filter((x) => x.portfolio_type === 2).map((x) => x.id)));
+        setInsLoaded(true);
+      })
+      .catch(() => setInsLoaded(true));
+  }, [customerId]);
+  useEffect(() => { loadInsurances(); }, [loadInsurances]);
+
   const doCompare = useCallback(() => {
     setLoading(true);
     setError(null);
     setUpgradeInfo(undefined);
     setUpgradeOpen(false);
-    compareCustomer(customerId)
+    compareCustomer(customerId, { currentIds: [...curSel], proposedIds: [...propSel] })
       .then((d) => setData(d))
       .catch((e: unknown) => {
         if (e instanceof ApiError && e.status === 402) {
@@ -1195,16 +1243,17 @@ function SwitchTab({ customerId }: { customerId: number }) {
         }
       })
       .finally(() => setLoading(false));
-  }, [customerId]);
+  }, [customerId, curSel, propSel]);
 
-  // 제안(가입제안서) 입력 — 업로드(OCR, portfolio 2) / 직접 입력. 추가 후 재비교.
-  const [manualOpen, setManualOpen] = useState(false);
-  const [insRefresh, setInsRefresh] = useState(0);
-  const propOcr = useOcrUpload(() => { setInsRefresh((k) => k + 1); doCompare(); }, 2);
+  // 제안 추가(업로드/직접) 후 목록 새로고침 → 선택(전체) 갱신 → 재비교.
+  const propOcr = useOcrUpload(() => { loadInsurances(); }, 2);
 
   useEffect(() => {
-    doCompare();
-  }, [doCompare]);
+    if (insLoaded) doCompare();
+  }, [doCompare, insLoaded]);
+
+  const held = insurances.filter((x) => x.portfolio_type === 1);
+  const proposed = insurances.filter((x) => x.portfolio_type === 2);
 
   // 발행 버튼 — publishable=false 이므로 항상 disabled
   async function handlePublish() {
@@ -1213,7 +1262,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
     void publishing; // lint 억제
   }
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
@@ -1280,34 +1329,43 @@ function SwitchTab({ customerId }: { customerId: number }) {
 
   return (
     <div>
-      {/* 제안(가입제안서) 입력 + 제안 보험 카드 — PM 06.29 */}
-      <div className="mb-4 rounded-2xl border border-line bg-surface2 p-3.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[13px] font-bold text-ink">제안 보험 (갈아타기 대상)</div>
-          <div className="flex items-center gap-2">
-            <OcrUploadButton
-              customerId={customerId}
-              phase={propOcr.phase}
-              onFileChange={propOcr.onFileChange}
-              inputId="proposal-ocr-input"
-              label="제안서 업로드"
-            />
-            <button
-              type="button"
-              onClick={() => setManualOpen(true)}
-              className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
-            >
-              직접 입력
-            </button>
+      {/* 비교할 보험 고르기 — 보유(현재) 선택 / 제안 선택·추가. 고르면 그 보험만 총합·비교 — PM 06.29 */}
+      <div className="mb-4 grid sm:grid-cols-2 gap-3">
+        {/* 보유(현재) */}
+        <div className="rounded-2xl border border-line bg-surface2 p-3.5">
+          <div className="text-[13px] font-bold text-ink mb-2">
+            보유 보험 (현재) <span className="text-ink3 tnum">{curSel.size}/{held.length}</span>
           </div>
+          {held.length === 0 ? (
+            <p className="text-[12px] text-ink3 leading-5">분석 탭에서 증권을 등록하면 여기에서 고를 수 있어요.</p>
+          ) : (
+            <div className="space-y-2">
+              {held.map((it) => (
+                <SelectInsRow key={it.id} it={it} selected={curSel.has(it.id)} onToggle={() => toggleSet(setCurSel, it.id)} />
+              ))}
+            </div>
+          )}
         </div>
-        <div className="mt-3">
-          <InsuranceCards
-            customerId={customerId}
-            portfolioType={2}
-            refreshKey={insRefresh}
-            emptyHint="아직 제안 보험이 없어요. 가입제안서를 올리거나 직접 입력하면 비교가 시작돼요."
-          />
+        {/* 제안 */}
+        <div className="rounded-2xl border border-line bg-surface2 p-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="text-[13px] font-bold text-ink">
+              제안 보험 <span className="text-ink3 tnum">{propSel.size}/{proposed.length}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <OcrUploadButton customerId={customerId} phase={propOcr.phase} onFileChange={propOcr.onFileChange} inputId="proposal-ocr-input" label="제안서 업로드" />
+              <button type="button" onClick={() => setManualOpen(true)} className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition">직접 입력</button>
+            </div>
+          </div>
+          {proposed.length === 0 ? (
+            <p className="text-[12px] text-ink3 leading-5">가입제안서를 올리거나 직접 입력하면 비교가 시작돼요.</p>
+          ) : (
+            <div className="space-y-2">
+              {proposed.map((it) => (
+                <SelectInsRow key={it.id} it={it} selected={propSel.has(it.id)} onToggle={() => toggleSet(setPropSel, it.id)} />
+              ))}
+            </div>
+          )}
         </div>
       </div>
       <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} />
@@ -1327,7 +1385,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
           customerId={customerId}
           defaultPortfolioType={2}
           onClose={() => setManualOpen(false)}
-          onCreated={() => { setManualOpen(false); setInsRefresh((k) => k + 1); doCompare(); }}
+          onCreated={() => { setManualOpen(false); loadInsurances(); }}
         />
       )}
 

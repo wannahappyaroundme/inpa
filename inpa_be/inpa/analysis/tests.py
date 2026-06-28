@@ -322,6 +322,25 @@ class CompareFactsTests(TestCase):
         self.assertIsNone(row['proposed_amount'])
         self.assertIsNone(row['delta'])
 
+    def test_selection_compares_only_selected(self):
+        """보험 선택 비교(PM 06.29): current_ids/proposed_ids 로 고른 보험만 집계."""
+        h1 = _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1, monthly=40000)
+        h2 = _make_portfolio_typed(self.customer, self.idet, 30000000, portfolio_type=1, monthly=20000)
+        p1 = _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2, monthly=60000)
+        # 전체(GET, 하위호환): 보유 2건 합산 월 60000
+        self.assertEqual(self._get().json()['current']['monthly_premiums'], 60000)
+        # h1만 선택(POST) → 보유 월 40000
+        r = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {'current_ids': [h1.id], 'proposed_ids': [p1.id]}, format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['current']['monthly_premiums'], 40000)
+        # 제안 0개 선택 → proposed null (전체로 되돌아가지 않음)
+        r2 = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {'current_ids': [h1.id, h2.id], 'proposed_ids': []}, format='json')
+        self.assertIsNone(r2.json()['proposed']['monthly_premiums'])
+
     def test_contract_shape_and_disclaimer(self):
         """계약 키 전부 존재 + publishable 항상 false + 면책 고정."""
         _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1)
