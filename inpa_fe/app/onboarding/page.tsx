@@ -26,14 +26,14 @@ const STEPS: TourStep[] = [
     title: "2. 증권 PDF를 올리면 자동으로 읽어요",
     desc: "보험사·상품·담보를 자동으로 정리합니다.",
     detail:
-      "여러 보험사 증권의 담보명을 표준 담보 '틀'로 정규화해, 회사가 달라도 같은 기준으로 비교할 수 있게 맞춰줍니다. (AI 초안 — 최종 확인은 설계사님)",
+      "여러 보험사 증권의 담보명을 표준 담보 '틀'로 정규화해, 회사가 달라도 같은 기준으로 비교할 수 있게 맞춰줍니다. (AI 초안, 최종 확인은 설계사님)",
   },
   {
     emoji: "🗺️",
     title: "3. 보장분석 히트맵으로 한눈에",
     desc: "담보별 보유 현황을 색으로 봅니다.",
     detail:
-      "100개 이상 담보 '틀' 위에서 보유 금액을 표시합니다. 충분/부족 같은 판단과 권유는 설계사님 몫이에요 — 인파는 사실만 정리합니다.",
+      "100개 이상 담보 '틀' 위에서 보유 금액을 표시합니다. 충분/부족 같은 판단과 권유는 설계사님 몫이에요. 인파는 사실만 정리합니다.",
   },
   {
     emoji: "🔁",
@@ -168,7 +168,7 @@ export default function OnboardingPage() {
                 ))}
               </div>
               <label className="mt-4 block">
-                <span className="text-[13px] text-[var(--ink-3)]">관리직 이메일 (선택 — KPI 공유 시)</span>
+                <span className="text-[13px] text-[var(--ink-3)]">관리직 이메일 (선택, KPI 공유 시)</span>
                 <input
                   type="email"
                   value={managerEmail}

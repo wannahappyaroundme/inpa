@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 export function TBD({ children }: { children: ReactNode }) {
   return (
     <mark className="bg-amber-100 text-amber-900 rounded px-1 py-0.5 text-[0.92em] font-medium">
-      [{children} — 확정 후 기재]
+      [{children}, 확정 후 기재]
     </mark>
   );
 }

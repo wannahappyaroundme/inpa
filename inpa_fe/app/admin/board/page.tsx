@@ -142,7 +142,7 @@ function BoardContent() {
                       </span>
                     </div>
                     <div className="text-[12px] text-ink3">
-                      신고자: {item.reporter_email ?? "—"} · {fmt(item.created_at)}
+                      신고자: {item.reporter_email ?? "미상"} · {fmt(item.created_at)}
                     </div>
                     {item.detail && (
                       <p className="text-[13px] text-ink mt-1">{item.detail}</p>

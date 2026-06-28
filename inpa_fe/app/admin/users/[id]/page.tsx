@@ -15,7 +15,7 @@ import {
 import { Card } from "@/components/ui";
 
 function fmt(d: string | null): string {
-  if (!d) return "—";
+  if (!d) return "-";
   return new Date(d).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
@@ -125,16 +125,16 @@ export default function AdminUserDetailPage() {
               </div>
               <div>
                 <dt className="text-ink3 mb-0.5">소속</dt>
-                <dd className="font-medium text-ink">{user.affiliation ?? "—"}</dd>
+                <dd className="font-medium text-ink">{user.affiliation ?? "-"}</dd>
               </div>
               <div>
                 <dt className="text-ink3 mb-0.5">설계사 유형</dt>
-                <dd className="font-medium text-ink">{user.agent_type_display ?? "—"}</dd>
+                <dd className="font-medium text-ink">{user.agent_type_display ?? "-"}</dd>
               </div>
               <div>
                 <dt className="text-ink3 mb-0.5">경력</dt>
                 <dd className="font-medium text-ink">
-                  {user.career_years != null ? `${user.career_years}년` : "—"}
+                  {user.career_years != null ? `${user.career_years}년` : "-"}
                 </dd>
               </div>
               <div>

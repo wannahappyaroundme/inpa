@@ -18,7 +18,7 @@ import {
 // ── 금액 포매터 ────────────────────────────────────────────────────────────
 const krw = new Intl.NumberFormat("ko-KR");
 function fmtWon(val: number | null | undefined): string {
-  if (val === null || val === undefined) return "—";
+  if (val === null || val === undefined) return "-";
   if (val >= 100_000_000) return `${krw.format(val / 100_000_000)}억원`;
   if (val >= 10_000) return `${krw.format(val / 10_000)}만원`;
   return `${krw.format(val)}원`;

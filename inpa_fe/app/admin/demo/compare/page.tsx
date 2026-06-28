@@ -21,7 +21,7 @@ export default function DemoCompare() {
 
   return (
     <div>
-      <h1 className="text-[22px] font-extrabold text-ink">비교 분석 — {c.customerName}님</h1>
+      <h1 className="text-[22px] font-extrabold text-ink">비교 분석: {c.customerName}님</h1>
       <p className="mt-1 text-[13px] text-ink3">기존 증권과 제안 증권의 담보·보험료를 나란히 비교합니다.</p>
 
       {/* 요약 2열 */}

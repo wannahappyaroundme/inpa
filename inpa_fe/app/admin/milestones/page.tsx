@@ -53,13 +53,13 @@ const MILESTONES: Milestone[] = [
   },
   {
     id: "L4", track: "legal", priority: "P0", status: "todo", owner: "PM",
-    title: "법무 검토 시점 당기기 — '첫 외부 실데이터 전'",
+    title: "법무 검토 시점 당기기: '첫 외부 실데이터 전'",
     detail: "'유료 출시 전'이 아니라 외부 트래픽이 처음 들어오기 전이 트리거. 결제 연동=전자금융·통신판매·법인설립 동시 발효.",
     how: "베타 오픈 일정에 법무 게이트를 앞단으로 배치. L1·L2 완료 = 이 게이트 통과의 핵심.",
   },
   {
     id: "L5", track: "legal", priority: "P1", status: "todo", owner: "공동",
-    title: "§97 프레이밍 전환 — '합법화/방패' → '가드레일'",
+    title: "§97 프레이밍 전환: '합법화/방패' → '가드레일'",
     detail: "'갈아타기를 합법화'로 팔면 비교표가 검사장에서 '회사가 승환영업을 조장했다'는 정황증거로 뒤집힘.",
     how: "랜딩·제품 카피를 '모집질서 가드레일이 내장된 도구(위반에 안 빠지게 막아줌)'로 변경. 같은 코드, 정반대 평가.",
   },
@@ -79,7 +79,7 @@ const MILESTONES: Milestone[] = [
   },
   {
     id: "P2c", track: "product", priority: "P0", status: "done", owner: "개발",
-    title: "동의기록(ConsentLog) 보존 — SET_NULL ✅",
+    title: "동의기록(ConsentLog) 보존: SET_NULL ✅",
     detail: "고객 삭제(파기) 시에도 동의 증거는 보존(처리방침상 5년 보관). 기존 CASCADE는 감사기록을 함께 소멸시켜 append-only와 모순.",
     how: "완료(2026-06-21). on_delete=SET_NULL + 마이그레이션 0003 + 보존 테스트. 고객 null 로그는 관리자 감사용으로만 잔존.",
   },
@@ -87,7 +87,7 @@ const MILESTONES: Milestone[] = [
     id: "P3c", track: "product", priority: "P0", status: "todo", owner: "개발",
     title: "국외이전 동의 = 고객 본인 직접 동의 동선",
     detail: "설계사가 자기 화면에서 체크하는 현 구조는 대리동의 소지. 정식 안전화는 아키텍처 변경이라 플랜 합의 후 진행.",
-    how: "셀프진단의 본인 2게이트 동의 패턴을 일반 분석 경로로 확장 — 동의요청 링크→고객 본인 클릭→토큰 기록. (베타는 P1c로 임시 안전 확보됨)",
+    how: "셀프진단의 본인 2게이트 동의 패턴을 일반 분석 경로로 확장. 동의요청 링크→고객 본인 클릭→토큰 기록. (베타는 P1c로 임시 안전 확보됨)",
   },
   {
     id: "P4c", track: "product", priority: "P1", status: "todo", owner: "개발",
@@ -109,7 +109,7 @@ const MILESTONES: Milestone[] = [
   },
   {
     id: "P7c", track: "product", priority: "P1", status: "todo", owner: "공동",
-    title: "베타 범위 축소 — '16개 끄고 1개 루프'",
+    title: "베타 범위 축소: '16개 끄고 1개 루프'",
     detail: "게시판·판촉물·캘린더·KPI·관리직 대시보드는 PMF 신호를 흐리는 노이즈(다수 합의).",
     how: "남길 단일 동선 = 증권 업로드 → 담보 한눈표(정규화) → 셀프진단 인바운드. 나머지는 숨김/비활성.",
   },
@@ -149,7 +149,7 @@ const MILESTONES: Milestone[] = [
   // ── 투자·전략 ──
   {
     id: "I1", track: "invest", priority: "P1", status: "todo", owner: "PM",
-    title: "시드/프리A 자료 — 증거 3종 패키징",
+    title: "시드/프리A 자료: 증거 3종 패키징",
     detail: "실제 고객지표 없이 설득할 3종: ①정규화 정확도 ②법무 의견서(규제 디리스킹) ③행동 로그.",
     how: "밸류 스토리 = '규제를 코드로 강제한 첫 진입자 + 중립 정규화 데이터 자산 + 영업 워크플로우 락인.'",
   },

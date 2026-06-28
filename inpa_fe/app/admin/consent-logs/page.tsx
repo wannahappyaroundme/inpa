@@ -10,7 +10,7 @@ import { Card } from "@/components/ui";
 // 동의 로그 — READ-ONLY. 수정·삭제 버튼 없음(감사 무결성).
 
 function fmt(d: string | null): string {
-  if (!d) return "—";
+  if (!d) return "-";
   return new Date(d).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
@@ -84,7 +84,7 @@ function ConsentLogsContent() {
                   {data.results.map((log) => (
                     <tr key={log.id}>
                       <td className="px-4 py-3 font-medium text-ink">{log.customer_name_masked}</td>
-                      <td className="px-4 py-3 text-ink3">{log.owner_email ?? "—"}</td>
+                      <td className="px-4 py-3 text-ink3">{log.owner_email ?? "-"}</td>
                       <td className="px-4 py-3 text-ink">{log.scope}</td>
                       <td className="px-4 py-3">
                         <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${log.subject === "customer_self" ? "bg-success text-white" : "bg-surface2 text-ink3"}`}>

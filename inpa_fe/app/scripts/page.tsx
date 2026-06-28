@@ -49,7 +49,7 @@ export default function ScriptsPage() {
       <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
         <h1 className="text-[22px] font-extrabold text-ink">화법 · 문구</h1>
         <p className="mt-1 text-[13px] text-ink3 leading-5">
-          상황별 문구를 골라 복사해서 직접 보내세요. 자동 발송은 없어요 — 카톡·문자로 직접 전달까지만.
+          상황별 문구를 골라 복사해서 직접 보내세요. 자동 발송은 없어요. 카톡·문자로 직접 전달까지만 도와드려요.
         </p>
 
         {/* 치환 입력 — 비우면 '고객'·'담당 설계사'로 들어감 */}
@@ -78,7 +78,7 @@ export default function ScriptsPage() {
         <div className="mt-4 rounded-xl border border-amber-300/70 bg-amber-50 px-3.5 py-3">
           <p className="text-[12px] leading-5 text-amber-900">
             <b>아는 고객에게만</b> 보내세요. <b>카톡(개인 1:1)</b>은 자유롭게 쓰되,{" "}
-            <b>문자로 단체 발송</b>은 광고규제 대상이에요 — <b>(광고) 표기 · 무료수신거부 번호 · 야간(21~08시) 발송 금지</b>를 꼭 지키세요.
+            <b>문자로 단체 발송</b>은 광고규제 대상이에요. <b>(광고) 표기 · 무료수신거부 번호 · 야간(21~08시) 발송 금지</b>를 꼭 지키세요.
           </p>
         </div>
 

@@ -37,10 +37,10 @@ function cellClasses(status: HeatmapStatus, graded: boolean): string {
 }
 
 function statusLabel(status: HeatmapStatus, mode: "neutral" | "graded"): string {
-  if (mode === "neutral") return "—";
+  if (mode === "neutral") return "-";
   switch (status) {
     case "neutral":
-      return "—";
+      return "-";
     case "shortage":
       return "부족";
     case "adequate":
@@ -71,13 +71,13 @@ function statusAriaLabel(
 // ── 금액 포매터 ────────────────────────────────
 const krw = new Intl.NumberFormat("ko-KR");
 export function fmtAmount(val: number | null): string {
-  if (val === null || val === 0) return "—";
+  if (val === null || val === 0) return "-";
   if (val >= 100_000_000) return `${krw.format(val / 100_000_000)}억`;
   if (val >= 10_000) return `${krw.format(val / 10_000)}만`;
   return `${krw.format(val)}원`;
 }
 export function fmtWon(val: number | null): string {
-  if (val === null) return "—";
+  if (val === null) return "-";
   return `${krw.format(val)}원`;
 }
 
@@ -108,7 +108,7 @@ export function HeatCell({
       {graded && (
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px]">
           <span className="tnum opacity-80">{fmtAmount(detail.held_amount)}</span>
-          {mode !== "neutral" && label !== "—" && (
+          {mode !== "neutral" && label !== "-" && (
             <span className="opacity-60">· {label}</span>
           )}
         </div>
@@ -222,11 +222,11 @@ export function HeatmapGrid({
       <div className="mb-3 text-[12px] leading-5">
         {heatmap.mode === "graded" ? (
           <span className="inline-block rounded-lg bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-indigo-700">
-            ✓ 내 기준 {heatmap.baseline_count}개 적용 중 — 부족·적정·넉넉은 <b className="font-semibold">설정한 기준</b>에 따른 결과예요.
+            ✓ 내 기준 {heatmap.baseline_count}개 적용 중. 부족·적정·넉넉은 <b className="font-semibold">설정한 기준</b>에 따른 결과예요.
           </span>
         ) : (
           <span className="inline-block rounded-lg bg-surface2 border border-line px-2.5 py-1 text-ink3">
-            기준 미설정(중립) — 보유 0만 표시하고 부족·충분은 단정하지 않아요. <b className="font-semibold text-ink2">설정 › 기준선</b>에서 기준을 추가하면 판정이 켜져요.
+            기준 미설정(중립). 보유 0만 표시하고 부족·충분은 단정하지 않아요. <b className="font-semibold text-ink2">설정 › 기준선</b>에서 기준을 추가하면 판정이 켜져요.
           </span>
         )}
       </div>

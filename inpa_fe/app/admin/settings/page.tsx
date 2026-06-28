@@ -266,7 +266,7 @@ export default function AdminSettingsPage() {
       <section>
         <h2 className="text-[16px] font-bold text-ink mb-3">기능 플래그</h2>
         <div className="mb-2 text-[12px] text-ink3 bg-surface2 rounded-xl px-3 py-2 border border-line">
-          환경변수(env)로만 변경 가능 — 배포 설정(Render / Vercel)에서 바꾸세요. 런타임 변경은 컴플라이언스 원칙상 차단됩니다.
+          환경변수(env)로만 변경 가능해요. 배포 설정(Render / Vercel)에서 바꾸세요. 런타임 변경은 컴플라이언스 원칙상 차단됩니다.
         </div>
         {flagsLoading && <div className="text-[13px] text-ink3">불러오는 중...</div>}
         {flags && (
@@ -283,7 +283,7 @@ export default function AdminSettingsPage() {
                       <div className="text-[12px] text-ink3">§97 법무 완료 전까지 False 유지</div>
                     )}
                     {key === "ANALYZE_MEDICAL_ENABLED" && (
-                      <div className="text-[12px] text-ink3">병력 수집 — 국외이전 동의 법무 선결 필요</div>
+                      <div className="text-[12px] text-ink3">병력 수집: 국외이전 동의 법무 선결 필요</div>
                     )}
                   </div>
                   <span

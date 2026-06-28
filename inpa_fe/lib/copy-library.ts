@@ -41,7 +41,7 @@ export const COPY_CATEGORIES: CopyCategory[] = [
         id: "referral-thanks",
         title: "감사 인사 + 소개 부탁",
         channel: "kakao",
-        body: "{고객명}님, 늘 믿고 맡겨주셔서 감사해요 🙏 혹시 주변에 보험 정리나 보장 점검이 필요한 분 계실까요? 부담 드리지 않고 한 번 살펴봐 드릴게요. — {설계사명}",
+        body: "{고객명}님, 늘 믿고 맡겨주셔서 감사해요 🙏 혹시 주변에 보험 정리나 보장 점검이 필요한 분 계실까요? 부담 드리지 않고 한 번 살펴봐 드릴게요. {설계사명} 드림",
       },
       {
         id: "referral-trigger",
@@ -153,7 +153,7 @@ export const COPY_CATEGORIES: CopyCategory[] = [
         id: "as-birthday",
         title: "생일 축하",
         channel: "kakao",
-        body: "{고객명}님, 생일 진심으로 축하드려요 🎉 건강하고 좋은 일 가득한 한 해 되시길 바라요. — {설계사명}",
+        body: "{고객명}님, 생일 진심으로 축하드려요 🎉 건강하고 좋은 일 가득한 한 해 되시길 바라요. {설계사명} 드림",
       },
       {
         id: "as-1year",
@@ -165,7 +165,7 @@ export const COPY_CATEGORIES: CopyCategory[] = [
         id: "as-holiday",
         title: "명절 안부",
         channel: "kakao",
-        body: "{고객명}님, 풍성한 명절 보내고 계신가요 🙂 가족과 좋은 시간 보내시고, 늘 건강하시길 바라요. 필요하신 일 있으면 언제든 편하게 연락 주세요. — {설계사명}",
+        body: "{고객명}님, 풍성한 명절 보내고 계신가요 🙂 가족과 좋은 시간 보내시고, 늘 건강하시길 바라요. 필요하신 일 있으면 언제든 편하게 연락 주세요. {설계사명} 드림",
       },
       {
         id: "as-life-event",
@@ -228,7 +228,7 @@ export const COPY_CATEGORIES: CopyCategory[] = [
   {
     key: "result",
     label: "점검 결과 공유",
-    desc: "분석을 마친 뒤 결과를 전달할 때. 갈아타기를 권하지 않고 사실만 — 결정은 고객 몫.",
+    desc: "분석을 마친 뒤 결과를 전달할 때. 갈아타기를 권하지 않고 사실만. 결정은 고객 몫.",
     templates: [
       {
         id: "result-share",
@@ -259,7 +259,7 @@ export const COPY_CATEGORIES: CopyCategory[] = [
         id: "closing-confirm",
         title: "청약 직전 확인",
         channel: "kakao",
-        body: "{고객명}님, 지난번 말씀 주신 방향으로 준비해 두었어요. 진행 전에 한 번 더 확인만 드릴게요 — 궁금하거나 마음에 걸리는 부분 있으면 지금 편하게 말씀 주세요 🙂",
+        body: "{고객명}님, 지난번 말씀 주신 방향으로 준비해 두었어요. 진행 전에 한 번 더 확인만 드릴게요. 궁금하거나 마음에 걸리는 부분 있으면 지금 편하게 말씀 주세요 🙂",
       },
       {
         id: "closing-docs",
@@ -271,7 +271,7 @@ export const COPY_CATEGORIES: CopyCategory[] = [
         id: "closing-thanks",
         title: "청약 후 감사 + 다음 단계",
         channel: "kakao",
-        body: "{고객명}님, 믿고 맡겨주셔서 감사해요 🙏 증권 나오면 바로 전달드리고, 이후에도 갱신·변동 챙겨서 먼저 연락드릴게요. 늘 편하게 연락 주세요. — {설계사명}",
+        body: "{고객명}님, 믿고 맡겨주셔서 감사해요 🙏 증권 나오면 바로 전달드리고, 이후에도 갱신·변동 챙겨서 먼저 연락드릴게요. 늘 편하게 연락 주세요. {설계사명} 드림",
       },
     ],
   },

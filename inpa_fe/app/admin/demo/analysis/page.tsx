@@ -13,7 +13,7 @@ export default function DemoAnalysis() {
   return (
     <div>
       <div className="text-[13px] text-ink3">담보 한눈표 · 설계사 도구</div>
-      <h1 className="text-[22px] font-extrabold text-ink">보장 분석 — 김보장님</h1>
+      <h1 className="text-[22px] font-extrabold text-ink">보장 분석: 김보장님</h1>
 
       <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
         {SUMMARY.map(([l, v]) => (

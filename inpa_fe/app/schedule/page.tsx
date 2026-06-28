@@ -156,7 +156,7 @@ export default function SchedulePage() {
     }
     for (const m of meetings) {
       const t = kstTime(m.start_at);
-      add({ key: kstYmd(m.start_at), time: t || "—", sort: t ? Number(t.replace(":", "")) : 0,
+      add({ key: kstYmd(m.start_at), time: t || "-", sort: t ? Number(t.replace(":", "")) : 0,
         title: `${m.customer_name} · ${m.method_display}`, kind: "meeting", cat: "meeting" });
     }
     for (const n of notifs) {

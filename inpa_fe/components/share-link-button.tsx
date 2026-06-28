@@ -63,7 +63,7 @@ export function ShareLinkButton({ customerId }: { customerId: number }) {
               <button onClick={() => setOpen(false)} aria-label="닫기" className="text-ink3 text-[20px] leading-none px-1">✕</button>
             </div>
             <p className="mt-1 text-[12px] text-ink3 leading-5">
-              고객에게 <b>보장 한눈표(현황)</b>를 보여주는 링크예요. AI 비교안내서가 아니라 보유 보장 공유이고, 자동 발송은 없어요 — 복사해서 직접 전달하세요.
+              고객에게 <b>보장 한눈표(현황)</b>를 보여주는 링크예요. AI 비교안내서가 아니라 보유 보장 공유이고, 자동 발송은 없어요. 복사해서 직접 전달하세요.
             </p>
             <div className="mt-3 flex items-center gap-2">
               <input
@@ -77,7 +77,7 @@ export function ShareLinkButton({ customerId }: { customerId: number }) {
               </button>
             </div>
             <p className="mt-2 text-[11px] text-ink3">
-              만료: {expires ? new Date(expires).toLocaleDateString("ko-KR") : "—"} (90일) · 다시 만들면 이전 링크는 즉시 만료돼요.
+              만료: {expires ? new Date(expires).toLocaleDateString("ko-KR") : "-"} (90일) · 다시 만들면 이전 링크는 즉시 만료돼요.
             </p>
           </div>
         </div>
