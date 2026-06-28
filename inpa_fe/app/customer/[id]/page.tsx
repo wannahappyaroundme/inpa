@@ -960,27 +960,29 @@ function SwitchTab({ customerId }: { customerId: number }) {
   const [publishing, setPublishing] = useState(false);
   const [publishTooltip, setPublishTooltip] = useState(false);
   const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
-  function doCompare() {
+  const doCompare = useCallback(() => {
     setLoading(true);
     setError(null);
     setUpgradeInfo(undefined);
+    setUpgradeOpen(false);
     compareCustomer(customerId)
       .then((d) => setData(d))
       .catch((e: unknown) => {
         if (e instanceof ApiError && e.status === 402) {
           setUpgradeInfo(e.creditBody ?? { kind: "ai_compare" });
+          setUpgradeOpen(true);
         } else {
           setError(e instanceof Error ? e.message : "비교 데이터를 불러오지 못했어요.");
         }
       })
       .finally(() => setLoading(false));
-  }
+  }, [customerId]);
 
   useEffect(() => {
     doCompare();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId]);
+  }, [doCompare]);
 
   // 발행 버튼 — publishable=false 이므로 항상 disabled
   async function handlePublish() {
@@ -1005,15 +1007,15 @@ function SwitchTab({ customerId }: { customerId: number }) {
         <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
           <p className="text-[14px] text-ink3">이번 달 AI 비교안내서 한도를 모두 사용했어요.</p>
           <button
-            onClick={() => setUpgradeInfo(undefined)}
+            onClick={() => setUpgradeOpen(true)}
             className="mt-3 text-[13px] font-semibold text-brand"
           >
-            안내 보기
+            안내 다시 보기
           </button>
         </div>
         <UpgradeModal
-          open
-          onClose={() => setUpgradeInfo(undefined)}
+          open={upgradeOpen}
+          onClose={() => setUpgradeOpen(false)}
           info={upgradeInfo}
         />
       </>
