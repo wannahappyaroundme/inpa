@@ -19,6 +19,7 @@ import {
   ConsentModal,
 } from "@/components/ocr-upload";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { UpgradeModal } from "@/components/upgrade-modal";
 import {
   getHeatmap,
   listCustomers,
@@ -184,6 +185,12 @@ function AnalysisPageInner() {
             loading={ocr.consentLoading}
           />
         )}
+
+        <UpgradeModal
+          open={ocr.phase === "limit_exceeded"}
+          onClose={ocr.dismissUpgrade}
+          info={ocr.upgradeInfo}
+        />
 
         {/* ── neutral 모드 안내 ── */}
         {heatmap?.mode === "neutral" && (

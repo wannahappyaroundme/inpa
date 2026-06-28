@@ -19,14 +19,25 @@ if (typeof window !== "undefined" &&
 
 // ─── Error class ────────────────────────────────────────────────────────────
 
+/** 402 한도초과 응답 추가 필드 (BE: credit_exhausted shape) */
+export interface CreditExhaustedBody {
+  kind?: string;
+  membership?: string;
+  limit?: number | null;
+  used?: number;
+}
+
 export class ApiError extends Error {
   code: string;
   status: number;
-  constructor(status: number, code: string, message: string) {
+  /** 402 credit_exhausted 일 때 BE가 반환하는 추가 필드. 그 외는 undefined. */
+  creditBody?: CreditExhaustedBody;
+  constructor(status: number, code: string, message: string, creditBody?: CreditExhaustedBody) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.creditBody = creditBody;
   }
 }
 
@@ -86,7 +97,17 @@ async function request<T>(
       (data["detail"] as string) ??
       (data["message"] as string) ??
       res.statusText;
-    throw new ApiError(res.status, code, detail);
+    // 402 credit_exhausted: 추가 필드(kind/limit/used) 추출해 ApiError에 첨부
+    const creditBody: CreditExhaustedBody | undefined =
+      res.status === 402 && code === "credit_exhausted"
+        ? {
+            kind: data["kind"] as string | undefined,
+            membership: data["membership"] as string | undefined,
+            limit: data["limit"] as number | null | undefined,
+            used: data["used"] as number | undefined,
+          }
+        : undefined;
+    throw new ApiError(res.status, code, detail, creditBody);
   }
 
   return data as T;

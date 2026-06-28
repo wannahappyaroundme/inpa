@@ -34,6 +34,7 @@ import {
 } from "@/components/ocr-upload";
 import { BookingModal } from "@/components/booking-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 import { ShareLinkButton } from "@/components/share-link-button";
 import { CompareBarChart } from "@/components/charts";
 import {
@@ -149,6 +150,7 @@ function CustomerDetailInner() {
   const [heatmap, setHeatmap] = useState<HeatmapResponse | null>(null);
   const [heatmapLoading, setHeatmapLoading] = useState(false);
   const [heatmapError, setHeatmapError] = useState<string | null>(null);
+  const [heatmapUpgradeInfo, setHeatmapUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
 
   // 히트맵 그리드 UI 상태
   const [graded, setGraded] = useState(true);
@@ -159,12 +161,17 @@ function CustomerDetailInner() {
       setHeatmapLoading(true);
       setHeatmapError(null);
       setHeatmap(null);
+      setHeatmapUpgradeInfo(undefined);
       try {
         setHeatmap(await getHeatmap(id));
       } catch (e: unknown) {
-        setHeatmapError(
-          e instanceof Error ? e.message : "분석 데이터를 불러오지 못했어요."
-        );
+        if (e instanceof ApiError && e.status === 402) {
+          setHeatmapUpgradeInfo(e.creditBody ?? { kind: "analysis" });
+        } else {
+          setHeatmapError(
+            e instanceof Error ? e.message : "분석 데이터를 불러오지 못했어요."
+          );
+        }
       } finally {
         setHeatmapLoading(false);
       }
@@ -245,6 +252,13 @@ function CustomerDetailInner() {
   return (
     <div className="min-h-dvh">
       <AppNav active="customers" />
+
+      <UpgradeModal
+        open={heatmapUpgradeInfo !== undefined}
+        onClose={() => setHeatmapUpgradeInfo(undefined)}
+        info={heatmapUpgradeInfo}
+      />
+
       <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
         {/* 뒤로 */}
         <Link
@@ -831,6 +845,12 @@ function AnalysisTab({
         />
       )}
 
+      <UpgradeModal
+        open={ocr.phase === "limit_exceeded"}
+        onClose={ocr.dismissUpgrade}
+        info={ocr.upgradeInfo}
+      />
+
       {/* neutral 안내 */}
       {heatmap?.mode === "neutral" && (
         <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface2 px-4 py-3">
@@ -939,16 +959,27 @@ function SwitchTab({ customerId }: { customerId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishTooltip, setPublishTooltip] = useState(false);
+  const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
 
-  useEffect(() => {
+  function doCompare() {
     setLoading(true);
     setError(null);
+    setUpgradeInfo(undefined);
     compareCustomer(customerId)
       .then((d) => setData(d))
       .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : "비교 데이터를 불러오지 못했어요.");
+        if (e instanceof ApiError && e.status === 402) {
+          setUpgradeInfo(e.creditBody ?? { kind: "ai_compare" });
+        } else {
+          setError(e instanceof Error ? e.message : "비교 데이터를 불러오지 못했어요.");
+        }
       })
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    doCompare();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
 
   // 발행 버튼 — publishable=false 이므로 항상 disabled
@@ -968,19 +999,33 @@ function SwitchTab({ customerId }: { customerId: number }) {
     );
   }
 
+  if (upgradeInfo !== undefined) {
+    return (
+      <>
+        <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
+          <p className="text-[14px] text-ink3">이번 달 AI 비교안내서 한도를 모두 사용했어요.</p>
+          <button
+            onClick={() => setUpgradeInfo(undefined)}
+            className="mt-3 text-[13px] font-semibold text-brand"
+          >
+            안내 보기
+          </button>
+        </div>
+        <UpgradeModal
+          open
+          onClose={() => setUpgradeInfo(undefined)}
+          info={upgradeInfo}
+        />
+      </>
+    );
+  }
+
   if (error || !data) {
     return (
       <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
         <p className="text-[14px] text-ink3">{error ?? "데이터 없음"}</p>
         <button
-          onClick={() => {
-            setLoading(true);
-            setError(null);
-            compareCustomer(customerId)
-              .then((d) => setData(d))
-              .catch((e: unknown) => setError(e instanceof Error ? e.message : "오류"))
-              .finally(() => setLoading(false));
-          }}
+          onClick={doCompare}
           className="mt-3 text-[13px] font-semibold text-brand"
         >
           다시 시도
