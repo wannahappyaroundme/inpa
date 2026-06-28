@@ -377,7 +377,7 @@ export default function SampleDetailPage({
                 <img
                   src={currentImage.url}
                   alt={sample.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-surface2 text-muted text-[13px]">
@@ -403,7 +403,7 @@ export default function SampleDetailPage({
                     <img
                       src={img.url}
                       alt=""
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   </button>
                 ))}
