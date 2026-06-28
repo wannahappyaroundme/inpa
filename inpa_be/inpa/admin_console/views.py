@@ -17,6 +17,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.throttling import ScopedRateThrottle
 
 from inpa.analysis.models import NormalizationDict, UnmatchedLog
 from inpa.billing.models import Plan, Subscription, UsageMeter
@@ -816,9 +817,13 @@ class AdminLoginView(APIView):
     authentication_classes = []  # 공개 로그인 — 전역 TokenAuthentication 비활성화.
     # (브라우저 localStorage 의 헌 토큰이 로그인 요청에 실리면 뷰 실행 전 401 로 막히던 버그 방지.)
     permission_classes = []  # AllowAny
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'admin_login'  # 무차별 대입 방어(IP 기준)
 
     def post(self, request):
+        from django.conf import settings as dj_settings
         from django.contrib.auth import authenticate
+        from django.core.cache import cache
         from rest_framework.authtoken.models import Token
 
         email = (request.data.get('email') or '').lower().strip()
@@ -830,12 +835,23 @@ class AdminLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # 무차별 대입 잠금 — 일반 로그인(LoginView)과 동일 정책. 관리자 자격은 최고가치라 필수.
+        lock_key = f'admin-login-fail:{email}'
+        if cache.get(lock_key, 0) >= dj_settings.LOGIN_MAX_ATTEMPTS:
+            return Response(
+                {'code': 'ACCOUNT_LOCKED', 'detail': '로그인 시도가 많아 잠겼습니다. 10분 후 다시 시도하세요.'},
+                status=status.HTTP_423_LOCKED,
+            )
+
         user = authenticate(request, username=email, password=password)
         if user is None:
+            fails = cache.get(lock_key, 0) + 1
+            cache.set(lock_key, fails, dj_settings.LOGIN_LOCKOUT_SECONDS)
             return Response(
                 {'code': 'INVALID_CREDENTIALS', 'detail': '이메일 또는 비밀번호가 올바르지 않습니다.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        cache.delete(lock_key)  # 비밀번호 정답 → 실패 카운터 해제
 
         # is_admin 게이트 — 설계사 계정으로 admin 콘솔 접근 차단
         profile = getattr(user, 'profile', None)

@@ -112,8 +112,19 @@ REST_FRAMEWORK = {
         'self_diagnosis': '5/hour',
         'consent_public': '10/hour',  # 고객 본인 동의 공개 경로(P3c) — 남용 방어
         'booking_public': '20/hour',  # 미팅 예약 공개 경로 — 슬롯 조회+예약(읽기 잦음)
+        'ocr': '20/hour',             # 인증 OCR(Claude Opus) 비용폭탄 방어 — 유저별
+        'share_public': '60/hour',    # 공유뷰 /s/ — DB write/연산 증폭 DoS 방어
+        'auth_email': '5/hour',       # 가입/인증재발송/비번재설정 — 이메일 폭탄 방어
+        'admin_login': '5/min',       # 관리자 로그인 무차별 대입 방어(IP 기준)
     },
 }
+
+# 테스트 실행 시 throttle 비활성 — 다수 테스트가 rate limit에 걸리는 것 방지(실동작은 보안 테스트로 별도 검증).
+import sys as _sys  # noqa: E402
+if 'test' in _sys.argv:
+    REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = {
+        k: None for k in REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']
+    }
 
 # ── 토큰 TTL / 로그인 잠금 (dev/02 §2.3, dev/11 정본) ────────────
 # 비밀번호 재설정: default_token_generator + 이 타임아웃(1h)

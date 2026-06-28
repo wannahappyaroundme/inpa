@@ -9,7 +9,10 @@
 
 엔드포인트: POST /api/v1/d/<refcode>/  (AllowAny, multipart: file=PDF)
 """
+import re
+
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
@@ -98,6 +101,19 @@ class SelfDiagnosisView(APIView):
             return Response({'code': 'OCR_UNAVAILABLE', 'detail': 'OCR 분석이 현재 비활성화되어 있습니다.'},
                             status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        # 5.5) ★ refcode 일일 '파싱 시도' 상한 — 동일 phone 재사용으로 DB 리드수 캡(57-64)을
+        #      우회하는 비용폭탄을 차단. prod는 DatabaseCache(워커 공유)라 정확. 비싼 호출 직전에 증가·검사.
+        attempt_key = f'selfdiag-attempts:{refcode}:{today.isoformat()}'
+        if cache.get(attempt_key, 0) >= SELF_DIAG_DAILY_CAP_PER_REF:
+            return Response(
+                {'code': 'DAILY_LIMIT', 'detail': '오늘 이 링크의 진단 한도를 초과했습니다. 내일 다시 시도해 주세요.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS)
+        cache.add(attempt_key, 0, 60 * 60 * 24)
+        try:
+            cache.incr(attempt_key)
+        except ValueError:
+            cache.set(attempt_key, 1, 60 * 60 * 24)
+
         # 6) Claude 파싱 (정규화 훅 주입 — 로그인과 동일)
         ocr_data = claude_parse(lines, normalizer=_build_normalizer())
         if ocr_data is None:
@@ -108,6 +124,10 @@ class SelfDiagnosisView(APIView):
         ip = request.META.get('REMOTE_ADDR')
         name = (request.data.get('name') or '').strip() or '셀프진단 잠재고객'
         phone = (request.data.get('phone') or '').strip()
+        # 전화번호 형식 검증 — 매번 다른 무작위 phone으로 가짜 리드·알림을 주입하는 스팸 차단.
+        if phone and not re.fullmatch(r'01[0-9]{8,9}', re.sub(r'[^0-9]', '', phone)):
+            return Response({'code': 'INVALID_PHONE', 'detail': '올바른 휴대폰 번호 형식이 아니에요.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         with transaction.atomic():
             # 같은 phone+설계사 셀프진단 리드가 이미 있으면 재사용(CRM 중복 오염 방지).
             customer = None

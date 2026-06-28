@@ -29,6 +29,7 @@ from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.response import Response
 
 from inpa.analysis.models import (
@@ -307,6 +308,8 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
     POST /api/v1/customers/<customer_pk>/insurances/ocr/   (multipart: file=PDF)
     """
     permission_classes = [IsAuthenticated, IsEmailVerified]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'ocr'  # Claude Opus 비용폭탄 방어 — 유저별 시간당 상한
     parser_classes = [MultiPartParser, FormParser]
     parent_lookup = 'customer_pk'
 

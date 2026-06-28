@@ -19,6 +19,7 @@
 """
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -91,6 +92,8 @@ class ShareAnalysisView(_NoIndexMixin, APIView):
     """
     permission_classes = [AllowAny]
     authentication_classes = []  # 공개 — 인증 시도 자체 없음
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'share_public'  # DB write/연산 증폭 DoS 방어(유포된 링크 1개로 반복호출 차단)
 
     def get(self, request, token):
         # ── 1) 토큰 조회 (없음/형식오류 → 404, 존재 은폐) ──────────────
@@ -215,6 +218,8 @@ class ShareEventView(_NoIndexMixin, APIView):
     """
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'share_public'  # 무제한 NorthStarEvent 적재(KPI 오염·디스크 소모) 방어
 
     # 비인증 공유뷰에서 적재 허용하는 이벤트(화이트리스트) — 임의 이벤트 위조 차단
     _PUBLIC_ALLOWED = frozenset({NorthStarEvent.CLIPBOARD_COPY})

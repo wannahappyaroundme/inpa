@@ -19,6 +19,21 @@ if SECRET_KEY == 'dev-insecure-change-me':  # noqa: F405
         "(생성: python3 -c \"import secrets; print(secrets.token_urlsafe(64))\")"
     )
 
+# ── 보안 하드닝 (보안 감사 2026-06-28) ─────────────────────────────
+# (1) DRF NUM_PROXIES — Render 역방향 프록시 1단 뒤. throttle/감사 IP가 X-Forwarded-For의
+#     '끝에서 1번째'(실 클라이언트)만 신뢰 → XFF 위조로 throttle 우회하는 공격 차단.
+REST_FRAMEWORK = {**REST_FRAMEWORK, 'NUM_PROXIES': 1}  # noqa: F405
+
+# (2) CACHES — 운영은 DatabaseCache(Postgres)로 throttle·로그인 잠금 카운터를 워커/인스턴스 간
+#     공유. base 기본 LocMemCache는 gunicorn --workers 2에서 워커별이라 상한이 배수로 샌다.
+#     ★ 배포 startCommand에서 `python manage.py createcachetable` 실행 필요(멱등). Redis 도입 시 교체.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'inpa_cache_table',
+    }
+}
+
 # ── 호스트 / 오리진 (전부 env 주입) ───────────────────────────────
 # Render 도메인·커스텀 도메인을 콤마로 구분해 ALLOWED_HOSTS 에 넣는다.
 # (Render 도메인은 RENDER_EXTERNAL_HOSTNAME 으로 자동 추가됨 — 아래 참조)
