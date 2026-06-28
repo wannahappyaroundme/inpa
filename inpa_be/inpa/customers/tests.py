@@ -669,6 +669,21 @@ class DdayAutoUpdateTests(TestCase):
         self.cust.refresh_from_db()
         self.assertEqual(self.cust.last_contacted_at, original_ts)
 
+    def test_patch_sales_stage_meeting_sets_fa_reached_at_once(self):
+        """칸반 FA 이동(PATCH sales_stage=meeting) → fa_reached_at 기록, 재이동엔 불변."""
+        self.assertIsNone(self.cust.fa_reached_at)
+        r = self.client.patch(f'/api/v1/customers/{self.cust.id}/',
+                             {'sales_stage': 'meeting'}, format='json')
+        self.assertEqual(r.status_code, 200)
+        self.cust.refresh_from_db()
+        self.assertIsNotNone(self.cust.fa_reached_at)
+        first = self.cust.fa_reached_at
+        # 청약 → 다시 FA: 최초 시각 보존(중복 카운트 방지)
+        self.client.patch(f'/api/v1/customers/{self.cust.id}/', {'sales_stage': 'contract'}, format='json')
+        self.client.patch(f'/api/v1/customers/{self.cust.id}/', {'sales_stage': 'meeting'}, format='json')
+        self.cust.refresh_from_db()
+        self.assertEqual(self.cust.fa_reached_at, first)
+
 
 class JobSearchTests(TestCase):
     """직업급수 검색(전역 마스터) + 고객 job_code 적용."""

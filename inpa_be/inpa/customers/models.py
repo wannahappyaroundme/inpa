@@ -14,6 +14,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 def compute_insurance_age(birth_day, as_of=None):
@@ -114,6 +115,10 @@ class Customer(models.Model):
     sales_stage = models.CharField('영업 단계', max_length=10,
                                    choices=SALES_STAGE_CHOICES, default=STAGE_DB,
                                    db_index=True)
+    # FA(대면) 단계에 '처음' 도달한 시각 — '이번 달 미팅' 실적의 기준.
+    # 최초 1회만 기록(save() 훅). 재이동(FA→청약→FA 등)·DB↔TA↔FA 왕복은 중복 카운트 안 됨.
+    fa_reached_at = models.DateTimeField('FA 최초 도달 시각', null=True, blank=True,
+                                         default=None, db_index=True)
 
     # ── 태그 (설계사 자유 분류) ────────────────────────────────────
     tags = models.ManyToManyField('CustomerTag', blank=True, related_name='customers')
@@ -137,6 +142,13 @@ class Customer(models.Model):
             models.Index(fields=['owner', '-created_at']),
             models.Index(fields=['owner', 'name']),
         ]
+
+    def save(self, *args, **kwargs):
+        # FA(meeting) 최초 도달 시각 기록 — 한 번만(이미 있으면 보존).
+        # create/update/모든 경로(serializer.save → model.save) 공통 적용.
+        if self.sales_stage == self.STAGE_MEETING and self.fa_reached_at is None:
+            self.fa_reached_at = timezone.now()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
