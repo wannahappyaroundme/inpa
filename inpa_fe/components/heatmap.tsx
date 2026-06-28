@@ -216,6 +216,15 @@ export function HeatmapGrid({
     }))
     .filter((cat) => cat.sub_categories.length > 0);
 
+  // 카테고리별 '보유 담보 수'(held_amount>0) — 배지에 표시(보장 내역과 일치, 필터 무관 전체 기준).
+  const heldByCat = new Map<number, number>();
+  for (const cat of heatmap.tree) {
+    let n = 0;
+    for (const sub of cat.sub_categories)
+      for (const d of sub.details) if ((d.held_amount ?? 0) > 0) n++;
+    heldByCat.set(cat.category_id, n);
+  }
+
   return (
     <div>
       {/* BE 판정 모드 안내 (PM 06.24 — graded 가 왜 켜졌는지 명확화) */}
@@ -306,7 +315,7 @@ export function HeatmapGrid({
                 <div className="mb-2 flex items-center gap-2">
                   <h2 className="text-[14px] font-bold text-ink">{cat.name}</h2>
                   <span className="text-[11px] text-ink3 bg-surface2 border border-line rounded-full px-2 py-0.5">
-                    {cat.insurance_type}
+                    보유 {heldByCat.get(cat.category_id) ?? 0}개
                   </span>
                 </div>
 
