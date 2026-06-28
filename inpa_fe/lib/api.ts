@@ -282,6 +282,8 @@ export interface ProfileResponse {
   booking_msg_template: string;
   booking_location: string;
   booking_default_duration: number;
+  booking_buffer_min: number;   // 미팅 앞뒤 여유(분)
+  title: string;                // 직책({소속직책} 머지필드용)
   google_calendar_connected: boolean;
   google_calendar_mask_name: boolean;
   has_usable_password: boolean;   // false=구글 전용 가입(비번 없음) → 비번변경 숨김·탈퇴는 이메일 확인
@@ -301,6 +303,7 @@ export async function getProfile(): Promise<ProfileResponse> {
 /** PATCH /api/v1/auth/profile/ — 모드·동의·매니저 연결 변경 */
 export interface ProfileUpdatePayload {
   name?: string;
+  affiliation?: string;
   affiliation_type?: number | null;
   cohort_opt_in?: boolean;
   manager_share_opt_in?: boolean;
@@ -308,6 +311,8 @@ export interface ProfileUpdatePayload {
   booking_msg_template?: string;
   booking_location?: string;
   booking_default_duration?: number;
+  booking_buffer_min?: number;
+  title?: string;
   google_calendar_mask_name?: boolean;
 }
 export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
@@ -1235,7 +1240,8 @@ export type NotifType =
   | "unpaid_d_alert"
   | "self_diagnosis_lead"
   | "board_comment"
-  | "board_like";
+  | "board_like"
+  | "meeting_booked";
 
 export interface NotificationItem {
   id: number;
@@ -1246,6 +1252,8 @@ export interface NotificationItem {
   customer: number | null;
   customer_name: string | null;
   calendar_event_id: number | null;
+  meeting: number | null;              // 미팅 예약 알림의 수락/거절 대상
+  meeting_status: MeetingStatus | null; // 'pending'이면 수락/거절 버튼 노출
   is_read: boolean;
   created_at: string;
 }
@@ -1715,6 +1723,8 @@ export interface MeetingSlot {
   created_at: string;
 }
 
+export type MeetingStatus = "pending" | "confirmed" | "canceled" | "declined";
+
 export interface Meeting {
   id: number;
   customer: number | null;
@@ -1726,7 +1736,17 @@ export interface Meeting {
   method_display: string;
   location_detail: string;
   customer_note: string;
-  status: "confirmed" | "canceled";
+  status: MeetingStatus;
+  status_display: string;
+  created_at: string;
+}
+
+// 설계사 주간 업무시간(반복). 이 시간 안에서 빈 시간을 고객에게 자동 노출.
+export interface WorkHour {
+  id: number;
+  weekday: number;      // 0=월 … 6=일
+  start_time: string;   // "HH:MM[:SS]" (KST 벽시계)
+  end_time: string;
   created_at: string;
 }
 
@@ -1738,9 +1758,10 @@ export interface BookingRequestResponse {
 
 export interface PublicBookingInfo {
   customer: { name_masked: string };
-  planner: { affiliation: string; location: string };
+  planner: { affiliation: string; name: string };
   methods: { key: MeetingMethod; label: string }[];
-  slots: { id: number; start_at: string; duration_min: number }[];
+  duration_min: number;
+  slots: { start_at: string; duration_min: number }[];
   disclaimer: string;
 }
 
@@ -1774,6 +1795,41 @@ export async function listMeetings(upcoming = false): Promise<PaginatedResult<Me
 /** POST /api/v1/meetings/<id>/cancel/ — 미팅 취소(인증) */
 export async function cancelMeeting(id: number): Promise<Meeting> {
   return request<Meeting>("POST", `/meetings/${id}/cancel/`, undefined, true);
+}
+
+/** GET /api/v1/meetings/?status=pending — 수락 대기 중인 예약 신청(인증) */
+export async function listPendingMeetings(): Promise<PaginatedResult<Meeting>> {
+  return request<PaginatedResult<Meeting>>("GET", "/meetings/?status=pending", undefined, true);
+}
+
+/** POST /api/v1/meetings/<id>/accept/ — 예약 신청 수락(확정 + 캘린더 등록) */
+export async function acceptMeeting(id: number): Promise<Meeting> {
+  return request<Meeting>("POST", `/meetings/${id}/accept/`, undefined, true);
+}
+
+/** POST /api/v1/meetings/<id>/decline/ — 예약 신청 거절(그 시간 다시 비움) */
+export async function declineMeeting(id: number): Promise<Meeting> {
+  return request<Meeting>("POST", `/meetings/${id}/decline/`, undefined, true);
+}
+
+// ── 업무시간(WorkHour) — 빈 시간 자동 노출의 기준 ──────────────────────────
+/** GET /api/v1/work-hours/ — 내 주간 업무시간(인증) */
+export async function listWorkHours(): Promise<PaginatedResult<WorkHour>> {
+  return request<PaginatedResult<WorkHour>>("GET", "/work-hours/", undefined, true);
+}
+
+/** POST /api/v1/work-hours/ — 업무시간 추가(인증). start/end는 "HH:mm" 벽시계 */
+export async function createWorkHour(payload: {
+  weekday: number;
+  start_time: string;
+  end_time: string;
+}): Promise<WorkHour> {
+  return request<WorkHour>("POST", "/work-hours/", payload, true);
+}
+
+/** DELETE /api/v1/work-hours/<id>/ — 업무시간 삭제(인증) */
+export async function deleteWorkHour(id: number): Promise<void> {
+  await requestVoid("DELETE", `/work-hours/${id}/`, true);
 }
 
 // ── 개인 일정(schedule) — 일정/할일/고정 차단 ──────────────────────────────
@@ -1867,11 +1923,11 @@ export async function getBookingInfo(token: string): Promise<PublicBookingInfo> 
   return data as PublicBookingInfo;
 }
 
-/** POST /api/v1/b/<token>/ — 고객이 슬롯 예약 제출(공개, 비인증). 409=이미 예약됨 */
+/** POST /api/v1/b/<token>/ — 고객이 시간 신청(공개, 비인증). 409=그 시간이 마감/충돌 */
 export async function submitBooking(
   token: string,
-  payload: { slot_id: number; method: MeetingMethod; note?: string }
-): Promise<{ confirmed: boolean; start_at: string; method: MeetingMethod; location_detail: string }> {
+  payload: { start_at: string; method: MeetingMethod; note?: string }
+): Promise<{ requested: boolean; status: MeetingStatus; start_at: string; method: MeetingMethod }> {
   const res = await fetch(`${API_BASE}/b/${encodeURIComponent(token)}/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1880,9 +1936,9 @@ export async function submitBooking(
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new ApiError(res.status, (data as { code?: string }).code ?? "ERROR",
-      (data as { detail?: string }).detail ?? "예약에 실패했어요.");
+      (data as { detail?: string }).detail ?? "신청에 실패했어요.");
   }
-  return data as { confirmed: boolean; start_at: string; method: MeetingMethod; location_detail: string };
+  return data as { requested: boolean; status: MeetingStatus; start_at: string; method: MeetingMethod };
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -10,6 +10,8 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
   deleteNotification,
+  acceptMeeting,
+  declineMeeting,
   type NotificationItem,
   type NotifType,
 } from "@/lib/api";
@@ -29,6 +31,7 @@ const NOTIF_META: Record<
   self_diagnosis_lead: { icon: "🎯", colorClass: "text-brand",                            label: "셀프진단 리드" },
   board_comment:     { icon: "💬", colorClass: "text-brand",                              label: "댓글" },
   board_like:        { icon: "❤️",  colorClass: "text-danger",                            label: "좋아요" },
+  meeting_booked:    { icon: "📅", colorClass: "text-brand",                              label: "예약 요청" },
 };
 
 // ─── 날짜 그룹 분류 ────────────────────────────────────────────────────────────
@@ -78,10 +81,14 @@ function NotifCard({
   item,
   onRead,
   onDelete,
+  onAccept,
+  onDecline,
 }: {
   item: NotificationItem;
   onRead: (id: number) => void;
   onDelete: (id: number) => void;
+  onAccept: (item: NotificationItem) => void;
+  onDecline: (item: NotificationItem) => void;
 }) {
   const meta = NOTIF_META[item.notif_type] ?? NOTIF_META["consult_reminder"];
 
@@ -183,6 +190,30 @@ function NotifCard({
                   캘린더에서 보기 →
                 </Link>
               )}
+              {/* 예약 요청 — 대기면 수락/거절, 처리됐으면 상태 표시 */}
+              {item.notif_type === "meeting_booked" && item.meeting && item.meeting_status === "pending" && (
+                <>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onAccept(item); }}
+                    className="rounded-lg bg-brand text-white text-[12px] font-bold px-3 py-1.5"
+                  >
+                    수락
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDecline(item); }}
+                    className="rounded-lg border border-line text-ink2 text-[12px] font-semibold px-3 py-1.5 hover:bg-surface2"
+                  >
+                    거절
+                  </button>
+                </>
+              )}
+              {item.notif_type === "meeting_booked" && item.meeting_status && item.meeting_status !== "pending" && (
+                <span className="text-[12px] font-semibold text-ink3">
+                  {item.meeting_status === "confirmed" ? "수락함 ✓"
+                    : item.meeting_status === "declined" ? "거절함"
+                    : "취소됨"}
+                </span>
+              )}
             </div>
           </div>
 
@@ -251,6 +282,28 @@ function NotificationsContent() {
       setItems((prev) => prev.filter((n) => n.id !== id));
     } catch {
       // 삭제 실패 — 조용히 처리
+    }
+  }, []);
+
+  const handleAccept = useCallback(async (item: NotificationItem) => {
+    if (!item.meeting) return;
+    try {
+      await acceptMeeting(item.meeting);
+      setItems((prev) => prev.map((n) =>
+        n.id === item.id ? { ...n, meeting_status: "confirmed", is_read: true } : n));
+    } catch {
+      // 실패 — 조용히 처리(다시 시도 가능)
+    }
+  }, []);
+
+  const handleDecline = useCallback(async (item: NotificationItem) => {
+    if (!item.meeting) return;
+    try {
+      await declineMeeting(item.meeting);
+      setItems((prev) => prev.map((n) =>
+        n.id === item.id ? { ...n, meeting_status: "declined", is_read: true } : n));
+    } catch {
+      // 실패 — 조용히 처리
     }
   }, []);
 
@@ -374,6 +427,8 @@ function NotificationsContent() {
                     item={item}
                     onRead={handleRead}
                     onDelete={handleDelete}
+                    onAccept={handleAccept}
+                    onDecline={handleDecline}
                   />
                 ))}
               </div>

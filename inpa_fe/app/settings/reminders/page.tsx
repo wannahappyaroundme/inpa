@@ -62,6 +62,7 @@ const DEFAULT_DAYS: Record<NotifType, number> = {
   self_diagnosis_lead: 0,   // 즉시 이벤트. 자리값.
   board_comment: 0,
   board_like: 0,
+  meeting_booked: 0,        // 즉시 이벤트(예약 요청). 스케줄 대상 아님 — 자리값.
 };
 
 type LocalRule = {

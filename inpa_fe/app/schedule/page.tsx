@@ -15,6 +15,7 @@ import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listScheduleItems, createScheduleItem, updateScheduleItem, deleteScheduleItem,
   toggleScheduleDone, listMeetings, listCustomers,
+  listPendingMeetings, acceptMeeting, declineMeeting,
   ApiError,
   type ScheduleItem, type ScheduleKind, type ScheduleCategory,
   type Meeting,
@@ -60,6 +61,15 @@ function kstTime(iso: string): string {
 }
 // JS getDay()(0=일) → 모델 recur_weekday(0=월..6=일)
 function pyWeekday(d: Date): number { return (d.getDay() + 6) % 7; }
+
+function fmtMeetingTime(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("ko-KR", {
+      month: "long", day: "numeric", weekday: "short",
+      hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul",
+    }).format(new Date(iso));
+  } catch { return iso; }
+}
 // datetime-local 값(로컬=KST) → ISO(UTC)
 function localToIso(v: string): string { return new Date(v).toISOString(); }
 // 날짜만(YYYY-MM-DD) → KST 정오 ISO (all_day/시각없는 todo — 날짜 불변 보장)
@@ -91,6 +101,7 @@ export default function SchedulePage() {
   const ready = useAuthGuard();
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [pending, setPending] = useState<Meeting[]>([]);
   const [customers, setCustomers] = useState<CustomerListItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
@@ -109,7 +120,17 @@ export default function SchedulePage() {
     listScheduleItems({ month: monthStr })
       .then((r) => setItems(r.results)).catch(() => setItems([]));
     listMeetings(true).then((r) => setMeetings(r.results)).catch(() => setMeetings([]));
+    listPendingMeetings().then((r) => setPending(r.results)).catch(() => setPending([]));
   }, [monthStr]);
+
+  const acceptPending = useCallback(async (id: number) => {
+    setPending((p) => p.filter((m) => m.id !== id));
+    try { await acceptMeeting(id); load(); } catch { load(); }
+  }, [load]);
+  const declinePending = useCallback(async (id: number) => {
+    setPending((p) => p.filter((m) => m.id !== id));
+    try { await declineMeeting(id); } catch { load(); }
+  }, [load]);
 
   useEffect(() => { if (ready) load(); }, [ready, load]);
   useEffect(() => {
@@ -245,6 +266,28 @@ export default function SchedulePage() {
           <button onClick={() => router.push("/settings/meetings")}
             className="text-[13px] font-semibold text-brand">예약(가용시간) 관리 →</button>
         </div>
+
+        {/* 예약 요청(대기) — 알림을 놓쳐도 여기서 수락/거절 */}
+        {pending.length > 0 && (
+          <Card className="mb-4 p-4 border-brand/30">
+            <div className="text-[14px] font-bold text-ink">예약 요청 {pending.length}건 · 수락 대기</div>
+            <p className="mt-0.5 text-[12px] text-ink3">고객이 신청한 시간이에요. 수락하면 일정에 확정됩니다.</p>
+            <div className="mt-3 space-y-2">
+              {pending.map((m) => (
+                <div key={m.id} className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14px] font-semibold text-ink truncate">{m.customer_name} · {m.method_display}</div>
+                    <div className="text-[12px] text-ink3">{fmtMeetingTime(m.start_at)}</div>
+                  </div>
+                  <button onClick={() => acceptPending(m.id)}
+                    className="shrink-0 rounded-lg bg-brand text-white text-[12px] font-bold px-3 py-1.5">수락</button>
+                  <button onClick={() => declinePending(m.id)}
+                    className="shrink-0 rounded-lg border border-line text-ink2 text-[12px] font-semibold px-3 py-1.5 hover:bg-surface2">거절</button>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
         {err && !modal && (
           <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-[13px] text-rose-700">{err}</div>
         )}
