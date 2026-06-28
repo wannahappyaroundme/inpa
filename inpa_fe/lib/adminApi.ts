@@ -109,6 +109,27 @@ export async function adminLogout(): Promise<void> {
   tokenStore.remove();
 }
 
+// ─── Usage Tracking (사용량 트래킹) ───────────────────────────────────────────
+
+export interface AdminUsageUser {
+  user_id: number;
+  email: string;
+  name: string;
+  total: number;
+  events: Record<string, number>; // event_type → count
+}
+export interface AdminUsageResponse {
+  days: number;
+  active_users: number;
+  feature_totals: Record<string, number>; // event_type → 전체 합
+  users: AdminUsageUser[]; // 사용량 내림차순(데모 @inpa.local 제외)
+}
+
+/** GET /api/v1/admin/usage/?days= — 설계사별 기능 사용량 집계(데모 제외) */
+export async function adminGetUsage(days = 30): Promise<AdminUsageResponse> {
+  return req<AdminUsageResponse>("GET", `/admin/usage/?days=${days}`);
+}
+
 // ─── User Detail ─────────────────────────────────────────────────────────────
 
 export interface AdminUserDetail {
