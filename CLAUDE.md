@@ -3,11 +3,12 @@
 > **Inpa (인파) = Insure + Partner.** AI sales-support web app for individually-contracted insurance planners (원수사/GA 위촉직). Code ported/reused from `~/Desktop/foliio` (Foliio analysis edition).
 > **This file is the development SSOT, written for the AI coding agent.** The human PM does NOT read this — they read `README.md` (Korean, PM-facing). Keep this file English + dense + current; keep README Korean + PM-facing. PM communicates in Korean → reply to the PM in Korean even though this guide is English.
 
-## Current state (as of 2026-06-28)
-- **Phase 1 in progress.** Monorepo: `inpa_be/` (Django 4.2 + DRF, Python 3.11, 13 apps) + `inpa_fe/` (Next.js 16 + React 19 + TS + Tailwind; 60+ routes: public/auth/admin).
-- **Deployed & live:** BE → Render (`https://inpa-be.onrender.com`, `/healthz/` returns `{"status":"ok"}`, DEBUG=False verified), FE → Vercel, DB → Neon Postgres, email → Resend. New-signup → OCR-upload flow runs in prod. (Render free tier sleeps when idle → first request is slow.)
-- **Working:** Google (social login + calendar), meeting booking, personal schedule, consent flows, customer sales pipeline (kanban), OCR → coverage normalization → heatmap, dashboards (retention + manager ROI).
+## Current state (as of 2026-06-28, after PRs #1–11 merged & deployed)
+- **Phase 1 in progress.** Monorepo: `inpa_be/` (Django 4.2 + DRF, Python 3.11, 13 apps) + `inpa_fe/` (Next.js 16 + React 19 + TS + Tailwind; ~55 routes: public/auth/admin).
+- **Deployed & live:** BE → Render (`https://inpa-be.onrender.com`, `/healthz/` → `{"status":"ok","service":"inpa-be"}`, DEBUG=False), FE → Vercel (`https://in-pa.vercel.app`), DB → Neon Postgres, email → Resend. **Deploy workflow = PR feat→master** (feat branch `feat/benchmark-ui-revamp` is reused across rounds; merge auto-deploys Vercel+Render). Render free tier sleeps when idle → first request slow.
+- **Working:** Google (social login + calendar), meeting booking, personal schedule, consent flows, customer sales pipeline (kanban), OCR → coverage normalization → heatmap, dashboards (retention + manager ROI), 직업급수(job-grade) search, planner script/talk library.
 - **Compliance gates CLOSED via env** until legal review: medical-history collection, §97 comparison-doc publishing, overseas (Claude API) transfer.
+- **Shipped this session (PRs #9–11):** Round-2 UI revamp (2-row customer card + D-Day auto-update, monthly-premium chart w/ target·avg lines, heatmap coverage-only toggle + 2-tier filter chips, script-library expansion, booking-settings layout); **직업급수 707 import + `/jobs/search/`** + registration-modal job search & bottom-sheet drag; **em-dash purge from all user-facing copy** + beta→"first-signup 1-month coupon" landing; **"이번 달 미팅" redefined to FA-first-reach** (`fa_reached_at`, dedup, booking-independent); dashboard notifications removed (top-right bell only) + calendar legend reduced to 4 kinds.
 
 ## Context
 - **Target users:** individually-contracted planners (sole proprietors) at carriers/GAs. Priority 1 = new planners (desperate for lead-gen); priority 2 = mid-career (management).
@@ -33,7 +34,7 @@ Monorepo — run BE commands in `inpa_be/`, FE in `inpa_fe/`.
 - Migrations: `python manage.py makemigrations` → `migrate`.
 - Tests: all = `python manage.py test inpa`; app = `python manage.py test inpa.booking`; single = `python manage.py test inpa.accounts.tests.LoginTests.test_x`.
 - Pre-deploy check (required): `python manage.py check`.
-- Seeds (idempotent): `seed_demo` (demo data — manual only, NOT in deploy), `seed_normalization` (coverage dict — Render runs this on every deploy), `create_admin` (back-office admin).
+- Seeds (idempotent): `seed_demo` (demo data — manual only, NOT in deploy), `seed_normalization` (coverage dict — Render runs every deploy), `seed_jobs` (직업급수 707-row JobRiskCode from `inpa/customers/data/job_risk_codes.json` — Render runs every deploy, bulk upsert), `create_admin` (back-office admin). Render `startCommand` chain = `migrate → seed_normalization → seed_jobs → gunicorn`.
 - Django admin `/admin/`. Ops back-office = separate `admin_console` API + FE `/admin/*`.
 
 ### Frontend (`inpa_fe/`, Node 20)
@@ -56,11 +57,14 @@ Browser → Next page (`inpa_fe/app/**`) → **`inpa_fe/lib/api.ts`** (single BE
 ### Django app map (`inpa_be/inpa/`, 13 apps; `core` is a shared package)
 - `accounts` — User (email PK), Profile, auth (signup / email-verify / login-lock / password-reset / password-change / withdrawal), Google (`google.py` social login, `google_calendar.py`), onboarding, manager dashboard (`manager.py`).
 - `customers` — customer CRUD; consent log (`ConsentLog`); customer-self public consent (`public_consent.py` `/c/<token>`); baseline presets (`presets.py`). `sales_stage` (db/contact/meeting/contract → shown DB/TA/FA/청약); favorite/pin/last-contact (staleness color alert); avatar color; business card; insurance age (`compute_insurance_age`); contract disclosure checklist (`ContractChecklistItem`, `/customers/<id>/checklist/`).
+  - **D-Day auto-update** (`views.py::CustomerViewSet.perform_update`, `SUBSTANTIVE` set): a PATCH touching substantive fields (memo/info/`sales_stage`/churn…) bumps `last_contacted_at=now`; favorite/pin toggles do NOT. **PM decision: a kanban stage move IS an action → `sales_stage` is in SUBSTANTIVE (counts as contact).**
+  - **`fa_reached_at`** (Customer field, `models.py::save()` hook): timestamp the FIRST time `sales_stage` becomes `meeting`(FA); never overwritten → DB→TA→FA / FA→청약→FA re-entry is NOT recounted. Drives the dashboard "이번 달 미팅" metric (see `dashboard`).
+  - **`JobRiskCode`** = 직업급수 global master (shared, read-only, owner-agnostic; 707 메리츠 jobs via `seed_jobs`; fields: name/alt_name/risk_grade 1·2·3·9/synonym/description/kidi_cd). `Customer.job_code` FK. Search: `GET /api/v1/jobs/search/?q=` (`views.py::JobSearchView`, IsAuthenticated, substring match on name+alt+synonym+kidi, relevance-ranked; mounted top-level `jobs/search/` to dodge the `customers/<pk>` router). FE: registration modal "직업급수 찾기".
 - `insurances` — insurance/coverage (owner-scoped via `customer__owner`); churn radar (`churn.py`, `is_cancelled`/`cancelled_at` → retention); public self-diagnosis (`self_diagnosis.py` `/d/<ref>`); OCR cross-verify (`verify.py`); manual insurance entry.
 - `analysis` — **standard coverage tree + per-carrier coverage-name normalization dict (shared global master)**. Calc engine `calculate.py` (heatmap); switch `compare.py`+`switch_verdict.py` (KEEP/SWITCH/NEUTRAL = planner-internal ONLY, never shown to customer per §97). Core foliio-ported asset.
 - `booking` — Calendly-style meeting booking: slots/meetings + public link (`public_booking.py` `/b/<token>`).
 - `schedule` — personal schedule/todo/recurring-block (`ScheduleItem`, owner-scoped, FE `/schedule`). **Separate from `booking`** — the calendar just draws both. `kind` (event/todo/block = behavior) ⟂ `category` (5 types = color/legend: meeting / birthday-anniversary / expiry-renewal / work / other) + yearly-recurring birthday/anniversary (`anniversary_md`). ⚠️ **TIMEZONE rule:** single start/end = stored UTC shown KST / recurring-block `recur_*_time` = KST wall-clock stored as-is (NEVER convert — conversion shifts 9h) / all_day & timeless todo = stored KST noon.
-- `dashboard` — monthly goal (manual) + actuals (computed), expected-salary multiplier. Retention 1/2/3yr (`compute_retention`; if 0 cancellations → `has_cancellation_data=false`, not computed) + manager team aggregation (`accounts/manager.py` reuses `compute_funnel`/`compute_retention`/`compute_team_roi` in a team loop; no PII; ROI labeled "estimate").
+- `dashboard` — monthly goal (manual) + actuals (computed in `aggregation.py`), expected-salary multiplier. **`compute_actuals` meetings = distinct customers who first reached FA this month** (`Customer.fa_reached_at__year/month`), NOT `booking.Meeting` (decoupled — booking confirmation count is irrelevant to this metric); premium = this-month registered-policy monthly-premium sum; new_customers = this-month created. Retention 1/2/3yr (`compute_retention`; if 0 cancellations → `has_cancellation_data=false`, not computed) + manager team aggregation (`accounts/manager.py` reuses `compute_funnel`/`compute_retention`/`compute_team_roi` in a team loop; no PII; ROI labeled "estimate"). **FE home dashboard calendar draws ONLY my schedule items + booking meetings (notifications removed → top-right bell); legend = 4 kinds (일정/할일/차단/미팅).** (The `/schedule` tab calendar keeps its own 5-category legend — that is correct, distinct from this.)
 - `notifications` (alerts+reminders, incl. promo/digital-asset types) · `billing` (plans + usage limits; 402 over-limit via `credit.py`) · `boards` (board/notice/FAQ/inquiry, mixed visibility) · `promotion` (promo orders + **digital assets** `is_digital`/`digital_file`: 1 free download → 2nd+ → admin queue `PromotionDownload` + admin alert) · `admin_console` (IsAdmin back-office) · `analytics` (north-star event tracking).
 - `core` — shared mixins/permissions + `core/ocr/` (foliio vendored: `claude_parser.py`, `ocrparsing.py`, `ocrdata.py` carrier codes).
 
@@ -80,8 +84,10 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 ## Conventions & redlines
 - **Theme guardrail:** service pages = **light-fixed**; dark mode = **admin only** (`app/admin/layout.tsx` `.theme-system`). NEVER add `dark:` variants to service screens.
 - **Copy:** product UI = plain language, NO `§`/legal-clause notation in service copy. (Internal/planner-only boxes may reference §97.)
+- **NO em-dash (`—`, U+2014) in user-facing copy** — PM finds it "AI-sounding." Use comma / period / colon / parentheses / a Korean particle instead. No-value placeholder = `-` (hyphen), never `—`. The middle-dot `·`, hyphen `-`, and en-dash `–` are fine. Code comments are exempt (users don't read them). When sweeping, only touch rendered strings.
 - **Honesty redlines:** no "reviewed/safe" badges (warranty liability); AI output always carries "AI draft · final responsibility = planner" disclaimer. No one-tap auto-send (KakaoTalk can't) → clipboard-copy / open-KakaoTalk only.
 - **Git:** Conventional Commits (Korean scope ok, e.g. `feat(동의)`). Small per-feature commits; don't mix refactor + feature. Commit only when the user asks. Branch before working on the default branch.
+- **Docs upkeep (standing PM rule):** whenever a feature is fully implemented AND merged to master AND deployed, UPDATE both `README.md` (Korean, PM-facing — add a dated session bullet) and this `CLAUDE.md` (current state + the affected sections). The PM reads README every session; the agent reads CLAUDE.md every run, so both must reflect reality. Do this as the closing step of a deploy, without being re-asked.
 
 ## Gotchas (read BEFORE touching the area — these have bitten)
 - **Email verification = BE self-contained token** (`accounts`): `signing.dumps(pk)` → both link and verify use `token` ONLY, no `uid` (UNLIKE reset-password). **If FE requires `uid`, signup is fully blocked — do NOT regress.** Resend button exists.
@@ -109,16 +115,20 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 ## Working with the PM
 - PM is **non-developer**, communicates in **Korean**, reads `README.md` only (not this file). Reply in Korean, plain words, no consulting jargon.
-- **Plan 90% / Execute 10%:** new features → agree on a roadmap-style plan BEFORE coding. Present options as pros/cons with a recommendation.
+- **Plan 90% / Execute 10%:** new features → agree on a roadmap-style plan BEFORE coding. Present options as pros/cons with a recommendation. The PM often pushes "바로 해줘" (just do it) — honor momentum, but for **schema/migration or semantic-redefinition changes still surface a 2-line plan + confirm** before coding (cheap insurance against building the wrong thing).
 - Compliance (overseas-transfer consent, improper-switching, ad review) is a feature gate — never bypass.
+- **Close every deploy by updating README.md + CLAUDE.md** (see Conventions → Docs upkeep). Standing rule, do it unprompted.
 
 ## Recent work & pending backlog
-**Recently built:** marketing/personal-info **consent collection** (spec/plan `docs/superpowers/specs|plans/2026-06-28-marketing-consent-collection*`; reuses ConsentLog/subject; `/c` multi-scope, `/d` + registration-modal recording; consent badges with self/planner distinction; BE 107 tests). Manual insurance entry + proposal input. Share-link FE (`/s/<token>` 90d — coverage-table share, NOT a §97 comparison doc). Password change + account withdrawal (Google signups withdraw via email confirmation = deletion right; password change rotates the token to avoid logout). OCR false-positive fix (`COVERAGE_KEYWORDS`: 양성뇌종양→뇌출혈 alias removed → unmatched; 상피내암→유사암 routing). P2 UI cleanup (shared settings tabbar, mobile safe-area, data-policy raw-code removed, preset button disabled).
+**Shipped & deployed (2026-06-28, PRs #8–11):**
+- **PR #8** — marketing/personal-info **consent collection** (`/c` multi-scope, `/d` + registration-modal, self vs planner_attested badges, BE 107 tests); **402 upgrade modal** (FE soft-notice + wiring at OCR/analysis/compare/promotion — hidden while `FREE_TIER_UNLIMITED=True`); **admin terms/flags** (`PolicyVersion` model + GET/POST; feature-flags GET read-only — runtime toggle BLOCKED since gates are env-controlled, PATCH→405); OCR false-positive fix; deploy-guide gaps closed; CLAUDE.md rewritten to English.
+- **PR #9 (Round-2 UI + 직업급수)** — 2-row customer card + ⋯menu (DotMenu via **body portal**, escapes kanban `overflow-x-auto`) + D-Day auto-update; monthly-premium chart (period filter, gray target / blue avg overlay lines, bar-area `relative` so lines map to the 96px box); heatmap coverage-only toggle + mobile-1-row/desktop-2-tier chips; script-library +4 categories; booking-settings inline layout; **직업급수 707 import + `/jobs/search/` + modal job-search + bottom-sheet drag.** Reviewed by a multi-dimension adversarial workflow (9 findings fixed).
+- **PR #10 (copy)** — em-dash purged from all user-facing copy; beta-free → "최초 가입 1달 무료 쿠폰" landing.
+- **PR #11 (dashboard)** — "이번 달 미팅" = FA-first-reach (`fa_reached_at`, dedup, booking-independent); dashboard notifications removed; calendar legend → 4 kinds.
 **Pending backlog** (also memory `qa-audit-backlog`):
-- ⬜ **402 upgrade modal** — BE done (returns 402 for all 4 features); FE needs a soft notice modal + wiring at OCR/analysis/compare/promotion. Pre-launch (hidden in beta).
-- ⬜ **Admin terms/flags 404** — FE `app/admin/settings/page.tsx` calls `/admin/settings/policy-versions/` (needs new `PolicyVersion` model; `ConsentLog.doc_version` is only a CharField) and `/admin/settings/flags/` (PATCH missing). Admin-only. **Compliance gates are env-controlled — do NOT let admin runtime-toggle them; recommend flags GET = read-only display.**
-- ⬜ **Deploy-guide gaps** (`docs/dev/25`): `FRONTEND_BASE_URL` mislabeled optional; compliance flags undocumented; `.env.example` DB URL still MariaDB.
 - ⬜ OCR remaining: 종합보험 17-22 unmatched coverages; life-insurance 변액 `company_idx=-1`. See memory `ocr-coverage-sections`.
+- ⬜ At launch: flipping `FREE_TIER_UNLIMITED=False` activates 402 + the upgrade modal (already built) — verify the modal copy + the "1-month coupon" entitlement wiring before flipping.
+- ⬜ Backfill consideration: pre-existing FA/청약 customers have `fa_reached_at=null` (not counted in any month) — fine going forward; revisit only if historical meeting counts are needed.
 
 ## Docs map (`docs/`)
 - **`docs/dev/00-INDEX.md` = dev-docs master map (SSOT entry).** Full route map, doc index, stream↔entity mapping.
