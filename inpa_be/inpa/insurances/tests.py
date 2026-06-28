@@ -757,6 +757,37 @@ class InpatientSectionTests(TestCase):
         self.assertEqual(_match_coverage('상해입원의료비'),
                          '실손 의료비->상해->상해 입원 의료비')
 
+    def test_false_positive_brain_tumor_not_mapped_to_cerebral_hemorrhage(self):
+        """회귀: 양성뇌종양/뇌종양은 뇌출혈진단 path에 매핑되지 않아야 한다.
+
+        Fix: 뇌출혈 keyword list에서 '뇌종양'·'양성뇌종양' 별칭 제거.
+        양성뇌종양은 뇌출혈과 다른 담보이므로 unmatched(None)가 보수적으로 올바름.
+        """
+        from inpa.core.ocr.ocrparsing import _match_coverage
+        # 오탐 제거 확인 — 뇌출혈 path가 아니어야 함
+        self.assertNotEqual(_match_coverage('양성뇌종양진단비'), '진단비->뇌->뇌출혈')
+        self.assertNotEqual(_match_coverage('뇌종양진단비'), '진단비->뇌->뇌출혈')
+        # unmatched(None) 이 정상이지만, 다른 경로로 매핑되는 것도 허용(향후 추가 대비)
+        # 핵심 보장: 뇌출혈 path로는 절대 가면 안 됨
+        # 대조: 진짜 뇌출혈은 여전히 뇌출혈 path
+        self.assertEqual(_match_coverage('뇌출혈진단비'), '진단비->뇌->뇌출혈')
+        self.assertEqual(_match_coverage('뇌출혈보장'), '진단비->뇌->뇌출혈')
+
+    def test_false_positive_in_situ_cancer_routed_to_yusamam_not_general(self):
+        """회귀: 상피내암(제자리암)은 일반암이 아닌 유사암(소액암) path에 매핑되어야 한다.
+
+        Fix: 유사암 keyword list에 '상피내암'·'상피내' 추가.
+        longest-first 매칭으로 '상피내암'(5자)이 '암진단'(3자)보다 먼저 잡혀 일반암 오탐 차단.
+        """
+        from inpa.core.ocr.ocrparsing import _match_coverage
+        # 상피내암 → 유사암 (일반암 아님)
+        self.assertEqual(_match_coverage('상피내암진단비'), '진단비->암->유사암')
+        self.assertNotEqual(_match_coverage('상피내암진단비'), '진단비->암->일반암')
+        # 제자리암(기존 키워드 유지 확인)
+        self.assertEqual(_match_coverage('제자리암진단비'), '진단비->암->유사암')
+        # 대조: 진짜 일반암은 여전히 일반암 path
+        self.assertEqual(_match_coverage('일반암진단비'), '진단비->암->일반암')
+
     def test_claude_pipeline_fixed_benefit_not_polluting_silsohn(self):
         """TC3b: Claude가 정액 입원을 실손으로 오라우팅해도 가드가 실손 적재를 차단."""
         from inpa.core.ocr.claude_parser import _add_coverage
