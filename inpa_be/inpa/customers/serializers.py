@@ -134,7 +134,7 @@ class CustomerListSerializer(_CustomerComputedMethods, serializers.ModelSerializ
         model = Customer
         fields = ('id', 'name', 'gender', 'birth_day', 'mobile_phone_number',
                   'consent_overseas_at', 'color', 'avatar_label', 'tags', 'family_count',
-                  'sales_stage', 'share_token', 'created_at', 'lead_source',
+                  'sales_stage', 'status', 'share_token', 'created_at', 'lead_source',
                   'last_contacted_at', 'is_favorite', 'is_pinned',
                   'insurance_age', 'job_risk_grade', 'marketing_consent', 'personal_info_consent')
 
@@ -161,7 +161,7 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
     class Meta:
         model = Customer
         fields = ('id', 'name', 'mobile_phone_number', 'birth_day', 'gender', 'job_code',
-                  'memo', 'color', 'avatar_label', 'lead_source', 'is_agree_term', 'consent_overseas_at', 'sales_stage',
+                  'memo', 'color', 'avatar_label', 'lead_source', 'is_agree_term', 'consent_overseas_at', 'sales_stage', 'status',
                   'share_token', 'share_expires_at', 'share_sent_at', 'user_view_at',
                   'tags', 'tag_ids', 'family_members', 'medical_histories',
                   'last_contacted_at', 'is_favorite', 'is_pinned', 'business_card',

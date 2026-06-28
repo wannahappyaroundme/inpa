@@ -52,9 +52,11 @@ import {
   deleteChecklistItem,
   createConsentRequest,
   SALES_STAGES,
+  CUSTOMER_STATUSES,
   ApiError,
   type CustomerDetail,
   type SalesStage,
+  type CustomerStatus,
   type HeatmapResponse,
   type HeatmapDetail,
   type CompareResponse,
@@ -240,6 +242,19 @@ function CustomerDetailInner() {
     [customerId]
   );
 
+  // 고객 상태 변경(진행중·보류·휴면·종료) — 낙관적 업데이트 후 실패 시 재조회.
+  const changeStatus = useCallback(
+    async (to: CustomerStatus) => {
+      setCustomer((c) => (c && c.status !== to ? { ...c, status: to } : c));
+      try {
+        setCustomer(await updateCustomer(customerId, { status: to }));
+      } catch {
+        getCustomer(customerId).then(setCustomer).catch(() => {});
+      }
+    },
+    [customerId]
+  );
+
   if (!ready) return null;
 
   // 잘못된 ID
@@ -306,6 +321,27 @@ function CustomerDetailInner() {
           </div>
         )}
 
+        {/* ── 고객 상태 변경 (진행중·보류·휴면·종료) — PM 06.29 ── */}
+        {customer && !custError && (
+          <div className="mt-3">
+            <div className="text-[11px] font-semibold text-ink3 mb-1">상태</div>
+            <div className="inline-flex rounded-xl border border-line bg-surface2 p-0.5 text-[12px] font-semibold">
+              {CUSTOMER_STATUSES.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => changeStatus(s.key)}
+                  aria-pressed={customer.status === s.key}
+                  className={`px-3 py-1.5 rounded-[10px] transition ${
+                    customer.status === s.key ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── 탭 바 ── */}
         {!custError && (
           <>
@@ -339,6 +375,7 @@ function CustomerDetailInner() {
               {activeTab === "analysis" && (
                 <AnalysisTab
                   customerId={customerId}
+                  consented={!!customer?.consent_overseas_at}
                   heatmap={heatmap}
                   loading={heatmapLoading}
                   error={heatmapError}
@@ -760,6 +797,7 @@ type OcrCtl = ReturnType<typeof useOcrUpload>;
 
 function AnalysisTab({
   customerId,
+  consented,
   heatmap,
   loading,
   error,
@@ -771,6 +809,7 @@ function AnalysisTab({
   ocr,
 }: {
   customerId: number;
+  consented: boolean;
   heatmap: HeatmapResponse | null;
   loading: boolean;
   error: string | null;
@@ -807,13 +846,15 @@ function AnalysisTab({
             customerId={customerId}
             phase={ocr.phase}
             onFileChange={ocr.onFileChange}
+            consented={consented}
+            onNeedConsent={ocr.openConsent}
           />
           <button
             type="button"
             onClick={() => setManualOpen(true)}
             className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
           >
-            수기 등록
+            직접 입력
           </button>
           <ShareLinkButton customerId={customerId} />
         </div>
@@ -927,13 +968,15 @@ function AnalysisTab({
               customerId={customerId}
               phase={ocr.phase}
               onFileChange={ocr.onFileChange}
+              consented={consented}
+              onNeedConsent={ocr.openConsent}
             />
             <button
               type="button"
               onClick={() => setManualOpen(true)}
               className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
             >
-              수기 등록
+              직접 입력
             </button>
           </div>
         </div>

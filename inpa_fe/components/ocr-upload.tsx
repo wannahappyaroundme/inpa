@@ -166,6 +166,8 @@ export function OcrUploadButton({
   onFileChange,
   inputId = "ocr-file-input",
   label = "증권 등록",
+  consented,
+  onNeedConsent,
 }: {
   customerId: number | null;
   phase: OcrPhase;
@@ -175,6 +177,9 @@ export function OcrUploadButton({
   ) => void;
   inputId?: string;
   label?: string;
+  /** 고객 본인 국외이전 동의 여부. false 면 파일 선택 대신 동의 안내를 먼저 띄운다. */
+  consented?: boolean;
+  onNeedConsent?: () => void;
 }) {
   const disabled =
     customerId === null || phase === "uploading" || phase === "consent_required";
@@ -192,6 +197,25 @@ export function OcrUploadButton({
     );
     return () => clearInterval(id);
   }, [phase]);
+
+  // 동의 전(consented===false)이면 파일을 고르게 두지 않고, 먼저 '고객 동의부터 보내기'로 유도.
+  // (못 올린다는 에러 대신 다음 할 일을 알려주는 긍정 흐름 — PM 06.29)
+  if (consented === false) {
+    return (
+      <button
+        type="button"
+        onClick={onNeedConsent}
+        disabled={customerId === null}
+        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[13px] font-semibold transition select-none ${
+          customerId === null
+            ? "border-line text-ink3 bg-surface2 cursor-not-allowed"
+            : "border-brand text-brand bg-surface hover:bg-accent-tint active:scale-[0.98]"
+        }`}
+      >
+        {label}
+      </button>
+    );
+  }
 
   return (
     <>

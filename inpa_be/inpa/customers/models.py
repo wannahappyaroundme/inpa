@@ -120,6 +120,25 @@ class Customer(models.Model):
     fa_reached_at = models.DateTimeField('FA 최초 도달 시각', null=True, blank=True,
                                          default=None, db_index=True)
 
+    # ── 고객 상태(설계사 집중 관리) — PM 06.29 ──────────────────────
+    # 영업 단계(sales_stage = DB·TA·FA·청약, 진행의 '어디')와 별개의 '진행 상태'.
+    # 모든 고객이 일직선으로 전진하지 않는다(보류·휴면·거절·해지가 더 많다) →
+    # 진행중 고객만 방치(무접촉) 경보 대상으로 두고, 나머지는 흐리게 처리해
+    # 집중할 고객과 정리된 고객을 구분한다. (별도 칸반 칸은 만들지 않음 — 단계는 그대로)
+    STATUS_ACTIVE = 'active'    # 진행중
+    STATUS_HOLD = 'hold'        # 보류
+    STATUS_DORMANT = 'dormant'  # 휴면
+    STATUS_CLOSED = 'closed'    # 종료(거절·해지)
+    STATUS_CHOICES = (
+        (STATUS_ACTIVE, '진행중'),
+        (STATUS_HOLD, '보류'),
+        (STATUS_DORMANT, '휴면'),
+        (STATUS_CLOSED, '종료'),
+    )
+    status = models.CharField('고객 상태', max_length=10,
+                              choices=STATUS_CHOICES, default=STATUS_ACTIVE,
+                              db_index=True)
+
     # ── 태그 (설계사 자유 분류) ────────────────────────────────────
     tags = models.ManyToManyField('CustomerTag', blank=True, related_name='customers')
 

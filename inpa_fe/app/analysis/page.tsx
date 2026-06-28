@@ -279,7 +279,7 @@ function AnalysisPageInner() {
                   onClick={() => setManualOpen(true)}
                   className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
                 >
-                  수기 등록
+                  직접 입력
                 </button>
               </div>
             </div>

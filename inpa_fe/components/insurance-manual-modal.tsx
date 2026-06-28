@@ -61,11 +61,11 @@ export function InsuranceManualModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-[17px] font-extrabold text-ink">보험 수기 등록</h2>
+          <h2 className="text-[17px] font-extrabold text-ink">보험 직접 입력</h2>
           <button onClick={onClose} aria-label="닫기" className="text-ink3 text-[20px] leading-none px-1">✕</button>
         </div>
         <p className="mt-1 text-[12px] text-ink3 leading-5">
-          증권 OCR이 어려울 때(스캔·이미지·실패) 직접 입력해요. 회사명은 상품명에 함께 적어 주세요(예: 삼성생명 무배당…). 담보 상세 없이 환수레이더·보험료 요약에 반영됩니다.
+          증권 파일이 없을 때 보험을 직접 입력해요. 회사명은 상품명에 함께 적어 주세요(예: 삼성생명 무배당…). 담보 상세 없이 보험료·계약 유지 점검에 반영돼요.
         </p>
 
         <div className="mt-4 space-y-3">
