@@ -74,16 +74,23 @@ export interface BarPoint {
   value: number;
 }
 
-/** 세로 막대 — 월별 추이 등. CSS 높이로 그려 반응형·라벨 가독성 확보. 마지막 막대 강조(이번달). */
+/** 세로 막대 — 월별 추이 등. CSS 높이로 그려 반응형·라벨 가독성 확보. 마지막 막대 강조(이번달).
+ *  targetLine: 회색 수평 보조선(월별 목표 대표값 — 평균 또는 최신).
+ *  averageLine: 파란 수평 보조선(기간 평균).
+ */
 export function BarChart({
   data,
   highlightLast = true,
   format = (n) => KO.format(n),
+  targetLine,
+  averageLine,
   className = "",
 }: {
   data: BarPoint[];
   highlightLast?: boolean;
   format?: (n: number) => string;
+  targetLine?: number;
+  averageLine?: number;
   className?: string;
 }) {
   const max = Math.max(1, ...data.map((d) => d.value));
@@ -104,6 +111,13 @@ export function BarChart({
       </div>
     );
   }
+
+  // 수평 보조선 y 위치 계산 — 막대 영역 h-24(96px), items-end 기준으로 value/max가 100%
+  // pct = value/max * 100; y_from_top = (1 - pct/100) * 96px
+  const lineY = (value: number) => {
+    const clampedPct = Math.min(value / max, 1);  // max 초과 시 상단에 클램프
+    return `${(1 - clampedPct) * 100}%`;
+  };
 
   return (
     <div className={className} role="img" aria-label={aria}>
@@ -134,6 +148,34 @@ export function BarChart({
           );
         })}
       </div>
+
+      {/* 수평 보조선 오버레이 — 막대 영역 위에 절대 배치 */}
+      {(targetLine !== undefined || averageLine !== undefined) && (
+        <div className="relative mt-[-96px] mb-[0px] h-24 pointer-events-none">
+          {targetLine !== undefined && targetLine > 0 && (
+            <div
+              className="absolute left-0 right-0 flex items-center"
+              style={{ top: lineY(targetLine) }}
+            >
+              <div className="flex-1 border-t border-dashed" style={{ borderColor: "var(--ink3, #9ca3af)" }} />
+              <span className="ml-1 text-[9px] font-medium whitespace-nowrap" style={{ color: "var(--ink3, #9ca3af)" }}>
+                목표 {format(targetLine)}
+              </span>
+            </div>
+          )}
+          {averageLine !== undefined && averageLine > 0 && (
+            <div
+              className="absolute left-0 right-0 flex items-center"
+              style={{ top: lineY(averageLine) }}
+            >
+              <div className="flex-1 border-t border-dashed" style={{ borderColor: "#3b82f6" }} />
+              <span className="ml-1 text-[9px] font-medium whitespace-nowrap" style={{ color: "#3b82f6" }}>
+                평균 {format(averageLine)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

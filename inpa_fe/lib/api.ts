@@ -1885,6 +1885,7 @@ export interface MonthlyTrendPoint {
   premium: number;
   new_customers: number;
   meetings: number;
+  target_premium?: number | null;  // 해당 월 MonthlyGoal.target_premium; 미설정이면 null
 }
 
 /** 보유계약 유지현황(도넛) — churn 판정 재사용 버킷. */
@@ -1909,15 +1910,18 @@ export interface RetentionYears {
 }
 
 export interface DashboardInsights {
-  monthly_trend: MonthlyTrendPoint[];           // 최근 6개월
+  monthly_trend: MonthlyTrendPoint[];           // 최근 N개월(기본 12)
   funnel: Record<SalesStage, number>;           // 영업 4단계 카운트
   portfolio: PortfolioBreakdown;
   retention: RetentionYears;                    // 1/2/3년 유지율(추정)
 }
 
-/** GET /api/v1/dashboard/insights/ — 홈 차트 집계(인증, owner 전용) */
-export async function getDashboardInsights(): Promise<DashboardInsights> {
-  return request<DashboardInsights>("GET", "/dashboard/insights/", undefined, true);
+/** GET /api/v1/dashboard/insights/ — 홈 차트 집계(인증, owner 전용)
+ *  opts.months: 3 | 6 | 12 | 24 (기본 12 = BE 기본값)
+ */
+export async function getDashboardInsights(opts?: { months?: number }): Promise<DashboardInsights> {
+  const qs = opts?.months ? `?months=${opts.months}` : "";
+  return request<DashboardInsights>("GET", `/dashboard/insights/${qs}`, undefined, true);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

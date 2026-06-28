@@ -116,6 +116,7 @@ export default function HomePage() {
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [dash, setDash] = useState<DashboardSummary | null>(null);
   const [insights, setInsights] = useState<DashboardInsights | null>(null);
+  const [trendMonths, setTrendMonths] = useState<3 | 6 | 12 | 24>(12);
   const [editGoal, setEditGoal] = useState(false);
   const [gMeet, setGMeet] = useState(0);
   const [gPrem, setGPrem] = useState(0);
@@ -154,11 +155,16 @@ export default function HomePage() {
         setGMeet(d.target_meetings); setGPrem(d.target_premium); setGMult(d.income_multiplier);
       })
       .catch(() => setDash(null));
-    getDashboardInsights().then(setInsights).catch(() => setInsights(null));
     syncChurnAlerts().catch(() => { /* 무시 */ }).finally(() => {
       getChurnRadar().then((res) => setChurn(res)).catch(() => setChurn(null));
     });
   }, [ready, router]);
+
+  // 기간 필터 변경 시 insights 재조회 (기간 버튼 포함)
+  useEffect(() => {
+    if (!ready) return;
+    getDashboardInsights({ months: trendMonths }).then(setInsights).catch(() => setInsights(null));
+  }, [ready, trendMonths]);
 
   // 보고 있는 달의 내 일정/할일/차단 로드(월 이동 시 갱신)
   useEffect(() => {
@@ -233,6 +239,16 @@ export default function HomePage() {
 
   // 막대 추이(월별 보험료) · 도넛(보유계약 유지현황)
   const trendBars = trend.map((t) => ({ label: `${Number(t.ym.slice(5, 7))}월`, value: t.premium }));
+  // 목표선: 기간 내 MonthlyGoal이 있는 달의 target_premium 평균 (0 제외, 없으면 undefined)
+  const trendTargets = trend.map((t) => t.target_premium).filter((v): v is number => v != null && v > 0);
+  const targetLine = trendTargets.length > 0
+    ? Math.round(trendTargets.reduce((s, v) => s + v, 0) / trendTargets.length)
+    : undefined;
+  // 평균선: 보험료 평균 (0 제외, 데이터가 2개 이상일 때만)
+  const trendPremiums = trend.map((t) => t.premium).filter((v) => v > 0);
+  const averageLine = trendPremiums.length >= 2
+    ? Math.round(trendPremiums.reduce((s, v) => s + v, 0) / trendPremiums.length)
+    : undefined;
   const pf = insights?.portfolio;
   const portfolioSegs = pf
     ? [
@@ -313,8 +329,30 @@ export default function HomePage() {
         {insights && (
           <div className="mt-4 lg:grid lg:grid-cols-3 lg:gap-4">
             <Card className="lg:col-span-2 p-4 sm:p-5">
-              <div className="text-[15px] font-bold text-ink mb-3">월별 보험료 추이</div>
-              <BarChart data={trendBars} format={(n) => fmtWonShort(n)} />
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[15px] font-bold text-ink">월별 보험료 추이</div>
+                <div className="flex gap-1">
+                  {([3, 6, 12, 24] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setTrendMonths(m)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                        trendMonths === m
+                          ? "bg-brand text-white"
+                          : "bg-surface2 text-ink3 hover:text-ink"
+                      }`}
+                    >
+                      {m === 3 ? "3개월" : m === 6 ? "6개월" : m === 12 ? "1년" : "2년"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <BarChart
+                data={trendBars}
+                format={(n) => fmtWonShort(n)}
+                targetLine={targetLine}
+                averageLine={averageLine}
+              />
             </Card>
             <Card className="mt-4 lg:mt-0 p-4 sm:p-5">
               <div className="text-[15px] font-bold text-ink mb-3">보유계약 유지현황</div>
