@@ -7,8 +7,26 @@ from rest_framework import serializers
 
 from .models import (
     ConsentLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
-    CustomerTag, FamilyMember, PlannerBaseline, compute_insurance_age,
+    CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, compute_insurance_age,
 )
+
+
+class JobRiskCodeSerializer(serializers.ModelSerializer):
+    """직업급수 검색 결과(전역 마스터, 읽기 전용). 모달에서 job_code(=id) 적용."""
+    risk_grade_label = serializers.SerializerMethodField()
+    description_short = serializers.SerializerMethodField()
+
+    class Meta:
+        model = JobRiskCode
+        fields = ('id', 'name', 'alt_name', 'risk_grade', 'risk_grade_label',
+                  'kidi_cd', 'sctg_cd', 'description_short')
+
+    def get_risk_grade_label(self, obj):
+        return f'{obj.risk_grade}급' if obj.risk_grade in (1, 2, 3) else '기타'
+
+    def get_description_short(self, obj):
+        d = (obj.description or '').strip()
+        return d[:80] + ('…' if len(d) > 80 else '')
 
 
 class ContractChecklistItemSerializer(serializers.ModelSerializer):

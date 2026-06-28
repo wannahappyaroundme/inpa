@@ -67,16 +67,32 @@ class DashboardView(APIView):
         return Response(self._payload(goal, request.user))
 
 
+_ALLOWED_MONTHS = {3, 6, 12, 24}
+
+
 class InsightsView(APIView):
     """GET /api/v1/dashboard/insights/ — 홈 차트용 집계(저장 없이 on-demand). owner 전용.
 
-    monthly_trend(최근 6개월 막대) · funnel(영업 4단계) · portfolio(보유계약 유지현황 도넛).
+    monthly_trend(최근 N개월 막대) · funnel(영업 4단계) · portfolio(보유계약 유지현황 도넛).
+    Query params:
+      - months: 3 | 6 | 12 | 24 (기본 12) — 막대 추이 기간
     """
     permission_classes = [IsAuthenticated, IsEmailVerified]
 
     def get(self, request):
+        raw = request.query_params.get('months', '12')
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            return Response(
+                {'code': 'BAD_MONTHS', 'detail': "months는 3, 6, 12, 24 중 하나여야 합니다."},
+                status=status.HTTP_400_BAD_REQUEST)
+        if n not in _ALLOWED_MONTHS:
+            return Response(
+                {'code': 'BAD_MONTHS', 'detail': "months는 3, 6, 12, 24 중 하나여야 합니다."},
+                status=status.HTTP_400_BAD_REQUEST)
         return Response({
-            'monthly_trend': compute_trend(request.user, n=6),
+            'monthly_trend': compute_trend(request.user, n=n),
             'funnel': compute_funnel(request.user),
             'portfolio': compute_portfolio_breakdown(request.user),
             'retention': compute_retention(request.user),

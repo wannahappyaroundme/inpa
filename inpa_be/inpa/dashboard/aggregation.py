@@ -12,6 +12,7 @@ from django.db.models import Count, Sum
 from inpa.booking.models import Meeting
 from inpa.customers.models import Customer
 from inpa.insurances.models import CustomerInsurance
+from inpa.dashboard.models import MonthlyGoal
 
 
 def compute_actuals(user, year_month):
@@ -42,8 +43,20 @@ def recent_months(n=6, today=None):
 
 
 def compute_trend(user, n=6):
-    """최근 n개월 막대 추이 — [{ym, premium, new_customers, meetings}]."""
-    return [{'ym': ym, **compute_actuals(user, ym)} for ym in recent_months(n)]
+    """최근 n개월 막대 추이 — [{ym, premium, new_customers, meetings, target_premium}].
+
+    target_premium: 해당 월에 설계사가 설정한 MonthlyGoal.target_premium. 미설정이면 null.
+    """
+    months = recent_months(n)
+    # 한 번의 IN 쿼리로 전체 범위 목표 가져오기 — N+1 방지
+    goal_map = {
+        g.year_month: g.target_premium
+        for g in MonthlyGoal.objects.filter(owner=user, year_month__in=months)
+    }
+    return [
+        {'ym': ym, **compute_actuals(user, ym), 'target_premium': goal_map.get(ym)}
+        for ym in months
+    ]
 
 
 def compute_funnel(user):

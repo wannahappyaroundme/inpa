@@ -197,15 +197,20 @@ export function HeatmapGrid({
   filter: FilterKey;
   onFilterChange: (f: FilterKey) => void;
 }) {
+  // 보장 있는 것만 보기 토글(내부 상태) — held_amount>0 인 담보만. 기본 false(전체).
+  const [coverageOnly, setCoverageOnly] = useState(false);
+
   const filteredTree = heatmap.tree
     .map((cat) => ({
       ...cat,
       sub_categories: cat.sub_categories
         .map((sub) => ({
           ...sub,
-          details: sub.details.filter((d) =>
-            filter === "all" ? true : d.status === filter
-          ),
+          details: sub.details.filter((d) => {
+            const statusOk = filter === "all" ? true : d.status === filter;
+            const heldOk = coverageOnly ? (d.held_amount ?? 0) > 0 : true;
+            return statusOk && heldOk;
+          }),
         }))
         .filter((sub) => sub.details.length > 0),
     }))
@@ -226,9 +231,10 @@ export function HeatmapGrid({
         )}
       </div>
 
-      {/* 뷰 세그먼트 + 필터 칩 */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-xl bg-line p-1 text-[13px] font-semibold">
+      {/* 뷰 세그먼트 + 보유 토글 + 상태 필터 칩 — 모바일 1줄(가로스크롤), 데스크탑 2단 */}
+      <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+        {/* 1단: 간략/상세 세그먼트 */}
+        <div className="inline-flex shrink-0 rounded-xl bg-line p-1 text-[13px] font-semibold">
           <button
             onClick={() => onGradedChange(false)}
             className={`px-3 py-1.5 rounded-lg transition ${
@@ -247,7 +253,26 @@ export function HeatmapGrid({
           </button>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto">
+        {/* 1단: 보장 있는 것만 보기 토글(한 개) — 끄면 빈 칸까지 전체 */}
+        <button
+          onClick={() => setCoverageOnly((v) => !v)}
+          aria-pressed={coverageOnly}
+          title={coverageOnly ? "빈 칸까지 전체 보기" : "보장 있는 담보만 보기"}
+          className={`shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition ${
+            coverageOnly
+              ? "bg-brand text-white border-brand"
+              : "bg-surface text-ink2 border-line hover:border-brand"
+          }`}
+        >
+          <span aria-hidden>{coverageOnly ? "✓" : "◰"}</span>
+          보장 있는 것만
+        </button>
+
+        {/* 데스크탑에서만 줄바꿈 → 상태 필터를 2단(아래 줄)으로 */}
+        <div className="hidden sm:block sm:basis-full" aria-hidden />
+
+        {/* 2단: 상태 필터 칩 */}
+        <div className="flex shrink-0 gap-2">
           {(
             [
               { key: "all", label: "전체" },

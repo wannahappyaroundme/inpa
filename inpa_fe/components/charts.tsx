@@ -74,16 +74,23 @@ export interface BarPoint {
   value: number;
 }
 
-/** 세로 막대 — 월별 추이 등. CSS 높이로 그려 반응형·라벨 가독성 확보. 마지막 막대 강조(이번달). */
+/** 세로 막대 — 월별 추이 등. CSS 높이로 그려 반응형·라벨 가독성 확보. 마지막 막대 강조(이번달).
+ *  targetLine: 회색 수평 보조선(월별 목표 대표값 — 평균 또는 최신).
+ *  averageLine: 파란 수평 보조선(기간 평균).
+ */
 export function BarChart({
   data,
   highlightLast = true,
   format = (n) => KO.format(n),
+  targetLine,
+  averageLine,
   className = "",
 }: {
   data: BarPoint[];
   highlightLast?: boolean;
   format?: (n: number) => string;
+  targetLine?: number;
+  averageLine?: number;
   className?: string;
 }) {
   const max = Math.max(1, ...data.map((d) => d.value));
@@ -105,20 +112,28 @@ export function BarChart({
     );
   }
 
+  // 수평 보조선 y 위치 계산 — 막대 영역 h-24(96px), items-end 기준으로 value/max가 100%
+  // pct = value/max * 100; y_from_top = (1 - pct/100) * 96px
+  const lineY = (value: number) => {
+    const clampedPct = Math.min(value / max, 1);  // max 초과 시 상단에 클램프
+    return `${(1 - clampedPct) * 100}%`;
+  };
+
   return (
     <div className={className} role="img" aria-label={aria}>
-      <div className="flex items-end gap-1.5">
-        {data.map((d, i) => {
-          const hot = highlightLast && i === lastIdx;
-          const pct = Math.round((d.value / max) * 100);
-          return (
-            <div key={i} className="flex-1 flex flex-col items-center">
-              {hot && (
-                <span className="mb-1 text-[9px] font-semibold text-brand tnum whitespace-nowrap">
-                  {format(d.value)}
-                </span>
-              )}
-              <div className="h-24 w-full flex items-end">
+      {/* 막대 영역 — relative 래퍼 높이=h-24(96px). 보조선 오버레이의 좌표 기준(월 라벨 제외) */}
+      <div className="relative">
+        <div className="flex items-end gap-1.5 h-24">
+          {data.map((d, i) => {
+            const hot = highlightLast && i === lastIdx;
+            const pct = Math.round((d.value / max) * 100);
+            return (
+              <div key={i} className="relative flex-1 h-24 flex items-end">
+                {hot && (
+                  <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-semibold text-brand tnum whitespace-nowrap">
+                    {format(d.value)}
+                  </span>
+                )}
                 <div
                   className="w-full rounded-t-md transition-all"
                   style={{
@@ -127,10 +142,47 @@ export function BarChart({
                   }}
                 />
               </div>
-              <span className={`mt-1 text-[10px] ${hot ? "text-brand font-semibold" : "text-ink3"}`}>
-                {d.label}
-              </span>
-            </div>
+            );
+          })}
+        </div>
+
+        {/* 수평 보조선 — 막대 영역(96px)에 정확히 매핑(inset-0, 월 라벨 좌표계 밖) */}
+        {(targetLine !== undefined || averageLine !== undefined) && (
+          <div className="absolute inset-0 pointer-events-none">
+            {targetLine !== undefined && targetLine > 0 && (
+              <div
+                className="absolute left-0 right-0 flex items-center"
+                style={{ top: lineY(targetLine) }}
+              >
+                <div className="flex-1 border-t border-dashed" style={{ borderColor: "var(--ink3, #9ca3af)" }} />
+                <span className="ml-1 text-[9px] font-medium whitespace-nowrap" style={{ color: "var(--ink3, #9ca3af)" }}>
+                  목표 {format(targetLine)}
+                </span>
+              </div>
+            )}
+            {averageLine !== undefined && averageLine > 0 && (
+              <div
+                className="absolute left-0 right-0 flex items-center"
+                style={{ top: lineY(averageLine) }}
+              >
+                <div className="flex-1 border-t border-dashed" style={{ borderColor: "#3b82f6" }} />
+                <span className="ml-1 text-[9px] font-medium whitespace-nowrap" style={{ color: "#3b82f6" }}>
+                  평균 {format(averageLine)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 월 라벨 — 막대와 분리(보조선 좌표계 밖) */}
+      <div className="flex gap-1.5 mt-1">
+        {data.map((d, i) => {
+          const hot = highlightLast && i === lastIdx;
+          return (
+            <span key={i} className={`flex-1 text-center text-[10px] ${hot ? "text-brand font-semibold" : "text-ink3"}`}>
+              {d.label}
+            </span>
           );
         })}
       </div>

@@ -495,6 +495,31 @@ export interface CustomerWritePayload {
   last_contacted_at?: string | null;  // '연락함' = updateCustomer({last_contacted_at: now})
 }
 
+// ─── 직업급수(JobRiskCode) 검색 ──────────────────────────────────────────────
+
+/** 직업급수 검색 결과 1건 (전역 마스터). job_code = id 로 고객에 적용. */
+export interface JobMatch {
+  id: number;
+  name: string;
+  alt_name: string;
+  risk_grade: number;        // 1/2/3/9
+  risk_grade_label: string;  // '1급'…'기타'
+  kidi_cd: string;
+  sctg_cd: string;
+  description_short: string;
+}
+
+/** GET /api/v1/jobs/search/?q=시의원 — 이름·약명·검색어 매칭, 관련도순 최대 limit(≤50). */
+export async function searchJobs(q: string, limit = 30): Promise<JobMatch[]> {
+  const query = q.trim();
+  if (!query) return [];
+  const qs = new URLSearchParams({ q: query, limit: String(limit) });
+  const data = await request<{ results: JobMatch[] }>(
+    "GET", `/jobs/search/?${qs.toString()}`, undefined, true
+  );
+  return data.results;
+}
+
 // ─── Customer endpoints ──────────────────────────────────────────────────────
 
 /** GET /api/v1/customers/?page=1&search=... */
@@ -1885,6 +1910,7 @@ export interface MonthlyTrendPoint {
   premium: number;
   new_customers: number;
   meetings: number;
+  target_premium?: number | null;  // 해당 월 MonthlyGoal.target_premium; 미설정이면 null
 }
 
 /** 보유계약 유지현황(도넛) — churn 판정 재사용 버킷. */
@@ -1909,15 +1935,18 @@ export interface RetentionYears {
 }
 
 export interface DashboardInsights {
-  monthly_trend: MonthlyTrendPoint[];           // 최근 6개월
+  monthly_trend: MonthlyTrendPoint[];           // 최근 N개월(기본 12)
   funnel: Record<SalesStage, number>;           // 영업 4단계 카운트
   portfolio: PortfolioBreakdown;
   retention: RetentionYears;                    // 1/2/3년 유지율(추정)
 }
 
-/** GET /api/v1/dashboard/insights/ — 홈 차트 집계(인증, owner 전용) */
-export async function getDashboardInsights(): Promise<DashboardInsights> {
-  return request<DashboardInsights>("GET", "/dashboard/insights/", undefined, true);
+/** GET /api/v1/dashboard/insights/ — 홈 차트 집계(인증, owner 전용)
+ *  opts.months: 3 | 6 | 12 | 24 (기본 12 = BE 기본값)
+ */
+export async function getDashboardInsights(opts?: { months?: number }): Promise<DashboardInsights> {
+  const qs = opts?.months ? `?months=${opts.months}` : "";
+  return request<DashboardInsights>("GET", `/dashboard/insights/${qs}`, undefined, true);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

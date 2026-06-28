@@ -15,7 +15,6 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
-import { SettingsTabs } from "@/components/settings-tabs";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
@@ -260,7 +259,6 @@ export default function BaselineSettingsPage() {
     <div className="min-h-dvh">
       <AppNav active="settings" />
       <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
-        <SettingsTabs active="baseline" />
         {/* 뒤로 */}
         <Link
           href="/analysis"
@@ -596,7 +594,7 @@ function BaselineForm({
           {/* 성별 */}
           <div>
             <label className={labelCls}>성별</label>
-            <div className="mt-1 inline-flex rounded-xl bg-line p-1 text-[13px] font-semibold">
+            <div className="mt-1 inline-flex gap-1 rounded-xl bg-line p-1 text-[13px] font-semibold">
               {GENDERS.map((g) => (
                 <button
                   key={String(g.value)}

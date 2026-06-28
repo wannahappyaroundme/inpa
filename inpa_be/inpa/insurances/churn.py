@@ -12,6 +12,7 @@
 """
 import datetime
 
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -19,6 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from inpa.core.permissions import IsEmailVerified
+from inpa.customers.models import Customer
 from inpa.insurances.models import CustomerInsurance
 from inpa.notifications.models import NotifType, Notification
 
@@ -188,6 +190,8 @@ class InsuranceChurnView(_OwnerScopedMixin, APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
         ci.save(update_fields=list(self.ALLOWED) + ['updated_at'])
+        if 'is_cancelled' in request.data or 'cancelled_at' in request.data:
+            Customer.objects.filter(pk=ci.customer_id).update(last_contacted_at=timezone.now())
         return Response(_serialize(ci, datetime.date.today()))
 
 

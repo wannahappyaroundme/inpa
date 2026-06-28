@@ -66,15 +66,18 @@ export function BookingSettings() {
         <input value={loc} onChange={(e) => setLoc(e.target.value)} placeholder="예) 강남역 스타벅스"
           className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-[14px]" />
       </label>
-      <label className="mt-3 block">
-        <span className="text-[12px] text-ink3">기본 미팅 시간(분)</span>
-        <input type="number" min={10} max={240} value={dur} onChange={(e) => setDur(Number(e.target.value) || 30)}
-          className="mt-1 w-28 rounded-xl border border-line px-3 py-2 text-[14px] tnum" />
-      </label>
-      <button disabled={saving} onClick={save}
-        className="mt-3 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2.5 disabled:opacity-60">
-        예약 설정 저장
-      </button>
+      {/* 기본 미팅 시간 + 저장 버튼 — 한 줄(라벨·값 좌우 여백, 버튼은 옆에) */}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2">
+          <span className="text-[12px] text-ink3 whitespace-nowrap">기본 미팅 시간(분)</span>
+          <input type="number" min={10} max={240} value={dur} onChange={(e) => setDur(Number(e.target.value) || 30)}
+            className="w-20 rounded-xl border border-line px-3 py-2 text-[14px] tnum text-center" />
+        </label>
+        <button disabled={saving} onClick={save}
+          className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2.5 disabled:opacity-60">
+          예약 설정 저장
+        </button>
+      </div>
     </Card>
   );
 }
