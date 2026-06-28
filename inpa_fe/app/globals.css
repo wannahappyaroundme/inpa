@@ -6,6 +6,7 @@
 :root {
   color-scheme: light;
   --surface: #FFFFFF; --surface-2: #F4F6FA;
+  --canvas: #F3F5F9;   /* 페이지 배경 — 카드(흰색)와 분리되는 살짝 차가운 회색(리디자인) */
   --ink: #14171F; --ink-2: #475569; --ink-3: #6B7280; --muted: #9CA3AF;
   --line: #E6E9EF; --line-2: #CDD3DD;
 
@@ -71,7 +72,7 @@
 @media (prefers-color-scheme: dark) {
   .theme-system {
     color-scheme: dark;
-    --surface: #161A21; --surface-2: #0E1116;
+    --surface: #161A21; --surface-2: #0E1116; --canvas: #0B0E12;
     --ink: #EDF0F5; --ink-2: #B6BDC8; --ink-3: #8A92A0; --muted: #6B7280;
     --line: #272D38; --line-2: #353C49;
 
@@ -115,6 +116,26 @@
   --color-line-2: var(--line-2);
   --color-surface: var(--surface);
   --color-surface2: var(--surface-2);
+  --color-canvas: var(--canvas);
+  /* 리디자인 보조 별칭 — 스펙(brand-soft/pos/neg/warn)을 '우리 4색'에 매핑. 새 색 아님. */
+  --color-brand-soft: var(--accent-tint);
+  --color-pos: var(--success);
+  --color-pos-soft: var(--success-tint);
+  --color-pos-ink: var(--success-ink);
+  --color-neg: var(--danger);
+  --color-neg-soft: var(--danger-tint);
+  --color-neg-ink: var(--danger-ink);
+  --color-warn: var(--warning);
+  --color-warn-soft: var(--warning-tint);
+  --color-warn-ink: var(--warning-ink);
+}
+
+/* 카드 그림자 — 스펙 §2.3의 부드러운 2단 그림자(shadow-sm보다 은은·고급스러움). */
+@utility shadow-card {
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+@utility shadow-cardhover {
+  box-shadow: 0 6px 16px rgba(16, 24, 40, 0.08), 0 2px 6px rgba(16, 24, 40, 0.04);
 }
 
 /* 스크롤바 숨김 유틸리티 (모바일 칩 스크롤 등) */
@@ -132,7 +153,7 @@
   body:has(.app-bottom-nav) main { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
 
-html, body { background: var(--surface-2); color: var(--ink); }
+html, body { background: var(--canvas); color: var(--ink); }
 body {
   font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
     system-ui, 'Segoe UI', Roboto, sans-serif;

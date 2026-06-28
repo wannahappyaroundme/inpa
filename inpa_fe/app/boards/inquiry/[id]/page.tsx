@@ -19,8 +19,8 @@ function formatDate(iso: string): string {
 }
 
 const STATUS_META: Record<InquiryStatus, { label: string; color: string; bgColor: string }> = {
-  open: { label: "답변 대기 중", color: "text-warning", bgColor: "bg-yellow-50 border-yellow-200" },
-  answered: { label: "답변 완료", color: "text-success", bgColor: "bg-green-50 border-green-200" },
+  open: { label: "답변 대기 중", color: "text-warning", bgColor: "bg-warning-tint border-line" },
+  answered: { label: "답변 완료", color: "text-success", bgColor: "bg-success-tint border-line" },
   closed: { label: "완료", color: "text-ink3", bgColor: "bg-surface2 border-line" },
 };
 

@@ -102,7 +102,7 @@ export default function BoardEditPage() {
               <button
                 onClick={() => setCategory("")}
                 className={`rounded-full px-3 py-1 text-[12px] font-semibold transition border ${
-                  category === "" ? "bg-brand text-white border-brand" : "bg-surface border-line text-ink2 hover:border-brand hover:text-brand"
+                  category === "" ? "bg-brand-soft text-brand border-brand" : "bg-surface border-line text-ink2 hover:border-brand hover:text-brand"
                 }`}
               >
                 없음
@@ -112,7 +112,7 @@ export default function BoardEditPage() {
                   key={cat}
                   onClick={() => setCategory(cat)}
                   className={`rounded-full px-3 py-1 text-[12px] font-semibold transition border ${
-                    category === cat ? "bg-brand text-white border-brand" : "bg-surface border-line text-ink2 hover:border-brand hover:text-brand"
+                    category === cat ? "bg-brand-soft text-brand border-brand" : "bg-surface border-line text-ink2 hover:border-brand hover:text-brand"
                   }`}
                 >
                   {cat}
@@ -152,7 +152,7 @@ export default function BoardEditPage() {
         </Card>
 
         {error && (
-          <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+          <div className="mt-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
             {error}
           </div>
         )}

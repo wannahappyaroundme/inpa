@@ -88,8 +88,8 @@ export function AppNav({ active }: { active?: NavKey }) {
               <Link
                 key={it.key}
                 href={it.href}
-                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-[13px] sm:text-[14px] font-semibold transition whitespace-nowrap ${
-                  active === it.key ? "text-brand bg-accent-tint" : "text-ink2 hover:bg-surface2"
+                className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[13px] sm:text-[14px] font-semibold transition whitespace-nowrap ${
+                  active === it.key ? "text-brand bg-brand-soft" : "text-ink2 hover:bg-surface2 hover:text-ink"
                 }`}
               >
                 {it.label}
@@ -98,8 +98,8 @@ export function AppNav({ active }: { active?: NavKey }) {
             {isManager && (
               <Link
                 href="/manager"
-                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-[13px] sm:text-[14px] font-semibold transition whitespace-nowrap ${
-                  active === "manager" ? "text-brand bg-accent-tint" : "text-ink2 hover:bg-surface2"
+                className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[13px] sm:text-[14px] font-semibold transition whitespace-nowrap ${
+                  active === "manager" ? "text-brand bg-brand-soft" : "text-ink2 hover:bg-surface2 hover:text-ink"
                 }`}
               >
                 관리직 KPI
@@ -108,8 +108,8 @@ export function AppNav({ active }: { active?: NavKey }) {
             {isAdmin && (
               <Link
                 href="/admin"
-                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-[13px] sm:text-[14px] font-semibold transition whitespace-nowrap ${
-                  active === "admin" ? "text-brand bg-accent-tint" : "text-ink2 hover:bg-surface2"
+                className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[13px] sm:text-[14px] font-semibold transition whitespace-nowrap ${
+                  active === "admin" ? "text-brand bg-brand-soft" : "text-ink2 hover:bg-surface2 hover:text-ink"
                 }`}
               >
                 관리자
@@ -124,7 +124,7 @@ export function AppNav({ active }: { active?: NavKey }) {
             href="/notifications"
             aria-label={unread > 0 ? `알림 ${unread}건 미읽음` : "알림"}
             className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition ${
-              active === "notifications" ? "text-brand bg-accent-tint" : "text-ink2 hover:bg-surface2"
+              active === "notifications" ? "text-brand bg-brand-soft" : "text-ink2 hover:bg-surface2 hover:text-ink"
             }`}
           >
             <BellIcon />

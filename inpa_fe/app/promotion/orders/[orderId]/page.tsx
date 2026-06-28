@@ -37,12 +37,12 @@ const STATUS_BADGE: Record<
   PromotionOrderStatus,
   { bg: string; text: string }
 > = {
-  pending:   { bg: "bg-surface2",  text: "text-ink3" },
-  reviewing: { bg: "bg-blue-50",   text: "text-blue-700" },
-  producing: { bg: "bg-yellow-50", text: "text-yellow-700" },
-  shipping:  { bg: "bg-orange-50", text: "text-orange-700" },
-  completed: { bg: "bg-green-50",  text: "text-green-700" },
-  cancelled: { bg: "bg-red-50",    text: "text-red-700" },
+  pending:   { bg: "bg-surface2",      text: "text-ink3" },
+  reviewing: { bg: "bg-brand-soft",    text: "text-brand" },
+  producing: { bg: "bg-warning-tint",  text: "text-warning" },
+  shipping:  { bg: "bg-warning-tint",  text: "text-warning" },
+  completed: { bg: "bg-success-tint",  text: "text-success" },
+  cancelled: { bg: "bg-danger-tint",   text: "text-danger" },
 };
 
 function StatusBadge({ status }: { status: PromotionOrderStatus }) {
@@ -239,7 +239,7 @@ export default function OrderDetailPage({
         <div className="grid md:grid-cols-2 gap-5">
           {/* 왼쪽: 제출 내용 */}
           <Card className="p-4 sm:p-5 space-y-4">
-            <h2 className="text-[14px] font-bold text-ink">제출 내용</h2>
+            <h2 className="text-[15px] font-bold text-ink">제출 내용</h2>
             {formEntries.length === 0 ? (
               <p className="text-[13px] text-muted">제출 내용이 없어요.</p>
             ) : (
@@ -279,7 +279,7 @@ export default function OrderDetailPage({
 
             {/* 취소 에러 */}
             {cancelError && (
-              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+              <div className="p-3 rounded-xl bg-danger-tint border border-danger/20 text-[13px] text-danger">
                 {cancelError}
               </div>
             )}
@@ -289,7 +289,7 @@ export default function OrderDetailPage({
               <button
                 onClick={handleCancel}
                 disabled={cancelling}
-                className="w-full mt-1 rounded-xl border border-danger text-danger text-[13px] font-semibold py-2.5 hover:bg-red-50 transition disabled:opacity-40"
+                className="w-full mt-1 rounded-xl border border-danger text-danger text-[13px] font-semibold py-2.5 hover:bg-danger-tint transition disabled:opacity-40"
               >
                 {cancelling ? "취소 중..." : "주문 취소"}
               </button>
@@ -301,7 +301,7 @@ export default function OrderDetailPage({
 
           {/* 오른쪽: 진행 상태 타임라인 */}
           <Card className="p-4 sm:p-5 space-y-4">
-            <h2 className="text-[14px] font-bold text-ink">진행 상태</h2>
+            <h2 className="text-[15px] font-bold text-ink">진행 상태</h2>
             <Timeline logs={order.status_logs} currentStatus={order.status} />
 
             {/* 수동 제작 안내 */}

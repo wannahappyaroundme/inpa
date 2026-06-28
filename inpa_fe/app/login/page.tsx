@@ -75,7 +75,7 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-dvh bg-[var(--surface-2)] flex items-center justify-center px-4 py-12">
+    <div className="min-h-dvh bg-surface2 flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center gap-2 mb-8">
@@ -83,17 +83,17 @@ function LoginForm() {
             <Logo />
             <span className="font-extrabold text-[20px] text-[var(--brand-ink)]">인파</span>
           </Link>
-          <p className="text-[13px] text-[var(--ink-3)]">보험설계사의 AI 영업 파트너</p>
+          <p className="text-[13px] text-ink3">보험설계사의 AI 영업 파트너</p>
         </div>
 
         {/* Banners */}
         {verifiedBanner && (
-          <div className="mb-4 p-3 rounded-xl bg-green-50 border border-green-200 text-[13px] text-green-800">
+          <div className="mb-4 p-3 rounded-xl bg-success-tint border border-line text-[13px] text-success">
             이메일 인증이 완료되었습니다. 로그인하세요.
           </div>
         )}
         {resetBanner && (
-          <div className="mb-4 p-3 rounded-xl bg-green-50 border border-green-200 text-[13px] text-green-800">
+          <div className="mb-4 p-3 rounded-xl bg-success-tint border border-line text-[13px] text-success">
             비밀번호가 변경되었습니다. 새 비밀번호로 로그인하세요.
           </div>
         )}
@@ -101,38 +101,38 @@ function LoginForm() {
         {/* Form card */}
         <form
           onSubmit={handleSubmit}
-          className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-sm p-6 flex flex-col gap-4"
+          className="rounded-2xl bg-surface border border-line shadow-card p-6 flex flex-col gap-4"
         >
-          <h1 className="text-[18px] font-extrabold text-[var(--ink)]">로그인</h1>
+          <h1 className="text-[18px] font-extrabold text-ink">로그인</h1>
 
           {error && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+            <div className="p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
               {error}
             </div>
           )}
 
           <label className="flex flex-col gap-1">
-            <span className="text-[13px] font-semibold text-[var(--ink-2)]">이메일</span>
+            <span className="text-[13px] font-semibold text-ink2">이메일</span>
             <input
               type="email"
               autoComplete="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl border border-[var(--line)] px-4 py-3 text-[14px] text-[var(--ink)] bg-[var(--surface)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)] min-h-[48px]"
+              className="w-full rounded-xl border border-line px-4 py-3 text-[14px] text-ink bg-surface focus:outline-none focus:ring-2 focus:ring-[var(--brand)] min-h-[48px]"
               placeholder="agent@example.com"
             />
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="text-[13px] font-semibold text-[var(--ink-2)]">비밀번호</span>
+            <span className="text-[13px] font-semibold text-ink2">비밀번호</span>
             <input
               type="password"
               autoComplete="current-password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl border border-[var(--line)] px-4 py-3 text-[14px] text-[var(--ink)] bg-[var(--surface)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)] min-h-[48px]"
+              className="w-full rounded-xl border border-line px-4 py-3 text-[14px] text-ink bg-surface focus:outline-none focus:ring-2 focus:ring-[var(--brand)] min-h-[48px]"
               placeholder="비밀번호"
             />
           </label>
@@ -140,7 +140,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-[var(--brand)] text-white font-bold text-[15px] min-h-[48px] disabled:opacity-60 hover:opacity-90 transition flex items-center justify-center gap-2"
+            className="w-full py-3 rounded-xl bg-brand text-white font-bold text-[15px] min-h-[48px] disabled:opacity-60 hover:opacity-90 transition flex items-center justify-center gap-2"
           >
             {loading ? (
               <>
@@ -152,11 +152,11 @@ function LoginForm() {
             )}
           </button>
 
-          <div className="flex items-center justify-between text-[13px] text-[var(--ink-3)]">
-            <Link href="/forgot-password" className="hover:text-[var(--brand)] transition">
+          <div className="flex items-center justify-between text-[13px] text-ink3">
+            <Link href="/forgot-password" className="hover:text-brand transition">
               비밀번호를 잊으셨나요?
             </Link>
-            <Link href="/register" className="text-[var(--brand)] font-semibold hover:underline">
+            <Link href="/register" className="text-brand font-semibold hover:underline">
               회원가입
             </Link>
           </div>
@@ -166,9 +166,9 @@ function LoginForm() {
         {process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && (
           <div className="mt-5">
             <div className="flex items-center gap-3 mb-3">
-              <div className="flex-1 h-px bg-[var(--line)]" />
-              <span className="text-[12px] text-[var(--ink-3)]">또는</span>
-              <div className="flex-1 h-px bg-[var(--line)]" />
+              <div className="flex-1 h-px bg-line" />
+              <span className="text-[12px] text-ink3">또는</span>
+              <div className="flex-1 h-px bg-line" />
             </div>
             <GoogleSignInButton />
           </div>
@@ -182,7 +182,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-dvh bg-[var(--surface-2)]" />}>
+    <Suspense fallback={<div className="min-h-dvh bg-surface2" />}>
       <LoginForm />
     </Suspense>
   );

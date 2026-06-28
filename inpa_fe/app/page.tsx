@@ -146,7 +146,7 @@ function FeaturesSection() {
         </Reveal>
         <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-5">
           {cards.map((c, i) => (
-            <Reveal key={c.title} delay={i * 90} className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 shadow-[0_1px_2px_rgba(16,24,40,.04),0_12px_28px_-12px_rgba(16,24,40,.10)] hover:-translate-y-0.5 transition">
+            <Reveal key={c.title} delay={i * 90} className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 shadow-card hover:-translate-y-0.5 transition">
               <FeatureIcon icon={c.icon} />
               <h3 className="mt-4 font-bold text-[17px] text-[var(--ink)]">{c.title}</h3>
               <p className="mt-2 text-[14px] text-[var(--ink-3)] leading-relaxed">{c.desc}</p>
@@ -261,7 +261,7 @@ function FeatureShowcaseSection() {
             <Reveal
               key={c.title}
               delay={(i % 3) * 90}
-              className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-6 shadow-[0_1px_2px_rgba(16,24,40,.04),0_12px_28px_-12px_rgba(16,24,40,.10)] hover:-translate-y-0.5 transition"
+              className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-6 shadow-card hover:-translate-y-0.5 transition"
             >
               <FeatureIcon icon={c.icon} />
               <h3 className="mt-4 font-bold text-[16px] text-[var(--ink)]">{c.title}</h3>

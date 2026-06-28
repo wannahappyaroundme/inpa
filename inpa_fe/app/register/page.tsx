@@ -78,8 +78,8 @@ export default function RegisterPage() {
   if (success) {
     return (
       <div className="min-h-dvh bg-[var(--surface-2)] flex items-center justify-center px-4">
-        <div className="w-full max-w-sm rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-sm p-8 flex flex-col items-center gap-4 text-center">
-          <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-[24px]">✓</div>
+        <div className="w-full max-w-sm rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-card p-8 flex flex-col items-center gap-4 text-center">
+          <div className="w-12 h-12 rounded-full bg-success-tint flex items-center justify-center text-success text-[24px]">✓</div>
           <h2 className="text-[18px] font-extrabold text-[var(--ink)]">이메일을 확인하세요</h2>
           <p className="text-[13px] text-[var(--ink-3)] leading-relaxed">
             <strong className="text-[var(--ink)]">{email}</strong>로 인증 링크를 발송했습니다.
@@ -110,12 +110,12 @@ export default function RegisterPage() {
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-sm p-6 flex flex-col gap-4"
+          className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-card p-6 flex flex-col gap-4"
         >
           <h1 className="text-[18px] font-extrabold text-[var(--ink)]">회원가입</h1>
 
           {error && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+            <div className="p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
               {error}
             </div>
           )}

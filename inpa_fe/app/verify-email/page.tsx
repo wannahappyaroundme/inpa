@@ -71,7 +71,7 @@ function VerifyEmailContent() {
   if (state === "success") {
     return (
       <div className="flex flex-col items-center gap-4 text-center">
-        <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-[28px]">
+        <div className="w-14 h-14 rounded-full bg-success-tint flex items-center justify-center text-success text-[28px]">
           ✓
         </div>
         <h1 className="text-[20px] font-extrabold text-[var(--ink)]">이메일 인증 완료!</h1>
@@ -91,7 +91,7 @@ function VerifyEmailContent() {
   // error
   return (
     <div className="flex flex-col items-center gap-4 text-center">
-      <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center text-red-500 text-[28px]">
+      <div className="w-14 h-14 rounded-full bg-danger-tint flex items-center justify-center text-danger text-[28px]">
         ✕
       </div>
       <h1 className="text-[20px] font-extrabold text-[var(--ink)]">인증 실패</h1>
@@ -140,7 +140,7 @@ function VerifyEmailContent() {
 export default function VerifyEmailPage() {
   return (
     <div className="min-h-dvh bg-[var(--surface-2)] flex items-center justify-center px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-sm p-8">
+      <div className="w-full max-w-sm rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-card p-8">
         <Suspense
           fallback={
             <div className="flex flex-col items-center gap-4 text-center">

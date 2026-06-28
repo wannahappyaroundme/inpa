@@ -10,6 +10,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback } from "react";
+import { ShieldAlert } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { Card, ReminderCard } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
@@ -177,7 +178,8 @@ export default function ChurnRadarPage() {
             ))
           ) : !data || data.items.length === 0 ? (
             <Card className="px-4 py-10 text-center">
-              <p className="text-[14px] text-ink3">보유 보험이 아직 없어요.</p>
+              <ShieldAlert className="mx-auto w-8 h-8 text-ink3" />
+              <p className="mt-3 text-[14px] text-ink3">보유 보험이 아직 없어요.</p>
               <p className="mt-1 text-[12px] text-ink3">
                 고객 상세에서 증권을 올려 보험을 먼저 등록하면 여기서 납입·환수를 관리할 수 있어요.
               </p>

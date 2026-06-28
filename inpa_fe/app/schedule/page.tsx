@@ -289,7 +289,7 @@ export default function SchedulePage() {
           </Card>
         )}
         {err && !modal && (
-          <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-[13px] text-rose-700">{err}</div>
+          <div className="mb-3 rounded-xl border border-danger/30 bg-danger-tint px-4 py-2 text-[13px] text-danger">{err}</div>
         )}
 
         <div className="lg:grid lg:grid-cols-3 lg:gap-5">
@@ -404,7 +404,7 @@ export default function SchedulePage() {
                 </button>
               </div>
             )}
-            {err && <div className="mb-3 rounded-lg bg-rose-50 text-rose-700 text-[13px] px-3 py-2">{err}</div>}
+            {err && <div className="mb-3 rounded-lg bg-danger-tint text-danger text-[13px] px-3 py-2">{err}</div>}
 
             <label className="block mb-3">
               <span className="text-[12px] text-ink3">제목</span>
@@ -417,9 +417,9 @@ export default function SchedulePage() {
               <>
                 <div className="flex gap-1.5 mb-3">
                   <button onClick={() => setModal({ ...modal, blockRepeat: true })}
-                    className={`flex-1 rounded-lg py-2 text-[13px] font-semibold ${modal.blockRepeat ? "bg-accent-tint text-brand" : "bg-surface2 text-ink2"}`}>매주 반복</button>
+                    className={`flex-1 rounded-lg py-2 text-[13px] font-semibold ${modal.blockRepeat ? "bg-brand-soft text-brand" : "bg-surface2 text-ink2"}`}>매주 반복</button>
                   <button onClick={() => setModal({ ...modal, blockRepeat: false })}
-                    className={`flex-1 rounded-lg py-2 text-[13px] font-semibold ${!modal.blockRepeat ? "bg-accent-tint text-brand" : "bg-surface2 text-ink2"}`}>이번 한 번</button>
+                    className={`flex-1 rounded-lg py-2 text-[13px] font-semibold ${!modal.blockRepeat ? "bg-brand-soft text-brand" : "bg-surface2 text-ink2"}`}>이번 한 번</button>
                 </div>
                 {modal.blockRepeat ? (
                   <>
@@ -486,7 +486,7 @@ export default function SchedulePage() {
               <button disabled={saving} onClick={save}
                 className="flex-1 rounded-xl bg-brand text-white text-[14px] font-bold py-3 disabled:opacity-60">{saving ? "저장 중…" : "저장"}</button>
               {modal.id ? (
-                <button onClick={() => remove(modal.id)} className="rounded-xl border border-rose-200 text-rose-600 text-[14px] font-semibold px-4 py-3">삭제</button>
+                <button onClick={() => remove(modal.id)} className="rounded-xl border border-danger/30 text-danger text-[14px] font-semibold px-4 py-3">삭제</button>
               ) : (
                 <button onClick={() => setModal(null)} className="rounded-xl border border-line text-ink2 text-[14px] font-semibold px-4 py-3">취소</button>
               )}

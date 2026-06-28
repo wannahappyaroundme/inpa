@@ -333,7 +333,7 @@ export default function CustomersPage() {
                   key={v}
                   onClick={() => setView(v)}
                   className={`px-3 py-1.5 rounded-[10px] transition ${
-                    view === v ? "bg-surface text-brand shadow-sm" : "text-ink3"
+                    view === v ? "bg-brand-soft text-brand" : "text-ink3"
                   }`}
                 >
                   {v === "kanban" ? "단계별" : "목록"}
@@ -384,7 +384,7 @@ export default function CustomersPage() {
               return (
                 <div
                   key={c.id}
-                  className={`rounded-2xl bg-surface border border-line shadow-sm p-3.5 cursor-pointer hover:shadow-md transition ${staleEdgeCls(lvl)} ${c.status !== "active" ? "opacity-60" : ""}`}
+                  className={`rounded-2xl bg-surface border border-line shadow-card p-3.5 cursor-pointer hover:shadow-md transition ${staleEdgeCls(lvl)} ${c.status !== "active" ? "opacity-60" : ""}`}
                   onClick={() => router.push(`/customer/${c.id}`)}
                 >
                   <div className="flex items-start gap-3">

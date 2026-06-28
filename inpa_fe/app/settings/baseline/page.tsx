@@ -330,7 +330,7 @@ export default function BaselineSettingsPage() {
 
         {/* 에러 */}
         {error && (
-          <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+          <div className="mt-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
             {error}
           </div>
         )}
@@ -411,8 +411,8 @@ export default function BaselineSettingsPage() {
           <div
             className={`mt-4 rounded-xl border px-4 py-3 text-[13px] ${
               presetResult.startsWith("적용 실패")
-                ? "bg-red-50 border-red-200 text-red-700"
-                : "bg-indigo-50 border-indigo-200 text-indigo-700"
+                ? "bg-danger-tint border-line text-danger"
+                : "bg-brand-soft border-line text-brand"
             }`}
           >
             {presetResult}
@@ -455,17 +455,17 @@ export default function BaselineSettingsPage() {
               </h2>
 
               {/* ★ v0_starter 출처 미확정 경고 */}
-              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                <p className="text-[13px] font-semibold text-amber-800">
+              <div className="mt-4 rounded-xl border border-line bg-warning-tint px-4 py-3">
+                <p className="text-[13px] font-semibold text-warning">
                   v0 스타터 (출처 미확정)
                 </p>
-                <p className="mt-1.5 text-[12px] text-amber-700 leading-5">
+                <p className="mt-1.5 text-[12px] text-warning leading-5">
                   이 프리셋({" "}
                   <b className="font-semibold">v0_starter</b>)은 출처·권위가 아직
                   확정되지 않은 초기 시드값이에요. 금감원·보험연구원 등 공식 기관
                   기준이 아닙니다.
                 </p>
-                <ul className="mt-2 space-y-1 text-[12px] text-amber-700 leading-5 list-disc list-inside">
+                <ul className="mt-2 space-y-1 text-[12px] text-warning leading-5 list-disc list-inside">
                   <li>적용 후 각 기준의 수치를 직접 검토·수정해야 합니다.</li>
                   <li>인파는 이 시드값의 적정성을 보증하지 않습니다.</li>
                 </ul>
@@ -704,7 +704,7 @@ function BaselineForm({
         </div>
 
         {error && (
-          <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+          <div className="mt-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
             {error}
           </div>
         )}

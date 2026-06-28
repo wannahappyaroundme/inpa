@@ -2,8 +2,12 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import {
+  Users, UserPlus, CalendarCheck, Wallet, AlertTriangle, ShieldCheck,
+  ChevronRight, MessageSquare, Calendar as CalendarIcon, Activity, type LucideIcon,
+} from "lucide-react";
 import { AppNav } from "@/components/app-nav";
-import { Card, StatCard } from "@/components/ui";
+import { Card, StatCard, SectionTitle } from "@/components/ui";
 import { BarChart, DonutChart } from "@/components/charts";
 import { SelfDiagnosisShare } from "@/components/self-diagnosis-share";
 import { useAuthGuard } from "@/lib/useAuthGuard";
@@ -37,6 +41,23 @@ const CAT_META: Record<Cat, { dot: string; label: string }> = {
   task: { dot: "bg-emerald-500", label: "업무" },
   etc: { dot: "bg-muted", label: "기타" },
 };
+
+// 영업 단계 컬러 — '우리 4색'의 soft 배경. 01 회색 / 02 빨강(TA) / 03 노랑(FA) / 04 초록(청약).
+const STAGE_TONE: Record<string, { bg: string; fg: string }> = {
+  db:       { bg: "bg-surface2",  fg: "text-ink3" },
+  contact:  { bg: "bg-neg-soft",  fg: "text-neg" },
+  meeting:  { bg: "bg-warn-soft", fg: "text-warn-ink" },
+  contract: { bg: "bg-pos-soft",  fg: "text-pos-ink" },
+};
+
+// 하단 퀵액션 바(레퍼런스 1번 하단) — 인파 동등 기능 바로가기.
+const QUICK_ACTIONS: { label: string; href: string; icon: LucideIcon }[] = [
+  { label: "고객 목록", href: "/customers", icon: Users },
+  { label: "보장 분석", href: "/analysis", icon: Activity },
+  { label: "상담 예약", href: "/settings/meetings", icon: CalendarCheck },
+  { label: "상담 화법", href: "/scripts", icon: MessageSquare },
+  { label: "일정 관리", href: "/schedule", icon: CalendarIcon },
+];
 
 // ISO(+09:00) → Asia/Seoul 기준 'YYYY-MM-DD' / 'HH:mm'
 function kstYmd(iso: string): string {
@@ -209,6 +230,9 @@ export default function HomePage() {
   const tCur = trend[trend.length - 1];
   const tPrev = trend[trend.length - 2];
   const momDelta = (key: "premium" | "new_customers" | "meetings"): number | null => {
+    // 백엔드 계산값(스펙 §5) 우선 — 있으면 그대로. 구 백엔드면 추이로 폴백.
+    const be = dash?.deltas?.[key];
+    if (be && be.pct !== null && be.pct !== undefined) return be.pct;
     if (!tCur || !tPrev) return null;
     const a = tCur[key], b = tPrev[key];
     if (b === 0) return a > 0 ? 100 : null;
@@ -256,7 +280,7 @@ export default function HomePage() {
       <AppNav active="home" />
       <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
         <div className="flex items-end justify-between">
-          <h1 className="text-[22px] font-extrabold text-ink">
+          <h1 className="text-[24px] sm:text-[26px] font-extrabold text-ink tracking-tight">
             안녕하세요, {displayName} 설계사님 <span className="font-normal">👋</span>
           </h1>
           <span className="hidden sm:block text-[13px] text-ink3 tnum">
@@ -271,33 +295,43 @@ export default function HomePage() {
 
         {/* KPI 한 줄 — 전부 실데이터(+ 전월 대비 증감률) */}
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <StatCard label="내 고객" value={customerCount !== null ? String(customerCount) : "-"} unit="명" />
-          <StatCard label="이번 달 신규" value={dash ? String(dash.actual_new_customers) : "-"} unit="명" delta={momDelta("new_customers")} />
-          <StatCard label="이번 달 미팅" value={dash ? String(dash.actual_meetings) : "-"} unit="건" delta={momDelta("meetings")} />
-          <StatCard label="이번 달 보험료" value={dash ? fmtWonShort(dash.actual_premium) : "-"} unit="원" delta={momDelta("premium")} />
-          <StatCard label="환수 위험" value={churn ? String(churn.risk_count) : "-"} unit="건" accent={!!churn && churn.risk_count > 0}
+          <StatCard icon={Users} tone="brand" label="내 고객" value={customerCount !== null ? String(customerCount) : "-"} unit="명" />
+          <StatCard icon={UserPlus} tone="brand" label="이번 달 신규" value={dash ? String(dash.actual_new_customers) : "-"} unit="명" delta={momDelta("new_customers")} />
+          <StatCard icon={CalendarCheck} tone="brand" label="이번 달 미팅" value={dash ? String(dash.actual_meetings) : "-"} unit="건" delta={momDelta("meetings")} />
+          <StatCard icon={Wallet} tone="brand" label="이번 달 보험료" value={dash ? fmtWonShort(dash.actual_premium) : "-"} unit="원" delta={momDelta("premium")} />
+          <StatCard icon={AlertTriangle} tone="neg" label="환수 위험" value={churn ? String(churn.risk_count) : "-"} unit="건" accent={!!churn && churn.risk_count > 0}
             hint="고객이 계약을 해지하면 이미 받은 수수료가 환수(반환)될 수 있어요. 최근 해지·연락 두절 등 위험 신호가 있는 고객 수예요." />
         </div>
 
         {/* 영업 4단계 퍼널 — 단계별 고객(클릭 시 칸반) */}
         {insights && (
           <button onClick={() => router.push("/customers")} className="mt-4 block w-full text-left">
-            <Card className="p-4 sm:p-5 hover:bg-surface2 transition">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-[15px] font-bold text-ink">영업 단계별 고객</div>
-                <span className="text-[12px] font-semibold text-brand">칸반 보기 →</span>
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                {SALES_STAGES.map((s) => (
-                  <div key={s.key}>
-                    <div className="text-[11px] text-ink3 tnum">{s.short}</div>
-                    <div className="text-[12px] text-ink2 truncate">{s.label}</div>
-                    <div className="mt-0.5 text-[20px] font-extrabold text-ink tnum">
-                      {insights.funnel[s.key]}
-                      <span className="ml-0.5 text-[12px] font-normal text-ink3">{s.key === "contract" ? "건" : "명"}</span>
+            <Card className="p-4 sm:p-5 hover:shadow-cardhover transition">
+              <SectionTitle
+                title="영업 단계별 고객"
+                action={<span className="text-[12px] font-semibold text-brand">단계별 보기 →</span>}
+              />
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {SALES_STAGES.map((s, i) => {
+                  const tone = STAGE_TONE[s.key] ?? STAGE_TONE.db;
+                  return (
+                    <div key={s.key} className="relative">
+                      <div className={`rounded-xl p-4 ${tone.bg}`}>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[13px] font-extrabold tnum ${tone.fg}`}>{s.short}</span>
+                          <span className="text-[13px] font-semibold text-ink">{s.label}</span>
+                        </div>
+                        <p className="mt-2 flex items-baseline gap-0.5">
+                          <span className="text-[26px] font-extrabold text-ink tnum leading-none">{insights.funnel[s.key]}</span>
+                          <span className="text-[12px] font-normal text-ink3">{s.key === "contract" ? "건" : "명"}</span>
+                        </p>
+                      </div>
+                      {i < SALES_STAGES.length - 1 && (
+                        <ChevronRight className="hidden lg:block absolute -right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" strokeWidth={2.5} />
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </Card>
           </button>
@@ -471,7 +505,14 @@ export default function HomePage() {
               : "border-line bg-surface2 hover:bg-surface"
           }`}
         >
-          <span className="text-[22px]">{churn && churn.risk_count > 0 ? "⚠️" : "🛡️"}</span>
+          <span
+            className={`shrink-0 w-10 h-10 rounded-xl grid place-items-center ${
+              churn && churn.risk_count > 0 ? "bg-neg-soft text-neg" : "bg-pos-soft text-pos-ink"
+            }`}
+            aria-hidden
+          >
+            {churn && churn.risk_count > 0 ? <AlertTriangle className="w-5 h-5" strokeWidth={2} /> : <ShieldCheck className="w-5 h-5" strokeWidth={2} />}
+          </span>
           <div className="flex-1 min-w-0">
             <div className="text-[14px] font-bold text-ink">
               환수 레이더
@@ -487,7 +528,7 @@ export default function HomePage() {
                 : "현재 환수 위험 없음 · 납입정보 입력·점검"}
             </div>
           </div>
-          <span className="text-ink3 text-[18px] shrink-0">›</span>
+          <ChevronRight className="w-5 h-5 text-muted shrink-0" strokeWidth={2.5} />
         </button>
 
         {/* 다가오는 미팅(예약 확정) — 실데이터 */}
@@ -607,6 +648,23 @@ export default function HomePage() {
               일정 전체 보기 · 추가 →
             </button>
           </Card>
+        </div>
+
+        {/* 하단 퀵액션 바 — 자주 쓰는 기능 바로가기(레퍼런스 1번 하단) */}
+        <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {QUICK_ACTIONS.map((q) => (
+            <button
+              key={q.href}
+              onClick={() => router.push(q.href)}
+              className="flex items-center gap-3 rounded-2xl bg-surface border border-line shadow-card px-4 py-3.5 text-left hover:shadow-cardhover transition active:scale-[0.99]"
+            >
+              <span className="shrink-0 w-9 h-9 rounded-xl grid place-items-center bg-brand-soft text-brand" aria-hidden>
+                <q.icon className="w-[18px] h-[18px]" strokeWidth={2} />
+              </span>
+              <span className="flex-1 text-[13px] font-semibold text-ink truncate">{q.label}</span>
+              <ChevronRight className="w-4 h-4 text-muted shrink-0" />
+            </button>
+          ))}
         </div>
       </main>
     </div>

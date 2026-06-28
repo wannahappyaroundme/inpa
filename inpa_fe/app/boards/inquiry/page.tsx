@@ -62,7 +62,7 @@ export default function InquiryPage() {
         {loading && <div className="py-12 text-center text-[14px] text-ink3">불러오는 중...</div>}
 
         {error && (
-          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between">
+          <div className="p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger flex items-center justify-between">
             <span>{error}</span>
             <button onClick={loadInquiries} className="ml-3 font-semibold underline shrink-0">재시도</button>
           </div>

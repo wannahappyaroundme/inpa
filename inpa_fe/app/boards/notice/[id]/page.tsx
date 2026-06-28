@@ -74,7 +74,7 @@ export default function NoticeDetailPage() {
 
         <Card className="p-5">
           {notice.is_pinned && (
-            <span className="inline-block rounded-full bg-accent-tint text-brand text-[11px] font-bold px-2.5 py-0.5 mb-3">📌 공지</span>
+            <span className="inline-block rounded-full bg-brand-soft text-brand text-[11px] font-bold px-2.5 py-0.5 mb-3">📌 공지</span>
           )}
           <h1 className="text-[20px] font-extrabold text-ink mb-3">{notice.title}</h1>
           <div className="flex items-center gap-2 text-[12px] text-ink3 pb-4 border-b border-line mb-5">

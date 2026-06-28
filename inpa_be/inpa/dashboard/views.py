@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 from inpa.core.permissions import IsEmailVerified
 
 from .aggregation import (
-    compute_actuals, compute_funnel, compute_portfolio_breakdown,
+    compute_actuals, compute_deltas, compute_funnel, compute_portfolio_breakdown,
     compute_retention, compute_trend,
 )
 from .models import MonthlyGoal
@@ -46,6 +46,8 @@ class DashboardView(APIView):
             'actual_meetings': a['meetings'],
             'actual_premium': a['premium'],
             'actual_new_customers': a['new_customers'],
+            # 전월 대비 증감(%) — KPI 카드 배지. 프론트 계산 제거(스펙 §5).
+            'deltas': compute_deltas(user, goal.year_month, cur=a),
         }
 
     def get(self, request):

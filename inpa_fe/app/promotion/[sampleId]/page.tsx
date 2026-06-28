@@ -447,7 +447,7 @@ export default function SampleDetailPage({
                   </p>
                 </div>
                 {digital && (
-                  <div className={`rounded-xl border p-3.5 text-[13px] ${digital.mode === "free" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-blue-200 bg-blue-50 text-blue-800"}`}>
+                  <div className={`rounded-xl border p-3.5 text-[13px] ${digital.mode === "free" ? "border-line bg-success-tint text-success" : "border-line bg-brand-soft text-brand"}`}>
                     {digital.detail}
                     {digital.mode === "free" && digital.file_url && (
                       <> <a href={digital.file_url} target="_blank" rel="noreferrer" className="font-semibold underline">다운로드 링크 열기</a></>
@@ -458,7 +458,7 @@ export default function SampleDetailPage({
                   </div>
                 )}
                 {digitalError && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] text-red-700">{digitalError}</div>
+                  <div className="rounded-xl border border-line bg-danger-tint px-4 py-2.5 text-[13px] text-danger">{digitalError}</div>
                 )}
                 <button
                   onClick={handleDigital}
@@ -487,7 +487,7 @@ export default function SampleDetailPage({
 
               {/* 일반 에러 */}
               {submitError && (
-                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+                <div className="p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
                   {submitError}
                 </div>
               )}

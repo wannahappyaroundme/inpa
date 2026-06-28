@@ -370,7 +370,7 @@ function NotificationsContent() {
           <div
             role="alert"
             aria-live="assertive"
-            className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between"
+            className="mb-4 p-3 rounded-xl bg-danger-tint border border-danger/20 text-[13px] text-danger flex items-center justify-between"
           >
             <span>{error}</span>
             <button
