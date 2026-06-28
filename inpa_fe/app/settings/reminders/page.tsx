@@ -286,7 +286,7 @@ function RemindersContent() {
         {rules && (
           <p className="mt-5 text-[11px] text-muted leading-5 text-center">
             이메일 알림은 가입 이메일로만 발송됩니다. 알림은 설계사 본인에게만
-            전송되며, 고객에게 자동 발송되지 않습니다.
+            전송되며, 설계사 본인에게만 표시됩니다.
           </p>
         )}
       </main>

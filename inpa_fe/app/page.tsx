@@ -9,7 +9,7 @@ import { Reveal, CountUp } from "@/components/reveal";
 import { LineCompareChart } from "@/components/charts";
 import {
   LayoutGrid, BarChart3, ArrowLeftRight, ShieldCheck, ScanLine,
-  Upload, Sparkles, Share2, Check, FileCheck, Ban,
+  Upload, Sparkles, Share2, Check, FileCheck,
   Users, CalendarDays, MessageSquare, Target, Package, type LucideIcon,
 } from "lucide-react";
 
@@ -135,7 +135,7 @@ function FeaturesSection() {
   const cards = [
     { icon: LayoutGrid, title: "보장 한눈표 (히트맵)", desc: "고객의 현재 보장을 100개 이상 담보 항목으로 한 화면에. 보유·공백을 색으로 즉시 확인합니다." },
     { icon: BarChart3, title: "보장 공백 분석", desc: "보유 0인 담보를 모아 우선순위로 정렬합니다. 충분·부족 판단은 설계사님이 설정한 기준선을 따릅니다." },
-    { icon: ArrowLeftRight, title: "비교 분석 안내서", desc: "기존과 제안을 나란히 정리하고, 해지손실·면책기간 재적용·예정이율 같은 비교 시 불이익을 빠짐없이 짚어줍니다. (AI 초안, 최종 비교안내·책임은 설계사)" },
+    { icon: ArrowLeftRight, title: "비교 분석 안내서", desc: "기존과 제안을 나란히 정리하고, 해지손실·면책기간 재적용·예정이율 같은 비교 시 불이익을 빠짐없이 짚어줍니다." },
   ];
   return (
     <section id="features" className="py-20 md:py-28 bg-[var(--surface)]">
@@ -280,7 +280,7 @@ function FeatureShowcaseSection() {
 function DifferentiatorsSection() {
   const items = [
     { icon: ShieldCheck, badge: "비교 분석 가드레일: 점검 전엔 발행 잠금", title: "비교 시 불이익을 빠짐없이 점검하는 비교안내",
-      desc: "다른 상품으로 바꿀 때 고객에게 불리할 수 있는 항목(해지환급금 손실·면책기간 재적용·예정이율 등)을 빠짐없이 점검하도록 돕습니다. 점검 전에는 고객 발행을 잠가 빠뜨림을 줄여요. 법적 비교안내(공식 확인서)는 설계사가 최종 확인·책임집니다." },
+      desc: "다른 상품으로 바꿀 때 고객에게 불리할 수 있는 항목(해지환급금 손실·면책기간 재적용·예정이율 등)을 빠짐없이 점검하도록 돕습니다. 점검 전에는 고객 발행을 잠가 빠뜨림을 줄여요. 공식 비교안내서는 설계사님이 직접 확인해 완성합니다." },
     { icon: LayoutGrid, badge: "담보 100+ 표준화 · 보험사별 명칭 자동 매핑", title: "어떤 보험사 증권도 같은 틀로",
       desc: "'암진단급부금', '일반암진단비', '암진단 특약'처럼 회사마다 다른 이름을 100개 이상 표준 담보로 자동 정규화합니다. 데이터가 쌓일수록 매칭 정확도가 높아집니다." },
   ];
@@ -325,7 +325,7 @@ function HowItWorksSection() {
             </Reveal>
           ))}
         </div>
-        <p className="mt-8 text-center text-[13px] text-[var(--ink-3)]">자동 발송은 지원하지 않습니다. 메시지는 클립보드 복사 후 직접 전달해 주세요.</p>
+        <p className="mt-8 text-center text-[13px] text-[var(--ink-3)]">메시지를 복사해 고객에게 바로 전달하세요.</p>
       </div>
     </section>
   );
@@ -369,8 +369,7 @@ function PricingSection() {
 
 function TrustSection() {
   const items = [
-    { icon: FileCheck, title: "AI 초안, 최종책임은 설계사", desc: "인파가 만든 비교안내서·메시지는 AI 초안입니다. 보장 판단과 최종 전달 책임은 담당 설계사님에게 있습니다." },
-    { icon: Ban, title: "'심의완료'·'안전' 배지 없음", desc: "특정 상품이 심의를 완료했다거나 안전하다는 표시를 하지 않습니다. 인파는 보험을 중개·권유하지 않습니다." },
+    { icon: FileCheck, title: "인파는 보험을 중개하지 않아요", desc: "인파는 보험을 중개·권유하지 않는 분석·정리 소프트웨어입니다. 보장 판단과 고객 안내는 설계사님의 업무이며, 산출물은 AI가 정리한 참고 자료입니다. 특정 상품이 심의를 완료했다거나 안전하다는 표시도 하지 않습니다." },
   ];
   return (
     <section className="py-20 md:py-28 bg-[var(--accent-tint)]">
@@ -424,7 +423,7 @@ function LandingFooter() {
         </div>
         <div className="mt-10 pt-6 border-t border-white/15 text-[12px] text-white/40 flex flex-col gap-1">
           <p>회사 정보는 법인 설립·정식 출시 시 기재됩니다. (현재 예비창업 베타 단계)</p>
-          <p className="mt-2 text-white/55">AI 초안이며 최종 판단·책임은 설계사님에게 있습니다. 인파는 보험 중개·권유를 하지 않습니다.</p>
+          <p className="mt-2 text-white/55">인파는 보험을 중개·권유하지 않는 분석·정리 도구이며, 산출물은 AI가 정리한 참고 자료예요.</p>
           <p className="mt-1">© 2026 Inpa. All rights reserved.</p>
         </div>
       </div>

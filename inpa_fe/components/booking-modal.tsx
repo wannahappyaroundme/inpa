@@ -56,7 +56,7 @@ export function BookingModal({
         </h2>
         <p className="mt-3 text-[14px] text-ink2 leading-6">
           고객에게 보낼 예약 링크를 만들어요. 고객이 링크에서 <b className="font-semibold text-ink">직접 시간을 고르면</b>{" "}
-          알림이 와요. 아래 메시지를 복사해 카톡·문자로 보내세요(자동발송 없음).
+          알림이 와요. 아래 메시지를 복사해 카톡·문자로 고객에게 보내세요.
         </p>
 
         {error && (

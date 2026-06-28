@@ -309,7 +309,7 @@ export function ConsentModal({
 
         {/* AI 면책 — 정직성 레드라인 */}
         <p className="mt-3 text-[12px] text-muted">
-          처리 결과는 AI 초안이며, 최종 확인과 책임은 설계사에게 있습니다.
+          처리 결과는 AI가 정리한 초안이에요. 고객 안내 전 설계사님이 확인해 주세요.
         </p>
 
         <div className="mt-5 flex flex-col gap-2.5">

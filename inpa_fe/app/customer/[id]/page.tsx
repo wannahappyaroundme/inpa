@@ -619,7 +619,7 @@ function InfoTab({
               {consentBusy ? "링크 생성 중…" : "동의 요청 링크 복사(고객 본인용)"}
             </button>
             <p className="mt-1.5 text-[11px] text-ink3 leading-4">
-              가장 안전한 건 고객 본인이 링크로 직접 동의하는 거예요. (자동발송 없음, 복사해 전달)
+              가장 안전한 건 고객 본인이 링크로 직접 동의하는 거예요. 링크를 복사해 고객에게 전달하세요.
             </p>
           </div>
 
@@ -699,7 +699,7 @@ function ChecklistTab({ customerId }: { customerId: number }) {
         {items.length > 0 && <span className="text-[12px] text-ink3 tnum">{doneCount}/{items.length} 완료</span>}
       </div>
       <p className="mt-1 text-[12px] text-ink3 leading-5">
-        상담 시 설명 의무 이행을 직접 점검·기록해요. 체크 이력은 분쟁 대비 자료가 됩니다(자동발송·해피콜 아님).
+        상담 시 설명 의무 이행을 직접 점검·기록해요. 기록해 두면 나중에 고객 안내 이력으로 참고할 수 있어요.
       </p>
 
       {/* §97 불리사항 구두고지 안내 — 설계사 내부 전용(고객 화면·공유뷰 비노출) */}
@@ -1052,8 +1052,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
       {/* AI 초안 면책 — 항상 노출, 접기 불가 */}
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4">
         <p className="text-[12px] leading-5 text-amber-800">
-          <b className="font-semibold">AI 초안 · 최종 확인 및 책임은 설계사에게 있습니다.</b>
-          {" "}{data.disclaimer}
+          {data.disclaimer}
         </p>
       </div>
 
@@ -1215,7 +1214,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
               {data.guide_draft}
             </pre>
             <p className="mt-3 text-[11px] text-muted leading-5">
-              이 초안은 AI가 생성한 참고 자료입니다. 최종 내용 확인 및 고객 안내 책임은 설계사에게 있습니다.
+              AI가 정리한 참고 자료예요. 고객 안내 전 설계사님이 확인해 주세요.
             </p>
           </div>
         ) : (
@@ -1331,9 +1330,9 @@ function GapTab({
       {/* graded 일 때만 '부족' 단정 가능, neutral 이면 '미보유' 사실만 */}
       <p className="mt-1.5 text-[12px] leading-5 text-ink3">
         {isExclusive
-          ? "보유하지 않은 담보예요. 새로운 상품으로 채울 수 있는 보장 기회를 검토하세요(판정·최종책임은 설계사)."
+          ? "보유하지 않은 담보예요. 새로운 상품으로 채울 수 있는 보장 기회를 검토하세요."
           : heatmap.mode === "graded"
-          ? "보유 금액이 0인 담보예요. 부족 여부 판정은 설정한 기준에 따른 결과이며, 권유·최종책임은 설계사에게 있습니다."
+          ? "보유 금액이 0인 담보예요. 부족 여부 판정은 설정한 기준에 따른 결과입니다."
           : "보유 금액이 0인 담보(객관적 사실)만 모았어요. 기준 미설정(중립)이라 부족·충분은 단정하지 않습니다."}
       </p>
 
