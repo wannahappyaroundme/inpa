@@ -10,14 +10,18 @@ export function InsuranceManualModal({
   customerId,
   onClose,
   onCreated,
+  defaultPortfolioType = 1,
 }: {
   customerId: number;
   onClose: () => void;
   onCreated: () => void;
+  defaultPortfolioType?: number;   // 1=보유 / 2=제안 (호출처에서 지정, 비교분석=2)
 }) {
   const [name, setName] = useState("");
   const [insuranceType, setInsuranceType] = useState(2); // 손해보험 기본
-  const [portfolioType, setPortfolioType] = useState(1); // 보유 기본
+  const [portfolioType, setPortfolioType] = useState(defaultPortfolioType);
+  const [contractor, setContractor] = useState("");
+  const [insured, setInsured] = useState("");
   const [premium, setPremium] = useState("");
   const [contractDate, setContractDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
@@ -42,6 +46,8 @@ export function InsuranceManualModal({
         monthly_premiums: premium ? Number(premium) : undefined,
         contract_date: contractDate || undefined,
         expiry_date: expiryDate || undefined,
+        contractor_name: contractor.trim() || undefined,
+        insured_name: insured.trim() || undefined,
       });
       onCreated();
     } catch (e) {
@@ -49,7 +55,7 @@ export function InsuranceManualModal({
     } finally {
       setSaving(false);
     }
-  }, [name, insuranceType, portfolioType, premium, contractDate, expiryDate, customerId, onCreated]);
+  }, [name, insuranceType, portfolioType, contractor, insured, premium, contractDate, expiryDate, customerId, onCreated]);
 
   return (
     <div
@@ -93,6 +99,17 @@ export function InsuranceManualModal({
                 <option value={1}>보유(기존 가입)</option>
                 <option value={2}>제안(갈아타기)</option>
               </select>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[12px] font-semibold text-ink3">계약자 (선택)</span>
+              <input value={contractor} onChange={(e) => setContractor(e.target.value)} placeholder="예: 김보장" className={inputCls} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[12px] font-semibold text-ink3">피보험자 (선택)</span>
+              <input value={insured} onChange={(e) => setInsured(e.target.value)} placeholder="예: 김보장" className={inputCls} />
             </label>
           </div>
 

@@ -36,7 +36,7 @@ export type OcrPhase =
  *
  * @param onUploaded 업로드 성공 시 콜백(예: 히트맵 새로고침). selectedId 인자 전달.
  */
-export function useOcrUpload(onUploaded?: (customerId: number) => void) {
+export function useOcrUpload(onUploaded?: (customerId: number) => void, portfolioType: number = 1) {
   const [phase, setPhase] = useState<OcrPhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -50,7 +50,7 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void) {
       setPhase("uploading");
       setError(null);
       try {
-        await uploadInsuranceOcr(customerId, file);
+        await uploadInsuranceOcr(customerId, file, portfolioType);
         setPhase("success");
         onUploaded?.(customerId);
         setTimeout(() => setPhase("idle"), 2000);
@@ -70,7 +70,7 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void) {
         }
       }
     },
-    [onUploaded]
+    [onUploaded, portfolioType]
   );
 
   /** 파일 input change 핸들러 */

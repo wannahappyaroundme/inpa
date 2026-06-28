@@ -146,6 +146,7 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
   - *Booking:* **→ Calendly engine** (`WorkHour` + `availability.py` free-slot generation; buffer; PENDING + accept/decline; 409 conflict; `Notification.meeting`; google push moved to accept; booking-settings + public page rewritten). Migrations `booking 0003`, `accounts 0007`, `notifications 0007`, `customers 0013` (status).
   - *Analysis:* heatmap → **traffic-light** (넉넉 green/적정 yellow/부족 red), **중립 removed** from UI (no-baseline → '기준 설정' CTA), 2-column.
   - *Dashboard/data:* premium-bar amount label moved inside the bar (white); self-diagnosis copy de-jargoned ('리드' removed); home & /schedule calendars unified to 5 categories (알림 removed); **job master → PM's 메리츠 707** + `seed_jobs` sync/prune.
+  - *Customer detail (later in session):* summary card holds avatar+name+phone+최종연락 D+N+세부정보 link AND the 영업단계/상태 selectors (one card, selectors centered); InfoTab 생년월일 = year·month·day dropdowns (2:1:1 width, '년' suffix); **per-insurance cards** (분석=보유, 비교=제안 — 보험제목·종류·계약자·피보험자·월보험료·기간, via `listManualInsurances` + serializer now exposes `contractor_name`/`insured_name`); **공백(gap) tab removed** + tab bar no longer h-scrolls; **비교 분석 proposal entry** (제안서 업로드 = OCR with `portfolio_type=2` param / 직접 입력 = manual modal `defaultPortfolioType=2`) + compare table now labels each coverage 추가/삭제/변경/유지.
   - *Standing redline added:* easy-words · positive-framing · audience-split (§6).
 - **2026-06-28 (PRs #8–16):** consent collection (`/c` multi-scope) + 402 upgrade modal (hidden in beta); Round-2 UI (2-row customer card + DotMenu body-portal, monthly-premium chart, script library); 직업급수 707 + `/jobs/search/`; em-dash purge; "이번 달 미팅" = FA-first-reach; copy-tone cleanup; security hardening (rate-limit + DB cache); content protection (`content-guard.tsx`); 판촉물 골격 (`seed_promotion`); admin usage tracking; heatmap badge = held-coverage count ("보유 N개").
 
@@ -154,6 +155,7 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 - ⬜ OCR remaining: 종합보험 17-22 unmatched coverages; life-insurance 변액 `company_idx=-1`. See memory `ocr-coverage-sections`.
 - ⬜ At launch: flipping `FREE_TIER_UNLIMITED=False` activates 402 + the upgrade modal (already built) — verify modal copy + "1-month coupon" entitlement wiring first.
 - ⬜ Booking: the legacy manual `MeetingSlot` page is now orphaned (the public flow uses work hours only) — consider removing/redirecting it. The public booking `start_at` flow is automated-test-verified but not browser-smoke-tested.
+- ⬜ 비교 분석 (PM wants): currently compares ALL 보유 vs ALL 제안 (`compareCustomer`) + labels coverage 추가/삭제/변경. **Still TODO: let the planner SELECT specific 보유 + 제안 insurances to compare** (needs `compare.py` + endpoint to accept insurance ids) and show the selected aggregate. The `GapTab` function is now dead code (공백 tab removed) — remove it + its unused imports on the next pass.
 - ⬜ Backfill: pre-existing FA/청약 customers have `fa_reached_at=null` (not counted) — fine going forward.
 
 ## 13. Docs map (`docs/`)
