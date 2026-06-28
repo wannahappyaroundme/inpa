@@ -336,47 +336,13 @@ function CustomerDetailInner() {
             </Link>
           </div>
         ) : (
-          customer && <CustomerSummary customer={customer} />
-        )}
-
-        {/* ── 영업 단계 + 상태 (한 줄) — PM 06.29 ── */}
-        {customer && !custError && (
-          <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-2">
-            <div>
-              <div className="text-[11px] font-semibold text-ink3 mb-1">영업 단계</div>
-              <div className="inline-flex rounded-xl border border-line bg-surface2 p-0.5 text-[12px] font-semibold">
-                {SALES_STAGES.map((s) => (
-                  <button
-                    key={s.key}
-                    onClick={() => changeStage(s.key)}
-                    aria-pressed={customer.sales_stage === s.key}
-                    className={`px-3 py-1.5 rounded-[10px] transition ${
-                      customer.sales_stage === s.key ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="text-[11px] font-semibold text-ink3 mb-1">상태</div>
-              <div className="inline-flex rounded-xl border border-line bg-surface2 p-0.5 text-[12px] font-semibold">
-                {CUSTOMER_STATUSES.map((s) => (
-                  <button
-                    key={s.key}
-                    onClick={() => changeStatus(s.key)}
-                    aria-pressed={customer.status === s.key}
-                    className={`px-3 py-1.5 rounded-[10px] transition ${
-                      customer.status === s.key ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+          customer && (
+            <CustomerSummary
+              customer={customer}
+              onChangeStage={changeStage}
+              onChangeStatus={changeStatus}
+            />
+          )
         )}
 
         {/* ── 탭 바 ── */}
@@ -450,54 +416,95 @@ function CustomerDetailInner() {
 }
 
 // ── 고객 요약 헤더 ────────────────────────────────────────────────────────
-function CustomerSummary({ customer }: { customer: CustomerDetail }) {
+function CustomerSummary({
+  customer,
+  onChangeStage,
+  onChangeStatus,
+}: {
+  customer: CustomerDetail;
+  onChangeStage: (s: SalesStage) => void;
+  onChangeStatus: (s: CustomerStatus) => void;
+}) {
   const age =
     customer.insurance_age != null ? `${customer.insurance_age}세` : calcAge(customer.birth_day);
   const sub = [age, genderLabel(customer.gender)]
     .filter(Boolean)
     .join(" · ");
   const dday = lastContactDDay(customer.last_contacted_at, customer.created_at);
+  // 세그먼트 토글 — 흰 카드(bg-surface) 위라 트랙은 옅은 회색(bg-surface2), 선택은 흰색+그림자로 또렷하게.
+  const seg = "inline-flex rounded-xl bg-surface2 p-0.5 text-[12px] font-semibold";
+  const segBtn = (active: boolean) =>
+    `px-3 py-1.5 rounded-[10px] transition ${active ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"}`;
   return (
-    <Card className="mt-3 p-4 flex items-center gap-3">
-      <CustomerAvatar label={customer.avatar_label} color={customer.color} size={48} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[18px] font-bold text-ink">{customer.name}</span>
-          {sub && <span className="text-[13px] text-ink3">{sub}</span>}
-          {customer.tags.slice(0, 3).map((tag) => (
-            <span
-              key={tag.id}
-              className="text-[11px] font-semibold rounded-full px-2 py-0.5"
-              style={{
-                backgroundColor: tag.color ? `${tag.color}20` : undefined,
-                color: tag.color ?? undefined,
-              }}
-            >
-              {tag.label}
-            </span>
-          ))}
+    <Card className="mt-3 p-4">
+      {/* 상단: 신원 + 최종연락/세부정보 */}
+      <div className="flex items-center gap-3">
+        <CustomerAvatar label={customer.avatar_label} color={customer.color} size={48} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[18px] font-bold text-ink">{customer.name}</span>
+            {sub && <span className="text-[13px] text-ink3">{sub}</span>}
+            {customer.tags.slice(0, 3).map((tag) => (
+              <span
+                key={tag.id}
+                className="text-[11px] font-semibold rounded-full px-2 py-0.5"
+                style={{
+                  backgroundColor: tag.color ? `${tag.color}20` : undefined,
+                  color: tag.color ?? undefined,
+                }}
+              >
+                {tag.label}
+              </span>
+            ))}
+          </div>
+          <div className="mt-0.5 text-[12px] text-ink3">
+            {customer.mobile_phone_number ?? "연락처 없음"}
+            {customer.family_count > 0 && <span> · 가족 {customer.family_count}명</span>}
+            {customer.consent_overseas_at ? (
+              <span> · 국외이전 동의 완료</span>
+            ) : (
+              <span> · 국외이전 동의 전</span>
+            )}
+          </div>
         </div>
-        <div className="mt-0.5 text-[12px] text-ink3">
-          {customer.mobile_phone_number ?? "연락처 없음"}
-          {customer.family_count > 0 && <span> · 가족 {customer.family_count}명</span>}
-          {customer.consent_overseas_at ? (
-            <span> · 국외이전 동의 완료</span>
-          ) : (
-            <span> · 국외이전 동의 전</span>
-          )}
+        <div className="shrink-0 text-right">
+          <div className="text-[11px] text-ink3">최종 연락</div>
+          <div className="text-[13px] font-semibold text-ink tnum whitespace-nowrap">
+            {dday.date} <span className="text-brand">{dday.dday}</span>
+          </div>
+          <Link
+            href={`/customer/${customer.id}?tab=info`}
+            className="mt-1 inline-block text-[12px] font-semibold text-brand"
+          >
+            세부정보 →
+          </Link>
         </div>
       </div>
-      <div className="shrink-0 text-right">
-        <div className="text-[11px] text-ink3">최종 연락</div>
-        <div className="text-[13px] font-semibold text-ink tnum whitespace-nowrap">
-          {dday.date} <span className="text-brand">{dday.dday}</span>
+
+      {/* 하단: 영업 단계 + 상태 (한 카드 안, 구분선 아래) — PM 06.29 */}
+      <div className="mt-3 pt-3 border-t border-line flex flex-wrap items-end gap-x-5 gap-y-2">
+        <div>
+          <div className="text-[11px] font-semibold text-ink3 mb-1">영업 단계</div>
+          <div className={seg}>
+            {SALES_STAGES.map((s) => (
+              <button key={s.key} onClick={() => onChangeStage(s.key)}
+                aria-pressed={customer.sales_stage === s.key} className={segBtn(customer.sales_stage === s.key)}>
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <Link
-          href={`/customer/${customer.id}?tab=info`}
-          className="mt-1 inline-block text-[12px] font-semibold text-brand"
-        >
-          세부정보 →
-        </Link>
+        <div>
+          <div className="text-[11px] font-semibold text-ink3 mb-1">상태</div>
+          <div className={seg}>
+            {CUSTOMER_STATUSES.map((s) => (
+              <button key={s.key} onClick={() => onChangeStatus(s.key)}
+                aria-pressed={customer.status === s.key} className={segBtn(customer.status === s.key)}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </Card>
   );
@@ -669,7 +676,7 @@ function InfoTab({
               <div className="flex gap-1.5">
                 <select value={by} onChange={(e) => setBy(e.target.value)} className={`${inputCls} flex-1`}>
                   <option value="">년</option>
-                  {BIRTH_YEARS.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+                  {BIRTH_YEARS.map((y) => <option key={y} value={String(y)}>{y}년</option>)}
                 </select>
                 <select value={bm} onChange={(e) => setBm(e.target.value)} className={`${inputCls} w-[72px]`}>
                   <option value="">월</option>
@@ -697,7 +704,12 @@ function InfoTab({
 
           {/* 직업 — 검색해서 변경(고르면 직업급수 자동) */}
           <div className="mt-3 relative">
-            <span className="text-[12px] font-semibold text-ink3">직업 (고르면 직업급수 자동)</span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12px] font-semibold text-ink3">직업 (고르면 직업급수 자동)</span>
+              {!pickedJob && (
+                <span className="text-[12px] text-ink3">현재: <b className="text-ink2">{customer.job_name ?? "미지정"}</b>{riskLabel ? ` (${riskLabel})` : ""}</span>
+              )}
+            </div>
             {pickedJob ? (
               <div className="mt-1 flex items-center justify-between gap-2 rounded-xl border border-line bg-accent-tint px-3.5 py-2.5">
                 <div className="text-[14px] font-semibold text-ink truncate">{pickedJob.name}</div>
@@ -708,9 +720,6 @@ function InfoTab({
               </div>
             ) : (
               <>
-                <div className="mt-1 text-[12px] text-ink3">
-                  현재: <b className="text-ink2">{customer.job_name ?? "미지정"}</b>{riskLabel ? ` (${riskLabel})` : ""}
-                </div>
                 <input
                   value={jobQuery}
                   onChange={(e) => setJobQuery(e.target.value)}
