@@ -7,7 +7,7 @@ import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import { listSamples, type PromotionSampleListItem } from "@/lib/api";
 
-const CATEGORIES = ["전체", "달력", "다이어리", "생활용품", "기타"] as const;
+const CATEGORIES = ["전체", "명함", "달력", "리플렛", "팜플렛", "파일보관함", "다이어리", "생활용품", "기타"] as const;
 
 /** 대표 이미지 — 죽은 URL(404 등)이면 깨진 ? 박스 대신 '이미지 없음' 폴백. */
 function SampleThumb({ src, alt }: { src: string | null; alt: string }) {
