@@ -327,7 +327,7 @@ class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
 class JobSearchView(APIView):
     """직업급수 검색 — 전역 마스터(JobRiskCode). 인증만 필요(소유자 무관 = 공유 데이터).
 
-    GET /api/v1/customers/jobs/search/?q=시의원&limit=30
+    GET /api/v1/jobs/search/?q=시의원&limit=30
       - 이름·약명·검색어(synonym)·KIDI코드 substring 매칭(설명은 표시용이라 검색 제외).
       - 관련도(정확>접두>이름포함>약명>검색어) → 이름 길이 순으로 정렬, 최대 limit(≤50).
       - 빈 q → 빈 결과. 응답 {results: [JobRiskCode...]}.

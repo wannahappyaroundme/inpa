@@ -73,30 +73,38 @@ export function CustomerCreateModal({
     setJobOpen(false);
   }, []);
 
-  // 드래그: 핸들에서만(터치=touch-none). 120px 이상 내리면 닫기, 아니면 복귀.
+  // 드래그 시작(핸들에서만, 터치=touch-none). 추적은 window 레벨로(아래 effect).
   const onDragDown = useCallback((e: ReactPointerEvent) => {
     startYRef.current = e.clientY;
+    dragYRef.current = 0;
     setDragging(true);
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* noop */ }
   }, []);
-  const onDragMove = useCallback((e: ReactPointerEvent) => {
-    if (startYRef.current === null) return;
-    const dy = Math.max(0, e.clientY - startYRef.current);
-    dragYRef.current = dy;
-    setDragY(dy);
-  }, []);
-  const onDragUp = useCallback(() => {
-    if (startYRef.current === null) return;
-    const dy = dragYRef.current;
-    startYRef.current = null;
-    setDragging(false);
-    if (dy > 120) {
-      onClose();
-    } else {
-      dragYRef.current = 0;
-      setDragY(0);
-    }
-  }, [onClose]);
+
+  // 드래그 중 window 추적 — setPointerCapture 실패/포인터 이탈에도 멈추지 않게(120px↑ 닫기).
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e: PointerEvent) => {
+      if (startYRef.current === null) return;
+      const dy = Math.max(0, e.clientY - startYRef.current);
+      dragYRef.current = dy;
+      setDragY(dy);
+    };
+    const up = () => {
+      const dy = dragYRef.current;
+      startYRef.current = null;
+      setDragging(false);
+      if (dy > 120) onClose();
+      else { dragYRef.current = 0; setDragY(0); }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+  }, [dragging, onClose]);
 
   const submit = useCallback(async () => {
     if (!name.trim()) {
@@ -152,9 +160,6 @@ export function CustomerCreateModal({
         {/* 드래그 핸들 — 아래로 슬라이드하면 닫기(모바일 바텀시트). 데스크탑에선 장식 */}
         <div
           onPointerDown={onDragDown}
-          onPointerMove={onDragMove}
-          onPointerUp={onDragUp}
-          onPointerCancel={onDragUp}
           className="flex justify-center pt-1 pb-3 cursor-grab active:cursor-grabbing touch-none"
           aria-hidden
         >
@@ -257,6 +262,7 @@ export function CustomerCreateModal({
                   value={jobQuery}
                   onChange={(e) => setJobQuery(e.target.value)}
                   onFocus={() => { if (jobResults.length) setJobOpen(true); }}
+                  onBlur={() => setTimeout(() => setJobOpen(false), 120)}
                   placeholder="직업명·키워드 (예: 의사, 시의원, 용접)"
                   className={inputCls}
                 />

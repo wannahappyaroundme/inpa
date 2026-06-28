@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { CustomerAvatar, stalenessLevel } from "@/components/ui";
@@ -65,32 +66,71 @@ function DotMenu({
   onContacted: (id: number) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const MENU_W = 150;
+
+  // 버튼 위치 기준 fixed 좌표 계산 → 메뉴를 body 포털로 그려 칸반 overflow-x-auto 클리핑 회피
+  const openMenu = useCallback(() => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4, left: Math.max(8, r.right - MENU_W) });
+    setOpen(true);
+  }, []);
+
+  // 바깥 클릭·ESC·스크롤 시 닫기(여러 메뉴 동시 열림/좌표 어긋남 방지)
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (menuRef.current?.contains(t) || btnRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onScroll = () => setOpen(false);
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onEsc);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onEsc);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
+
+  const item = "w-full text-left px-4 py-2 hover:bg-surface2 flex items-center gap-2";
   return (
     <div className="relative" onClick={(e) => e.stopPropagation()}>
       <button
+        ref={btnRef}
         type="button"
         aria-label="더보기 메뉴"
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openMenu(); }}
         className="text-[16px] text-ink3 hover:text-ink px-1.5 py-0.5 rounded-lg hover:bg-surface2 leading-none"
       >
         ⋯
       </button>
-      {open && (
+      {open && pos && createPortal(
         <div
-          className="absolute right-0 top-full mt-1 z-20 bg-surface border border-line rounded-xl shadow-lg py-1 min-w-[130px] text-[13px]"
+          ref={menuRef}
+          role="menu"
+          style={{ position: "fixed", top: pos.top, left: pos.left, width: MENU_W }}
+          className="z-50 bg-surface border border-line rounded-xl shadow-lg py-1 text-[13px]"
           onClick={(e) => e.stopPropagation()}
         >
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onToggle(c.id, { is_pinned: !c.is_pinned }, { is_pinned: !c.is_pinned }); setOpen(false); }}
-            className="w-full text-left px-4 py-2 hover:bg-surface2 flex items-center gap-2"
+            className={item}
           >
             {c.is_pinned ? "📌 고정 해제" : "📍 상단고정"}
           </button>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onToggle(c.id, { is_favorite: !c.is_favorite }, { is_favorite: !c.is_favorite }); setOpen(false); }}
-            className="w-full text-left px-4 py-2 hover:bg-surface2 flex items-center gap-2"
+            className={item}
           >
             {c.is_favorite ? "★ 즐겨찾기 해제" : "☆ 즐겨찾기"}
           </button>
@@ -102,7 +142,8 @@ function DotMenu({
           >
             방금 연락함
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
