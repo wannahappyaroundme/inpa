@@ -9,6 +9,7 @@ from .views import (
     AdminDashboardView,
     AdminFaqDetailView,
     AdminFaqListView,
+    AdminFeatureFlagsView,
     AdminInquiryDetailView,
     AdminInquiryListView,
     AdminInquiryReplyView,
@@ -25,6 +26,7 @@ from .views import (
     AdminOrderStatusView,
     AdminPlanDetailView,
     AdminPlanListView,
+    AdminPolicyVersionListView,
     AdminReportActionView,
     AdminReportListView,
     AdminUnmatchedListView,
@@ -95,4 +97,11 @@ urlpatterns = [
     path('admin/settings/plans/', AdminPlanListView.as_view(), name='admin-plan-list'),
     path('admin/settings/plans/<str:plan_code>/', AdminPlanDetailView.as_view(),
          name='admin-plan-detail'),
+
+    # ── 운영 설정 — 약관 버전 ────────────────────────────────────────
+    path('admin/settings/policy-versions/', AdminPolicyVersionListView.as_view(),
+         name='admin-policy-version-list'),
+
+    # ── 운영 설정 — 기능 플래그 (읽기 전용 — env 우회 차단) ─────────
+    path('admin/settings/flags/', AdminFeatureFlagsView.as_view(), name='admin-feature-flags'),
 ]

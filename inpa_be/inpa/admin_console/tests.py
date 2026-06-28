@@ -46,6 +46,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from inpa.accounts.models import Profile, User
+from inpa.admin_console.models import PolicyVersion
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory, UnmatchedLog
 from inpa.billing.models import Plan, Subscription
 from inpa.boards.models import Inquiry, InquiryReply, Notice, Post, Report
@@ -483,3 +484,105 @@ class AdminPlanTest(TestCase):
         self.assertEqual(res.status_code, 200)
         self.plan.refresh_from_db()
         self.assertEqual(self.plan.limit_ocr, 50)
+
+
+# ─── PV: 약관 버전 ──────────────────────────────────────────────────
+
+class AdminPolicyVersionTest(TestCase):
+    """PV1-PV3: 약관 버전 POST→201 후 GET 목록 확인 + 비admin 차단."""
+
+    def setUp(self):
+        self.admin = _make_user('admin@inpa.kr', is_admin=True)
+        self.planner = _make_user('planner@test.kr', is_admin=False)
+        self.client_admin = _auth_client(self.admin)
+        self.client_planner = _auth_client(self.planner)
+
+    def test_PV1_create_policy_version_201(self):
+        """PV1: admin POST → 약관 버전 생성 201."""
+        res = self.client_admin.post(
+            '/api/v1/admin/settings/policy-versions/',
+            {
+                'policy_type': 'tos',
+                'version': '2026-06-28',
+                'effective_at': '2026-07-01T00:00:00Z',
+                'requires_reconsent': False,
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        data = res.json()
+        self.assertEqual(data['policy_type'], 'tos')
+        self.assertEqual(data['version'], '2026-06-28')
+        self.assertFalse(data['requires_reconsent'])
+        self.assertIn('id', data)
+
+    def test_PV2_list_shows_created(self):
+        """PV2: POST 후 GET 목록에 생성된 버전 노출."""
+        PolicyVersion.objects.create(
+            policy_type='pp',
+            version='v2.0',
+            effective_at='2026-06-01T00:00:00Z',
+            requires_reconsent=True,
+        )
+        res = self.client_admin.get('/api/v1/admin/settings/policy-versions/')
+        self.assertEqual(res.status_code, 200)
+        results = res.json()['results']
+        self.assertTrue(len(results) >= 1)
+        versions = [r['version'] for r in results]
+        self.assertIn('v2.0', versions)
+        # requires_reconsent 확인
+        pp_entry = next(r for r in results if r['version'] == 'v2.0')
+        self.assertTrue(pp_entry['requires_reconsent'])
+
+    def test_PV3_non_admin_403(self):
+        """PV3: 설계사(is_admin=False) → GET/POST 모두 403."""
+        res_get = self.client_planner.get('/api/v1/admin/settings/policy-versions/')
+        self.assertEqual(res_get.status_code, 403)
+
+        res_post = self.client_planner.post(
+            '/api/v1/admin/settings/policy-versions/',
+            {'policy_type': 'tos', 'version': 'v1', 'effective_at': '2026-07-01T00:00:00Z'},
+            format='json',
+        )
+        self.assertEqual(res_post.status_code, 403)
+
+
+# ─── FF: 기능 플래그 ─────────────────────────────────────────────────
+
+class AdminFeatureFlagsTest(TestCase):
+    """FF1-FF2: 기능 플래그 GET(설정값 반영) + PATCH 미구현(405)."""
+
+    def setUp(self):
+        self.admin = _make_user('admin@inpa.kr', is_admin=True)
+        self.planner = _make_user('planner@test.kr', is_admin=False)
+        self.client_admin = _auth_client(self.admin)
+        self.client_planner = _auth_client(self.planner)
+
+    def test_FF1_get_returns_settings_values(self):
+        """FF1: GET /admin/settings/flags/ → 200, 설정값 포함 응답."""
+        from django.conf import settings as dj_settings
+        res = self.client_admin.get('/api/v1/admin/settings/flags/')
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        # 필수 플래그 키 존재 확인
+        for key in ['FREE_TIER_UNLIMITED', 'COMPARE_AI_ENABLED', 'COMPARE_PUBLISH_ENABLED',
+                    'ANALYZE_MEDICAL_ENABLED', 'BOOKING_ENABLED', 'OCR_VERIFY_ENABLED']:
+            self.assertIn(key, data, f"플래그 키 누락: {key}")
+            # 값이 boolean임을 확인
+            self.assertIsInstance(data[key], bool, f"{key} 값이 bool이 아님")
+        # settings 실제값과 일치 확인
+        self.assertEqual(data['FREE_TIER_UNLIMITED'], getattr(dj_settings, 'FREE_TIER_UNLIMITED', True))
+
+    def test_FF2_non_admin_403(self):
+        """FF2: 설계사(is_admin=False) → 403."""
+        res = self.client_planner.get('/api/v1/admin/settings/flags/')
+        self.assertEqual(res.status_code, 403)
+
+    def test_FF3_patch_not_allowed(self):
+        """FF3: PATCH /admin/settings/flags/ → 405 (env 우회 차단 컴플라이언스 원칙)."""
+        res = self.client_admin.patch(
+            '/api/v1/admin/settings/flags/',
+            {'FREE_TIER_UNLIMITED': False},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 405)
