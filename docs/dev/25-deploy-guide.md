@@ -129,10 +129,11 @@ git push -u origin main
 |---|---|---|
 | `DATABASE_URL` | (c-1 Neon 문자열) | **필수**. `postgresql://...neon.tech/...?sslmode=require` |
 | `CORS_ALLOWED_ORIGINS` | `https://<vercel-도메인>` | **필수**. 프론트 주소, https 포함, 와일드카드 ❌ |
-| `ANTHROPIC_API_KEY` | `sk-ant-...` | 선택. 비우면 OCR/AI만 비활성, 서버는 정상 |
-| `FRONTEND_BASE_URL` | `https://<vercel-도메인>` | 선택. 이메일 링크 생성용 |
+| `ANTHROPIC_API_KEY` | `sk-ant-...` | 선택이지만 OCR/AI를 쓰면 **필수**. 비우면 OCR/AI 호출이 **503**(서버 자체는 정상) |
+| `FRONTEND_BASE_URL` | `https://<vercel-도메인>` | ⚠️ **준필수**. 미설정 시 기본값 `http://localhost:3000` → 이메일 인증·고객 동의(`/c`)·예약(`/b`) 링크가 전부 localhost로 생성돼 **실서비스에서 안 열림**. 운영이면 반드시 Vercel 주소로 설정 |
 | `EMAIL_*` (7종) | Resend 값 | 선택. 가입/비번 메일용 — 부록 C 표 참고 |
 | `SENTRY_DSN` | `https://...@sentry.io/...` | 선택. 있으면 `prod.py`가 자동 init |
+| **기능·컴플라이언스 플래그** | (대개 미설정 = 안전 기본값) | `FREE_TIER_UNLIMITED`(기본 **True** = 베타 무제한, 끄면 402 한도 발동) · `COMPARE_AI_ENABLED`·`COMPARE_PUBLISH_ENABLED`(§97)·`ANALYZE_MEDICAL_ENABLED`(병력) = 기본 **False**(닫힘 — 법무 검토 전까지 유지) · `BOOKING_ENABLED`(기본 True) · `GOOGLE_OAUTH_*`(미설정 = 구글 기능 숨김). **컴플라이언스 게이트는 정식 출시·법무 검토 후에만 flip** |
 
 > **커스텀 도메인**을 붙이면 그때 `ALLOWED_HOSTS`·`CSRF_TRUSTED_ORIGINS`에 그 도메인을 추가한다.
 
