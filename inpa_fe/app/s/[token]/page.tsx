@@ -7,6 +7,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Card, DisclaimerFooter } from "@/components/ui";
+import { ContentProtect, Watermark } from "@/components/content-guard";
 import {
   getShareView,
   postShareEvent,
@@ -104,7 +105,8 @@ export default function SharePage() {
     .filter((d) => (d.held_amount ?? 0) > 0);
 
   return (
-    <div className="mx-auto w-full max-w-md min-h-dvh flex flex-col bg-surface2">
+    <ContentProtect className="relative mx-auto w-full max-w-md min-h-dvh flex flex-col bg-surface2">
+      <Watermark text="인파 · 보장분석 공유" />
       <header className="px-5 pt-5 pb-3 bg-accent-tint">
         <div className="flex items-center gap-1.5 text-[13px] font-bold text-brand">
           <span className="text-[15px]">⌃</span> 인파
@@ -189,6 +191,6 @@ export default function SharePage() {
           담당 설계사에게 물어보기
         </button>
       </div>
-    </div>
+    </ContentProtect>
   );
 }

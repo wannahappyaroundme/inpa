@@ -437,6 +437,9 @@ function InfoTab({
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // 저장 성공 안내는 폼을 다시 수정하면 사라진다(이전 저장 메시지가 계속 남지 않게).
+  useEffect(() => { setMsg(null); }, [name, phone, gender, birth, color, avatarLabel, memo]);
+
   const flash = (m: string) => { setMsg(m); setErr(null); };
   const fail = (e: unknown) => { setErr(e instanceof ApiError ? e.message : "저장에 실패했어요."); setMsg(null); };
 
@@ -699,7 +702,7 @@ function ChecklistTab({ customerId }: { customerId: number }) {
         {items.length > 0 && <span className="text-[12px] text-ink3 tnum">{doneCount}/{items.length} 완료</span>}
       </div>
       <p className="mt-1 text-[12px] text-ink3 leading-5">
-        상담 시 설명 의무 이행을 직접 점검·기록해요. 기록해 두면 나중에 고객 안내 이력으로 참고할 수 있어요.
+        상담 시 설명 의무 이행을 직접 점검·기록해요.
       </p>
 
       {/* §97 불리사항 구두고지 안내 — 설계사 내부 전용(고객 화면·공유뷰 비노출) */}

@@ -34,7 +34,7 @@ Monorepo — run BE commands in `inpa_be/`, FE in `inpa_fe/`.
 - Migrations: `python manage.py makemigrations` → `migrate`.
 - Tests: all = `python manage.py test inpa`; app = `python manage.py test inpa.booking`; single = `python manage.py test inpa.accounts.tests.LoginTests.test_x`.
 - Pre-deploy check (required): `python manage.py check`.
-- Seeds (idempotent): `seed_demo` (demo data — manual only, NOT in deploy), `seed_normalization` (coverage dict — Render runs every deploy), `seed_jobs` (직업급수 707-row JobRiskCode from `inpa/customers/data/job_risk_codes.json` — Render runs every deploy, bulk upsert), `create_admin` (back-office admin). Render `startCommand` chain = `migrate → seed_normalization → seed_jobs → gunicorn`.
+- Seeds (idempotent): `seed_demo` (demo data — manual only, NOT in deploy), `seed_normalization` (coverage dict), `seed_jobs` (직업급수 707-row JobRiskCode from `inpa/customers/data/job_risk_codes.json`, bulk upsert), `seed_promotion` (판촉물 카테고리 골격: 명함/달력/리플렛/팜플렛/파일보관함), `create_admin` (back-office admin). Render `startCommand` chain = `migrate → createcachetable → seed_normalization → seed_jobs → seed_promotion → gunicorn` (all idempotent, run every deploy; `createcachetable` backs the DB cache used by rate-limit throttling).
 - Django admin `/admin/`. Ops back-office = separate `admin_console` API + FE `/admin/*`.
 
 ### Frontend (`inpa_fe/`, Node 20)
@@ -127,6 +127,7 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 - **PR #10 (copy)** — em-dash purged from all user-facing copy; beta-free → "최초 가입 1달 무료 쿠폰" landing.
 - **PR #11 (dashboard)** — "이번 달 미팅" = FA-first-reach (`fa_reached_at`, dedup, booking-independent); dashboard notifications removed; calendar legend → 4 kinds.
 - **PR #13 (copy tone)** — disclaimers consolidated to official spots + business tone; auto-send negatives removed (positive instructions); aggressive "분쟁 대비" framing softened; informal "아는 고객" → business (see Conventions → Honesty/Copy-tone redlines). Bundled with a security-hardening commit (`f535cd9`: DoS/rate-limit + `createcachetable` in Render startCommand) + 판촉물 image-fit fix authored in a parallel session.
+- **PR #14** — bug fixes: heatmap category badge showed the raw `insurance_type` int → now `get_insurance_type_display()` label (공통/생명보험/손해보험); InfoTab save-success message now clears when the form is edited again (useEffect on field state); 설명의무 체크리스트 note trimmed (dropped the record-for-later framing). Bundled with parallel-session features: **content protection** (`content-guard.tsx`: share-view watermark + copy-block + global image-save deterrence) and **판촉물 골격** (category constants + `seed_promotion`).
 **Pending backlog** (also memory `qa-audit-backlog`):
 - ⬜ OCR remaining: 종합보험 17-22 unmatched coverages; life-insurance 변액 `company_idx=-1`. See memory `ocr-coverage-sections`.
 - ⬜ At launch: flipping `FREE_TIER_UNLIMITED=False` activates 402 + the upgrade modal (already built) — verify the modal copy + the "1-month coupon" entitlement wiring before flipping.

@@ -213,7 +213,8 @@ class CustomerHeatmapView(APIView):
             tree.append({
                 'category_id': cat.id,
                 'name': cat.name,
-                'insurance_type': cat.insurance_type,
+                # 표시용 라벨(공통/생명보험/손해보험) — 원시 정수 코드가 아닌 사람이 읽는 분류명.
+                'insurance_type': cat.get_insurance_type_display(),
                 'sub_categories': sub_nodes,
             })
 

@@ -37,10 +37,15 @@ class PromotionSample(models.Model):
 
     owner FK 없음 — 공유 데이터. OwnedQuerySetMixin 미적용.
     """
+    CATEGORY_BUSINESS_CARD = '명함'
     CATEGORY_CALENDAR = '달력'
+    CATEGORY_LEAFLET = '리플렛'
+    CATEGORY_PAMPHLET = '팜플렛'
+    CATEGORY_FILE_HOLDER = '파일보관함'
     CATEGORY_DIARY = '다이어리'
     CATEGORY_LIFE = '생활용품'
     CATEGORY_ETC = '기타'
+    # category 는 choices 없는 자유 문자열(관리자가 새 분류 자유 추가) — 위는 표준 분류 상수.
 
     name = models.CharField('샘플명', max_length=100)
     category = models.CharField(
