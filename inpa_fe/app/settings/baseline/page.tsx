@@ -594,7 +594,7 @@ function BaselineForm({
           {/* 성별 */}
           <div>
             <label className={labelCls}>성별</label>
-            <div className="mt-2 inline-flex rounded-xl bg-line p-1 text-[13px] font-semibold">
+            <div className="mt-1 inline-flex gap-1 rounded-xl bg-line p-1 text-[13px] font-semibold">
               {GENDERS.map((g) => (
                 <button
                   key={String(g.value)}
