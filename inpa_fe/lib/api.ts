@@ -408,6 +408,16 @@ export const SALES_STAGES: { key: SalesStage; label: string; short: string; desc
   { key: "contract", label: "청약", short: "04", desc: "고객이 보험계약을 신청(청약서 작성)하는 계약 체결 단계." },
 ];
 
+/** 고객 상태(설계사 집중 관리) — BE Customer.STATUS_CHOICES 대응. 영업 단계와 별개의 '진행 상태'.
+ *  진행중만 방치(무접촉) 경보 대상, 보류·휴면·종료는 흐리게 처리해 집중 고객과 구분한다. */
+export type CustomerStatus = "active" | "hold" | "dormant" | "closed";
+export const CUSTOMER_STATUSES: { key: CustomerStatus; label: string }[] = [
+  { key: "active", label: "진행중" },
+  { key: "hold", label: "보류" },
+  { key: "dormant", label: "휴면" },
+  { key: "closed", label: "종료" },
+];
+
 /** 마케팅(개인정보 수집·이용) 동의 상태 — 'none'(기록 없음)도 비동의로 취급해 영업 자동화에서 제외. */
 export type MarketingConsent = "agreed" | "revoked" | "none";
 export type ConsentStatus = MarketingConsent;
@@ -438,6 +448,7 @@ export interface CustomerListItem {
   tags: CustomerTag[];
   family_count: number;
   sales_stage: SalesStage;
+  status: CustomerStatus;            // 진행 상태(진행중/보류/휴면/종료)
   share_token: string | null;
   created_at: string;
   lead_source: string | null;        // 유입 경로(측정)
@@ -490,6 +501,7 @@ export interface CustomerWritePayload {
   is_agree_term?: boolean;
   tag_ids?: number[];
   sales_stage?: SalesStage;     // 칸반 단계이동 = updateCustomer({sales_stage})
+  status?: CustomerStatus;      // 고객 상태 변경(진행중/보류/휴면/종료)
   is_favorite?: boolean;
   is_pinned?: boolean;
   last_contacted_at?: string | null;  // '연락함' = updateCustomer({last_contacted_at: now})

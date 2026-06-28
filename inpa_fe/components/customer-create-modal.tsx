@@ -5,7 +5,7 @@
 
 import { useState, useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  createCustomer, createConsentLog, searchJobs, LEAD_SOURCES, ApiError,
+  createCustomer, searchJobs, LEAD_SOURCES, ApiError,
   type CustomerDetail, type JobMatch,
 } from "@/lib/api";
 import { AVATAR_PALETTE, CustomerAvatar } from "@/components/ui";
@@ -33,8 +33,6 @@ export function CustomerCreateModal({
   const [color, setColor] = useState("");
   const [avatarLabel, setAvatarLabel] = useState("");
   const [leadSource, setLeadSource] = useState("");
-  const [piConsent, setPiConsent] = useState(false);
-  const [mkConsent, setMkConsent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -125,11 +123,6 @@ export function CustomerCreateModal({
         lead_source: leadSource || undefined,
         job_code: selectedJob ? String(selectedJob.id) : undefined,
       });
-      // 설계사 기록(planner_attested) — 체크된 동의를 감사 로그로 남김(법적 강건성은 본인 링크).
-      const scopes: string[] = [];
-      if (piConsent) scopes.push("personal_info");
-      if (mkConsent) scopes.push("marketing");
-      await Promise.allSettled(scopes.map((scope) => createConsentLog(c.id, { scope })));
       onCreated(c);
     } catch (e) {
       setError(
@@ -138,7 +131,7 @@ export function CustomerCreateModal({
     } finally {
       setSaving(false);
     }
-  }, [name, gender, birth, phone, memo, color, avatarLabel, leadSource, selectedJob, piConsent, mkConsent, onCreated]);
+  }, [name, gender, birth, phone, memo, color, avatarLabel, leadSource, selectedJob, onCreated]);
 
   const inputCls =
     "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition";
@@ -324,19 +317,11 @@ export function CustomerCreateModal({
             </select>
           </label>
 
-          {/* 동의(설계사 기록) — 분리 체크. 본인 동의 링크는 등록 후 고객상세에서. */}
-          <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface px-3.5 py-3">
-            <span className="text-[12px] font-semibold text-ink3">동의 받음 기록 (선택)</span>
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input type="checkbox" checked={piConsent} onChange={(e) => setPiConsent(e.target.checked)} className="mt-0.5" />
-              <span className="text-[12px] text-ink2 leading-4">개인정보 수집·이용 동의를 받았어요</span>
-            </label>
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input type="checkbox" checked={mkConsent} onChange={(e) => setMkConsent(e.target.checked)} className="mt-0.5" />
-              <span className="text-[12px] text-ink2 leading-4">마케팅 수신 동의를 받았어요</span>
-            </label>
-            <p className="text-[11px] text-ink3 leading-4">
-              여기 체크는 <b>설계사 기록(메모)</b>이에요. 법적으로 가장 안전한 건 고객 본인이 링크로 직접 동의하는 것. 등록 후 '동의 요청 링크 복사'를 쓰세요.
+          {/* 동의 안내 — 설계사 대리체크 없이, 등록 후 고객 본인이 링크로 직접 동의(가장 안전). PM 06.29 */}
+          <div className="flex items-start gap-2 rounded-xl border border-line bg-surface2 px-3.5 py-3">
+            <span className="mt-0.5 text-[14px]" aria-hidden>🔒</span>
+            <p className="text-[12px] text-ink2 leading-5">
+              개인정보·마케팅 동의는 <b className="text-ink">등록한 뒤</b> 고객에게 동의 링크를 보내 <b className="text-ink">고객 본인이 직접</b> 하면 가장 안전해요. 증권을 올려 자동으로 정리하는 기능도 동의가 끝나면 바로 쓸 수 있어요.
             </p>
           </div>
 

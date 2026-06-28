@@ -12,7 +12,7 @@ import {
   getDashboard, updateDashboardGoal, listScheduleItems,
   getDashboardInsights, SALES_STAGES,
   type ProfileResponse, type ChurnRadarResponse, type Meeting, type DashboardSummary,
-  type ScheduleItem, type DashboardInsights,
+  type ScheduleItem, type ScheduleCategory, type DashboardInsights,
 } from "@/lib/api";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
@@ -27,13 +27,15 @@ function pct(actual: number, target: number): number {
 }
 const pad = (n: number) => String(n).padStart(2, "0");
 
-// 대시보드 캘린더 종류별 점 색·라벨 (내 일정/할일/차단 + 미팅). 알림은 우측 상단 종에서만.
-type Kind = "schedule" | "todo" | "block" | "meeting";
-const META: Record<Kind, { dot: string; label: string }> = {
-  schedule: { dot: "bg-brand", label: "일정" },
-  todo: { dot: "bg-over", label: "할일" },
-  block: { dot: "bg-muted", label: "차단" },
-  meeting: { dot: "bg-enough", label: "미팅" },
+// 대시보드 캘린더 색·라벨 — 일정 탭과 동일한 5분류(고객미팅/생일·기념일/만기·갱신/업무/기타).
+// 알림은 캘린더에 그리지 않고 우측 상단 종 알림함에서만 본다 — PM 06.29.
+type Cat = ScheduleCategory;
+const CAT_META: Record<Cat, { dot: string; label: string }> = {
+  meeting: { dot: "bg-brand", label: "고객미팅" },
+  anniversary: { dot: "bg-pink-400", label: "생일·기념일" },
+  renewal: { dot: "bg-amber-400", label: "만기·갱신" },
+  task: { dot: "bg-emerald-500", label: "업무" },
+  etc: { dot: "bg-muted", label: "기타" },
 };
 
 // ISO(+09:00) → Asia/Seoul 기준 'YYYY-MM-DD' / 'HH:mm'
@@ -56,7 +58,7 @@ function hhmmToMin(t: string): number {
   return (h || 0) * 60 + (m || 0);
 }
 
-interface AgendaItem { ymd: string; time: string; title: string; kind: Kind; sort: number }
+interface AgendaItem { ymd: string; time: string; title: string; cat: Cat; sort: number }
 
 function GoalRow({ label, actual, target, unit, won }: { label: string; actual: number; target: number; unit?: string; won?: boolean }) {
   const p = pct(actual, target);
@@ -162,12 +164,12 @@ export default function HomePage() {
       if (s.kind === "block" && s.recur_weekday !== null) continue; // 반복차단은 /schedule 풀뷰에서만
       if (!s.start_at) continue;
       const t = s.all_day ? "" : kstTime(s.start_at);
-      const k: Kind = s.kind === "event" ? "schedule" : s.kind === "todo" ? "todo" : "block";
-      add({ ymd: kstYmd(s.start_at), time: t || "종일", title: s.title, kind: k, sort: t ? hhmmToMin(t) : -1 });
+      const cat: Cat = s.kind === "block" ? "etc" : s.category;
+      add({ ymd: kstYmd(s.start_at), time: t || "종일", title: s.title, cat, sort: t ? hhmmToMin(t) : -1 });
     }
     for (const m of meetings) {
       const t = kstTime(m.start_at);
-      add({ ymd: kstYmd(m.start_at), time: t || "-", title: `${m.customer_name} · ${m.method_display}`, kind: "meeting", sort: t ? hhmmToMin(t) : 0 });
+      add({ ymd: kstYmd(m.start_at), time: t || "-", title: `${m.customer_name} · ${m.method_display}`, cat: "meeting", sort: t ? hhmmToMin(t) : 0 });
     }
     for (const [, arr] of map) arr.sort((a, b) => a.sort - b.sort);
     return map;
@@ -544,21 +546,21 @@ export default function HomePage() {
                 if (isSel) cls = "bg-brand text-white font-bold";
                 const ymd = `${viewY}-${pad(viewM)}-${pad(d)}`;
                 const items = agenda.get(ymd);
-                const kinds = items ? Array.from(new Set(items.map((it) => it.kind))).slice(0, 3) : [];
+                const cats = items ? Array.from(new Set(items.map((it) => it.cat))).slice(0, 3) : [];
                 return (
                   <div key={i} className="flex flex-col items-center pt-1.5 pb-1 min-h-[52px]">
                     <button
                       onClick={() => setSelDay(d)}
-                      aria-label={`${viewM}월 ${d}일${kinds.length > 0 ? ` · 일정 ${items?.length ?? 0}건` : ""}`}
+                      aria-label={`${viewM}월 ${d}일${cats.length > 0 ? ` · 일정 ${items?.length ?? 0}건` : ""}`}
                       aria-pressed={d === selDay}
                       className={`w-9 h-9 rounded-full flex items-center justify-center text-[14px] font-medium ${cls}`}
                     >
                       {d}
                     </button>
-                    {kinds.length > 0 && (
+                    {cats.length > 0 && (
                       <div className="flex gap-0.5 mt-1">
-                        {kinds.map((k, j) => (
-                          <span key={j} className={`w-1.5 h-1.5 rounded-full ${META[k].dot}`} />
+                        {cats.map((c, j) => (
+                          <span key={j} className={`w-1.5 h-1.5 rounded-full ${CAT_META[c].dot}`} />
                         ))}
                       </div>
                     )}
@@ -567,10 +569,10 @@ export default function HomePage() {
               })}
             </div>
             <div className="mt-3 flex flex-wrap gap-3 text-[12px] text-ink3">
-              {(Object.keys(META) as Kind[]).map((k) => (
-                <span key={k} className="inline-flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${META[k].dot}`} />
-                  {META[k].label}
+              {(Object.keys(CAT_META) as Cat[]).map((c) => (
+                <span key={c} className="inline-flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${CAT_META[c].dot}`} />
+                  {CAT_META[c].label}
                 </span>
               ))}
             </div>
@@ -586,7 +588,7 @@ export default function HomePage() {
                       {t.time}
                     </div>
                     <div className="flex-1 flex items-start gap-2">
-                      <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${META[t.kind].dot}`} />
+                      <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${CAT_META[t.cat].dot}`} />
                       <span className="text-[14px] text-ink leading-5">{t.title}</span>
                     </div>
                   </div>
