@@ -2154,9 +2154,18 @@ export interface CompareResponse {
   disclaimer: string;
 }
 
-/** GET /api/v1/customers/<id>/compare/ */
-export async function compareCustomer(id: number): Promise<CompareResponse> {
-  return request<CompareResponse>("GET", `/customers/${id}/compare/`, undefined, true);
+/** GET/POST /api/v1/customers/<id>/compare/ — 선택 비교: 보험 id를 주면 그 보험만 비교(없으면 전체) */
+export async function compareCustomer(
+  id: number,
+  opts?: { currentIds?: number[]; proposedIds?: number[] }
+): Promise<CompareResponse> {
+  if (!opts || (opts.currentIds === undefined && opts.proposedIds === undefined)) {
+    return request<CompareResponse>("GET", `/customers/${id}/compare/`, undefined, true);
+  }
+  const body: Record<string, number[]> = {};
+  if (opts.currentIds !== undefined) body.current_ids = opts.currentIds;
+  if (opts.proposedIds !== undefined) body.proposed_ids = opts.proposedIds;
+  return request<CompareResponse>("POST", `/customers/${id}/compare/`, body, true);
 }
 
 /** POST /api/v1/customers/<id>/compare/ — 발행 요청(publishable=false 라 항상 차단됨) */

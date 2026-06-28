@@ -67,6 +67,29 @@ def _credit_exhausted_response(exc: LimitExceeded, user) -> Response:
     )
 
 
+def _selected_ids(request, key):
+    """비교에 포함할 보험 id 집합. 콤마구분 문자열(GET) 또는 배열(POST body) 허용.
+
+    값이 없으면 None → '전체'(기존 동작, 하위호환). 값이 있으면 그 보험만 비교 대상.
+    """
+    raw = None
+    data = getattr(request, 'data', None)
+    if data is not None and data.get(key) is not None:
+        raw = data.get(key)
+    elif request.query_params.get(key):
+        raw = request.query_params.get(key)
+    if raw is None:
+        return None
+    parts = raw.split(',') if isinstance(raw, str) else (raw if isinstance(raw, (list, tuple)) else [])
+    ids = set()
+    for p in parts:
+        try:
+            ids.add(int(p))
+        except (TypeError, ValueError):
+            continue
+    return ids  # 제공됐으면 빈 집합이라도 그대로(0개 선택 = 그쪽 0개 비교)
+
+
 def _aggregate_side(insurance_list):
     """한 측(보유 또는 제안) 보험 목록 → (summary, {coverage_name: amount}) 집계.
 
@@ -256,6 +279,15 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
         )
         current_list = [ci for ci in base_qs if ci.portfolio_type == 1]
         proposed_list = [ci for ci in base_qs if ci.portfolio_type == 2]
+
+        # ── 보험 선택 비교(PM 06.29): current_ids / proposed_ids 가 오면 그 보험만 비교. ──
+        #    값이 없으면 None → 전체(하위호환).
+        cur_sel = _selected_ids(request, 'current_ids')
+        prop_sel = _selected_ids(request, 'proposed_ids')
+        if cur_sel is not None:
+            current_list = [ci for ci in current_list if ci.id in cur_sel]
+        if prop_sel is not None:
+            proposed_list = [ci for ci in proposed_list if ci.id in prop_sel]
 
         current_summary, current_amounts = _aggregate_side(current_list)
         proposed_summary, proposed_amounts = _aggregate_side(proposed_list)
