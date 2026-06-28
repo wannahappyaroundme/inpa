@@ -129,18 +129,19 @@ export function BarChart({
             const pct = Math.round((d.value / max) * 100);
             return (
               <div key={i} className="relative flex-1 h-24 flex items-end">
-                {hot && (
-                  <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-semibold text-brand tnum whitespace-nowrap">
-                    {format(d.value)}
-                  </span>
-                )}
                 <div
-                  className="w-full rounded-t-md transition-all"
+                  className="w-full rounded-t-md transition-all relative"
                   style={{
                     height: `${Math.max(pct, 4)}%`,
                     background: hot ? "var(--brand)" : "var(--accent-tint)",
                   }}
-                />
+                >
+                  {hot && d.value > 0 && (
+                    <span className="absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white tnum whitespace-nowrap">
+                      {format(d.value)}
+                    </span>
+                  )}
+                </div>
               </div>
             );
           })}
