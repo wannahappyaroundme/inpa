@@ -50,6 +50,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     managed_agents_count = serializers.SerializerMethodField()
     manager_email = serializers.SerializerMethodField()
     google_calendar_connected = serializers.SerializerMethodField()
+    has_usable_password = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
@@ -60,10 +61,14 @@ class ProfileSerializer(serializers.ModelSerializer):
                   'booking_msg_template', 'booking_location', 'booking_default_duration',
                   'google_calendar_connected', 'google_calendar_mask_name',
                   'onboarding_completed_at', 'marketing_agreed_at', 'ref_code',
-                  'email_verified_at', 'is_admin', 'is_dormant')
+                  'email_verified_at', 'is_admin', 'is_dormant', 'has_usable_password')
         read_only_fields = ('email', 'onboarding_completed_at', 'ref_code', 'email_verified_at',
                             'is_admin', 'is_dormant', 'manager_email', 'managed_agents_count',
-                            'google_calendar_connected')
+                            'google_calendar_connected', 'has_usable_password')
+
+    def get_has_usable_password(self, obj):
+        # 비번 변경/탈퇴 UI 분기 — 구글 전용 가입자는 False(unusable_password).
+        return obj.user.has_usable_password()
 
     def get_managed_agents_count(self, obj):
         # 이 사용자(매니저)에게 배정된 소속 설계사 수(메뉴 노출 게이트용 — 동의 여부 무관 총원).

@@ -126,6 +126,17 @@ class SelfDiagnosisView(APIView):
                 customer=customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
                 subject=ConsentLog.SUBJECT_CUSTOMER_SELF,  # 잠재고객 본인 동의(P3c)
                 purpose='셀프진단 증권 OCR 국외이전(Claude, 미국)', ip=ip)
+            # ✦ DB 자산화: 본인이 직접 제출 + 설계사 전달 동의 = 개인정보 수집·이용 동의로 명시 기록.
+            ConsentLog.objects.create(
+                customer=customer, scope=ConsentLog.SCOPE_PERSONAL_INFO,
+                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                purpose='셀프진단 본인 제출·담당 설계사 전달', ip=ip)
+            # ✦ 마케팅 수신(선택) — 체크 시에만.
+            if _truthy(request.data.get('consent_marketing')):
+                ConsentLog.objects.create(
+                    customer=customer, scope=ConsentLog.SCOPE_MARKETING,
+                    subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                    purpose='셀프진단 마케팅 수신 동의', ip=ip)
             _persist_ocr(customer, ocr_data)
 
         # 8) 귀속 이벤트 + 설계사 알림(리드)

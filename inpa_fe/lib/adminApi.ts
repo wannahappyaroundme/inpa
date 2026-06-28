@@ -371,12 +371,21 @@ export async function adminCreatePolicyVersion(
 
 export interface FeatureFlags {
   FREE_TIER_UNLIMITED: boolean;
+  COMPARE_AI_ENABLED: boolean;
+  COMPARE_PUBLISH_ENABLED: boolean;
+  ANALYZE_MEDICAL_ENABLED: boolean;
+  BOOKING_ENABLED: boolean;
+  OCR_VERIFY_ENABLED: boolean;
+  REQUIRE_CUSTOMER_SELF_CONSENT: boolean;
+  GOOGLE_OAUTH_ENABLED: boolean;
   [key: string]: boolean;
 }
 
-/** PATCH /api/v1/admin/settings/flags/ */
-export async function adminUpdateFlags(
-  payload: Partial<FeatureFlags>
-): Promise<FeatureFlags> {
-  return req<FeatureFlags>("PATCH", "/admin/settings/flags/", payload);
+/**
+ * GET /api/v1/admin/settings/flags/
+ * 기능 플래그 현재값 읽기 전용 반환 (env 기반, runtime 변경 불가).
+ * PATCH는 컴플라이언스 원칙(env 우회 차단)으로 미구현.
+ */
+export async function adminGetFlags(): Promise<FeatureFlags> {
+  return req<FeatureFlags>("GET", "/admin/settings/flags/");
 }

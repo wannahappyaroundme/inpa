@@ -51,22 +51,25 @@ DATABASES = {
 # collectstatic 산출물을 gunicorn 단독으로 압축·캐시 서빙.
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # noqa: F405
 
-# ── 미디어(업로드 파일: 명함·전자자료) 저장 ───────────────────────
-# AWS_STORAGE_BUCKET_NAME 설정 시 S3 호환 오브젝트 스토리지(다중 인스턴스·영속).
-#   - Render 등 다중·임시 디스크에서 업로드 소실 방지(PM 06.24).
-#   - 비공개 버킷 + 서명 URL(querystring_auth) — 명함 등 PII 보호.
-#   - endpoint_url 설정 시 Cloudflare R2 등 S3 호환 스토리지도 사용 가능.
-# 미설정 시 로컬 디스크(base.MEDIA_ROOT) 폴백 — 단일 인스턴스/임시.
+# ── 미디어(업로드 파일: 명함·전자자료) 저장 — 3가지 모드(우선순위 순) ───
+# AWS는 필수 아님. S3 "호환" 스토리지면 무엇이든 됨.
+#  ① S3 호환 오브젝트 스토리지 (AWS_STORAGE_BUCKET_NAME 설정) — 권장.
+#     · Cloudflare R2(무료·egress 0, AWS_S3_ENDPOINT_URL=R2 + region=auto)
+#     · Supabase Storage / Backblaze B2 등도 endpoint_url 로 동일하게.
+#     · 다중 인스턴스·영속 + 비공개 서명 URL(PII 보호).
+#  ② Render 영속 디스크 (MEDIA_DISK_PATH 설정, 유료 플랜·단일 인스턴스) — 디스크에 로컬 저장.
+#  ③ 아무것도 없으면 로컬 임시(base.MEDIA_ROOT) — 재배포 시 소실(개발·임시용).
 _s3_bucket = env('AWS_STORAGE_BUCKET_NAME', default='')  # noqa: F405
+_media_disk = env('MEDIA_DISK_PATH', default='')  # noqa: F405  # 예: /var/data/media (Render 디스크)
 if _s3_bucket:
     _default_storage = {
         'BACKEND': 'storages.backends.s3.S3Storage',
         'OPTIONS': {
             'bucket_name': _s3_bucket,
-            'region_name': env('AWS_S3_REGION_NAME', default='ap-northeast-2'),  # noqa: F405
+            'region_name': env('AWS_S3_REGION_NAME', default='ap-northeast-2'),  # noqa: F405  # R2면 'auto'
             'access_key': env('AWS_ACCESS_KEY_ID', default=''),  # noqa: F405
             'secret_key': env('AWS_SECRET_ACCESS_KEY', default=''),  # noqa: F405
-            'endpoint_url': env('AWS_S3_ENDPOINT_URL', default='') or None,  # noqa: F405
+            'endpoint_url': env('AWS_S3_ENDPOINT_URL', default='') or None,  # noqa: F405  # R2/B2/Supabase 엔드포인트
             'querystring_auth': True,    # 서명 URL(비공개 버킷 — PII 보호)
             'file_overwrite': False,
             'default_acl': None,
@@ -74,6 +77,8 @@ if _s3_bucket:
     }
 else:
     _default_storage = {'BACKEND': 'django.core.files.storage.FileSystemStorage'}
+    if _media_disk:
+        MEDIA_ROOT = _media_disk  # noqa: F811  # Render 영속 디스크 마운트 경로
 
 STORAGES = {
     'default': _default_storage,

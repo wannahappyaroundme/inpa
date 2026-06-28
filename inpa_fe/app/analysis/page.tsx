@@ -18,6 +18,8 @@ import {
   OcrStatusBanner,
   ConsentModal,
 } from "@/components/ocr-upload";
+import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { UpgradeModal } from "@/components/upgrade-modal";
 import {
   getHeatmap,
   listCustomers,
@@ -71,6 +73,7 @@ function AnalysisPageInner() {
 
   const [graded, setGraded] = useState(true);
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [manualOpen, setManualOpen] = useState(false);
 
   // ── 히트맵 로드 ────────────────────────────
   const fetchHeatmap = useCallback(async (id: number) => {
@@ -183,6 +186,12 @@ function AnalysisPageInner() {
           />
         )}
 
+        <UpgradeModal
+          open={ocr.phase === "limit_exceeded"}
+          onClose={ocr.dismissUpgrade}
+          info={ocr.upgradeInfo}
+        />
+
         {/* ── neutral 모드 안내 ── */}
         {heatmap?.mode === "neutral" && (
           <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface2 px-4 py-3">
@@ -259,15 +268,33 @@ function AnalysisPageInner() {
               <p className="mt-1 text-[13px] text-ink3">
                 증권을 등록하면 보장 공백이 보여요.
               </p>
-              <div className="mt-3 inline-flex">
+              <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-2">
                 <OcrUploadButton
                   customerId={selectedId}
                   phase={ocr.phase}
                   onFileChange={ocr.onFileChange}
                 />
+                <button
+                  type="button"
+                  onClick={() => setManualOpen(true)}
+                  className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
+                >
+                  수기 등록
+                </button>
               </div>
             </div>
           )}
+
+        {manualOpen && selectedId !== null && (
+          <InsuranceManualModal
+            customerId={selectedId}
+            onClose={() => setManualOpen(false)}
+            onCreated={() => {
+              setManualOpen(false);
+              fetchHeatmap(selectedId);
+            }}
+          />
+        )}
 
         {/* ── 고객 없음 ── */}
         {!customersLoading && customers.length === 0 && (

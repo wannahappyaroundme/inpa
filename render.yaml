@@ -9,6 +9,12 @@ services:
     region: oregon
     rootDir: inpa_be          # ★ FE/BE 한 저장소 — 백엔드 경로 지정(미설정 시 빌드 실패)
     healthCheckPath: /healthz/
+    # [B] (선택) Render 영속 디스크로 미디어 영속 저장 — 유료 플랜·단일 인스턴스. 주석 해제 후
+    #     envVars 의 MEDIA_DISK_PATH=/var/data/media 설정. (무료 플랜은 디스크 미지원 → R2 권장)
+    # disk:
+    #   name: inpa-media
+    #   mountPath: /var/data
+    #   sizeGB: 1
     # 빌드: 의존성 설치 + 정적파일 수집(whitenoise). collectstatic 은 prod.py 를 로드하므로
     #       빌드용 더미 SECRET_KEY/DATABASE_URL 주입(런타임엔 아래 envVars 의 실제 값 사용).
     buildCommand: >-
@@ -40,17 +46,23 @@ services:
         sync: false                  # Claude 키(비우면 OCR/AI만 비활성)
       - key: FRONTEND_BASE_URL
         sync: false                  # https://<vercel-fe-도메인> (이메일 링크용)
-      # ── 미디어(명함·전자자료) S3 저장 — 설정 시 활성, 미설정 시 로컬(임시) 폴백 ──
+      # ── 미디어(명함·전자자료) 저장 — AWS 불필요. 아래 셋 중 하나만 ──
+      # [A] S3 "호환" 오브젝트 스토리지(권장·무료): Cloudflare R2 / Supabase / Backblaze B2 등.
+      #     → 아래 5개 채우기(R2면 REGION=auto, ENDPOINT_URL=R2 주소).
+      # [B] Render 영속 디스크(유료 플랜): 아래 disk 블록 주석 해제 + MEDIA_DISK_PATH 설정.
+      # [C] 아무것도 안 채우면 로컬 임시(재배포 시 소실) — 개발/임시.
       - key: AWS_STORAGE_BUCKET_NAME
-        sync: false                  # 버킷명(설정해야 S3 사용). 비우면 로컬 임시저장
+        sync: false                  # [A] 버킷명. 채우면 오브젝트 스토리지 사용
       - key: AWS_S3_REGION_NAME
-        sync: false                  # 예: ap-northeast-2 (서울)
+        sync: false                  # [A] AWS면 ap-northeast-2, Cloudflare R2면 auto
       - key: AWS_ACCESS_KEY_ID
-        sync: false                  # IAM 키(S3 PutObject/GetObject 권한)
+        sync: false                  # [A] 액세스 키
       - key: AWS_SECRET_ACCESS_KEY
-        sync: false                  # IAM 시크릿
+        sync: false                  # [A] 시크릿 키
       - key: AWS_S3_ENDPOINT_URL
-        sync: false                  # (선택) Cloudflare R2 등 S3 호환 엔드포인트. AWS면 비움
+        sync: false                  # [A] R2/B2/Supabase 엔드포인트(AWS S3면 비움)
+      - key: MEDIA_DISK_PATH
+        sync: false                  # [B] Render 디스크 마운트 경로(예: /var/data/media)
       # ALLOWED_HOSTS·CSRF 는 Render 가 RENDER_EXTERNAL_HOSTNAME 주입 → prod.py 가 자동 포함.
       # 커스텀 도메인 붙이면 ALLOWED_HOSTS·CSRF_TRUSTED_ORIGINS 를 여기에 추가.
       # 이메일(Resend) 쓸 때: EMAIL_BACKEND/EMAIL_HOST/EMAIL_PORT/EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/EMAIL_USE_SSL/DEFAULT_FROM_EMAIL 추가.

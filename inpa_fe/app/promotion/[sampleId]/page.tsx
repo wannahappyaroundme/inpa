@@ -15,6 +15,7 @@ import {
   type PromotionFormField,
   type DigitalRequestResult,
 } from "@/lib/api";
+import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 
 // ── 동적 폼 필드 단일 렌더러 ─────────────────────────────────────────────────
 
@@ -217,7 +218,7 @@ export default function SampleDetailPage({
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [creditError, setCreditError] = useState<string | null>(null);
+  const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
   // 전자자료(1회 무료 / 어드민 큐) — PM 06.24
   const [digital, setDigital] = useState<DigitalRequestResult | null>(null);
   const [digitalLoading, setDigitalLoading] = useState(false);
@@ -267,7 +268,7 @@ export default function SampleDetailPage({
   function handleFieldChange(key: string, val: unknown) {
     setFormValues((prev) => ({ ...prev, [key]: val }));
     setSubmitError(null);
-    setCreditError(null);
+    setUpgradeInfo(undefined);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -275,13 +276,13 @@ export default function SampleDetailPage({
     if (!sample || !isFormValid()) return;
     setSubmitLoading(true);
     setSubmitError(null);
-    setCreditError(null);
+    setUpgradeInfo(undefined);
     try {
       await createOrder({ sample: sample.id, form_response: formValues });
       router.push("/promotion/orders");
     } catch (err) {
       if (err instanceof ApiError && err.status === 402) {
-        setCreditError("이번 달 주문 한도를 모두 사용했어요. 플러스 요금제로 업그레이드하면 더 주문할 수 있어요.");
+        setUpgradeInfo(err.creditBody ?? { kind: "promotion" });
       } else if (err instanceof ApiError) {
         setSubmitError(err.message || "주문 제출에 실패했어요. 다시 시도해 주세요.");
       } else {
@@ -348,6 +349,13 @@ export default function SampleDetailPage({
   return (
     <div className="min-h-dvh">
       <AppNav active="promotion" />
+
+      <UpgradeModal
+        open={upgradeInfo !== undefined}
+        onClose={() => setUpgradeInfo(undefined)}
+        info={upgradeInfo}
+      />
+
       <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
         {/* 뒤로 가기 */}
         <Link
@@ -476,13 +484,6 @@ export default function SampleDetailPage({
                   onChange={handleFieldChange}
                 />
               ))}
-
-              {/* 크레딧 에러 */}
-              {creditError && (
-                <div className="p-3.5 rounded-xl bg-warning/10 border border-warning/30 text-[13px] text-ink">
-                  {creditError}
-                </div>
-              )}
 
               {/* 일반 에러 */}
               {submitError && (

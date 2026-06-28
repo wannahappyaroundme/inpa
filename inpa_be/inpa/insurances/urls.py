@@ -10,7 +10,7 @@ from django.urls import path
 
 from .churn import ChurnRadarView, ChurnSyncAlertsView, InsuranceChurnView
 from .self_diagnosis import SelfDiagnosisView
-from .views import InsuranceOcrViewSet
+from .views import CustomerInsuranceManualViewSet, InsuranceOcrViewSet
 
 app_name = 'insurances'
 
@@ -18,6 +18,14 @@ urlpatterns = [
     path('customers/<int:customer_pk>/insurances/ocr/',
          InsuranceOcrViewSet.as_view({'post': 'create'}),
          name='insurance-ocr-upload'),
+    # 수기 보험 등록(보유/제안) — OCR 폴백 + 제안 입력. owner 전용.
+    path('customers/<int:customer_pk>/insurances/manual/',
+         CustomerInsuranceManualViewSet.as_view({'get': 'list', 'post': 'create'}),
+         name='insurance-manual-list'),
+    path('customers/<int:customer_pk>/insurances/manual/<int:pk>/',
+         CustomerInsuranceManualViewSet.as_view(
+             {'get': 'retrieve', 'patch': 'partial_update', 'delete': 'destroy'}),
+         name='insurance-manual-detail'),
     # 환수 레이더(A/S) — 집계 GET + 수기 PATCH + 문제 알림 동기화
     path('churn-radar/', ChurnRadarView.as_view(), name='churn-radar'),
     path('churn-radar/sync-alerts/', ChurnSyncAlertsView.as_view(), name='churn-sync-alerts'),

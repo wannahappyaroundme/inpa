@@ -550,7 +550,7 @@ def claude_parse(text_lines, is_proposal=False, normalizer=None):
     try:
         message = client.messages.create(
             model=model_id,
-            max_tokens=4096,
+            max_tokens=8192,  # 담보 多 종합보험은 4096이면 JSON 잘려 파싱 실패(담보 47개 실측) → 8192 상향
             system=system_blocks,
             messages=[
                 {'role': 'user', 'content': user_prompt}

@@ -33,6 +33,9 @@ import {
   ConsentModal,
 } from "@/components/ocr-upload";
 import { BookingModal } from "@/components/booking-modal";
+import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
+import { ShareLinkButton } from "@/components/share-link-button";
 import { CompareBarChart } from "@/components/charts";
 import {
   getCustomer,
@@ -47,8 +50,11 @@ import {
   toggleChecklistItem,
   addChecklistItem,
   deleteChecklistItem,
+  createConsentRequest,
+  SALES_STAGES,
   ApiError,
   type CustomerDetail,
+  type SalesStage,
   type HeatmapResponse,
   type HeatmapDetail,
   type CompareResponse,
@@ -56,6 +62,7 @@ import {
   type ProfileResponse,
   type ContractChecklistItem,
 } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 
 type TabKey = "analysis" | "switch" | "gap" | "info" | "contract" | "history";
 
@@ -143,6 +150,7 @@ function CustomerDetailInner() {
   const [heatmap, setHeatmap] = useState<HeatmapResponse | null>(null);
   const [heatmapLoading, setHeatmapLoading] = useState(false);
   const [heatmapError, setHeatmapError] = useState<string | null>(null);
+  const [heatmapUpgradeInfo, setHeatmapUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
 
   // 히트맵 그리드 UI 상태
   const [graded, setGraded] = useState(true);
@@ -153,12 +161,17 @@ function CustomerDetailInner() {
       setHeatmapLoading(true);
       setHeatmapError(null);
       setHeatmap(null);
+      setHeatmapUpgradeInfo(undefined);
       try {
         setHeatmap(await getHeatmap(id));
       } catch (e: unknown) {
-        setHeatmapError(
-          e instanceof Error ? e.message : "분석 데이터를 불러오지 못했어요."
-        );
+        if (e instanceof ApiError && e.status === 402) {
+          setHeatmapUpgradeInfo(e.creditBody ?? { kind: "analysis" });
+        } else {
+          setHeatmapError(
+            e instanceof Error ? e.message : "분석 데이터를 불러오지 못했어요."
+          );
+        }
       } finally {
         setHeatmapLoading(false);
       }
@@ -214,6 +227,19 @@ function CustomerDetailInner() {
     router.replace(`/customer/${customerId}?tab=${tab}`);
   }
 
+  // 영업 단계 변경(DB·TA·FA·청약) — 칸반 select 대체. 낙관적 업데이트 후 실패 시 재조회.
+  const changeStage = useCallback(
+    async (to: SalesStage) => {
+      setCustomer((c) => (c && c.sales_stage !== to ? { ...c, sales_stage: to } : c));
+      try {
+        setCustomer(await updateCustomer(customerId, { sales_stage: to }));
+      } catch {
+        getCustomer(customerId).then(setCustomer).catch(() => {});
+      }
+    },
+    [customerId]
+  );
+
   if (!ready) return null;
 
   // 잘못된 ID
@@ -226,6 +252,13 @@ function CustomerDetailInner() {
   return (
     <div className="min-h-dvh">
       <AppNav active="customers" />
+
+      <UpgradeModal
+        open={heatmapUpgradeInfo !== undefined}
+        onClose={() => setHeatmapUpgradeInfo(undefined)}
+        info={heatmapUpgradeInfo}
+      />
+
       <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
         {/* 뒤로 */}
         <Link
@@ -250,6 +283,27 @@ function CustomerDetailInner() {
           </div>
         ) : (
           customer && <CustomerSummary customer={customer} />
+        )}
+
+        {/* ── 영업 단계 변경 (DB·TA·FA·청약) — 칸반에서 이동 ── */}
+        {customer && !custError && (
+          <div className="mt-3">
+            <div className="text-[11px] font-semibold text-ink3 mb-1">영업 단계</div>
+            <div className="inline-flex rounded-xl border border-line bg-surface2 p-0.5 text-[12px] font-semibold">
+              {SALES_STAGES.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => changeStage(s.key)}
+                  aria-pressed={customer.sales_stage === s.key}
+                  className={`px-3 py-1.5 rounded-[10px] transition ${
+                    customer.sales_stage === s.key ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* ── 탭 바 ── */}
@@ -330,7 +384,7 @@ function CustomerSummary({ customer }: { customer: CustomerDetail }) {
     .join(" · ");
   return (
     <Card className="mt-3 p-4 flex items-center gap-3">
-      <CustomerAvatar name={customer.name} color={customer.color} size={48} />
+      <CustomerAvatar label={customer.avatar_label} color={customer.color} size={48} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[18px] font-bold text-ink">{customer.name}</span>
@@ -375,6 +429,7 @@ function InfoTab({
   const [gender, setGender] = useState(customer.gender == null ? "" : String(customer.gender));
   const [birth, setBirth] = useState(customer.birth_day ?? "");
   const [color, setColor] = useState(customer.color ?? "");
+  const [avatarLabel, setAvatarLabel] = useState(customer.avatar_label ?? "");
   const [memo, setMemo] = useState(customer.memo ?? "");
   const [savingInfo, setSavingInfo] = useState(false);
   const [savingMemo, setSavingMemo] = useState(false);
@@ -394,6 +449,7 @@ function InfoTab({
         gender: gender || undefined,
         birth_day: birth || undefined,
         color,
+        avatar_label: avatarLabel.trim(),
       });
       onUpdated(c);
       flash("상세정보를 저장했어요.");
@@ -420,9 +476,34 @@ function InfoTab({
 
   const inputCls =
     "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition";
-  const consentLabel =
-    customer.marketing_consent === "agreed" ? "마케팅 동의"
-    : customer.marketing_consent === "revoked" ? "마케팅 철회" : "마케팅 비동의";
+
+  // 동의 배지 헬퍼
+  const piState = customer.consents?.personal_info;
+  const mkState = customer.consents?.marketing;
+  const subjectTag = (s: string | null | undefined) =>
+    s === "customer_self" ? "본인 동의" : s === "planner_attested" ? "설계사 기록" : "";
+  const consentLine = (label: string, state: { status: string; subject: string | null } | undefined) => {
+    if (!state || state.status === "none") return `${label} 미동의`;
+    if (state.status === "revoked") return `${label} 철회`;
+    const tag = subjectTag(state.subject);
+    return `${label} 동의${tag ? ` · ${tag}` : ""}`;
+  };
+
+  // 동의 요청 링크 — 클립보드 복사까지만(자동발송 없음).
+  const [consentBusy, setConsentBusy] = useState(false);
+  const sendConsentLink = useCallback(async () => {
+    setConsentBusy(true);
+    try {
+      const res = await createConsentRequest(customer.id, ["personal_info", "marketing"]);
+      const ok = await copyText(res.consent_url);
+      flash(ok ? "동의 요청 링크를 복사했어요. 고객에게 보내세요." : res.consent_url);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setConsentBusy(false);
+    }
+  }, [customer.id]);
+
   const riskLabel =
     customer.job_risk_grade && customer.job_risk_grade <= 3 ? `위험 ${customer.job_risk_grade}급` : null;
 
@@ -457,7 +538,7 @@ function InfoTab({
         {/* 오른쪽: 상세정보 */}
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <CustomerAvatar name={name || customer.name} color={color || null} size={44} />
+            <CustomerAvatar label={avatarLabel} color={color || null} size={44} />
             <h3 className="text-[15px] font-bold text-ink">상세정보</h3>
           </div>
 
@@ -488,14 +569,25 @@ function InfoTab({
             </div>
           </div>
 
-          {/* 아바타 색상 팔레트 */}
-          <div className="mt-3 flex flex-col gap-1.5">
-            <span className="text-[12px] font-semibold text-ink3">아바타 색상</span>
+          {/* 아바타 글씨·색상 — 글씨 비우면 인파 로고. 색은 공통 배경 */}
+          <div className="mt-3 flex flex-col gap-2">
+            <span className="text-[12px] font-semibold text-ink3">아바타 글씨·색상</span>
+            <div className="flex items-center gap-3">
+              <CustomerAvatar label={avatarLabel} color={color || null} size={40} />
+              <input
+                value={avatarLabel}
+                onChange={(e) => setAvatarLabel(e.target.value.slice(0, 3))}
+                placeholder="약자·숫자 (비우면 로고)"
+                maxLength={3}
+                className="flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+              />
+            </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-ink3 mr-0.5">배경</span>
               <button type="button" onClick={() => setColor("")}
-                className={`h-7 px-2 rounded-full border text-[10px] font-semibold ${color === "" ? "border-brand text-brand" : "border-line text-ink3"}`}>로고</button>
+                className={`h-7 px-2 rounded-full border text-[10px] font-semibold ${color === "" ? "border-brand text-brand" : "border-line text-ink3"}`}>기본</button>
               {AVATAR_PALETTE.map((hex) => (
-                <button key={hex} type="button" onClick={() => setColor(hex)} aria-label={`색상 ${hex}`}
+                <button key={hex} type="button" onClick={() => setColor(hex)} aria-label={`배경 ${hex}`}
                   className={`w-7 h-7 rounded-full border-2 ${color === hex ? "border-brand" : "border-transparent"}`}
                   style={{ backgroundColor: hex }} />
               ))}
@@ -508,11 +600,28 @@ function InfoTab({
             <dd className="text-ink2 text-right">{customer.insurance_age != null ? `${customer.insurance_age}세` : "—"}</dd>
             <dt className="text-ink3">직업</dt>
             <dd className="text-ink2 text-right">{customer.job_name ?? "—"}{riskLabel ? ` (${riskLabel})` : ""}</dd>
-            <dt className="text-ink3">마케팅 동의</dt>
-            <dd className="text-ink2 text-right">{consentLabel}</dd>
             <dt className="text-ink3">영업 단계</dt>
             <dd className="text-ink2 text-right">{customer.sales_stage.toUpperCase()}</dd>
           </dl>
+
+          {/* 동의 배지 + 요청 링크 */}
+          <div className="mt-3 rounded-xl border border-line bg-surface px-4 py-3">
+            <div className="text-[12px] font-semibold text-ink3">동의</div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
+              <span className="rounded-full bg-accent-tint px-2 py-0.5 text-brand">{consentLine("개인정보", piState)}</span>
+              <span className="rounded-full bg-accent-tint px-2 py-0.5 text-brand">{consentLine("마케팅", mkState)}</span>
+            </div>
+            <button
+              onClick={sendConsentLink}
+              disabled={consentBusy}
+              className="mt-2.5 w-full rounded-xl border border-brand text-brand text-[13px] font-semibold py-2 disabled:opacity-60"
+            >
+              {consentBusy ? "링크 생성 중…" : "동의 요청 링크 복사(고객 본인용)"}
+            </button>
+            <p className="mt-1.5 text-[11px] text-ink3 leading-4">
+              가장 안전한 건 고객 본인이 링크로 직접 동의하는 거예요. (자동발송 없음 — 복사해 전달)
+            </p>
+          </div>
 
           <button onClick={saveInfo} disabled={savingInfo}
             className="mt-4 w-full rounded-xl bg-brand text-white text-[14px] font-bold py-2.5 disabled:opacity-60">
@@ -592,6 +701,18 @@ function ChecklistTab({ customerId }: { customerId: number }) {
       <p className="mt-1 text-[12px] text-ink3 leading-5">
         상담 시 설명 의무 이행을 직접 점검·기록해요. 체크 이력은 분쟁 대비 자료가 됩니다(자동발송·해피콜 아님).
       </p>
+
+      {/* §97 불리사항 구두고지 안내 — 설계사 내부 전용(고객 화면·공유뷰 비노출) */}
+      <div className="mt-3 rounded-xl border border-amber-300/70 bg-amber-50 px-3.5 py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-bold text-amber-900">갈아타기(승환) 계약이면 — 불리사항 구두 고지</span>
+          <span className="ml-auto shrink-0 text-[10px] font-semibold rounded-full bg-white/70 text-amber-800 px-2 py-0.5">설계사 내부 · 고객 비노출</span>
+        </div>
+        <p className="mt-1.5 text-[12px] leading-5 text-amber-900/90">
+          기존 계약을 해지하고 새로 가입하는 경우 <b>해지 환급 손실·면책(감액) 기간 리셋</b> 등 고객에게 불리할 수 있는 점을 상담에서 <b>반드시 구두로 고지</b>하세요. 고객별 구체 항목은 <b>비교 탭</b>에서 확인할 수 있어요.
+        </p>
+      </div>
+
       {err && <div className="mt-2 text-[13px] text-rose-700">{err}</div>}
 
       {loading ? (
@@ -658,6 +779,7 @@ function AnalysisTab({
   ocr: OcrCtl;
 }) {
   const [bookingOpen, setBookingOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
   return (
     <div>
       {/* 증권 OCR 업로드 입구 (분석 탭으로 이동) */}
@@ -683,10 +805,28 @@ function AnalysisTab({
             phase={ocr.phase}
             onFileChange={ocr.onFileChange}
           />
+          <button
+            type="button"
+            onClick={() => setManualOpen(true)}
+            className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
+          >
+            수기 등록
+          </button>
+          <ShareLinkButton customerId={customerId} />
         </div>
       </div>
       {bookingOpen && (
         <BookingModal customerId={customerId} onClose={() => setBookingOpen(false)} />
+      )}
+      {manualOpen && (
+        <InsuranceManualModal
+          customerId={customerId}
+          onClose={() => setManualOpen(false)}
+          onCreated={() => {
+            setManualOpen(false);
+            onRetry();
+          }}
+        />
       )}
 
       <OcrStatusBanner
@@ -704,6 +844,12 @@ function AnalysisTab({
           loading={ocr.consentLoading}
         />
       )}
+
+      <UpgradeModal
+        open={ocr.phase === "limit_exceeded"}
+        onClose={ocr.dismissUpgrade}
+        info={ocr.upgradeInfo}
+      />
 
       {/* neutral 안내 */}
       {heatmap?.mode === "neutral" && (
@@ -773,12 +919,19 @@ function AnalysisTab({
           <p className="mt-1 text-[13px] text-ink3">
             증권을 등록하면 보장 한눈표가 보여요.
           </p>
-          <div className="mt-3 inline-flex">
+          <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-2">
             <OcrUploadButton
               customerId={customerId}
               phase={ocr.phase}
               onFileChange={ocr.onFileChange}
             />
+            <button
+              type="button"
+              onClick={() => setManualOpen(true)}
+              className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
+            >
+              수기 등록
+            </button>
           </div>
         </div>
       )}
@@ -806,17 +959,30 @@ function SwitchTab({ customerId }: { customerId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishTooltip, setPublishTooltip] = useState(false);
+  const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
-  useEffect(() => {
+  const doCompare = useCallback(() => {
     setLoading(true);
     setError(null);
+    setUpgradeInfo(undefined);
+    setUpgradeOpen(false);
     compareCustomer(customerId)
       .then((d) => setData(d))
       .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : "비교 데이터를 불러오지 못했어요.");
+        if (e instanceof ApiError && e.status === 402) {
+          setUpgradeInfo(e.creditBody ?? { kind: "ai_compare" });
+          setUpgradeOpen(true);
+        } else {
+          setError(e instanceof Error ? e.message : "비교 데이터를 불러오지 못했어요.");
+        }
       })
       .finally(() => setLoading(false));
   }, [customerId]);
+
+  useEffect(() => {
+    doCompare();
+  }, [doCompare]);
 
   // 발행 버튼 — publishable=false 이므로 항상 disabled
   async function handlePublish() {
@@ -835,19 +1001,33 @@ function SwitchTab({ customerId }: { customerId: number }) {
     );
   }
 
+  if (upgradeInfo !== undefined) {
+    return (
+      <>
+        <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
+          <p className="text-[14px] text-ink3">이번 달 AI 비교안내서 한도를 모두 사용했어요.</p>
+          <button
+            onClick={() => setUpgradeOpen(true)}
+            className="mt-3 text-[13px] font-semibold text-brand"
+          >
+            안내 다시 보기
+          </button>
+        </div>
+        <UpgradeModal
+          open={upgradeOpen}
+          onClose={() => setUpgradeOpen(false)}
+          info={upgradeInfo}
+        />
+      </>
+    );
+  }
+
   if (error || !data) {
     return (
       <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
         <p className="text-[14px] text-ink3">{error ?? "데이터 없음"}</p>
         <button
-          onClick={() => {
-            setLoading(true);
-            setError(null);
-            compareCustomer(customerId)
-              .then((d) => setData(d))
-              .catch((e: unknown) => setError(e instanceof Error ? e.message : "오류"))
-              .finally(() => setLoading(false));
-          }}
+          onClick={doCompare}
           className="mt-3 text-[13px] font-semibold text-brand"
         >
           다시 시도
@@ -1279,12 +1459,9 @@ function HistoryTab({ customerId }: { customerId: number }) {
                     {fmtEventAt(ev.at)}
                   </span>
                 </div>
-                {ev.meta && Object.keys(ev.meta).length > 0 && (
+                {historyDetail(ev.type, ev.meta) && (
                   <p className="mt-0.5 text-[12px] text-ink3 leading-5 truncate">
-                    {Object.entries(ev.meta)
-                      .slice(0, 2)
-                      .map(([k, v]) => `${k}: ${String(v)}`)
-                      .join(" · ")}
+                    {historyDetail(ev.type, ev.meta)}
                   </p>
                 )}
               </div>
@@ -1294,6 +1471,20 @@ function HistoryTab({ customerId }: { customerId: number }) {
       </ol>
     </div>
   );
+}
+
+/** 이력 부가설명 — 내부필드(scope·*_id·portfolio_type 등)는 노출 금지, 사람이 읽는 값만. */
+function historyDetail(type: string, meta: Record<string, unknown>): string | null {
+  if (!meta) return null;
+  if (type === "insurance_registered") {
+    const name = typeof meta.name === "string" ? meta.name.trim() : "";
+    return name || null; // 보험 상품명만(내부 id·종류 비노출)
+  }
+  if (type === "consent_agreed") {
+    const v = typeof meta.doc_version === "string" ? meta.doc_version.trim() : "";
+    return v ? `동의서 ${v}` : null;
+  }
+  return null; // 그 외(철회·공유·복사 등)는 label로 충분
 }
 
 /** 이벤트 타입 → 아이콘 문자 */

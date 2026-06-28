@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { Card, CustomerAvatar, stalenessLevel } from "@/components/ui";
+import { SelfDiagnosisShare } from "@/components/self-diagnosis-share";
+import { InfoDot } from "@/components/info-dot";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers,
@@ -54,27 +56,7 @@ function ageLabel(age: number | null): string {
 }
 
 // ── ? 툴팁(클릭 토글) — 단계 설명 ──
-function InfoDot({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="relative inline-flex">
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
-        onBlur={() => setOpen(false)}
-        aria-label="단계 설명"
-        className="w-4 h-4 rounded-full border border-line text-[10px] font-bold text-ink3 leading-none flex items-center justify-center hover:bg-surface2"
-      >
-        ?
-      </button>
-      {open && (
-        <span className="absolute left-0 top-5 z-30 w-56 rounded-lg border border-line bg-surface px-3 py-2 text-[11px] leading-4 text-ink2 shadow-lg">
-          {text}
-        </span>
-      )}
-    </span>
-  );
-}
+// InfoDot 은 공용 컴포넌트로 이동 → @/components/info-dot (StatCard 등과 재사용)
 
 // ── 즐겨찾기/고정 토글 버튼 ──
 function FavPinButtons({
@@ -276,7 +258,11 @@ export default function CustomersPage() {
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink3">
           <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-[4px] border-2 border-short" />3일+ 미연락</span>
           <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-[4px] border-2 border-cnone" />7일+ 미연락</span>
-          <span className="text-muted">테두리 = 방치 정도 · ★ 즐겨찾기 · 📌 상단고정</span>
+          <span className="text-muted">테두리 = 연락 끊긴 기간 · ★ 즐겨찾기 · 📌 상단고정</span>
+        </div>
+
+        <div className="mt-4">
+          <SelfDiagnosisShare />
         </div>
 
         {error && (
@@ -300,7 +286,7 @@ export default function CustomersPage() {
               const lvl = (c.sales_stage === "contract" ? null : stalenessLevel(c.last_contacted_at, c.created_at));
               return (
                 <Card key={c.id} className={`p-4 flex items-center gap-3 ${ringCls(lvl)}`}>
-                  <CustomerAvatar name={c.name} color={c.color} size={44} />
+                  <CustomerAvatar label={c.avatar_label} color={c.color} size={44} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[16px] font-bold text-ink">{c.name}</span>
@@ -379,11 +365,17 @@ export default function CustomersPage() {
                               moving.has(c.id) ? "opacity-50" : ""
                             }`}
                           >
+                            {/* 1줄: 아바타 + 이름(위험등급)/정보 + 즐겨찾기·고정 */}
                             <div className="flex items-center gap-2">
-                              <CustomerAvatar name={c.name} color={c.color} size={32} />
+                              <CustomerAvatar label={c.avatar_label} color={c.color} size={32} />
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1">
-                                  <span className="text-[14px] font-bold text-ink truncate">{c.name}</span>
+                                <div className="text-[14px] font-bold text-ink truncate">
+                                  {c.name}
+                                  {riskBadge(c.job_risk_grade) && (
+                                    <span className={`ml-1 align-middle text-[9px] font-bold rounded px-1 py-0.5 border ${riskBadge(c.job_risk_grade)!.cls}`}>
+                                      {c.job_risk_grade}급
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-[11px] text-ink3 truncate">
                                   {[ageLabel(c.insurance_age), genderLabel(c.gender), c.mobile_phone_number]
@@ -393,45 +385,17 @@ export default function CustomersPage() {
                               </div>
                               <FavPinButtons c={c} onToggle={patchCustomer} />
                             </div>
-                            <div className="mt-1.5 flex gap-1 flex-wrap">
-                              <MetaBadges c={c} />
-                              {c.tags.slice(0, 1).map((tag) => (
-                                <span
-                                  key={tag.id}
-                                  className="text-[10px] font-semibold rounded-full px-1.5 py-0.5"
-                                  style={{
-                                    backgroundColor: tag.color ? `${tag.color}20` : "var(--surface-2)",
-                                    color: tag.color ?? "var(--ink-3)",
-                                  }}
-                                >
-                                  {tag.label}
-                                </span>
-                              ))}
-                            </div>
-                            <div className="mt-2 flex items-center justify-between gap-2">
-                              <select
-                                value={c.sales_stage}
-                                onChange={(e) => moveCustomer(c.id, e.target.value as SalesStage)}
-                                aria-label={`${c.name} 영업단계 이동`}
-                                className="text-[11px] rounded-lg border border-line bg-surface px-1.5 py-1 text-ink2"
+                            {/* 2줄: 연락함 · 분석 (단계 변경은 상세페이지에서) */}
+                            <div className="mt-2 flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => markContacted(c.id)}
+                                className="text-[11px] font-semibold text-ink3 border border-line rounded-lg px-2 py-1 hover:bg-surface2"
                               >
-                                {SALES_STAGES.map((s) => (
-                                  <option key={s.key} value={s.key}>
-                                    {s.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <button
-                                  onClick={() => markContacted(c.id)}
-                                  className="text-[11px] font-semibold text-ink3 border border-line rounded-lg px-2 py-1 hover:bg-surface2"
-                                >
-                                  연락함
-                                </button>
-                                <Link href={`/customer/${c.id}?tab=analysis`} className="text-[12px] font-semibold text-brand">
-                                  분석 ›
-                                </Link>
-                              </div>
+                                연락함
+                              </button>
+                              <Link href={`/customer/${c.id}?tab=analysis`} className="text-[12px] font-semibold text-brand">
+                                분석 ›
+                              </Link>
                             </div>
                           </div>
                         );

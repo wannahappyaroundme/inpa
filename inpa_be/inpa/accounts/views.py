@@ -380,12 +380,21 @@ class WithdrawView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        password = request.data.get('password', '')
-        if not request.user.check_password(password):
-            return Response({'code': 'INVALID_PASSWORD', 'detail': '비밀번호 확인이 필요합니다.'},
-                            status=status.HTTP_400_BAD_REQUEST)
+        user = request.user
+        if user.has_usable_password():
+            # 이메일/비번 가입자 — 비밀번호 확인
+            if not user.check_password(request.data.get('password', '')):
+                return Response({'code': 'INVALID_PASSWORD', 'detail': '비밀번호 확인이 필요합니다.'},
+                                status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # 구글 전용 가입자(비번 없음) — 가입 이메일 입력으로 본인 확인(개인정보 삭제권 보장)
+            confirm = (request.data.get('confirm') or '').strip().lower()
+            if confirm != user.email.lower():
+                return Response({'code': 'CONFIRM_REQUIRED',
+                                 'detail': '확인을 위해 가입 이메일을 정확히 입력해 주세요.'},
+                                status=status.HTTP_400_BAD_REQUEST)
         # 즉시 삭제 (CASCADE로 Profile·고객 데이터 연쇄 삭제). 유예기간 soft-delete은 openGap.
-        request.user.delete()
+        user.delete()
         return Response({'message': '탈퇴가 완료되었습니다.'})
 
 

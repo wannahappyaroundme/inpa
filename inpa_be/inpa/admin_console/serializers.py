@@ -23,6 +23,8 @@ from inpa.boards.models import (
 from inpa.customers.models import ConsentLog, Customer
 from inpa.promotion.models import PromotionOrder, PromotionOrderStatusLog
 
+from .models import PolicyVersion
+
 User = get_user_model()
 
 
@@ -535,3 +537,43 @@ class AdminPlanUpdateSerializer(serializers.ModelSerializer):
             'limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
             'is_active',
         ]
+
+
+# ─── 약관 버전 ─────────────────────────────────────────────────────────
+
+class PolicyVersionSerializer(serializers.ModelSerializer):
+    """약관 버전 조회 (admin용)."""
+    policy_type_display = serializers.CharField(source='get_policy_type_display', read_only=True)
+
+    class Meta:
+        model = PolicyVersion
+        fields = [
+            'id', 'policy_type', 'policy_type_display',
+            'version', 'effective_at', 'requires_reconsent', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
+class PolicyVersionWriteSerializer(serializers.ModelSerializer):
+    """약관 버전 등록 (admin용). policy_type 검증 포함."""
+    class Meta:
+        model = PolicyVersion
+        fields = ['policy_type', 'version', 'effective_at', 'requires_reconsent']
+
+
+# ─── 기능 플래그 (읽기 전용 — env 우회 차단) ──────────────────────────
+
+class FeatureFlagsSerializer(serializers.Serializer):
+    """env 기반 기능 플래그 현재 값 (READ-ONLY).
+
+    컴플라이언스 게이트는 환경변수로만 제어 — runtime PATCH 미구현.
+    모든 필드는 read_only (Serializer.read_only_fields 은 Serializer 에 없으므로 fields 선언으로 처리).
+    """
+    FREE_TIER_UNLIMITED = serializers.BooleanField(read_only=True)
+    COMPARE_AI_ENABLED = serializers.BooleanField(read_only=True)
+    COMPARE_PUBLISH_ENABLED = serializers.BooleanField(read_only=True)
+    ANALYZE_MEDICAL_ENABLED = serializers.BooleanField(read_only=True)
+    BOOKING_ENABLED = serializers.BooleanField(read_only=True)
+    OCR_VERIFY_ENABLED = serializers.BooleanField(read_only=True)
+    REQUIRE_CUSTOMER_SELF_CONSENT = serializers.BooleanField(read_only=True)
+    GOOGLE_OAUTH_ENABLED = serializers.BooleanField(read_only=True)

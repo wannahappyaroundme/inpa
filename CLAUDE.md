@@ -1,115 +1,129 @@
-# 인파 (Inpa) — Claude Code 가이드
+# Inpa — Agent Guide (CLAUDE.md)
 
-> 보험설계사용 AI 영업지원 웹앱 신사업. **인파(Inpa) = 인슈어(Insure) + 파트너(Partner)** = 보험설계사 곁의 영업 파트너.
-> 코드는 `~/Desktop/foliio`(Foliio 분석판, 고년차용)에서 포팅·재활용.
-> **현재: Phase 1 진행 중 — BE 13개 Django 앱 + FE 전체 라우트(공개·인증·관리자 60+ 페이지) 구현됨.**
-> 구글 연동(소셜로그인+캘린더)·미팅예약·개인 일정·동의흐름까지 동작. 컴플라이언스 게이트(병력수집·§97 발행·국외이전)는 정식 출시 전까지 env 플래그로 닫힌 상태. `docs/dev/00~25` 개발 문서 + `docs/dev/00-INDEX.md`(SSOT)도 함께 유지.
+> **Inpa (인파) = Insure + Partner.** AI sales-support web app for individually-contracted insurance planners (원수사/GA 위촉직). Code ported/reused from `~/Desktop/foliio` (Foliio analysis edition).
+> **This file is the development SSOT, written for the AI coding agent.** The human PM does NOT read this — they read `README.md` (Korean, PM-facing). Keep this file English + dense + current; keep README Korean + PM-facing. PM communicates in Korean → reply to the PM in Korean even though this guide is English.
 
-## 핵심 컨텍스트
-- **타겟**: 원수사·GA 위촉직(개인사업자) 보험설계사. 1순위 신입(발굴 절박), 2순위 중견(관리).
-- **가치**: 새 고객 발굴 → 보장분석 → 갈아타기 제안을 한 동선으로. 분석=영업 행동의 시작점.
-- **차별점**: ①갈아타기(승환)를 자동 비교안내서로 합법화(부당승환 §97 방패) ②담보 100+ 전체 '틀' + 보험사별 담보명 정규화.
-- **BM**: Freemium (기능 다 열되 무료 월 횟수 제한, 헤비유저 구독).
+## Current state (as of 2026-06-28)
+- **Phase 1 in progress.** Monorepo: `inpa_be/` (Django 4.2 + DRF, Python 3.11, 13 apps) + `inpa_fe/` (Next.js 16 + React 19 + TS + Tailwind; 60+ routes: public/auth/admin).
+- **Deployed & live:** BE → Render (`https://inpa-be.onrender.com`, `/healthz/` returns `{"status":"ok"}`, DEBUG=False verified), FE → Vercel, DB → Neon Postgres, email → Resend. New-signup → OCR-upload flow runs in prod. (Render free tier sleeps when idle → first request is slow.)
+- **Working:** Google (social login + calendar), meeting booking, personal schedule, consent flows, customer sales pipeline (kanban), OCR → coverage normalization → heatmap, dashboards (retention + manager ROI).
+- **Compliance gates CLOSED via env** until legal review: medical-history collection, §97 comparison-doc publishing, overseas (Claude API) transfer.
 
-## 스택 (2026-06-19 확정 — Claude Code 개발 최적)
-- **FE: Next.js + TypeScript + Tailwind** (Angular 대신 — Claude Code 개발 속도·디자인 토큰 매핑 유리. foliio 랜딩도 Next.js 16).
-- **BE: Django 4.2 + DRF + Python 3.11** — foliio의 `core/ocr/claude_parser`·`customers/calculate.py`(8케이스, numpy_financial)·담보 정규화 로직을 **그대로 재사용**(재포팅 위험 회피 = 핵심 자산).
-- DB: **PostgreSQL**(운영=Neon 무료, 로컬=SQLite) — 2026-06-21 Railway 무료티어 폐지로 MariaDB→PG 전환(Django ORM이라 코드 영향 0, `psycopg2-binary`). / AI: Claude API(비교안내서·정규화=Opus 4.8 / 다건OCR=Haiku / 야간=Batches).
-- **재사용=Python 백엔드 / 신규=Next.js 프론트**(3축 화면은 어차피 신규). Angular 컴포넌트는 재구현.
-- 디자인 토큰: `design/tokens/inpa-tokens.css`(:root CSS변수) → Tailwind config 매핑. 로고: `design/logo/*.svg`.
-- 로컬 전용 디렉터리(커밋 금지, `.gitignore` 차단): `samples/` = 실제 증권·가입설계서 PDF(PII·민감정보 — 절대 커밋·인용 금지) · `benchmark/` = UI 벤치마킹 참조 스크린샷(디자인 레퍼런스 전용). 루트의 `*.jpeg`·`calender*.webp`는 커밋된 디자인 참조 이미지.
-- CPO=CTO 겸임(사용자 결정). 외부 법무 자문 계약 없음 → 컴플라이언스 게이트는 보수적 기본값+공개 가이드(협회·금감원)로 자체 처리, 유료 정식출시 전 재검토.
+## Context
+- **Target users:** individually-contracted planners (sole proprietors) at carriers/GAs. Priority 1 = new planners (desperate for lead-gen); priority 2 = mid-career (management).
+- **Value:** prospecting → coverage analysis → switch (갈아타기/승환) proposal in ONE flow. Analysis is the *start* of the sales action, not a report.
+- **Differentiators:** (1) legitimize switching via an auto-generated 비교안내서 (comparison guide) as a §97 shield against improper-switching rules; (2) full 100+ coverage (담보) "frame" + per-carrier coverage-name normalization.
+- **BM:** Freemium (all features open, free monthly quota, heavy users subscribe).
+- **Org:** CPO = CTO (the user). No external legal counsel → compliance handled conservatively (safe defaults + public regulator/association guides), re-reviewed before paid launch.
 
-## 개발 명령어 (commands)
-**모노레포**: `inpa_be/`(Django) + `inpa_fe/`(Next.js)가 한 저장소. 각 디렉터리에서 명령 실행.
+## Stack
+- **FE:** Next.js 16 + React 19 + TypeScript + Tailwind. Design tokens `design/tokens/inpa-tokens.css` (:root CSS vars) → Tailwind config. Logos `design/logo/*.svg`.
+- **BE:** Django 4.2 + DRF + Python 3.11. Reuses foliio's `core/ocr/claude_parser`, `customers/calculate.py` (8 cases, numpy_financial), coverage-normalization **verbatim** (re-porting risk avoidance = core asset).
+- **DB:** PostgreSQL (prod = Neon free; local = SQLite). MariaDB→PG switch on 2026-06-21 (Railway free tier killed); ORM-only, zero code impact, `psycopg2-binary`.
+- **AI:** Anthropic Claude API. Model ids injected via env ONLY — `CLAUDE_MODEL_PARSE` (Opus: comparison/normalization), `CLAUDE_MODEL_BULK` (Haiku: bulk OCR), nightly = Batches. NEVER hardcode model ids.
+- **Deploy:** FE→Vercel, BE→Render (`render.yaml`), DB→Neon, email→Resend, CI=GitHub Actions. All GitHub-connected auto-deploy, $0.
+- **Local-only dirs (gitignored, NEVER commit or quote):** `samples/` = real policy PDFs (PII/sensitive); `benchmark/` = UI reference screenshots. Root `*.jpeg`/`calender*.webp` are committed design refs.
 
-### 백엔드 (`inpa_be/`, Python 3.11)
-- 셋업: `pip install -r requirements.txt`(venv 권장). 기본 설정 = `config.settings.local`(SQLite — `manage.py`가 자동 지정).
-- 서버: `python manage.py runserver` → http://localhost:8000 (API 루트 `/api/v1/`, 헬스체크 `/healthz/`).
-- 마이그레이션: `python manage.py makemigrations` → `python manage.py migrate`.
-- 전체 테스트: `python manage.py test inpa` / 단일: `python manage.py test inpa.booking` · `python manage.py test inpa.accounts.tests.LoginTests.test_x`(점 표기).
-- 배포 전 점검(필수): `python manage.py check`.
-- 시드(화면 렌더 확인용, 멱등): 데모 데이터 `python manage.py seed_demo` · 정규화 사전 `python manage.py seed_normalization` · 백오피스 관리자 계정 `python manage.py create_admin`. (배포 시 Render `startCommand`는 `seed_normalization`만 자동 실행 — `seed_demo`는 수동.)
-- Django admin: `/admin/`. (운영 백오피스는 별도 `admin_console` API + FE `/admin/*`.)
+## Commands
+Monorepo — run BE commands in `inpa_be/`, FE in `inpa_fe/`.
 
-### 프론트엔드 (`inpa_fe/`, Node 20, **Next.js 16 + React 19**)
-- 셋업: `npm ci`. 개발: `npm run dev` → http://localhost:3000. 빌드: `npm run build`(타입체크 겸함). 운영: `npm start`.
-- BE 주소 = `NEXT_PUBLIC_API_BASE`(미설정 시 `localhost:8000/api/v1` 폴백 + 콘솔 경고). **빌드타임 인라인이라 Vercel 환경변수 변경 후 재배포 필요.**
-- 린트/테스트 스크립트 없음. ⚠️ `inpa_fe/AGENTS.md` 경고: **Next 16은 훈련데이터와 다름 — 코드 전 `node_modules/next/dist/docs/` 해당 가이드 확인.**
-- **테마 가드레일**: 서비스 페이지 = **라이트 고정**, 다크모드는 **어드민 한정**(`app/admin/layout.tsx`가 `.theme-system`로 시스템 다크/라이트 추종). 서비스 화면에 `dark:` 변형 추가 금지. 제품 UI 카피는 `§`·법조문 표기 빼고 쉬운 말(레드라인).
+### Backend (`inpa_be/`)
+- Setup: `pip install -r requirements.txt` (venv). Default settings = `config.settings.local` (SQLite; `manage.py` sets it).
+- Run: `python manage.py runserver` → :8000 (API root `/api/v1/`, health `/healthz/`).
+- Migrations: `python manage.py makemigrations` → `migrate`.
+- Tests: all = `python manage.py test inpa`; app = `python manage.py test inpa.booking`; single = `python manage.py test inpa.accounts.tests.LoginTests.test_x`.
+- Pre-deploy check (required): `python manage.py check`.
+- Seeds (idempotent): `seed_demo` (demo data — manual only, NOT in deploy), `seed_normalization` (coverage dict — Render runs this on every deploy), `create_admin` (back-office admin).
+- Django admin `/admin/`. Ops back-office = separate `admin_console` API + FE `/admin/*`.
 
-### CI / 배포 (`.github/workflows/ci.yml`)
-- push/PR(main·master) 시 3개 잡: ①BE `check`+`test inpa` ②FE `npm ci`+`build` ③gitleaks 시크릿 스캔.
-- 배포는 CI가 아님 — **Vercel(FE)·Render(BE, `render.yaml`)가 GitHub 연동 자동배포**, DB=Neon(PostgreSQL).
+### Frontend (`inpa_fe/`, Node 20)
+- Setup: `npm ci`. Dev: `npm run dev` → :3000. Build: `npm run build` (**also typechecks — the ONLY FE gate; there is no FE test runner or lint script**). Prod: `npm start`.
+- BE URL = `NEXT_PUBLIC_API_BASE` (fallback `localhost:8000/api/v1` + console warning if unset). **Build-time inlined → redeploy Vercel after changing the env var.**
+- ⚠️ **Next 16 differs from training data** (`inpa_fe/AGENTS.md`): read `node_modules/next/dist/docs/` for the relevant guide before writing Next-API code.
 
-## 코드 아키텍처 (big picture — 여러 파일을 읽어야 보이는 것)
+### CI / Deploy (`.github/workflows/ci.yml`)
+- On push/PR to main·master: (1) BE `check`+`test inpa`, (2) FE `npm ci`+`build`, (3) gitleaks secret scan.
+- Deploy is NOT CI — Vercel(FE) + Render(BE, `render.yaml`) auto-deploy from GitHub; DB = Neon.
 
-### 요청 흐름
-브라우저 → Next 페이지(`inpa_fe/app/**`) → **`inpa_fe/lib/api.ts`**(BE 호출 단일 게이트 — 모든 엔드포인트·타입 한 파일에 정의, 관리자는 `lib/adminApi.ts`) → DRF `/api/v1/`(`config/urls.py`가 앱별 `urls.py`로 분배) → ViewSet → 모델. 인증 = DRF TokenAuthentication, 토큰은 FE `localStorage['inpa_token']`(`tokenStore`). 에러 `{error|code|detail}` → FE `ApiError`로 정규화.
+## Architecture (big picture — spans multiple files)
 
-### 멀티테넌시(가시성)는 한 곳에서 강제 — 우회 금지
-`inpa/core/mixins.py` `OwnedQuerySetMixin`(본인 데이터만 조회 + 생성 시 owner 자동 주입) + `inpa/core/permissions.py` `IsOwner`/`IsAdmin`/`IsEmailVerified`. **소유자 전용 ViewSet엔 이 믹스인+IsOwner를 반드시 부착.** 관리자(`profile.is_admin`)는 조회 우회. 공유(게시판·공지·FAQ·판촉샘플)만 예외. (정본: `docs/dev/02` §0 가시성 매트릭스.)
+### Request flow
+Browser → Next page (`inpa_fe/app/**`) → **`inpa_fe/lib/api.ts`** (single BE-call gate: all endpoints+types in one file; admin in `lib/adminApi.ts`) → DRF `/api/v1/` (`config/urls.py` fans out to per-app `urls.py`) → ViewSet → model. Auth = DRF TokenAuthentication; token in FE `localStorage['inpa_token']` (`tokenStore`). Error bodies `{error|code|detail}` → normalized to FE `ApiError` (carries `.status`, `.code`, message).
 
-### Django 앱 지도 (`inpa_be/inpa/`, 13개 — `settings/base.py` LOCAL_APPS / `core`는 공유 패키지로 별도)
-- `accounts` — User(이메일 PK)·Profile·인증(가입/이메일인증/로그인잠금/비번재설정)·구글(`google.py` 소셜로그인, `google_calendar.py` 캘린더)·온보딩·지점장 대시보드(`manager.py`).
-- `customers` — 고객 CRUD·동의로그(`ConsentLog`)·고객 본인 동의 공개링크(`public_consent.py` `/c/<token>`)·기준선 프리셋(`presets.py`). 영업 4단계(`sales_stage` db/contact/meeting/contract = **DB/TA/FA/청약** 표시)·즐겨찾기/상단고정/최종연락(방치 색상경보)·아바타색·명함(`business_card`)·보험나이(`compute_insurance_age` 상령일)·계약 설명의무 체크리스트(`ContractChecklistItem`, `/customers/<id>/checklist/`).
-- `insurances` — 보험/담보(소유자 전용, `customer__owner` 경유)·환수레이더(`churn.py`, 해지 추적 `is_cancelled`/`cancelled_at` → 유지율)·셀프진단 공개(`self_diagnosis.py` `/d/<ref>`)·OCR 교차검증(`verify.py`).
-- `analysis` — **표준 담보 트리 + 보험사별 담보명 정규화 사전(공유 전역 마스터)**. 계산엔진 `calculate.py`(히트맵), 갈아타기 `compare.py`+`switch_verdict.py`(KEEP/SWITCH/NEUTRAL = 설계사 내부 전용, 고객 노출 금지 §97). foliio 포팅 핵심 자산.
-- `booking` — 미팅예약(Calendly식): 슬롯/미팅 + 공개 예약링크(`public_booking.py` `/b/<token>`).
-- `schedule` — 개인 일정/할일/고정차단(`ScheduleItem` 1모델, 소유자 전용, FE `/schedule`). **`booking`과 별개** — 캘린더는 둘을 같이 그리기만(예약 이중락 비파괴). `kind`(event/todo/block=동작) ⟂ `category`(5분류=색/범례: 고객미팅·생일/기념일·만기/갱신·업무·기타) + 생일·기념일 매년 반복(`anniversary_md`). ⚠️ 타임존 규약: 단건 start/end=UTC 저장·KST 표시 / 반복차단 `recur_*_time`=KST 벽시계 그대로(변환 금지, 변환 시 9h 밀림) / all_day·시각없는 todo=KST 정오 저장.
-- `dashboard` — 월별 목표(수동)+실적(계산), 예상월급 배율. 계약 유지율 1/2/3년(`compute_retention` — 해지 입력 0건이면 `has_cancellation_data=false`로 미계산) + 관리직 팀집계(`accounts/manager.py`가 `compute_funnel`·`compute_retention`·`compute_team_roi` 팀 루프 재사용, PII 비노출, ROI=추정 라벨).
-- `notifications`(알림+리마인더, 판촉물/전자자료 타입 포함) · `billing`(요금제·사용량 한도) · `boards`(게시판·공지·FAQ·문의, 혼합 가시성) · `promotion`(판촉물 주문 + **전자자료** `is_digital`/`digital_file`: 1회 무료 다운로드 → 2회차+ 어드민 큐 `PromotionDownload` + 관리자 알림) · `admin_console`(IsAdmin 백오피스) · `analytics`(북극성 이벤트 계측).
-- `core` — 공통 믹스인·권한 + `core/ocr/`(foliio 벤더링: `claude_parser.py`·`ocrparsing.py`·`ocrdata.py` 보험사 코드).
+### Multitenancy (visibility) — enforced in ONE place, never bypass
+`inpa/core/mixins.py::OwnedQuerySetMixin` (filters to own rows + auto-injects owner on create) + `inpa/core/permissions.py::IsOwner`/`IsAdmin`/`IsEmailVerified`. **Owner-scoped ViewSets MUST attach this mixin + IsOwner.** Admin (`profile.is_admin`) bypasses read. Shared exceptions only: boards/notices/FAQ/promo-samples. SSOT: `docs/dev/02` §0 visibility matrix.
 
-### 증권 분석 파이프라인 (foliio 재사용의 핵심 동선)
-증권 PDF 업로드(`POST /customers/<id>/insurances/ocr/`) → `core/ocr/claude_parser`(pdfplumber + Claude Opus, `ANTHROPIC_API_KEY` 게이트, 미설정 시 503) → `CustomerInsuranceDetail`(`InsuranceDetail.analysis_detail` M2M로 표준 트리에 매핑) → `analysis/calculate.py`가 leaf별 `held_amount` 합산 → `PlannerBaseline`(설계사 기준선) 매칭되면 `graded`(부족/적정/넉넉), 없으면 `neutral` → 히트맵/공유뷰.
+### Django app map (`inpa_be/inpa/`, 13 apps; `core` is a shared package)
+- `accounts` — User (email PK), Profile, auth (signup / email-verify / login-lock / password-reset / password-change / withdrawal), Google (`google.py` social login, `google_calendar.py`), onboarding, manager dashboard (`manager.py`).
+- `customers` — customer CRUD; consent log (`ConsentLog`); customer-self public consent (`public_consent.py` `/c/<token>`); baseline presets (`presets.py`). `sales_stage` (db/contact/meeting/contract → shown DB/TA/FA/청약); favorite/pin/last-contact (staleness color alert); avatar color; business card; insurance age (`compute_insurance_age`); contract disclosure checklist (`ContractChecklistItem`, `/customers/<id>/checklist/`).
+- `insurances` — insurance/coverage (owner-scoped via `customer__owner`); churn radar (`churn.py`, `is_cancelled`/`cancelled_at` → retention); public self-diagnosis (`self_diagnosis.py` `/d/<ref>`); OCR cross-verify (`verify.py`); manual insurance entry.
+- `analysis` — **standard coverage tree + per-carrier coverage-name normalization dict (shared global master)**. Calc engine `calculate.py` (heatmap); switch `compare.py`+`switch_verdict.py` (KEEP/SWITCH/NEUTRAL = planner-internal ONLY, never shown to customer per §97). Core foliio-ported asset.
+- `booking` — Calendly-style meeting booking: slots/meetings + public link (`public_booking.py` `/b/<token>`).
+- `schedule` — personal schedule/todo/recurring-block (`ScheduleItem`, owner-scoped, FE `/schedule`). **Separate from `booking`** — the calendar just draws both. `kind` (event/todo/block = behavior) ⟂ `category` (5 types = color/legend: meeting / birthday-anniversary / expiry-renewal / work / other) + yearly-recurring birthday/anniversary (`anniversary_md`). ⚠️ **TIMEZONE rule:** single start/end = stored UTC shown KST / recurring-block `recur_*_time` = KST wall-clock stored as-is (NEVER convert — conversion shifts 9h) / all_day & timeless todo = stored KST noon.
+- `dashboard` — monthly goal (manual) + actuals (computed), expected-salary multiplier. Retention 1/2/3yr (`compute_retention`; if 0 cancellations → `has_cancellation_data=false`, not computed) + manager team aggregation (`accounts/manager.py` reuses `compute_funnel`/`compute_retention`/`compute_team_roi` in a team loop; no PII; ROI labeled "estimate").
+- `notifications` (alerts+reminders, incl. promo/digital-asset types) · `billing` (plans + usage limits; 402 over-limit via `credit.py`) · `boards` (board/notice/FAQ/inquiry, mixed visibility) · `promotion` (promo orders + **digital assets** `is_digital`/`digital_file`: 1 free download → 2nd+ → admin queue `PromotionDownload` + admin alert) · `admin_console` (IsAdmin back-office) · `analytics` (north-star event tracking).
+- `core` — shared mixins/permissions + `core/ocr/` (foliio vendored: `claude_parser.py`, `ocrparsing.py`, `ocrdata.py` carrier codes).
 
-### 공개(비인증) 토큰 엔드포인트 — FE 라우트와 1:1
-`/s/<token>`(공유뷰) · `/b/<token>`(예약) · `/c/<token>`(고객 본인 동의) · `/d/<ref>`(셀프진단). 전부 TimestampSigner 토큰 + ScopedRateThrottle. FE는 `app/s|b|c|d/[token]/`.
+### OCR → analysis pipeline (the core foliio-reuse flow)
+Policy PDF upload (`POST /customers/<id>/insurances/ocr/`) → `core/ocr/claude_parser` (pdfplumber + Claude Opus; `ANTHROPIC_API_KEY`-gated, 503 if unset; `max_tokens=8192`) → `CustomerInsuranceDetail` (`InsuranceDetail.analysis_detail` M2M maps to standard tree) → `analysis/calculate.py` sums `held_amount` per leaf → if a `PlannerBaseline` matches → `graded` (부족/적정/넉넉 = lacking/adequate/ample); else `neutral` → heatmap/share view.
+Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict shared by both pipelines (text-line `_match_coverage`; Claude `_match_by_keywords` via `_KEYWORD_TO_PATH`). Matching = **substring (`if kw in name`) + longest-keyword-first**. Fix mis-matches in dict DATA, not logic (see Gotchas).
 
-### 설정·기능 게이트 (`settings/base.py` — env로 제어, 코드 우회 금지)
-- 환경 분리: `local`(SQLite·DEBUG·콘솔이메일·`/media/` 로컬서빙) ↔ `prod`(Postgres `DATABASE_URL`·whitenoise·보안헤더·Sentry, SECRET_KEY 미설정 시 fail-loud).
-- 미디어(업로드: 명함·전자자료) 저장: `AWS_STORAGE_BUCKET_NAME` 설정 시 **S3(호환, django-storages)** — 비공개 서명URL(PII 보호)·`AWS_S3_ENDPOINT_URL`로 R2 등 호환. 미설정 시 로컬 디스크 폴백(단일 인스턴스·임시). 로컬은 `MEDIA_ROOT`.
-- **컴플라이언스 게이트(기본 닫힘)**: `COMPARE_AI_ENABLED`(갈아타기 AI초안) · `COMPARE_PUBLISH_ENABLED`(고객 발송 — §97 법무 전 하드블록) · `ANALYZE_MEDICAL_ENABLED`(병력 수집 BE 차단) · `REQUIRE_CUSTOMER_SELF_CONSENT`.
-- 기능 플래그: `FREE_TIER_UNLIMITED`(베타 한도 우회) · `BOOKING_ENABLED` · `OCR_VERIFY_ENABLED` · `GOOGLE_OAUTH_*`(미설정 = 기능 숨김).
-- Claude 모델은 하드코딩 금지 — `CLAUDE_MODEL_PARSE`(Opus) · `CLAUDE_MODEL_BULK`(Haiku)를 env에서만 주입.
+### Public (unauthenticated) token endpoints — 1:1 with FE routes
+`/s/<token>` (share view) · `/b/<token>` (booking) · `/c/<token>` (customer-self consent) · `/d/<ref>` (self-diagnosis). All use TimestampSigner tokens + ScopedRateThrottle. FE at `app/s|b|c|d/[token]/`.
 
-## 확정 결정 (2026-06-19 세션)
-- **인증 = 이메일/비밀번호 + 구글 OAuth 병행** (2026-06-21 변경 — 카카오는 폐기 유지). 회원가입→이메일 인증→로그인→비번찾기(이메일 토큰). 비번 해시 PBKDF2. 토큰은 Django 서명 토큰. 구글 로그인=검증 이메일로 기존 계정 링크(병행)·신규는 온보딩서 자격/소속 수집. 구글 캘린더=미팅 확정 시 이벤트 자동생성(이름 기본 마스킹). 전부 `GOOGLE_OAUTH_*` env 게이트(미설정=숨김).
-- **데이터 가시성**: 게시판(SNS 피드)·공지·FAQ·판촉물 샘플 = **공유**(전 설계사). 그 외(고객·동의·보험·분석·비교·캘린더·KPI·알림·기준) = **소유자 전용**(OwnedQuerySetMixin+IsOwner). 1:1문의=작성자+관리자. 판촉물 주문=소유자+관리자. `Customer.owner on_delete=CASCADE`.
-- **배포 = GitHub 자동배포(무료 $0)**: FE→Vercel, BE→Render(무료, `render.yaml`), DB→Neon(무료 PostgreSQL), CI=GitHub Actions(gitleaks·commitlint). 이메일=Resend. (Railway는 무료티어 폐지로 제외)
-- **랜딩페이지**(`/`, 공개): 히어로 "**설계사님은 클로징만 준비하세요**".
-- **판촉물** = 샘플 사진 + 구글폼식 입력 + 예약 → 운영팀 수동 주문제작(자동발송 없음). (구 'promotion 14종 자동생성' 모델 폐기)
-- 한도(Freemium): 베타 무제한(`FREE_TIER_UNLIMITED`), 수치·결제는 정식 전. planner_baseline 프리셋: 베타는 직접입력만.
+### Settings & feature gates (`settings/base.py` — env-controlled, NEVER bypass in code)
+- Env split: `local` (SQLite, DEBUG, console email, `/media/` local serve) ↔ `prod` (Postgres `DATABASE_URL`, whitenoise, security headers, Sentry; **fail-loud if SECRET_KEY unset**).
+- Media (uploads: cards, digital assets) — **no AWS required**, 3 prod modes by priority: (1) S3-compatible object storage (`AWS_STORAGE_BUCKET_NAME`+`AWS_*`; **Cloudflare R2** recommended free: `AWS_S3_ENDPOINT_URL`=R2, `REGION=auto`; private signed URLs protect PII); (2) Render persistent disk (`MEDIA_DISK_PATH`, paid, single instance); (3) local-temp (unset — lost on redeploy). Local dev serves `/media/`.
+- **Compliance gates (default CLOSED):** `COMPARE_AI_ENABLED` (switch AI draft) · `COMPARE_PUBLISH_ENABLED` (customer send — §97 hard-block pre-legal) · `ANALYZE_MEDICAL_ENABLED` (BE blocks medical collection) · `REQUIRE_CUSTOMER_SELF_CONSENT`.
+- **Feature flags:** `FREE_TIER_UNLIMITED` (beta quota bypass — currently True, so 402 never fires) · `BOOKING_ENABLED` · `OCR_VERIFY_ENABLED` · `GOOGLE_OAUTH_*` (unset = feature hidden).
 
-## PM 06.24 피드백 반영 (2026-06-26 세션)
-- **고객 영업화면**: 4단계 칸반 = **DB→TA→FA→청약**(내부값 `db/contact/meeting/contract` 유지, 표시라벨만). 칸반=가로 스크롤 4열 보드(각 단계 세로 일렬). 방치 색상경보(최종연락 없으면 등록일 기준 3일↑ amber/7일↑ red **ring**, 정렬: 고정>즐겨찾기>방치). 아바타 디폴트=인파 로고+파스텔 팔레트(`color`). 직업 위험등급 배지·보험나이(상령일). 고객상세 **정보 탭**(좌 메모/우 상세/하단 명함) + **계약 탭**(설명의무 체크리스트, 해피콜 대체).
-- **캘린더 5분류**(위 schedule), **유지율·관리직 ROI**(위 dashboard).
-- **판촉물 전자자료**(위 promotion): 1회 무료→어드민 큐+알림. 운영팀이 Django admin에서 `digital_file` 등록·발송.
-- **마케팅 방향**(토론): 개인="잡일 줄이고 첫 고객 만들기", 관리직="팀 성과·ROI"(추정 라벨). 랜딩 `AudienceSection` + 관리직 태그라인.
-- **컴플라이언스 결정**: 명함 Vision OCR=보류(수기 폴백). 포인트/현금 보상=보험업법 §98 특별이익 소지 → **폐기**, 자사 SaaS 혜택·활동기반으로 재설계 후 법무(보류). "지점장"→"관리직" 용어는 UI 카피만.
+## Conventions & redlines
+- **Theme guardrail:** service pages = **light-fixed**; dark mode = **admin only** (`app/admin/layout.tsx` `.theme-system`). NEVER add `dark:` variants to service screens.
+- **Copy:** product UI = plain language, NO `§`/legal-clause notation in service copy. (Internal/planner-only boxes may reference §97.)
+- **Honesty redlines:** no "reviewed/safe" badges (warranty liability); AI output always carries "AI draft · final responsibility = planner" disclaimer. No one-tap auto-send (KakaoTalk can't) → clipboard-copy / open-KakaoTalk only.
+- **Git:** Conventional Commits (Korean scope ok, e.g. `feat(동의)`). Small per-feature commits; don't mix refactor + feature. Commit only when the user asks. Branch before working on the default branch.
 
-## 문서 (`docs/`)
-- **`docs/dev/00-INDEX.md` = 개발 문서 마스터 지도(SSOT 진입점)**. 전체 라우트맵·문서 인덱스·스트림↔엔티티 매핑.
-- `docs/dev/02-data-model-and-api.md` — **데이터모델 정본(SSOT, 42 엔티티 + 가시성 매트릭스)**.
-- `docs/dev/01`(아키텍처) `11`(인증) `12`(고객/OCR) `13`(공유) `14·16`(컴플라이언스/법무) `15`(대시보드) `17`(게시판) `18`(모바일) `19`(관리자) `20`(데브옵스) `21`(판촉물) `22`(알림) `23`(요금제) `24`(랜딩) `25`(배포 실전 가이드, PM용) — 스트림별 명세.
-- `docs/01~07`(루트) — 사업·제품 기획 원본(Foliio 영업지원 에디션 명칭). `docs/_archive-foliio/` — 구 기획 아카이브.
+## Gotchas (read BEFORE touching the area — these have bitten)
+- **Email verification = BE self-contained token** (`accounts`): `signing.dumps(pk)` → both link and verify use `token` ONLY, no `uid` (UNLIKE reset-password). **If FE requires `uid`, signup is fully blocked — do NOT regress.** Resend button exists.
+- **Consent token is multi-scope** (`customers/tokens.py`): `make_consent_token(customer, scopes=None)`; `read_consent_token` returns `{pk, scopes}` (legacy bare-int tokens normalize to `{pk, scopes:['overseas_medical']}` — keep backward compat). `/c` GET returns `items[]`; POST body `{agreed:[scope]}`; only token-scoped consents are recorded (forgery guard); required scope unmet → 412.
+- **Consent subject enforcement:** planner-recorded consents are `subject=planner_attested` (server-forced, serializer read_only) and CANNOT open the `consent_overseas_at` gate; only `customer_self` (via `/c` or self-diagnosis) opens it.
+- **OCR normalization substring trap** (`core/ocr/ocrparsing.py::COVERAGE_KEYWORDS`): substring + longest-first matching means a coverage name containing a shorter keyword gets mis-routed (e.g. '상피내암' contains '암진단'). Fix in dict DATA (remove bad alias / add a correct longer keyword), NOT the matching logic. No migration (Python constant). Add a regression test calling `_match_coverage` directly.
+- **`NEXT_PUBLIC_API_BASE` build-time inline:** changing it in Vercel needs a redeploy. If prod FE calls localhost, it's unset/not-redeployed.
+- **`FRONTEND_BASE_URL` is effectively required** (default `localhost:3000`): unset in prod → email-verify / consent / booking links generate as localhost = broken. (Mislabeled "optional" in `docs/dev/25`.)
+- **402 hidden in beta:** `FREE_TIER_UNLIMITED=True` bypasses all limit checks → 402 never fires now. BE already returns 402 `{code:'credit_exhausted', kind, limit, used}` for OCR/analysis/compare/promotion. Flipping the flag at launch without an FE notice modal = users see red errors.
+- **SQLite vs Postgres seed trap** (memory `sqlite-vs-postgres-seed-trap`): local SQLite ignores varchar length, prod PG rejects. Validate seeds/fixtures against PG too. Prod `seed_demo` is manual via Render Shell.
 
-## 개발 착수 전 게이트 (코드 0줄, 선결)
-1. 보장 기준선(코어담보) 출처·면책 정의
-2. 민감정보(병력) Claude API 국외이전 동의서 — **법무 선결**
-3. 갈아타기 비교안내 법적 요건(§97) 확정
-→ 이 3개 전에 AI 분석/비교안내서 기능 빌드 시작 금지. 막히면 OCR·담보표(중립 기능)부터.
+## Pre-build compliance gates (zero code until resolved)
+1. Coverage baseline (core 담보) source + disclaimer definition.
+2. Medical (sensitive) data → Claude API overseas-transfer consent form — **legal prerequisite**.
+3. Switch comparison-doc §97 legal requirements finalized.
+→ Do NOT start AI-analysis / comparison-doc features before these 3. If blocked, build OCR + coverage table (neutral features) first. Build order (docs/07 §0): common components → OCR + normalization → coverage table → switch comparison → customer message → customer detail / gaps.
 
-## 빌드 순서 (docs/07 §0)
-공통 컴포넌트 → 증권 OCR+담보 정규화 → 담보 한눈표 → 갈아타기 비교표 → 고객 메시지 → 고객상세/공백.
-(포팅 지도: foliio의 `core/ocr/claude_parser.py`·`customers/calculate.py`·`insurances/models.py` 기준 — 보험사별 담보명 정규화 사전을 `_add_coverage` 매칭 단계에 끼움.)
+## Locked product decisions
+- **Auth = email/password + Google OAuth** (KakaoTalk dropped). Signup → email-verify → login → password-reset (email token). PBKDF2 hash; Django signed tokens. Google login links to an existing account by verified email; new Google users collect credential/affiliation in onboarding. Google Calendar auto-creates an event on meeting confirm (name masked by default). All behind `GOOGLE_OAUTH_*` (unset = hidden).
+- **Data visibility:** boards (SNS feed) / notices / FAQ / promo samples = **shared** (all planners). Everything else (customers, consent, insurance, analysis, compare, calendar, KPI, alerts, baselines) = **owner-only** (`OwnedQuerySetMixin`+`IsOwner`). 1:1 inquiry = author+admin. Promo orders = owner+admin. `Customer.owner on_delete=CASCADE`.
+- **Landing** (`/`, public): hero "설계사님은 클로징만 준비하세요" (you just prepare the closing). `AudienceSection` (individual vs manager) + manager taglines.
+- **Promotion** = sample photo + Google-form-style input + booking → ops team manual production (no auto-send). (Old "promotion auto-generate 14 types" model dropped.)
+- **Freemium quota:** beta unlimited (`FREE_TIER_UNLIMITED`); numbers/payment post-launch. `PlannerBaseline` presets: beta is direct-input only.
+- **Dropped/deferred:** business-card Vision OCR = deferred (manual fallback). Point/cash rewards = improper-benefit risk under Insurance Business Act §98 → dropped; redesign to SaaS-benefit/activity-based later (legal hold). "지점장"→"관리직" wording is UI copy only.
 
-## 작업 원칙 (사용자 = PM, 비개발자)
-- 새 기능은 계획 합의 후 실행 (Plan 90% / Execute 10%). 코드 전 로드맵으로 설명.
-- 한국어 소통. 컨설팅 용어 지양, 쉬운 말.
-- 컴플라이언스(국외이전 동의·부당승환·광고심의)는 기능의 게이트 — 우회 금지.
+## Working with the PM
+- PM is **non-developer**, communicates in **Korean**, reads `README.md` only (not this file). Reply in Korean, plain words, no consulting jargon.
+- **Plan 90% / Execute 10%:** new features → agree on a roadmap-style plan BEFORE coding. Present options as pros/cons with a recommendation.
+- Compliance (overseas-transfer consent, improper-switching, ad review) is a feature gate — never bypass.
 
-## 정직성 레드라인 (제품 원칙)
-- "심의 완료/안전" 배지 금지(보증책임). AI 생성물엔 "AI 초안·최종책임 설계사" 면책 고정.
-- 원탭 자동발송 없음(카카오 불가) → 클립보드 복사/카톡 열기까지만.
+## Recent work & pending backlog
+**Recently built:** marketing/personal-info **consent collection** (spec/plan `docs/superpowers/specs|plans/2026-06-28-marketing-consent-collection*`; reuses ConsentLog/subject; `/c` multi-scope, `/d` + registration-modal recording; consent badges with self/planner distinction; BE 107 tests). Manual insurance entry + proposal input. Share-link FE (`/s/<token>` 90d — coverage-table share, NOT a §97 comparison doc). Password change + account withdrawal (Google signups withdraw via email confirmation = deletion right; password change rotates the token to avoid logout). OCR false-positive fix (`COVERAGE_KEYWORDS`: 양성뇌종양→뇌출혈 alias removed → unmatched; 상피내암→유사암 routing). P2 UI cleanup (shared settings tabbar, mobile safe-area, data-policy raw-code removed, preset button disabled).
+**Pending backlog** (also memory `qa-audit-backlog`):
+- ⬜ **402 upgrade modal** — BE done (returns 402 for all 4 features); FE needs a soft notice modal + wiring at OCR/analysis/compare/promotion. Pre-launch (hidden in beta).
+- ⬜ **Admin terms/flags 404** — FE `app/admin/settings/page.tsx` calls `/admin/settings/policy-versions/` (needs new `PolicyVersion` model; `ConsentLog.doc_version` is only a CharField) and `/admin/settings/flags/` (PATCH missing). Admin-only. **Compliance gates are env-controlled — do NOT let admin runtime-toggle them; recommend flags GET = read-only display.**
+- ⬜ **Deploy-guide gaps** (`docs/dev/25`): `FRONTEND_BASE_URL` mislabeled optional; compliance flags undocumented; `.env.example` DB URL still MariaDB.
+- ⬜ OCR remaining: 종합보험 17-22 unmatched coverages; life-insurance 변액 `company_idx=-1`. See memory `ocr-coverage-sections`.
+
+## Docs map (`docs/`)
+- **`docs/dev/00-INDEX.md` = dev-docs master map (SSOT entry).** Full route map, doc index, stream↔entity mapping.
+- `docs/dev/02-data-model-and-api.md` = data-model SSOT (42 entities + visibility matrix).
+- `docs/dev/` streams: 01 architecture · 11 auth · 12 customer/OCR · 13 share · 14·16 compliance/legal · 15 dashboard · 17 boards · 18 mobile · 19 admin · 20 devops · 21 promotion · 22 notifications · 23 billing · 24 landing · 25 deploy guide (PM).
+- `docs/superpowers/specs|plans/` = brainstorm specs + implementation plans.
+- `docs/01~07` (root) = business/product planning originals. `docs/_archive-foliio/` = old archive.
+- Decision history / session memory: `.claude/projects/.../memory/MEMORY.md` (+ linked: `qa-audit-backlog`, `ocr-coverage-sections`, `sqlite-vs-postgres-seed-trap`, `google-integration-planned`).

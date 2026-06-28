@@ -66,8 +66,21 @@ class _CustomerComputedMethods:
     - insurance_age: 보험나이(상령일 — 만나이 +6개월 반올림).
     - job_risk_grade / job_name: 직업 위험등급(1/2/3/9급)·직업명.
     - marketing_consent: 'agreed'(유효 동의) | 'revoked'(철회) | 'none'(기록 없음).
+    - personal_info_consent: 위와 동일(personal_info 스코프).
+    - consents: {marketing, personal_info} 상세(subject·agreed_at 포함, detail 전용).
       consent_logs 는 ViewSet에서 prefetch — 캐시 순회로 N+1 회피.
     """
+    def _consent_state(self, obj, scope):
+        """특정 scope의 최신 동의 상태 반환 (status/subject/agreed_at)."""
+        log = next((c for c in obj.consent_logs.all() if c.scope == scope), None)
+        if log is None:
+            return {'status': 'none', 'subject': None, 'agreed_at': None}
+        return {
+            'status': 'revoked' if log.revoked_at else 'agreed',
+            'subject': log.subject,
+            'agreed_at': log.agreed_at,
+        }
+
     def get_insurance_age(self, obj):
         return compute_insurance_age(obj.birth_day)
 
@@ -78,11 +91,16 @@ class _CustomerComputedMethods:
         return obj.job_code.name if obj.job_code_id else None
 
     def get_marketing_consent(self, obj):
-        log = next((c for c in obj.consent_logs.all()
-                    if c.scope == ConsentLog.SCOPE_MARKETING), None)
-        if log is None:
-            return 'none'
-        return 'revoked' if log.revoked_at else 'agreed'
+        return self._consent_state(obj, ConsentLog.SCOPE_MARKETING)['status']
+
+    def get_personal_info_consent(self, obj):
+        return self._consent_state(obj, ConsentLog.SCOPE_PERSONAL_INFO)['status']
+
+    def get_consents(self, obj):
+        return {
+            'marketing': self._consent_state(obj, ConsentLog.SCOPE_MARKETING),
+            'personal_info': self._consent_state(obj, ConsentLog.SCOPE_PERSONAL_INFO),
+        }
 
 
 class CustomerListSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
@@ -92,14 +110,15 @@ class CustomerListSerializer(_CustomerComputedMethods, serializers.ModelSerializ
     insurance_age = serializers.SerializerMethodField()
     job_risk_grade = serializers.SerializerMethodField()
     marketing_consent = serializers.SerializerMethodField()
+    personal_info_consent = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
         fields = ('id', 'name', 'gender', 'birth_day', 'mobile_phone_number',
-                  'consent_overseas_at', 'color', 'tags', 'family_count',
-                  'sales_stage', 'share_token', 'created_at',
+                  'consent_overseas_at', 'color', 'avatar_label', 'tags', 'family_count',
+                  'sales_stage', 'share_token', 'created_at', 'lead_source',
                   'last_contacted_at', 'is_favorite', 'is_pinned',
-                  'insurance_age', 'job_risk_grade', 'marketing_consent')
+                  'insurance_age', 'job_risk_grade', 'marketing_consent', 'personal_info_consent')
 
 
 class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
@@ -118,15 +137,17 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
     job_risk_grade = serializers.SerializerMethodField()
     job_name = serializers.SerializerMethodField()
     marketing_consent = serializers.SerializerMethodField()
+    personal_info_consent = serializers.SerializerMethodField()
+    consents = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
         fields = ('id', 'name', 'mobile_phone_number', 'birth_day', 'gender', 'job_code',
-                  'memo', 'color', 'is_agree_term', 'consent_overseas_at', 'sales_stage',
+                  'memo', 'color', 'avatar_label', 'lead_source', 'is_agree_term', 'consent_overseas_at', 'sales_stage',
                   'share_token', 'share_expires_at', 'share_sent_at', 'user_view_at',
                   'tags', 'tag_ids', 'family_members', 'medical_histories',
                   'last_contacted_at', 'is_favorite', 'is_pinned', 'business_card',
-                  'insurance_age', 'job_risk_grade', 'job_name', 'marketing_consent',
+                  'insurance_age', 'job_risk_grade', 'job_name', 'marketing_consent', 'personal_info_consent', 'consents',
                   'created_at', 'updated_at')
         read_only_fields = ('id', 'share_token', 'consent_overseas_at', 'share_sent_at',
                             'user_view_at', 'created_at', 'updated_at')

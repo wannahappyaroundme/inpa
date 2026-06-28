@@ -7,7 +7,7 @@ import {
   adminUpdatePlan,
   adminListPolicyVersions,
   adminCreatePolicyVersion,
-  adminUpdateFlags,
+  adminGetFlags,
   type AdminPlan,
   type PolicyVersion,
   type FeatureFlags,
@@ -38,13 +38,13 @@ export default function AdminSettingsPage() {
   const [polSaving, setPolSaving] = useState(false);
 
   const [flags, setFlags] = useState<FeatureFlags | null>(null);
-  const [flagsLoading, setFlagsLoading] = useState(false);
-  const [flagSaving, setFlagSaving] = useState(false);
+  const [flagsLoading, setFlagsLoading] = useState(true);
 
   useEffect(() => {
     if (!ready) return;
     adminListPlans().then(setPlans).finally(() => setPlansLoading(false));
     adminListPolicyVersions().then((r) => setPolicies(r.results)).finally(() => setPolLoading(false));
+    adminGetFlags().then(setFlags).finally(() => setFlagsLoading(false));
   }, [ready]);
 
   function openEditPlan(p: AdminPlan) {
@@ -86,30 +86,6 @@ export default function AdminSettingsPage() {
       setPolSaving(false);
     }
   }
-
-  async function toggleFlag(key: keyof FeatureFlags) {
-    if (!flags) return;
-    const nextVal = !flags[key];
-    if (!confirm(`'${key}'를 ${nextVal ? "활성화" : "비활성화"}하시겠어요? 전체 설계사에 즉시 영향을 줍니다.`)) return;
-    setFlagSaving(true);
-    try {
-      const updated = await adminUpdateFlags({ [key]: nextVal });
-      setFlags(updated);
-    } catch {
-      alert("변경에 실패했어요.");
-    } finally {
-      setFlagSaving(false);
-    }
-  }
-
-  // flags는 별도 로드가 필요한데 API 엔드포인트가 PATCH-only라 GET은 없음.
-  // 실제 구현 시 BE에 GET /admin/settings/flags/ 추가 필요. 여기서는 기본값 표시.
-  useEffect(() => {
-    if (ready) {
-      setFlagsLoading(false);
-      setFlags({ FREE_TIER_UNLIMITED: true });
-    }
-  }, [ready]);
 
   if (!ready) return null;
 
@@ -289,6 +265,9 @@ export default function AdminSettingsPage() {
       {/* 기능 플래그 */}
       <section>
         <h2 className="text-[16px] font-bold text-ink mb-3">기능 플래그</h2>
+        <div className="mb-2 text-[12px] text-ink3 bg-surface2 rounded-xl px-3 py-2 border border-line">
+          환경변수(env)로만 변경 가능 — 배포 설정(Render / Vercel)에서 바꾸세요. 런타임 변경은 컴플라이언스 원칙상 차단됩니다.
+        </div>
         {flagsLoading && <div className="text-[13px] text-ink3">불러오는 중...</div>}
         {flags && (
           <Card className="p-4">
@@ -300,18 +279,22 @@ export default function AdminSettingsPage() {
                     {key === "FREE_TIER_UNLIMITED" && (
                       <div className="text-[12px] text-ink3">True=베타(무제한) / False=정식(한도 적용)</div>
                     )}
+                    {key === "COMPARE_PUBLISH_ENABLED" && (
+                      <div className="text-[12px] text-ink3">§97 법무 완료 전까지 False 유지</div>
+                    )}
+                    {key === "ANALYZE_MEDICAL_ENABLED" && (
+                      <div className="text-[12px] text-ink3">병력 수집 — 국외이전 동의 법무 선결 필요</div>
+                    )}
                   </div>
-                  <button
-                    onClick={() => toggleFlag(key as keyof FeatureFlags)}
-                    disabled={flagSaving}
-                    className={`px-4 py-1.5 rounded-xl text-[13px] font-bold transition ${
+                  <span
+                    className={`px-4 py-1.5 rounded-xl text-[13px] font-bold select-none ${
                       val
                         ? "bg-success text-white"
                         : "bg-surface2 text-ink3"
                     }`}
                   >
                     {val ? "ON" : "OFF"}
-                  </button>
+                  </span>
                 </div>
               ))}
             </div>

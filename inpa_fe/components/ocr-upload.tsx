@@ -20,13 +20,15 @@ import {
   createConsentRequest,
   ApiError,
 } from "@/lib/api";
+import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 
 export type OcrPhase =
   | "idle"
   | "uploading"
   | "consent_required"
   | "success"
-  | "error";
+  | "error"
+  | "limit_exceeded";
 
 /**
  * OCR 업로드 상태 + 액션을 한곳에 모은 훅.
@@ -41,6 +43,7 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void) {
   const [consentLoading, setConsentLoading] = useState(false);
   const [consentUrl, setConsentUrl] = useState<string | null>(null);
   const [consentCopied, setConsentCopied] = useState(false);
+  const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
 
   const runUpload = useCallback(
     async (customerId: number, file: File) => {
@@ -55,6 +58,10 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void) {
         if (e instanceof ApiError && e.status === 412) {
           // 국외이전 동의 필요 → 동의 모달 노출
           setPhase("consent_required");
+        } else if (e instanceof ApiError && e.status === 402) {
+          // 한도 초과 → 소프트 업그레이드 안내 모달
+          setUpgradeInfo(e.creditBody ?? { kind: "ocr" });
+          setPhase("limit_exceeded");
         } else {
           const msg =
             e instanceof Error ? e.message : "증권 업로드 중 오류가 발생했어요.";
@@ -129,9 +136,15 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void) {
     setError(null);
   }, []);
 
+  const dismissUpgrade = useCallback(() => {
+    setPhase("idle");
+    setUpgradeInfo(undefined);
+  }, []);
+
   return {
     phase,
     error,
+    upgradeInfo,
     consentLoading,
     consentUrl,
     consentCopied,
@@ -141,6 +154,7 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void) {
     copyConsentUrl,
     dismissConsent,
     clearError,
+    dismissUpgrade,
   };
 }
 

@@ -64,7 +64,7 @@ function HeroSection() {
               발굴부터 보장분석, 비교 분석까지 — 인파가 준비하고, 설계사님이 완성합니다.
             </p>
             <p className="mt-2 text-[14px] sm:text-[15px] text-white/55 leading-relaxed max-w-lg mx-auto md:mx-0">
-              증권 한 장으로 고객 보장 공백을 한 화면에. 합법적인 비교안내서 초안까지.
+              증권 한 장으로 고객 보장 공백을 한 화면에. AI 비교안내서 초안까지, 최종 검토는 설계사님이.
             </p>
             <div className="mt-9 flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
               <Link href="/register" className="w-full sm:w-auto px-7 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/90 transition shadow-lg">무료로 시작하기</Link>
@@ -245,7 +245,7 @@ function FeatureShowcaseSection() {
     { icon: ArrowLeftRight, title: "보험 분석 & 비교", sub: "기존 증권 분석 및 비교 차트 제공", kind: "analysis" },
     { icon: Users, title: "고객 관리 시스템", sub: "영업 4단계별 고객 분류·관리", kind: "funnel" },
     { icon: CalendarDays, title: "일정 & 예약 관리", sub: "상담 일정 예약 및 자동 등록", kind: "calendar" },
-    { icon: MessageSquare, title: "문자 & 예약 링크", sub: "고객에게 예약 링크 문자 발송", kind: "message" },
+    { icon: MessageSquare, title: "문자 & 예약 링크", sub: "예약 링크·메시지 문구를 복사해 직접 전달", kind: "message" },
     { icon: Target, title: "성과 관리 & KPI", sub: "목표 설정 및 성과 추적", kind: "kpi" },
     { icon: Package, title: "판촉물 디자인 & 발주", sub: "디자인 요청부터 발주까지 한번에", kind: "promo" },
   ];
@@ -442,8 +442,8 @@ function AudienceSection() {
     },
     {
       tag: "관리직(팀장·지점장)",
-      title: "팀원이 상담에 집중할수록,\n팀장님 마감 숫자가 올라갑니다",
-      body: "월말 취합 엑셀은 그만. 팀 퍼널·유지율·환수위험을 실시간으로 — 보고 받지 말고 인파에서 바로 보세요. (성과 수치는 추정)",
+      title: "팀원이 편해지면\n팀장님 숫자가 좋아집니다",
+      body: "월말 취합 엑셀은 그만. 팀 퍼널·유지율·환수위험을 실시간으로 — 보고 받지 마세요, 인파에서 바로 보세요. (성과 수치는 추정)",
     },
   ];
   return (

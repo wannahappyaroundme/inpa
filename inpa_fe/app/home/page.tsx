@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { Card, StatCard } from "@/components/ui";
 import { BarChart, DonutChart } from "@/components/charts";
+import { SelfDiagnosisShare } from "@/components/self-diagnosis-share";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings,
@@ -217,7 +218,7 @@ export default function HomePage() {
   const monthDaysLeft = _dim - todayD;
   const monthPct = Math.round((todayD / _dim) * 100);
 
-  const displayName = profile ? profile.email.split("@")[0] : "설계사";
+  const displayName = profile ? (profile.name?.trim() || profile.email.split("@")[0]) : "설계사";
 
   // 전월 대비 증감률(%) — 최근 6개월 추이의 마지막 두 점에서 파생. 데이터 부족 시 null(배지 숨김).
   const trend = insights?.monthly_trend ?? [];
@@ -269,13 +270,19 @@ export default function HomePage() {
           </span>
         </div>
 
+        {/* 발굴 입구 — 셀프진단 링크로 새 고객(인바운드) 받기. refCode 없으면 위젯이 null 반환 */}
+        <div className="mt-4">
+          <SelfDiagnosisShare />
+        </div>
+
         {/* KPI 한 줄 — 전부 실데이터(+ 전월 대비 증감률) */}
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <StatCard label="내 고객" value={customerCount !== null ? String(customerCount) : "—"} unit="명" />
           <StatCard label="이번 달 신규" value={dash ? String(dash.actual_new_customers) : "—"} unit="명" delta={momDelta("new_customers")} />
           <StatCard label="이번 달 미팅" value={dash ? String(dash.actual_meetings) : "—"} unit="건" delta={momDelta("meetings")} />
           <StatCard label="이번 달 보험료" value={dash ? fmtWonShort(dash.actual_premium) : "—"} unit="원" delta={momDelta("premium")} />
-          <StatCard label="환수 위험" value={churn ? String(churn.risk_count) : "—"} unit="건" accent={!!churn && churn.risk_count > 0} />
+          <StatCard label="환수 위험" value={churn ? String(churn.risk_count) : "—"} unit="건" accent={!!churn && churn.risk_count > 0}
+            hint="고객이 계약을 해지하면 이미 받은 수수료가 환수(반환)될 수 있어요. 최근 해지·연락 두절 등 위험 신호가 있는 고객 수예요." />
         </div>
 
         {/* 영업 4단계 퍼널 — 단계별 고객(클릭 시 칸반) */}

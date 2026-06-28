@@ -4,7 +4,7 @@
 // booking-modal.tsx 와 동일한 시트형 모달 패턴.
 
 import { useState, useCallback } from "react";
-import { createCustomer, ApiError, type CustomerDetail } from "@/lib/api";
+import { createCustomer, createConsentLog, LEAD_SOURCES, ApiError, type CustomerDetail } from "@/lib/api";
 import { AVATAR_PALETTE, CustomerAvatar } from "@/components/ui";
 
 export function CustomerCreateModal({
@@ -20,6 +20,10 @@ export function CustomerCreateModal({
   const [birth, setBirth] = useState("");
   const [memo, setMemo] = useState("");
   const [color, setColor] = useState("");
+  const [avatarLabel, setAvatarLabel] = useState("");
+  const [leadSource, setLeadSource] = useState("");
+  const [piConsent, setPiConsent] = useState(false);
+  const [mkConsent, setMkConsent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,7 +42,14 @@ export function CustomerCreateModal({
         mobile_phone_number: phone.trim() || undefined,
         memo: memo.trim() || undefined,
         color: color || undefined,
+        avatar_label: avatarLabel.trim() || undefined,
+        lead_source: leadSource || undefined,
       });
+      // 설계사 기록(planner_attested) — 체크된 동의를 감사 로그로 남김(법적 강건성은 본인 링크).
+      const scopes: string[] = [];
+      if (piConsent) scopes.push("personal_info");
+      if (mkConsent) scopes.push("marketing");
+      await Promise.allSettled(scopes.map((scope) => createConsentLog(c.id, { scope })));
       onCreated(c);
     } catch (e) {
       setError(
@@ -47,7 +58,7 @@ export function CustomerCreateModal({
     } finally {
       setSaving(false);
     }
-  }, [name, gender, birth, phone, memo, color, onCreated]);
+  }, [name, gender, birth, phone, memo, color, avatarLabel, leadSource, piConsent, mkConsent, onCreated]);
 
   const inputCls =
     "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition";
@@ -138,25 +149,66 @@ export function CustomerCreateModal({
             />
           </label>
 
-          {/* 아바타 색상 — 분류용(선택). 미선택 = 인파 로고 디폴트 */}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-semibold text-ink3">아바타 색상 (선택 — 분류용)</span>
+          {/* 유입 경로 — 측정용(소개/명함/행사/직접). 셀프진단은 자동 태깅 */}
+          <label className="flex flex-col gap-1">
+            <span className="text-[12px] font-semibold text-ink3">유입 경로 (선택)</span>
+            <select
+              value={leadSource}
+              onChange={(e) => setLeadSource(e.target.value)}
+              className={`${inputCls} bg-surface`}
+            >
+              <option value="">선택 안 함</option>
+              {LEAD_SOURCES.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </label>
+
+          {/* 동의(설계사 기록) — 분리 체크. 본인 동의 링크는 등록 후 고객상세에서. */}
+          <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface px-3.5 py-3">
+            <span className="text-[12px] font-semibold text-ink3">동의 받음 기록 (선택)</span>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={piConsent} onChange={(e) => setPiConsent(e.target.checked)} className="mt-0.5" />
+              <span className="text-[12px] text-ink2 leading-4">개인정보 수집·이용 동의를 받았어요</span>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={mkConsent} onChange={(e) => setMkConsent(e.target.checked)} className="mt-0.5" />
+              <span className="text-[12px] text-ink2 leading-4">마케팅 수신 동의를 받았어요</span>
+            </label>
+            <p className="text-[11px] text-ink3 leading-4">
+              여기 체크는 <b>설계사 기록(메모)</b>이에요. 법적으로 가장 안전한 건 고객 본인이 링크로 직접 동의하는 것 — 등록 후 '동의 요청 링크 복사'를 쓰세요.
+            </p>
+          </div>
+
+          {/* 아바타 글씨·색상 — 글씨 비우면 인파 로고. 색은 로고/글씨 공통 배경 */}
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] font-semibold text-ink3">아바타 글씨·색상 (선택 — 분류용)</span>
+            <div className="flex items-center gap-3">
+              <CustomerAvatar label={avatarLabel} color={color || null} size={40} />
+              <input
+                value={avatarLabel}
+                onChange={(e) => setAvatarLabel(e.target.value.slice(0, 3))}
+                placeholder="약자·숫자 (비우면 로고)"
+                maxLength={3}
+                className="flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+              />
+            </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <CustomerAvatar name={name || "?"} color={color || null} size={34} />
+              <span className="text-[11px] text-ink3 mr-0.5">배경</span>
               <button
                 type="button"
                 onClick={() => setColor("")}
                 className={`h-7 px-2 rounded-full border text-[10px] font-semibold ${color === "" ? "border-brand text-brand" : "border-line text-ink3"}`}
-                title="기본(인파 로고)"
+                title="기본 배경"
               >
-                로고
+                기본
               </button>
               {AVATAR_PALETTE.map((hex) => (
                 <button
                   key={hex}
                   type="button"
                   onClick={() => setColor(hex)}
-                  aria-label={`색상 ${hex}`}
+                  aria-label={`배경 ${hex}`}
                   className={`w-7 h-7 rounded-full border-2 ${color === hex ? "border-brand" : "border-transparent"}`}
                   style={{ backgroundColor: hex }}
                 />

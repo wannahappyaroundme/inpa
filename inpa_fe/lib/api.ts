@@ -19,14 +19,25 @@ if (typeof window !== "undefined" &&
 
 // ─── Error class ────────────────────────────────────────────────────────────
 
+/** 402 한도초과 응답 추가 필드 (BE: credit_exhausted shape) */
+export interface CreditExhaustedBody {
+  kind?: string;
+  membership?: string;
+  limit?: number | null;
+  used?: number;
+}
+
 export class ApiError extends Error {
   code: string;
   status: number;
-  constructor(status: number, code: string, message: string) {
+  /** 402 credit_exhausted 일 때 BE가 반환하는 추가 필드. 그 외는 undefined. */
+  creditBody?: CreditExhaustedBody;
+  constructor(status: number, code: string, message: string, creditBody?: CreditExhaustedBody) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.creditBody = creditBody;
   }
 }
 
@@ -86,7 +97,17 @@ async function request<T>(
       (data["detail"] as string) ??
       (data["message"] as string) ??
       res.statusText;
-    throw new ApiError(res.status, code, detail);
+    // 402 credit_exhausted: 추가 필드(kind/limit/used) 추출해 ApiError에 첨부
+    const creditBody: CreditExhaustedBody | undefined =
+      res.status === 402 && code === "credit_exhausted"
+        ? {
+            kind: data["kind"] as string | undefined,
+            membership: data["membership"] as string | undefined,
+            limit: data["limit"] as number | null | undefined,
+            used: data["used"] as number | undefined,
+          }
+        : undefined;
+    throw new ApiError(res.status, code, detail, creditBody);
   }
 
   return data as T;
@@ -119,14 +140,32 @@ export interface VerifyEmailResponse {
 }
 
 /**
- * GET /api/v1/auth/verify-email/?uid=...&token=...
- * Passes uid and token as query params.
+ * 이메일 인증 — BE 토큰은 self-contained(signing.dumps(pk))라 token 1개로 충분.
+ * reset-password와 달리 uid 불필요. (이전 버그: FE가 없는 uid를 요구해 인증 전면 차단)
+ * POST /api/v1/auth/verify-email/  body: { token }
  */
-export async function verifyEmail(uid: string, token: string): Promise<VerifyEmailResponse> {
-  return request<VerifyEmailResponse>(
-    "GET",
-    `/auth/verify-email/?uid=${encodeURIComponent(uid)}&token=${encodeURIComponent(token)}`
-  );
+export async function verifyEmail(token: string): Promise<VerifyEmailResponse> {
+  return request<VerifyEmailResponse>("POST", "/auth/verify-email/", { token });
+}
+
+/** 인증 메일 재발송 — 미인증 계정이면 재발송(계정 존재 노출 방지로 항상 200). */
+export async function resendVerification(email: string): Promise<{ message: string }> {
+  return request<{ message: string }>("POST", "/auth/resend-verification/", { email });
+}
+
+/** 비밀번호 변경(로그인 상태) — 성공 시 새 토큰이 발급되므로 tokenStore 갱신(세션 유지). */
+export async function changePassword(oldPassword: string, newPassword: string): Promise<{ message: string }> {
+  const r = await request<{ message: string; token: string }>(
+    "POST", "/auth/password/change/", { old_password: oldPassword, new_password: newPassword }, true);
+  if (r.token) tokenStore.set(r.token);
+  return { message: r.message };
+}
+
+/** 회원 탈퇴 — 이메일가입=password / 구글가입=confirm(가입 이메일). 성공 시 토큰 폐기. */
+export async function withdrawAccount(payload: { password?: string; confirm?: string }): Promise<{ message: string }> {
+  const r = await request<{ message: string }>("POST", "/auth/withdraw/", payload, true);
+  tokenStore.remove();
+  return r;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,6 +284,7 @@ export interface ProfileResponse {
   booking_default_duration: number;
   google_calendar_connected: boolean;
   google_calendar_mask_name: boolean;
+  has_usable_password: boolean;   // false=구글 전용 가입(비번 없음) → 비번변경 숨김·탈퇴는 이메일 확인
   onboarding_completed_at: string | null;
   marketing_agreed_at: string | null;
   ref_code: string | null;
@@ -363,13 +403,28 @@ export type SalesStage = "db" | "contact" | "meeting" | "contract";
 /** 단계 메타(순서·라벨·? 툴팁 설명) — 칸반 컬럼/퍼널 셀이 이 순서·라벨을 그대로 쓴다. */
 export const SALES_STAGES: { key: SalesStage; label: string; short: string; desc: string }[] = [
   { key: "db", label: "DB", short: "01", desc: "아직 상담 전인 예비 고객 명단이에요. 이름·연락처만 확보된 단계." },
-  { key: "contact", label: "TA", short: "02", desc: "TA(Telephone Approach): 전화·문자로 첫 접촉해 약속을 잡는 단계." },
-  { key: "meeting", label: "FA", short: "03", desc: "FA(Face-to-face Approach): 직접 만나 보장분석·상담하는 대면 단계." },
+  { key: "contact", label: "TA", short: "02", desc: "전화·문자로 처음 연락해 만날 약속을 잡는 단계예요. (TA = Telephone Approach)" },
+  { key: "meeting", label: "FA", short: "03", desc: "직접 만나 보장을 분석·상담하는 대면 단계예요. (FA = Face-to-face Approach)" },
   { key: "contract", label: "청약", short: "04", desc: "고객이 보험계약을 신청(청약서 작성)하는 계약 체결 단계." },
 ];
 
 /** 마케팅(개인정보 수집·이용) 동의 상태 — 'none'(기록 없음)도 비동의로 취급해 영업 자동화에서 제외. */
 export type MarketingConsent = "agreed" | "revoked" | "none";
+export type ConsentStatus = MarketingConsent;
+export type ConsentSubject = "customer_self" | "planner_attested" | null;
+export interface ConsentState {
+  status: ConsentStatus;
+  subject: ConsentSubject;
+  agreed_at: string | null;
+}
+
+/** 유입 경로(측정) — 수기등록 select / self_diagnosis는 자동 */
+export const LEAD_SOURCES: { value: string; label: string }[] = [
+  { value: "introduction", label: "소개" },
+  { value: "business_card", label: "명함" },
+  { value: "event", label: "행사" },
+  { value: "direct", label: "직접 등록" },
+];
 
 export interface CustomerListItem {
   id: number;
@@ -379,11 +434,13 @@ export interface CustomerListItem {
   mobile_phone_number: string | null;
   consent_overseas_at: string | null;
   color: string | null;
+  avatar_label: string;              // 아바타 글씨(약자·숫자, 빈값=색만/로고)
   tags: CustomerTag[];
   family_count: number;
   sales_stage: SalesStage;
   share_token: string | null;
   created_at: string;
+  lead_source: string | null;        // 유입 경로(측정)
   // ── 고객 관리(PM 06.24) ──
   last_contacted_at: string | null;  // 방치 색상경보·정렬 기준
   is_favorite: boolean;
@@ -391,6 +448,7 @@ export interface CustomerListItem {
   insurance_age: number | null;      // 보험나이(상령일)
   job_risk_grade: number | null;     // 직업 위험등급 1|2|3|9
   marketing_consent: MarketingConsent;
+  personal_info_consent: ConsentStatus;
 }
 
 /** 상세 타입 (CustomerSerializer 대응) */
@@ -406,6 +464,8 @@ export interface CustomerDetail extends CustomerListItem {
   updated_at: string;
   family_members: unknown[];
   medical_histories: unknown[];
+  // 동의 상태(본인/대리 구분) — 상세에서만.
+  consents?: { marketing: ConsentState; personal_info: ConsentState };
 }
 
 /** DRF 페이지네이션 래퍼 */
@@ -425,6 +485,8 @@ export interface CustomerWritePayload {
   job_code?: string;
   memo?: string;
   color?: string;
+  avatar_label?: string;
+  lead_source?: string;
   is_agree_term?: boolean;
   tag_ids?: number[];
   sales_stage?: SalesStage;     // 칸반 단계이동 = updateCustomer({sales_stage})
@@ -1517,7 +1579,7 @@ export interface ConsentLogCreateResponse {
 
 /**
  * POST /api/v1/customers/<customerId>/consents/
- * scope: 'overseas_medical' → Customer.consent_overseas_at 스냅샷 동기화
+ * 설계사가 기록한 동의 메모(subject=planner_attested, 서버강제). consent_overseas_at 동기화 없음.
  */
 export async function createConsentLog(
   customerId: number,
@@ -1541,28 +1603,38 @@ export interface ConsentRequestResponse {
   already_consented: boolean;
 }
 
-/** POST /api/v1/customers/<id>/consent-requests/ — 설계사가 동의 요청 링크 생성(인증) */
+/** POST /api/v1/customers/<id>/consent-requests/ — 설계사가 동의 요청 링크 생성(인증).
+ *  scopes 미지정 시 BE 기본=국외이전(OCR 동선 호환). */
 export async function createConsentRequest(
-  customerId: number
+  customerId: number,
+  scopes?: string[]
 ): Promise<ConsentRequestResponse> {
   return request<ConsentRequestResponse>(
     "POST",
     `/customers/${customerId}/consent-requests/`,
-    undefined,
+    scopes ? { scopes } : undefined,
     true
   );
+}
+
+export interface ConsentItem {
+  scope: string;
+  title: string;
+  required: boolean;
+  already: boolean;
+  lines: string[];
+  notice: string;
 }
 
 export interface ConsentDisclosure {
   customer: { name_masked: string };
   planner: { affiliation: string };
-  already_consented: boolean;
-  scope_text: string;
-  purpose_text: string;
+  items: ConsentItem[];
+  all_required_done: boolean;
   disclaimer: string;
 }
 
-/** GET /api/v1/c/<token>/ — 고객 본인이 보는 동의 고지 (공개, 비인증) */
+/** GET /api/v1/c/<token>/ — 고객 본인이 보는 동의 고지(공개, 비인증) */
 export async function getConsentDisclosure(token: string): Promise<ConsentDisclosure> {
   const res = await fetch(`${API_BASE}/c/${encodeURIComponent(token)}/`);
   const data = await res.json().catch(() => ({}));
@@ -1573,21 +1645,22 @@ export async function getConsentDisclosure(token: string): Promise<ConsentDisclo
   return data as ConsentDisclosure;
 }
 
-/** POST /api/v1/c/<token>/ — 고객 본인 국외이전 동의 제출 (공개, 비인증) */
+/** POST /api/v1/c/<token>/ — 동의 scope 배열 제출(공개, 비인증) */
 export async function submitConsent(
-  token: string
-): Promise<{ consented: boolean; consented_at: string }> {
+  token: string,
+  agreed: string[]
+): Promise<{ results: { scope: string; consented: boolean }[]; all_required_done: boolean }> {
   const res = await fetch(`${API_BASE}/c/${encodeURIComponent(token)}/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ consent_overseas: true }),
+    body: JSON.stringify({ agreed }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new ApiError(res.status, (data as { code?: string }).code ?? "ERROR",
       (data as { detail?: string }).detail ?? "동의 처리에 실패했어요.");
   }
-  return data as { consented: boolean; consented_at: string };
+  return data as { results: { scope: string; consented: boolean }[]; all_required_done: boolean };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1990,6 +2063,58 @@ export async function compareCustomer(id: number): Promise<CompareResponse> {
 /** POST /api/v1/customers/<id>/compare/ — 발행 요청(publishable=false 라 항상 차단됨) */
 export async function publishCompare(id: number): Promise<CompareResponse> {
   return request<CompareResponse>("POST", `/customers/${id}/compare/`, undefined, true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 수기 보험 등록(보유/제안) — OCR 폴백 + 제안 입력. /customers/<id>/insurances/manual/
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface ManualInsuranceItem {
+  id: number;
+  name: string | null;
+  insurance_type: number;        // 1 생명 / 2 손해
+  portfolio_type: number;        // 1 보유 / 2 제안
+  monthly_premiums: number | null;
+  contract_date: string | null;
+  expiry_date: string | null;
+  payment_status: number | null;
+  is_cancelled: boolean;
+  cancelled_at: string | null;
+  created_at: string;
+}
+
+export interface ManualInsuranceWritePayload {
+  name?: string;
+  insurance_type?: number;
+  portfolio_type: number;        // 1 보유 / 2 제안 (필수)
+  monthly_premiums?: number;
+  contract_date?: string;        // YYYY-MM-DD
+  expiry_date?: string;
+}
+
+/** 수기 보험 등록 — OCR 불가(스캔/이미지/키없음) 폴백 + 갈아타기 제안 입력. */
+export async function createManualInsurance(
+  customerId: number,
+  payload: ManualInsuranceWritePayload
+): Promise<ManualInsuranceItem> {
+  return request<ManualInsuranceItem>(
+    "POST", `/customers/${customerId}/insurances/manual/`, payload, true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 고객 공유 링크 발급 — POST /api/v1/customers/<id>/share/ (북극성 분석→공유 동선)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface ShareLinkResponse {
+  customer_id: number;
+  share_token: string;
+  share_expires_at: string;
+  share_url: string; // "/s/<token>" — origin 붙여 완성
+}
+
+/** 공유 토큰 발급(rotate) — 보장 한눈표 공유뷰(/s/<token>) 링크. §97 비교안내서 아님. */
+export async function createShareLink(customerId: number): Promise<ShareLinkResponse> {
+  return request<ShareLinkResponse>("POST", `/customers/${customerId}/share/`, undefined, true);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

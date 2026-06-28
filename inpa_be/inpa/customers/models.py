@@ -68,6 +68,7 @@ class Customer(models.Model):
                                  related_name='customers')
     memo = models.TextField('메모', blank=True, default='')
     color = models.CharField('색상 마커', max_length=10, blank=True, default='')  # 7색 팔레트 키워드 또는 ''
+    avatar_label = models.CharField('아바타 글씨', max_length=8, blank=True, default='')  # 약자·숫자(빈값=색만/디폴트 로고)
     is_agree_term = models.BooleanField('일반 동의 여부', default=False, blank=True)
     share_token = models.UUIDField('공유 토큰', default=uuid.uuid4, unique=True)
     share_expires_at = models.DateTimeField('공유 만료일', default=None, null=True, blank=True)
@@ -80,9 +81,22 @@ class Customer(models.Model):
     # ── 공유/알림 계측 ─────────────────────────────────────────────
     share_sent_at = models.DateTimeField('공유 발송 시각', null=True, blank=True, default=None)
 
-    # ── 셀프진단 리드(발굴 입구) ───────────────────────────────────
-    # 잠재고객이 ?ref 셀프진단으로 유입돼 자동 생성된 리드. null = 설계사가 직접 등록한 고객.
-    lead_source = models.CharField('리드 출처', max_length=30, null=True, blank=True, default=None)
+    # ── 셀프진단 리드(발굴 입구) + 유입경로 측정(PM 06.27) ──────────
+    # 잠재고객이 ?ref 셀프진단으로 유입돼 자동 생성된 리드. null = 출처 미입력(구 직접등록).
+    LEAD_INTRODUCTION = 'introduction'
+    LEAD_BUSINESS_CARD = 'business_card'
+    LEAD_EVENT = 'event'
+    LEAD_DIRECT = 'direct'
+    LEAD_SELF_DIAGNOSIS = 'self_diagnosis'
+    LEAD_SOURCE_CHOICES = (
+        (LEAD_INTRODUCTION, '소개'),
+        (LEAD_BUSINESS_CARD, '명함'),
+        (LEAD_EVENT, '행사'),
+        (LEAD_DIRECT, '직접 등록'),
+        (LEAD_SELF_DIAGNOSIS, '셀프진단'),
+    )
+    lead_source = models.CharField('리드 출처', max_length=30, null=True, blank=True,
+                                   default=None, choices=LEAD_SOURCE_CHOICES)
     lead_created_at = models.DateTimeField('리드 생성 시각', null=True, blank=True, default=None)
 
     # ── 영업 단계 (파이프라인 — 칸반/퍼널 공용 데이터) ───────────────
@@ -259,10 +273,12 @@ class ConsentLog(models.Model):
     SCOPE_OVERSEAS_MEDICAL = 'overseas_medical'
     SCOPE_MEDICAL_SENSITIVE = 'medical_sensitive'
     SCOPE_MARKETING = 'marketing'
+    SCOPE_PERSONAL_INFO = 'personal_info'          # ✦ 개인정보 수집·이용(DB 보유 근거)
     SCOPE_CHOICES = (
         (SCOPE_OVERSEAS_MEDICAL, '병력 국외이전 (Claude API, 미국)'),
         (SCOPE_MEDICAL_SENSITIVE, '민감정보(병력) 처리'),
         (SCOPE_MARKETING, '마케팅 수신'),
+        (SCOPE_PERSONAL_INFO, '개인정보 수집·이용'),
     )
 
     # ★ 동의 주체(council P3c): 누가 동의했나 = 감사 핵심.
@@ -305,6 +321,7 @@ DEFAULT_CONTRACT_CHECKLIST = [
     '품질보증해지(가입 3개월 내) 안내',
     '주요 보장·면책사항 설명',
     '보험료 납입·실효·부활 안내',
+    '불리사항 고지(갈아타기 시 해지손실·면책리셋 등 구두 고지)',  # §97 — 설계사 내부 자가점검
 ]
 
 

@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
+import { SettingsTabs } from "@/components/settings-tabs";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
@@ -259,6 +260,7 @@ export default function BaselineSettingsPage() {
     <div className="min-h-dvh">
       <AppNav active="settings" />
       <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+        <SettingsTabs active="baseline" />
         {/* 뒤로 */}
         <Link
           href="/analysis"
@@ -275,11 +277,9 @@ export default function BaselineSettingsPage() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => {
-                setPresetModalOpen(true);
-                setPresetResult(null);
-              }}
-              className="rounded-xl border border-line bg-surface text-[13px] font-semibold text-ink2 px-4 py-2.5"
+              disabled
+              title="출처·권위 확정 전까지 비활성 — 현재는 직접 입력만 가능해요"
+              className="rounded-xl border border-line bg-surface2 text-[13px] font-semibold text-ink3 px-4 py-2.5 opacity-50 cursor-not-allowed"
             >
               프리셋 불러오기
             </button>

@@ -80,6 +80,7 @@ export function BottomNav({
   const moreActive = !!active && !PRIMARY_KEYS.includes(active);
 
   const moreLinks: { href: string; label: string }[] = [
+    { href: "/scripts", label: "화법" },
     { href: "/settings/baseline", label: "기준" },
     { href: "/boards", label: "게시판" },
     { href: "/promotion", label: "판촉물" },

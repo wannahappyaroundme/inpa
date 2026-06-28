@@ -9,6 +9,27 @@ import { listSamples, type PromotionSampleListItem } from "@/lib/api";
 
 const CATEGORIES = ["전체", "달력", "다이어리", "생활용품", "기타"] as const;
 
+/** 대표 이미지 — 죽은 URL(404 등)이면 깨진 ? 박스 대신 '이미지 없음' 폴백. */
+function SampleThumb({ src, alt }: { src: string | null; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-muted text-[12px]">
+        이미지 없음
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      onError={() => setFailed(true)}
+      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+    />
+  );
+}
+
 export default function PromotionPage() {
   const ready = useAuthGuard();
 
@@ -106,18 +127,7 @@ export default function PromotionPage() {
               <Card className="overflow-hidden transition hover:shadow-md">
                 {/* 대표 이미지 */}
                 <div className="aspect-square bg-surface2 relative overflow-hidden">
-                  {s.primary_image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={s.primary_image}
-                      alt={s.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-muted text-[12px]">
-                      이미지 없음
-                    </div>
-                  )}
+                  <SampleThumb src={s.primary_image} alt={s.name} />
                   {/* 주문 불가 배지 */}
                   {!s.is_available && (
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center">

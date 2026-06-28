@@ -34,6 +34,7 @@ from inpa.customers.models import ConsentLog, Customer
 from inpa.notifications.models import Notification, NotifType
 from inpa.promotion.models import PromotionOrder
 
+from .models import PolicyVersion
 from .serializers import (
     AdminConsentLogSerializer,
     AdminFaqSerializer,
@@ -58,6 +59,9 @@ from .serializers import (
     AdminUserDetailSerializer,
     AdminUserListSerializer,
     DashboardSerializer,
+    FeatureFlagsSerializer,
+    PolicyVersionSerializer,
+    PolicyVersionWriteSerializer,
 )
 
 User = get_user_model()
@@ -746,6 +750,60 @@ class AdminPlanDetailView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(AdminPlanSerializer(plan).data)
+
+
+# ─── K. 약관 버전 ──────────────────────────────────────────────────
+
+class AdminPolicyVersionListView(APIView):
+    """GET  /api/v1/admin/settings/policy-versions/ — 약관 버전 목록 (최신순)
+    POST /api/v1/admin/settings/policy-versions/ — 약관 버전 등록
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from rest_framework.pagination import PageNumberPagination
+        qs = PolicyVersion.objects.all()
+        paginator = PageNumberPagination()
+        paginator.page_size = 20
+        page = paginator.paginate_queryset(qs, request)
+        serializer = PolicyVersionSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+    def post(self, request):
+        serializer = PolicyVersionWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        policy = serializer.save()
+        return Response(
+            PolicyVersionSerializer(policy).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ─── L. 기능 플래그 (읽기 전용 — env 우회 차단) ─────────────────────
+
+class AdminFeatureFlagsView(APIView):
+    """GET /api/v1/admin/settings/flags/ — 현재 env 기반 기능 플래그 읽기 전용 반환.
+
+    ★ 컴플라이언스 레드라인: PATCH(runtime 변경) 미구현.
+      COMPARE_PUBLISH_ENABLED 등 컴플라이언스 게이트는 env 변수로만 제어.
+      'env로 제어, 코드 우회 금지' 원칙 (CLAUDE.md 설정·기능 게이트 항목).
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from django.conf import settings as dj_settings
+        data = {
+            'FREE_TIER_UNLIMITED': getattr(dj_settings, 'FREE_TIER_UNLIMITED', True),
+            'COMPARE_AI_ENABLED': getattr(dj_settings, 'COMPARE_AI_ENABLED', False),
+            'COMPARE_PUBLISH_ENABLED': getattr(dj_settings, 'COMPARE_PUBLISH_ENABLED', False),
+            'ANALYZE_MEDICAL_ENABLED': getattr(dj_settings, 'ANALYZE_MEDICAL_ENABLED', False),
+            'BOOKING_ENABLED': getattr(dj_settings, 'BOOKING_ENABLED', True),
+            'OCR_VERIFY_ENABLED': getattr(dj_settings, 'OCR_VERIFY_ENABLED', True),
+            'REQUIRE_CUSTOMER_SELF_CONSENT': getattr(dj_settings, 'REQUIRE_CUSTOMER_SELF_CONSENT', False),
+            'GOOGLE_OAUTH_ENABLED': getattr(dj_settings, 'GOOGLE_OAUTH_ENABLED', False),
+        }
+        serializer = FeatureFlagsSerializer(data)
+        return Response(serializer.data)
 
 
 # ─── 관리자 전용 인증 ────────────────────────────────────────────────

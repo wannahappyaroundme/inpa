@@ -23,6 +23,7 @@ export default function SelfDiagnosisPage() {
 
   const [consentOverseas, setConsentOverseas] = useState(false);
   const [consentShare, setConsentShare] = useState(false);
+  const [consentMarketing, setConsentMarketing] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -43,6 +44,7 @@ export default function SelfDiagnosisPage() {
     fd.append("file", file);
     fd.append("consent_overseas", "true");
     fd.append("consent_share", "true");
+    if (consentMarketing) fd.append("consent_marketing", "true");
     if (name.trim()) fd.append("name", name.trim());
     if (phone.trim()) fd.append("phone", phone.trim());
     try {
@@ -52,7 +54,7 @@ export default function SelfDiagnosisPage() {
     } finally {
       setLoading(false);
     }
-  }, [file, name, phone, ref]);
+  }, [file, name, phone, ref, consentMarketing]);
 
   // ── 결과 화면 ──
   if (result) {
@@ -129,6 +131,12 @@ export default function SelfDiagnosisPage() {
             <input type="checkbox" checked={consentShare} onChange={(e) => setConsentShare(e.target.checked)} className="mt-0.5" />
             <span className="text-[13px] text-ink2 leading-5">
               <b>(필수)</b> 진단 결과가 <b>담당 설계사에게 전달</b>되어 상담에 활용되는 데 동의합니다.
+            </span>
+          </label>
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" checked={consentMarketing} onChange={(e) => setConsentMarketing(e.target.checked)} className="mt-0.5" />
+            <span className="text-[13px] text-ink2 leading-5">
+              <b>(선택)</b> 보장 관련 유용한 정보·이벤트 안내를 받는 데 동의합니다. (거부해도 진단은 진행돼요)
             </span>
           </label>
         </Card>
