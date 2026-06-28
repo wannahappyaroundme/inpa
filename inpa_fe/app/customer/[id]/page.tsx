@@ -895,26 +895,7 @@ function AnalysisTab({
         info={ocr.upgradeInfo}
       />
 
-      {/* neutral 안내 */}
-      {heatmap?.mode === "neutral" && (
-        <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface2 px-4 py-3">
-          <span className="mt-0.5 text-[16px]" aria-hidden>
-            ⓘ
-          </span>
-          <p className="text-[13px] text-ink2 leading-5">
-            <b className="font-semibold text-ink">기준 미설정(중립 표시)</b>
-            <br />
-            보장 기준선이 설정되지 않아 보유 여부만 표시해요. 기준을 설정하면
-            부족·적정·넉넉을 구분할 수 있어요.
-          </p>
-          <Link
-            href="/settings/baseline"
-            className="ml-auto shrink-0 text-[12px] font-semibold text-brand whitespace-nowrap"
-          >
-            기준 설정 ›
-          </Link>
-        </div>
-      )}
+      {/* 기준 미설정 안내는 히트맵 컴포넌트(HeatmapGrid) 상단 CTA로 일원화 — 중복 박스 제거(PM 06.29) */}
 
       {/* KPI */}
       {heatmap && (
@@ -924,7 +905,7 @@ function AnalysisTab({
           <KpiCard label="보험 건수" value={`${heatmap.insurance_count}건`} />
           <KpiCard
             label="분석 모드"
-            value={heatmap.mode === "neutral" ? "중립" : "기준 적용"}
+            value={heatmap.mode === "neutral" ? "기준 미설정" : "기준 적용"}
             valueClass={heatmap.mode === "neutral" ? "text-ink3" : "text-enough"}
           />
         </div>
@@ -1379,7 +1360,7 @@ function GapTab({
           ? "보유하지 않은 담보예요. 새로운 상품으로 채울 수 있는 보장 기회를 검토하세요."
           : heatmap.mode === "graded"
           ? "보유 금액이 0인 담보예요. 부족 여부 판정은 설정한 기준에 따른 결과입니다."
-          : "보유 금액이 0인 담보(객관적 사실)만 모았어요. 기준 미설정(중립)이라 부족·충분은 단정하지 않습니다."}
+          : "보유 금액이 0인 담보(객관적 사실)만 모았어요. 기준을 정하면 부족 여부까지 한눈에 볼 수 있어요."}
       </p>
 
       {gaps.length === 0 ? (

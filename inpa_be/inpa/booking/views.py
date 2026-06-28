@@ -17,14 +17,48 @@ from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.customers.models import Customer
 
-from .models import Meeting, MeetingSlot
-from .serializers import MeetingSerializer, MeetingSlotSerializer
+from .models import Meeting, MeetingSlot, WorkHour
+from .serializers import MeetingSerializer, MeetingSlotSerializer, WorkHourSerializer
 from .templates_text import DEFAULT_BOOKING_MSG_TEMPLATE, render_booking_message
 from .tokens import make_booking_token
 
 
 def _booking_enabled():
     return bool(getattr(settings, 'BOOKING_ENABLED', False))
+
+
+def _push_to_google(meeting):
+    """미팅 확정(수락) 시 구글 캘린더에 등록 — 연동된 설계사만, 실패는 격리(예약엔 영향 없음)."""
+    try:
+        from inpa.accounts.google import google_calendar_enabled
+        profile = getattr(meeting.owner, 'profile', None)
+        if google_calendar_enabled() and profile and profile.google_calendar_refresh_token:
+            from inpa.accounts.google_calendar import insert_meeting_event
+            name = meeting.customer.name if meeting.customer_id else '고객'
+            event_id = insert_meeting_event(profile, meeting, name)
+            if event_id:
+                meeting.google_event_id = event_id
+                meeting.save(update_fields=['google_event_id'])
+    except Exception:
+        pass
+
+
+class WorkHourViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
+    """설계사 주간 업무시간 CRUD — /api/v1/work-hours/ (owner 전용).
+
+    여기서 정한 요일·시간 안에서 미팅·차단·버퍼를 빼고 빈 시간을 고객에게 자동 노출한다.
+    """
+    permission_classes = [IsAuthenticated, IsEmailVerified, IsOwner]
+    serializer_class = WorkHourSerializer
+    queryset = WorkHour.objects.all()
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if not _booking_enabled():
+            raise PermissionDenied('미팅 예약 기능이 현재 비활성화되어 있습니다.')
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
 
 class MeetingSlotViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
@@ -80,16 +114,41 @@ class MeetingViewSet(OwnedQuerySetMixin, viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if self.request.query_params.get('upcoming') == 'true':
+        st = self.request.query_params.get('status')
+        if st:
+            qs = qs.filter(status=st)
+        elif self.request.query_params.get('upcoming') == 'true':
             qs = qs.filter(status=Meeting.STATUS_CONFIRMED, start_at__gte=timezone.now())
         return qs
+
+    @action(detail=True, methods=['post'])
+    def accept(self, request, pk=None):
+        """대기 중인 예약 신청을 수락 → 확정 + 구글 캘린더 등록."""
+        meeting = self.get_object()
+        if meeting.status != Meeting.STATUS_PENDING:
+            return Response({'detail': '대기 중인 예약만 수락할 수 있어요.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        meeting.status = Meeting.STATUS_CONFIRMED
+        meeting.save(update_fields=['status'])
+        _push_to_google(meeting)
+        return Response(self.get_serializer(meeting).data)
+
+    @action(detail=True, methods=['post'])
+    def decline(self, request, pk=None):
+        """대기 중인 예약 신청을 거절 → 그 시간이 다시 비워진다."""
+        meeting = self.get_object()
+        if meeting.status != Meeting.STATUS_PENDING:
+            return Response({'detail': '대기 중인 예약만 거절할 수 있어요.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        meeting.status = Meeting.STATUS_DECLINED
+        meeting.save(update_fields=['status'])
+        return Response(self.get_serializer(meeting).data)
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
         meeting = self.get_object()
         meeting.status = Meeting.STATUS_CANCELED
         meeting.save(update_fields=['status'])
-        # 취소해도 슬롯은 재오픈하지 않음(MVP — 설계사가 새 슬롯 추가).
         return Response(self.get_serializer(meeting).data)
 
 
@@ -125,8 +184,12 @@ class BookingRequestCreateView(APIView):
         planner_name = ((getattr(profile, 'name', '') or '')
                         or (getattr(profile, 'affiliation', '') or '')
                         or request.user.email)
+        planner_label = ' '.join(
+            p for p in ((getattr(profile, 'affiliation', '') or '').strip(),
+                        (getattr(profile, 'title', '') or '').strip()) if p)
         template = getattr(profile, 'booking_msg_template', '') or DEFAULT_BOOKING_MSG_TEMPLATE
-        message = render_booking_message(template, customer.name, planner_name, url)
+        message = render_booking_message(template, customer.name, planner_name, url,
+                                         planner_label=planner_label)
         return Response(
             {'token': token, 'booking_url': url, 'message': message},
             status=status.HTTP_201_CREATED)

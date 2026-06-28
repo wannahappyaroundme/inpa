@@ -14,6 +14,7 @@ from .public_booking import PublicBookingView
 app_name = 'booking'
 
 router = SimpleRouter()
+router.register('work-hours', views.WorkHourViewSet, basename='work-hour')
 router.register('meeting-slots', views.MeetingSlotViewSet, basename='meeting-slot')
 router.register('meetings', views.MeetingViewSet, basename='meeting')
 

@@ -59,6 +59,7 @@ class ProfileSerializer(serializers.ModelSerializer):
                   'cohort_opt_in', 'manager_share_opt_in', 'manager_email', 'managed_agents_count',
                   'license_self_declared', 'license_no', 'career_years',
                   'booking_msg_template', 'booking_location', 'booking_default_duration',
+                  'booking_buffer_min', 'title',
                   'google_calendar_connected', 'google_calendar_mask_name',
                   'onboarding_completed_at', 'marketing_agreed_at', 'ref_code',
                   'email_verified_at', 'is_admin', 'is_dormant', 'has_usable_password')

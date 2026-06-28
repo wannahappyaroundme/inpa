@@ -10,6 +10,30 @@ from django.conf import settings
 from django.db import models
 
 
+class WorkHour(models.Model):
+    """설계사 주간 업무시간(반복). 이 시간 안에서 미팅·차단·버퍼를 빼고 빈 슬롯을 자동 노출한다.
+
+    ★ 타임존: start_time/end_time = KST 벽시계 그대로(변환 금지). 반복 차단(ScheduleItem)과 동일 규약.
+    """
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='work_hours', verbose_name='설계사(소유자)')
+    weekday = models.PositiveSmallIntegerField('요일(0=월..6=일)')
+    start_time = models.TimeField('시작')  # KST 벽시계
+    end_time = models.TimeField('종료')    # KST 벽시계
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'work_hour'
+        verbose_name = '업무시간'
+        verbose_name_plural = '업무시간'
+        ordering = ['weekday', 'start_time']
+        indexes = [models.Index(fields=['owner', 'weekday'])]
+
+    def __str__(self):
+        return f'{self.owner_id} wd{self.weekday} {self.start_time}-{self.end_time}'
+
+
 class MeetingSlot(models.Model):
     """설계사 가용 슬롯 (일회성 datetime). 반복 주간가용은 범위 밖."""
     STATUS_OPEN = 'open'
@@ -53,12 +77,18 @@ class Meeting(models.Model):
         (METHOD_PHONE, '전화'),
         (METHOD_VIDEO, '화상'),
     )
-    STATUS_CONFIRMED = 'confirmed'
-    STATUS_CANCELED = 'canceled'
+    STATUS_PENDING = 'pending'        # 고객이 신청 → 설계사 수락 대기
+    STATUS_CONFIRMED = 'confirmed'    # 설계사 수락(확정)
+    STATUS_CANCELED = 'canceled'      # 확정 후 취소
+    STATUS_DECLINED = 'declined'      # 설계사 거절(대기 → 거절)
     STATUS_CHOICES = (
+        (STATUS_PENDING, '대기'),
         (STATUS_CONFIRMED, '확정'),
         (STATUS_CANCELED, '취소됨'),
+        (STATUS_DECLINED, '거절됨'),
     )
+    # 시간을 점유(중복 차단)하는 상태 — 빈 슬롯 계산에서 제외 대상.
+    ACTIVE_STATUSES = (STATUS_PENDING, STATUS_CONFIRMED)
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,

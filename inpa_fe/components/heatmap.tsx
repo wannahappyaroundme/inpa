@@ -5,48 +5,42 @@
 //
 // 정직성 레드라인:
 //  - 상태 판정은 BE 권위(FE는 status 문자열 → CSS클래스 매핑만). FE 재판정 금지.
-//  - neutral 모드: '기준 미설정 — 중립 표시'. 충족/부족 단정 금지.
-//  - 부족/적정/넉넉 단정은 mode='graded' 일 때만.
+//  - 기준 미설정(mode='neutral')이면 부족/적정/넉넉을 아예 표시하지 않는다(색·라벨 없음).
+//    '중립'이라고 적는 대신, 기준을 정하라는 안내(CTA)로 유도 — PM 06.29.
+//  - 신호등 색: 넉넉=초록 / 적정=노랑 / 부족=빨강 (PM 06.29).
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState, type ReactNode } from "react";
+import Link from "next/link";
 import type { HeatmapResponse, HeatmapDetail, HeatmapStatus } from "@/lib/api";
 
-// ── 색·패턴 매핑 (BE status → Tailwind 유틸만, inline hex 금지) ─────────────
-function cellClasses(status: HeatmapStatus, graded: boolean): string {
-  // 색맹 이중인코딩: 채움/좌4px바/점선 패턴 동반 (aria-label은 각 셀에)
-  if (!graded) {
-    return status === "neutral"
-      ? "bg-surface2 border border-dashed border-line text-ink3"
-      : status === "shortage"
-      ? "bg-amber-50 border-l-4 border-l-short border border-line text-ink"
-      : status === "adequate"
-      ? "bg-surface2 border border-line text-ink2"
-      : "bg-surface2 border border-line text-ink2"; // over
-  }
+// ── 색 매핑 (BE status → Tailwind 신호등) ─────────────
+// 기준 미설정(neutral 모드)이면 판정색을 칠하지 않고 담백한 기본 셀로 둔다.
+function cellClasses(status: HeatmapStatus, mode: "neutral" | "graded"): string {
+  if (mode === "neutral") return "bg-surface2 border border-line text-ink2";
   switch (status) {
+    case "shortage": // 부족 = 빨강
+      return "bg-rose-50 border border-rose-200 border-l-4 border-l-cnone text-rose-700 font-semibold";
+    case "adequate": // 적정 = 노랑
+      return "bg-amber-50 border border-amber-200 text-amber-800 font-semibold";
+    case "over": // 넉넉 = 초록
+      return "bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold";
     case "neutral":
-      return "bg-surface2 border border-dashed border-line text-ink3";
-    case "shortage":
-      return "bg-amber-50 border-l-4 border-l-short border border-amber-200 text-ink font-medium";
-    case "adequate":
-      return "bg-indigo-50 border border-indigo-200 text-enough font-medium";
-    case "over":
-      return "bg-blue-50 border border-blue-200 text-over font-medium";
+      return "bg-surface2 border border-line text-ink2";
   }
 }
 
 function statusLabel(status: HeatmapStatus, mode: "neutral" | "graded"): string {
-  if (mode === "neutral") return "-";
+  if (mode === "neutral") return "";
   switch (status) {
-    case "neutral":
-      return "-";
     case "shortage":
       return "부족";
     case "adequate":
       return "적정";
     case "over":
       return "넉넉";
+    case "neutral":
+      return "";
   }
 }
 
@@ -55,16 +49,16 @@ function statusAriaLabel(
   status: HeatmapStatus,
   mode: "neutral" | "graded"
 ): string {
-  if (mode === "neutral") return `${name}: 중립(기준 미설정)`;
+  if (mode === "neutral") return `${name}: 보유 여부만 표시(기준 미설정)`;
   switch (status) {
-    case "neutral":
-      return `${name}: 중립`;
     case "shortage":
       return `${name}: 부족`;
     case "adequate":
       return `${name}: 적정`;
     case "over":
       return `${name}: 넉넉`;
+    case "neutral":
+      return name;
   }
 }
 
@@ -81,8 +75,8 @@ export function fmtWon(val: number | null): string {
   return `${krw.format(val)}원`;
 }
 
-// ── 필터 타입 ──────────────────────────────────
-export type FilterKey = "all" | "shortage" | "adequate" | "over" | "neutral";
+// ── 필터 타입 (중립 제거 — PM 06.29) ──────────────────────────────────
+export type FilterKey = "all" | "shortage" | "adequate" | "over";
 
 // ── HeatCell ──────────────────────────────────────────────────────────────
 export function HeatCell({
@@ -94,23 +88,21 @@ export function HeatCell({
   mode: "neutral" | "graded";
   graded: boolean;
 }) {
-  const cls = cellClasses(detail.status, graded);
+  const cls = cellClasses(detail.status, mode);
   const label = statusLabel(detail.status, mode);
   const aria = statusAriaLabel(detail.name, detail.status, mode);
 
   return (
     <div
-      className={`rounded-lg px-2.5 py-1.5 text-[12px] transition ${cls}`}
+      className={`rounded-lg px-3 py-2 text-[13px] transition ${cls}`}
       aria-label={aria}
       title={aria}
     >
-      <div className="font-medium leading-4">{detail.name}</div>
+      <div className="font-semibold leading-4">{detail.name}</div>
       {graded && (
-        <div className="mt-0.5 flex items-center gap-1.5 text-[11px]">
+        <div className="mt-1 flex items-center gap-1.5 text-[11px]">
           <span className="tnum opacity-80">{fmtAmount(detail.held_amount)}</span>
-          {mode !== "neutral" && label !== "-" && (
-            <span className="opacity-60">· {label}</span>
-          )}
+          {label && <span className="opacity-70">· {label}</span>}
         </div>
       )}
     </div>
@@ -227,16 +219,22 @@ export function HeatmapGrid({
 
   return (
     <div>
-      {/* BE 판정 모드 안내 (PM 06.24 — graded 가 왜 켜졌는지 명확화) */}
+      {/* BE 판정 모드 안내 — 기준 있으면 적용중, 없으면 기준 설정으로 유도(PM 06.29: '중립' 표기 제거) */}
       <div className="mb-3 text-[12px] leading-5">
         {heatmap.mode === "graded" ? (
-          <span className="inline-block rounded-lg bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-indigo-700">
-            ✓ 내 기준 {heatmap.baseline_count}개 적용 중. 부족·적정·넉넉은 <b className="font-semibold">설정한 기준</b>에 따른 결과예요.
+          <span className="inline-block rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-emerald-800">
+            ✓ 내 기준 {heatmap.baseline_count}개 적용 중. 넉넉·적정·부족은 <b className="font-semibold">설정한 기준</b>에 따른 결과예요.
           </span>
         ) : (
-          <span className="inline-block rounded-lg bg-surface2 border border-line px-2.5 py-1 text-ink3">
-            기준 미설정(중립). 보유 0만 표시하고 부족·충분은 단정하지 않아요. <b className="font-semibold text-ink2">설정 › 기준선</b>에서 기준을 추가하면 판정이 켜져요.
-          </span>
+          <Link
+            href="/settings/baseline"
+            className="flex items-center justify-between gap-2 rounded-xl bg-surface2 border border-line px-3.5 py-2.5 hover:border-brand transition"
+          >
+            <span className="text-ink2">
+              기준을 정하면 <b className="text-ink">넉넉·적정·부족</b>을 색으로 한눈에 볼 수 있어요. (지금은 보유 내역만 표시돼요)
+            </span>
+            <span className="shrink-0 text-[12px] font-semibold text-brand whitespace-nowrap">기준 설정하기 ›</span>
+          </Link>
         )}
       </div>
 
@@ -258,7 +256,7 @@ export function HeatmapGrid({
               graded ? "bg-surface text-ink shadow-sm" : "text-ink3"
             }`}
           >
-            상세·4단계
+            상세
           </button>
         </div>
 
@@ -285,10 +283,9 @@ export function HeatmapGrid({
           {(
             [
               { key: "all", label: "전체" },
-              { key: "shortage", label: "부족" },
-              { key: "adequate", label: "적정" },
               { key: "over", label: "넉넉" },
-              { key: "neutral", label: "중립" },
+              { key: "adequate", label: "적정" },
+              { key: "shortage", label: "부족" },
             ] as { key: FilterKey; label: string }[]
           ).map(({ key, label }) => (
             <FilterChip
@@ -309,7 +306,7 @@ export function HeatmapGrid({
             해당 조건의 담보가 없어요.
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="grid sm:grid-cols-2 gap-x-6 gap-y-6">
             {filteredTree.map((cat) => (
               <div key={cat.category_id}>
                 <div className="mb-2 flex items-center gap-2">
@@ -346,28 +343,23 @@ export function HeatmapGrid({
           </div>
         )}
 
-        {/* 범례 */}
-        {graded && (
+        {/* 범례 — 신호등 3색(중립 제거, PM 06.29). 기준 적용 모드에서만 노출. */}
+        {graded && heatmap.mode === "graded" && (
           <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[12px] text-ink3">
             <LegendItem
               label="넉넉"
-              chip="bg-blue-50 border border-blue-200 text-over"
-              pattern="진한 채움"
+              chip="bg-emerald-50 border border-emerald-200"
+              pattern="초록"
             />
             <LegendItem
               label="적정"
-              chip="bg-indigo-50 border border-indigo-200 text-enough"
-              pattern="옅은 채움"
+              chip="bg-amber-50 border border-amber-200"
+              pattern="노랑"
             />
             <LegendItem
               label="부족"
-              chip="bg-amber-50 border-l-4 border-l-short border border-amber-200 text-ink"
-              pattern="왼쪽 띠"
-            />
-            <LegendItem
-              label="중립"
-              chip="bg-surface2 border border-dashed border-line text-ink3"
-              pattern="점선"
+              chip="bg-rose-50 border-l-4 border-l-cnone border border-rose-200"
+              pattern="빨강"
             />
           </div>
         )}
