@@ -234,7 +234,7 @@ export function CustomerCreateModal({
 
           {/* 직업급수 찾기 — 검색 → 선택 시 job_code 적용(미선택 가능) */}
           <div className="flex flex-col gap-1">
-            <span className="text-[12px] font-semibold text-ink3">직업급수 (선택 — 검색해서 적용)</span>
+            <span className="text-[12px] font-semibold text-ink3">직업급수 (선택, 검색해서 적용)</span>
             {selectedJob ? (
               <div className="flex items-center justify-between gap-2 rounded-xl border border-line bg-accent-tint px-3.5 py-2.5">
                 <div className="min-w-0">
@@ -336,13 +336,13 @@ export function CustomerCreateModal({
               <span className="text-[12px] text-ink2 leading-4">마케팅 수신 동의를 받았어요</span>
             </label>
             <p className="text-[11px] text-ink3 leading-4">
-              여기 체크는 <b>설계사 기록(메모)</b>이에요. 법적으로 가장 안전한 건 고객 본인이 링크로 직접 동의하는 것 — 등록 후 '동의 요청 링크 복사'를 쓰세요.
+              여기 체크는 <b>설계사 기록(메모)</b>이에요. 법적으로 가장 안전한 건 고객 본인이 링크로 직접 동의하는 것. 등록 후 '동의 요청 링크 복사'를 쓰세요.
             </p>
           </div>
 
           {/* 아바타 글씨·색상 — 글씨 비우면 인파 로고. 색은 로고/글씨 공통 배경 */}
           <div className="flex flex-col gap-2">
-            <span className="text-[12px] font-semibold text-ink3">아바타 글씨·색상 (선택 — 분류용)</span>
+            <span className="text-[12px] font-semibold text-ink3">아바타 글씨·색상 (선택, 분류용)</span>
             <div className="flex items-center gap-3">
               <CustomerAvatar label={avatarLabel} color={color || null} size={40} />
               <input

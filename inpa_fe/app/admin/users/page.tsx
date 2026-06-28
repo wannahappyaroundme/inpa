@@ -112,7 +112,7 @@ function UsersContent() {
                   {data.results.map((u) => (
                     <tr key={u.id} className="hover:bg-surface2 transition">
                       <td className="px-4 py-3 text-ink font-medium">{u.email}</td>
-                      <td className="px-4 py-3 text-ink3">{u.affiliation ?? "—"}</td>
+                      <td className="px-4 py-3 text-ink3">{u.affiliation ?? "미입력"}</td>
                       <td className="px-4 py-3 text-ink">{u.plan_display}</td>
                       <td className="px-4 py-3 text-ink3 tnum">{fmt(u.date_joined)}</td>
                       <td className="px-4 py-3">{statusBadge(u)}</td>

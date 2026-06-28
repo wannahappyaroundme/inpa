@@ -68,7 +68,7 @@ function unitLabel(v: BaselineUnit): string {
   return UNITS.find((u) => u.value === v)?.label ?? "";
 }
 function fmtDecimal(v: string | null): string {
-  if (v === null || v === "") return "—";
+  if (v === null || v === "") return "-";
   const n = Number(v);
   if (Number.isNaN(n)) return v;
   return new Intl.NumberFormat("ko-KR").format(n);
@@ -276,7 +276,7 @@ export default function BaselineSettingsPage() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               disabled
-              title="출처·권위 확정 전까지 비활성 — 현재는 직접 입력만 가능해요"
+              title="출처·권위 확정 전까지 비활성이에요. 현재는 직접 입력만 가능해요"
               className="rounded-xl border border-line bg-surface2 text-[13px] font-semibold text-ink3 px-4 py-2.5 opacity-50 cursor-not-allowed"
             >
               프리셋 불러오기
@@ -451,7 +451,7 @@ export default function BaselineSettingsPage() {
                 id="preset-modal-title"
                 className="text-[18px] font-extrabold text-ink"
               >
-                프리셋 불러오기 — 주의 사항
+                프리셋 불러오기 주의 사항
               </h2>
 
               {/* ★ v0_starter 출처 미확정 경고 */}

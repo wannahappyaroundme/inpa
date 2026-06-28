@@ -226,7 +226,7 @@ function OrdersContent() {
               <Card className="p-5">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-[14px] font-bold text-ink">
-                    주문 #{selectedOrder.id} — {selectedOrder.sample?.name ?? "—"}
+                    주문 #{selectedOrder.id} · {selectedOrder.sample?.name ?? "상품 미확인"}
                   </span>
                   <button onClick={() => setSelectedOrder(null)} className="text-ink3 text-[18px] leading-none hover:text-ink">×</button>
                 </div>

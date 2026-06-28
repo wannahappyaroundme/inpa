@@ -199,7 +199,7 @@ function AnalysisPageInner() {
               ⓘ
             </span>
             <p className="text-[13px] text-ink2 leading-5">
-              <b className="font-semibold text-ink">기준 미설정 — 중립 표시</b>
+              <b className="font-semibold text-ink">기준 미설정, 중립 표시</b>
               <br />
               보장 기준선이 설정되지 않아 보유 여부만 표시해요. 기준을 설정하면
               부족·적정·넉넉을 구분할 수 있어요.

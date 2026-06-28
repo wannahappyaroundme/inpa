@@ -10,7 +10,7 @@ const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 // 로 덮어쓴다(빌드타임 인라인 — 변경 후 재배포 필요). 기본값 = 현재 라이브 도메인
 // (미보유 도메인으로 두면 og:image 절대 URL 이 깨져 카톡/SNS 미리보기가 안 뜸).
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://in-pa.vercel.app";
-const TITLE = "인파(Inpa) — 설계사님은 클로징만 준비하세요";
+const TITLE = "인파(Inpa) · 설계사님은 클로징만 준비하세요";
 const DESCRIPTION =
   "새 고객 발굴 → 증권 분석 → 보장 한눈에 → 비교 분석까지 한 동선으로. 보험설계사의 AI 영업 파트너, 인파(Inpa).";
 

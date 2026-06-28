@@ -77,7 +77,7 @@ const TABS: { key: TabKey; label: string }[] = [
 
 // ── 헬퍼 ──────────────────────────────────────
 function calcAge(birthDay: string | null): string {
-  if (!birthDay) return "—";
+  if (!birthDay) return "-";
   const birth = new Date(birthDay);
   const today = new Date();
   let age = today.getFullYear() - birth.getFullYear();
@@ -597,9 +597,9 @@ function InfoTab({
           {/* 읽기 전용 파생 정보 */}
           <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-[13px]">
             <dt className="text-ink3">보험나이</dt>
-            <dd className="text-ink2 text-right">{customer.insurance_age != null ? `${customer.insurance_age}세` : "—"}</dd>
+            <dd className="text-ink2 text-right">{customer.insurance_age != null ? `${customer.insurance_age}세` : "-"}</dd>
             <dt className="text-ink3">직업</dt>
-            <dd className="text-ink2 text-right">{customer.job_name ?? "—"}{riskLabel ? ` (${riskLabel})` : ""}</dd>
+            <dd className="text-ink2 text-right">{customer.job_name ?? "-"}{riskLabel ? ` (${riskLabel})` : ""}</dd>
             <dt className="text-ink3">영업 단계</dt>
             <dd className="text-ink2 text-right">{customer.sales_stage.toUpperCase()}</dd>
           </dl>
@@ -619,7 +619,7 @@ function InfoTab({
               {consentBusy ? "링크 생성 중…" : "동의 요청 링크 복사(고객 본인용)"}
             </button>
             <p className="mt-1.5 text-[11px] text-ink3 leading-4">
-              가장 안전한 건 고객 본인이 링크로 직접 동의하는 거예요. (자동발송 없음 — 복사해 전달)
+              가장 안전한 건 고객 본인이 링크로 직접 동의하는 거예요. (자동발송 없음, 복사해 전달)
             </p>
           </div>
 
@@ -633,7 +633,7 @@ function InfoTab({
       {/* 하단: 명함 */}
       <Card className="p-4">
         <h3 className="text-[15px] font-bold text-ink">명함</h3>
-        <p className="mt-1 text-[12px] text-ink3">명함·방명록 사진을 올려두면 보관돼요. (자동 인식은 준비 중 — 정보는 위에서 직접 입력해 주세요.)</p>
+        <p className="mt-1 text-[12px] text-ink3">명함·방명록 사진을 올려두면 보관돼요. (자동 인식은 준비 중이에요. 정보는 위에서 직접 입력해 주세요.)</p>
         <div className="mt-3 flex items-center gap-4 flex-wrap">
           {customer.business_card ? (
             <a href={customer.business_card} target="_blank" rel="noreferrer">
@@ -705,7 +705,7 @@ function ChecklistTab({ customerId }: { customerId: number }) {
       {/* §97 불리사항 구두고지 안내 — 설계사 내부 전용(고객 화면·공유뷰 비노출) */}
       <div className="mt-3 rounded-xl border border-amber-300/70 bg-amber-50 px-3.5 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-bold text-amber-900">갈아타기(승환) 계약이면 — 불리사항 구두 고지</span>
+          <span className="text-[13px] font-bold text-amber-900">갈아타기(승환) 계약이면, 불리사항 구두 고지</span>
           <span className="ml-auto shrink-0 text-[10px] font-semibold rounded-full bg-white/70 text-amber-800 px-2 py-0.5">설계사 내부 · 고객 비노출</span>
         </div>
         <p className="mt-1.5 text-[12px] leading-5 text-amber-900/90">
@@ -858,7 +858,7 @@ function AnalysisTab({
             ⓘ
           </span>
           <p className="text-[13px] text-ink2 leading-5">
-            <b className="font-semibold text-ink">기준 미설정 — 중립 표시</b>
+            <b className="font-semibold text-ink">기준 미설정(중립 표시)</b>
             <br />
             보장 기준선이 설정되지 않아 보유 여부만 표시해요. 기준을 설정하면
             부족·적정·넉넉을 구분할 수 있어요.
@@ -1038,11 +1038,11 @@ function SwitchTab({ customerId }: { customerId: number }) {
 
   // 보험료 포맷
   function fmtPrem(v: number | null) {
-    if (v === null) return "—";
+    if (v === null) return "-";
     return new Intl.NumberFormat("ko-KR").format(v) + "원";
   }
   function fmtDelta(d: number | null) {
-    if (d === null) return "—";
+    if (d === null) return "-";
     const sign = d > 0 ? "+" : "";
     return sign + new Intl.NumberFormat("ko-KR").format(d);
   }
@@ -1063,7 +1063,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
         const map = {
           KEEP: { label: "유지가 유리 (추정)", cls: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "🟢" },
           SWITCH: { label: "전환 검토", cls: "bg-blue-50 border-blue-200 text-blue-900", dot: "🔵" },
-          NEUTRAL: { label: "중립 — 상황 판단", cls: "bg-surface2 border-line text-ink2", dot: "⚪" },
+          NEUTRAL: { label: "중립(상황 판단)", cls: "bg-surface2 border-line text-ink2", dot: "⚪" },
         } as const;
         const m = map[v.decision] ?? map.NEUTRAL;
         const net = v.customer_net_benefit_estimate;
@@ -1092,7 +1092,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
                       {w.amount !== null && (
                         <> · {new Intl.NumberFormat("ko-KR").format(w.amount)}원</>
                       )}
-                      <span className="opacity-80"> — {w.detail}</span>
+                      <span className="opacity-80">: {w.detail}</span>
                     </span>
                   </li>
                 ))}
@@ -1170,12 +1170,12 @@ function SwitchTab({ customerId }: { customerId: number }) {
                   <td className="px-3 py-2.5 text-right text-ink3 tnum">
                     {row.current_amount !== null
                       ? new Intl.NumberFormat("ko-KR").format(row.current_amount)
-                      : "—"}
+                      : "-"}
                   </td>
                   <td className="px-3 py-2.5 text-right text-ink3 tnum">
                     {row.proposed_amount !== null
                       ? new Intl.NumberFormat("ko-KR").format(row.proposed_amount)
-                      : "—"}
+                      : "-"}
                   </td>
                   <td
                     className={`px-3 py-2.5 text-right tnum font-semibold ${

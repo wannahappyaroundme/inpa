@@ -61,7 +61,7 @@ function HeroSection() {
               설계사님은<br />클로징만 준비하세요
             </h1>
             <p className="mt-5 text-[16px] sm:text-[19px] text-white/80 leading-relaxed max-w-xl mx-auto md:mx-0">
-              발굴부터 보장분석, 비교 분석까지 — 인파가 준비하고, 설계사님이 완성합니다.
+              발굴부터 보장분석, 비교 분석까지. 인파가 준비하고, 설계사님이 완성합니다.
             </p>
             <p className="mt-2 text-[14px] sm:text-[15px] text-white/55 leading-relaxed max-w-lg mx-auto md:mx-0">
               증권 한 장으로 고객 보장 공백을 한 화면에. AI 비교안내서 초안까지, 최종 검토는 설계사님이.
@@ -70,7 +70,7 @@ function HeroSection() {
               <Link href="/register" className="w-full sm:w-auto px-7 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/90 transition shadow-lg">무료로 시작하기</Link>
               <a href="#features" className="w-full sm:w-auto px-7 py-4 rounded-2xl border border-white/25 text-white font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/10 transition">기능 둘러보기</a>
             </div>
-            <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 베타 기간 무제한 · 이메일로 가입</p>
+            <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 가입 시 한 달 무료 쿠폰 · 이메일로 가입</p>
           </Reveal>
 
           <Reveal delay={120} className="flex-1 w-full max-w-md md:max-w-none">
@@ -135,7 +135,7 @@ function FeaturesSection() {
   const cards = [
     { icon: LayoutGrid, title: "보장 한눈표 (히트맵)", desc: "고객의 현재 보장을 100개 이상 담보 항목으로 한 화면에. 보유·공백을 색으로 즉시 확인합니다." },
     { icon: BarChart3, title: "보장 공백 분석", desc: "보유 0인 담보를 모아 우선순위로 정렬합니다. 충분·부족 판단은 설계사님이 설정한 기준선을 따릅니다." },
-    { icon: ArrowLeftRight, title: "비교 분석 안내서", desc: "기존과 제안을 나란히 정리하고, 해지손실·면책기간 재적용·예정이율 같은 비교 시 불이익을 빠짐없이 짚어줍니다. (AI 초안 — 최종 비교안내·책임은 설계사)" },
+    { icon: ArrowLeftRight, title: "비교 분석 안내서", desc: "기존과 제안을 나란히 정리하고, 해지손실·면책기간 재적용·예정이율 같은 비교 시 불이익을 빠짐없이 짚어줍니다. (AI 초안, 최종 비교안내·책임은 설계사)" },
   ];
   return (
     <section id="features" className="py-20 md:py-28 bg-[var(--surface)]">
@@ -279,10 +279,10 @@ function FeatureShowcaseSection() {
 
 function DifferentiatorsSection() {
   const items = [
-    { icon: ShieldCheck, badge: "비교 분석 가드레일 — 점검 전엔 발행 잠금", title: "비교 시 불이익을 빠짐없이 점검하는 비교안내",
+    { icon: ShieldCheck, badge: "비교 분석 가드레일: 점검 전엔 발행 잠금", title: "비교 시 불이익을 빠짐없이 점검하는 비교안내",
       desc: "다른 상품으로 바꿀 때 고객에게 불리할 수 있는 항목(해지환급금 손실·면책기간 재적용·예정이율 등)을 빠짐없이 점검하도록 돕습니다. 점검 전에는 고객 발행을 잠가 빠뜨림을 줄여요. 법적 비교안내(공식 확인서)는 설계사가 최종 확인·책임집니다." },
     { icon: LayoutGrid, badge: "담보 100+ 표준화 · 보험사별 명칭 자동 매핑", title: "어떤 보험사 증권도 같은 틀로",
-      desc: "'암진단급부금', '일반암진단비', '암진단 특약' — 회사마다 다른 이름을 100개 이상 표준 담보로 자동 정규화합니다. 데이터가 쌓일수록 매칭 정확도가 높아집니다." },
+      desc: "'암진단급부금', '일반암진단비', '암진단 특약'처럼 회사마다 다른 이름을 100개 이상 표준 담보로 자동 정규화합니다. 데이터가 쌓일수록 매칭 정확도가 높아집니다." },
   ];
   return (
     <section className="py-20 md:py-28" style={{ background: NAVY }}>
@@ -339,7 +339,7 @@ function PricingSection() {
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
         <Reveal>
           <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">요금제</h2>
-          <p className="mt-3 text-center text-[15px] text-[var(--ink-3)]">베타 기간 전 기능 무료 — 정식 출시 후에도 베타 가입자 혜택 유지.</p>
+          <p className="mt-3 text-center text-[15px] text-[var(--ink-3)]">최초 가입하면 한 달 무료 사용 쿠폰을 드립니다. 정식 출시 후에도 가입자 혜택은 그대로예요.</p>
         </Reveal>
         <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
           <Reveal className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 flex flex-col gap-3">
@@ -399,7 +399,7 @@ function FinalCTASection() {
         <h2 className="text-[28px] sm:text-[40px] font-extrabold text-white leading-tight tracking-tight">
           지금, 첫 고객의<br /><span style={{ color: MINT }}>보장 공백</span>부터 보세요
         </h2>
-        <p className="mt-4 text-[16px] text-white/70">증권 한 장이면 시작입니다. 베타 기간 무료.</p>
+        <p className="mt-4 text-[16px] text-white/70">증권 한 장이면 시작입니다. 지금 가입하면 한 달 무료.</p>
         <Link href="/register" className="mt-8 inline-flex px-8 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] items-center justify-center hover:bg-white/90 transition shadow-lg">무료로 분석 시작하기</Link>
         <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 이메일로 가입</p>
       </Reveal>
@@ -443,7 +443,7 @@ function AudienceSection() {
     {
       tag: "관리직(팀장·지점장)",
       title: "팀원이 편해지면\n팀장님 숫자가 좋아집니다",
-      body: "월말 취합 엑셀은 그만. 팀 퍼널·유지율·환수위험을 실시간으로 — 보고 받지 마세요, 인파에서 바로 보세요. (성과 수치는 추정)",
+      body: "월말 취합 엑셀은 그만. 팀 퍼널·유지율·환수위험을 실시간으로 봅니다. 보고 받지 마세요, 인파에서 바로 보세요. (성과 수치는 추정)",
     },
   ];
   return (

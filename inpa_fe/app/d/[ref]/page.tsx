@@ -11,7 +11,7 @@ import { postSelfDiagnosis, ApiError, type SelfDiagnosisResult } from "@/lib/api
 
 const krw = new Intl.NumberFormat("ko-KR");
 function fmtWon(v: number | null | undefined): string {
-  if (v === null || v === undefined) return "—";
+  if (v === null || v === undefined) return "-";
   if (v >= 100_000_000) return `${krw.format(v / 100_000_000)}억원`;
   if (v >= 10_000) return `${krw.format(v / 10_000)}만원`;
   return `${krw.format(v)}원`;

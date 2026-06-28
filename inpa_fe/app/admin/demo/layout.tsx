@@ -24,7 +24,7 @@ export default function DemoLayout({ children }: { children: React.ReactNode }) 
     <div>
       <div className="sticky top-0 z-20 bg-amber-50 border-b border-amber-200 px-4 sm:px-6 py-2 flex items-center gap-2 flex-wrap">
         <span className="text-[12px] font-bold text-amber-900 bg-amber-200 rounded-full px-2.5 py-0.5">🧪 목업 데모</span>
-        <span className="text-[12px] text-amber-800">실제 데이터가 아니에요 — 데이터가 채워지면 이런 형식·UI라는 미리보기입니다.</span>
+        <span className="text-[12px] text-amber-800">실제 데이터가 아니에요. 데이터가 채워지면 이런 형식·UI라는 미리보기입니다.</span>
       </div>
       <nav className="border-b border-line bg-surface px-2 sm:px-4 flex gap-1 overflow-x-auto">
         {SUB.map((s) => {

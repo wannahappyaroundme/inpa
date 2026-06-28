@@ -460,7 +460,7 @@ export default function CustomersPage() {
             </div>
             {totalCount > customers.length && (
               <p className="mt-3 text-[12px] text-ink3 text-center">
-                전체 {totalCount}명 중 {customers.length}명 표시 중 — 검색으로 좁혀서 이동하세요.
+                전체 {totalCount}명 중 {customers.length}명 표시 중이에요. 검색으로 좁혀서 이동하세요.
               </p>
             )}
           </>

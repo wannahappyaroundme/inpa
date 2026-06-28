@@ -441,7 +441,7 @@ export default function SampleDetailPage({
             {sample.is_digital && (
               <div className="space-y-4">
                 <div className="rounded-xl border border-accent-tint bg-accent-tint/40 p-4">
-                  <div className="text-[14px] font-bold text-ink">전자자료 — 첫 1회 무료</div>
+                  <div className="text-[14px] font-bold text-ink">전자자료, 첫 1회 무료</div>
                   <p className="mt-1 text-[12px] text-ink2 leading-5">
                     처음 1회는 무료로 바로 받을 수 있어요. 그 다음부터는 요청하면 운영팀이 직접 제작해 전달해 드립니다.
                   </p>

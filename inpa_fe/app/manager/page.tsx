@@ -36,7 +36,7 @@ export default function ManagerPage() {
           팀원 한 명 한 명의 인파(人波)를 정리하면 팀 전체의 성과가 보입니다.
         </p>
         <p className="mt-1 text-[13px] text-ink3 leading-5">
-          월말 취합 엑셀은 그만 — KPI 공유에 <b>동의한</b> 소속 설계사의 집계를 실시간으로 봐요. 개별 고객 정보는 표시되지 않습니다(프라이버시).
+          월말 취합 엑셀은 이제 그만. KPI 공유에 <b>동의한</b> 소속 설계사의 집계를 실시간으로 봐요. 개별 고객 정보는 표시되지 않습니다(프라이버시).
         </p>
 
         {error && (
@@ -77,7 +77,7 @@ export default function ManagerPage() {
                     <Card key={k} className="px-4 py-3.5">
                       <div className="text-[12px] text-ink3">{label} 유지율</div>
                       <div className="mt-1 text-[22px] font-extrabold tnum text-ink">
-                        {r.rate == null ? "—" : `${r.rate}%`}
+                        {r.rate == null ? "·" : `${r.rate}%`}
                       </div>
                       <div className="text-[11px] text-ink3 tnum">{r.survived}/{r.reached}건</div>
                     </Card>

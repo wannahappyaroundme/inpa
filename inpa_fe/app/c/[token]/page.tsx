@@ -131,7 +131,7 @@ export default function CustomerConsentPage() {
                 <span className="text-[13px] text-ink2 leading-5">
                   <b>{item.required ? "(필수) " : "(선택) "}</b>
                   {item.title}
-                  {item.already ? " — 이미 동의함" : ""}
+                  {item.already ? " (이미 동의함)" : ""}
                 </span>
               </label>
               <ul className="mt-2.5 ml-7 space-y-1 text-[12px] text-ink3 leading-5">

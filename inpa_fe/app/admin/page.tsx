@@ -110,7 +110,7 @@ export default function AdminDashboardPage() {
                   <div className="text-[12px] text-ink3">{c.label}</div>
                   <div className="mt-1 flex items-baseline gap-1">
                     <span className="text-[26px] font-extrabold tnum text-ink">
-                      {c.value !== undefined ? fmt(c.value) : "—"}
+                      {c.value !== undefined ? fmt(c.value) : "-"}
                     </span>
                     <span className="text-[13px] text-ink3">{c.unit}</span>
                   </div>
@@ -128,7 +128,7 @@ export default function AdminDashboardPage() {
                   <div className="text-[12px] text-ink3">{c.label}</div>
                   <div className="mt-1 flex items-baseline gap-1">
                     <span className="text-[26px] font-extrabold tnum text-ink">
-                      {c.value !== undefined ? fmt(c.value) : "—"}
+                      {c.value !== undefined ? fmt(c.value) : "-"}
                     </span>
                     <span className="text-[13px] text-ink3">{c.unit}</span>
                   </div>

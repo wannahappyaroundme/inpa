@@ -82,7 +82,7 @@ function GoalRow({ label, actual, target, unit, won }: { label: string; actual: 
       <div className="flex items-baseline justify-between mb-1">
         <span className="text-[13px] text-ink2">{label}</span>
         <span className="text-[13px] text-ink3 tnum">
-          <b className="text-ink text-[15px]">{fmt(actual)}</b> / {target > 0 ? fmt(target) : "—"}{unit ? ` ${unit}` : won ? "원" : ""}
+          <b className="text-ink text-[15px]">{fmt(actual)}</b> / {target > 0 ? fmt(target) : "-"}{unit ? ` ${unit}` : won ? "원" : ""}
           <span className="ml-1.5 font-bold text-brand">{p}%</span>
         </span>
       </div>
@@ -187,7 +187,7 @@ export default function HomePage() {
     }
     for (const m of meetings) {
       const t = kstTime(m.start_at);
-      add({ ymd: kstYmd(m.start_at), time: t || "—", title: `${m.customer_name} · ${m.method_display}`, kind: "meeting", sort: t ? hhmmToMin(t) : 0 });
+      add({ ymd: kstYmd(m.start_at), time: t || "-", title: `${m.customer_name} · ${m.method_display}`, kind: "meeting", sort: t ? hhmmToMin(t) : 0 });
     }
     for (const n of notifs) {
       if (!n.target_date) continue;
@@ -293,11 +293,11 @@ export default function HomePage() {
 
         {/* KPI 한 줄 — 전부 실데이터(+ 전월 대비 증감률) */}
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <StatCard label="내 고객" value={customerCount !== null ? String(customerCount) : "—"} unit="명" />
-          <StatCard label="이번 달 신규" value={dash ? String(dash.actual_new_customers) : "—"} unit="명" delta={momDelta("new_customers")} />
-          <StatCard label="이번 달 미팅" value={dash ? String(dash.actual_meetings) : "—"} unit="건" delta={momDelta("meetings")} />
-          <StatCard label="이번 달 보험료" value={dash ? fmtWonShort(dash.actual_premium) : "—"} unit="원" delta={momDelta("premium")} />
-          <StatCard label="환수 위험" value={churn ? String(churn.risk_count) : "—"} unit="건" accent={!!churn && churn.risk_count > 0}
+          <StatCard label="내 고객" value={customerCount !== null ? String(customerCount) : "-"} unit="명" />
+          <StatCard label="이번 달 신규" value={dash ? String(dash.actual_new_customers) : "-"} unit="명" delta={momDelta("new_customers")} />
+          <StatCard label="이번 달 미팅" value={dash ? String(dash.actual_meetings) : "-"} unit="건" delta={momDelta("meetings")} />
+          <StatCard label="이번 달 보험료" value={dash ? fmtWonShort(dash.actual_premium) : "-"} unit="원" delta={momDelta("premium")} />
+          <StatCard label="환수 위험" value={churn ? String(churn.risk_count) : "-"} unit="건" accent={!!churn && churn.risk_count > 0}
             hint="고객이 계약을 해지하면 이미 받은 수수료가 환수(반환)될 수 있어요. 최근 해지·연락 두절 등 위험 신호가 있는 고객 수예요." />
         </div>
 
@@ -395,7 +395,7 @@ export default function HomePage() {
                     return (
                       <div key={k} className="rounded-xl bg-surface2 px-3 py-3 text-center">
                         <div className="text-[11px] text-ink3">{label}</div>
-                        <div className="mt-1 text-[20px] font-extrabold tnum text-ink">{r.rate == null ? "—" : `${Math.round(r.rate)}%`}</div>
+                        <div className="mt-1 text-[20px] font-extrabold tnum text-ink">{r.rate == null ? "-" : `${Math.round(r.rate)}%`}</div>
                         <div className="text-[11px] text-ink3 tnum">{r.survived}/{r.reached}건</div>
                       </div>
                     );
@@ -476,7 +476,7 @@ export default function HomePage() {
                     예상 월급 <span className="text-ink3">(가입보험료 ×{dash.income_multiplier})</span>
                   </span>
                   <span className="text-[15px] font-extrabold tnum text-accent">
-                    {dash.expected_income > 0 ? `${fmtWonShort(dash.expected_income)}원` : "—"}
+                    {dash.expected_income > 0 ? `${fmtWonShort(dash.expected_income)}원` : "-"}
                   </span>
                 </div>
               </div>
