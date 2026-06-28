@@ -158,6 +158,13 @@ class JobRiskCode(models.Model):
     sctg_cd = models.CharField('소분류 코드', max_length=10, db_index=True)
     name = models.CharField('직업명', max_length=120, db_index=True)
     risk_grade = models.PositiveSmallIntegerField('위험등급', choices=RISK_GRADE_CHOICES, default=9)
+    # 검색·표시 보강 필드 (foliio loadmeritzjobs 적재 세트 포팅)
+    mctg_cd = models.CharField('중분류 코드', max_length=10, blank=True, default='')
+    lctg_cd = models.CharField('대분류 코드', max_length=10, blank=True, default='')
+    alt_name = models.CharField('직업 약명', max_length=120, blank=True, default='')
+    description = models.TextField('직업 설명', blank=True, default='')
+    synonym = models.TextField('검색어(유사·동의어, | 구분)', blank=True, default='')
+    kidi_cd = models.CharField('KIDI 직업코드', max_length=10, blank=True, default='', db_index=True)
     source = models.CharField('출처', max_length=20, default='meritz')
 
     created_at = models.DateTimeField(auto_now_add=True)

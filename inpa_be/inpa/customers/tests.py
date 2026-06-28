@@ -14,7 +14,8 @@ from django.test import TestCase, override_settings
 from inpa.accounts.models import Profile, User
 
 from .models import (
-    ConsentLog, Customer, CustomerMedicalHistory, CustomerTag, PlannerBaseline,
+    ConsentLog, Customer, CustomerMedicalHistory, CustomerTag, JobRiskCode,
+    PlannerBaseline,
 )
 from .presets import PRESET_ORIGIN_V0, PRESET_V0, iter_preset_rows
 from .tokens import make_consent_token, read_consent_token
@@ -667,3 +668,52 @@ class DdayAutoUpdateTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.cust.refresh_from_db()
         self.assertEqual(self.cust.last_contacted_at, original_ts)
+
+
+class JobSearchTests(TestCase):
+    """직업급수 검색(전역 마스터) + 고객 job_code 적용."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('job@test.com')
+        self.doctor = JobRiskCode.objects.create(
+            sctg_cd='1110', name='의사', risk_grade=1, kidi_cd='011')
+        self.council = JobRiskCode.objects.create(
+            sctg_cd='1501', name='의회의원/공공단체임원', risk_grade=1,
+            synonym='지방의회의원|시의원|도의원|구의원')
+
+    def test_name_match_ranked_first(self):
+        r = self.client.get('/api/v1/jobs/search/?q=의사')
+        self.assertEqual(r.status_code, 200)
+        results = r.data['results']
+        self.assertTrue(results)
+        self.assertEqual(results[0]['name'], '의사')
+        self.assertEqual(results[0]['risk_grade'], 1)
+        self.assertEqual(results[0]['risk_grade_label'], '1급')
+
+    def test_synonym_match(self):
+        """검색어(synonym)에만 있는 '시의원' 으로 의회의원 매칭."""
+        r = self.client.get('/api/v1/jobs/search/?q=시의원')
+        self.assertEqual(r.status_code, 200)
+        names = [j['name'] for j in r.data['results']]
+        self.assertIn('의회의원/공공단체임원', names)
+
+    def test_empty_query_empty_results(self):
+        r = self.client.get('/api/v1/jobs/search/?q=')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data['results'], [])
+
+    def test_requires_auth(self):
+        anon = APIClient()
+        r = anon.get('/api/v1/jobs/search/?q=의사')
+        self.assertIn(r.status_code, (401, 403))
+
+    def test_customer_job_code_apply(self):
+        """검색 결과 id 를 job_code 로 고객 생성 → 직렬화에 job_risk_grade 반영."""
+        r = self.client.post('/api/v1/customers/',
+                             {'name': '김보장', 'job_code': self.doctor.id}, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        cust = Customer.objects.get(pk=r.data['id'])
+        self.assertEqual(cust.job_code_id, self.doctor.id)
+        detail = self.client.get(f'/api/v1/customers/{cust.id}/')
+        self.assertEqual(detail.data['job_risk_grade'], 1)
+        self.assertEqual(detail.data['job_name'], '의사')

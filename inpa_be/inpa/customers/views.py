@@ -9,6 +9,7 @@
   CustomerMedicalHistory 생성을 412(PRECONDITION_FAILED)로 물리 차단. UI 숨김은 방어가 아니다.
 """
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -22,7 +23,7 @@ from inpa.core.permissions import IsEmailVerified, IsOwner
 
 from .models import (
     ConsentLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
-    CustomerTag, FamilyMember, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
+    CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
 )
 from .presets import (
     BASELINE_SOURCE_PRESET, PRESET_NOTE, PRESET_ORIGIN_V0, PRESET_V0,
@@ -31,7 +32,7 @@ from .presets import (
 from .serializers import (
     ConsentLogSerializer, ContractChecklistItemSerializer, CustomerListSerializer,
     CustomerSerializer, CustomerMedicalHistorySerializer, CustomerTagSerializer,
-    FamilyMemberSerializer, PlannerBaselineSerializer,
+    FamilyMemberSerializer, JobRiskCodeSerializer, PlannerBaselineSerializer,
 )
 from .tokens import make_consent_token
 
@@ -321,3 +322,45 @@ class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class JobSearchView(APIView):
+    """직업급수 검색 — 전역 마스터(JobRiskCode). 인증만 필요(소유자 무관 = 공유 데이터).
+
+    GET /api/v1/customers/jobs/search/?q=시의원&limit=30
+      - 이름·약명·검색어(synonym)·KIDI코드 substring 매칭(설명은 표시용이라 검색 제외).
+      - 관련도(정확>접두>이름포함>약명>검색어) → 이름 길이 순으로 정렬, 최대 limit(≤50).
+      - 빈 q → 빈 결과. 응답 {results: [JobRiskCode...]}.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        q = (request.query_params.get('q') or '').strip()
+        if not q:
+            return Response({'results': []})
+        try:
+            limit = min(int(request.query_params.get('limit', 30)), 50)
+        except (TypeError, ValueError):
+            limit = 30
+
+        matches = list(JobRiskCode.objects.filter(
+            Q(name__icontains=q) | Q(alt_name__icontains=q)
+            | Q(synonym__icontains=q) | Q(kidi_cd__icontains=q)
+        ))
+
+        def score(j):
+            n, a, s = j.name, (j.alt_name or ''), (j.synonym or '')
+            if n == q:
+                return 0
+            if n.startswith(q):
+                return 1
+            if q in n:
+                return 2
+            if q in a:
+                return 3
+            if q in s:
+                return 4
+            return 5
+
+        ranked = sorted(matches, key=lambda j: (score(j), len(j.name)))[:limit]
+        return Response({'results': JobRiskCodeSerializer(ranked, many=True).data})

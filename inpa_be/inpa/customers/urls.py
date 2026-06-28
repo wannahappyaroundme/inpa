@@ -55,4 +55,6 @@ urlpatterns = router.urls + [
     path('customers/<int:customer_pk>/consent-requests/',
          views.ConsentRequestCreateView.as_view(), name='consent-request-create'),
     path('c/<str:token>/', PublicConsentView.as_view(), name='public-consent'),
+    # 직업급수 검색(전역 마스터). customers/<pk> 라우터 충돌 회피 위해 최상위 jobs/ 로 둠.
+    path('jobs/search/', views.JobSearchView.as_view(), name='job-search'),
 ]
