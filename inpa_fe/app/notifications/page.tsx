@@ -307,7 +307,7 @@ function NotificationsContent() {
               href="/settings/reminders"
               className="text-[13px] font-semibold text-ink3 hover:text-ink"
             >
-              설정 →
+              알림 설정 →
             </Link>
           </div>
         </div>

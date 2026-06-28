@@ -5,7 +5,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { AppNav } from "@/components/app-nav";
-import { SettingsTabs } from "@/components/settings-tabs";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
@@ -92,7 +91,6 @@ export default function MeetingsSettingsPage() {
     <div className="min-h-dvh">
       <AppNav active="settings" />
       <main className="mx-auto max-w-xl px-4 sm:px-6 py-6 space-y-4">
-        <SettingsTabs active="meetings" />
         <h1 className="text-[22px] font-extrabold text-ink">미팅 관리</h1>
         {err && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-[13px] text-rose-700">{err}</div>
