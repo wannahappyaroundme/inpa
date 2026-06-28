@@ -871,6 +871,63 @@ class AdminLoginView(APIView):
         })
 
 
+class AdminUsageView(APIView):
+    """설계사별 기능 사용량 집계 — GET /api/v1/admin/usage/?days=30 (IsAdmin).
+
+    NorthStarEvent(sender=설계사, event_type별)를 집계해 '누가 어떤 기능을 많이 쓰나'를 본다.
+    ★ 데모 계정(@inpa.local)은 제외. 사용량 많은 순 정렬 + 기능별 총합.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from datetime import timedelta
+
+        from django.db.models import Count
+
+        from inpa.analytics.models import NorthStarEvent
+
+        try:
+            days = int(request.query_params.get('days', 30))
+        except (TypeError, ValueError):
+            days = 30
+
+        qs = (NorthStarEvent.objects
+              .filter(sender__isnull=False)
+              .exclude(sender__email__iendswith='@inpa.local'))  # 데모 계정 제외
+        if days > 0:
+            qs = qs.filter(created_at__gte=timezone.now() - timedelta(days=days))
+
+        rows = (qs.values('sender_id', 'sender__email', 'sender__profile__name', 'event_type')
+                  .annotate(c=Count('id')))
+
+        users = {}
+        for r in rows:
+            uid = r['sender_id']
+            u = users.setdefault(uid, {
+                'user_id': uid,
+                'email': r['sender__email'],
+                'name': r['sender__profile__name'] or '',
+                'total': 0,
+                'events': {},  # event_type → count
+            })
+            u['events'][r['event_type']] = r['c']
+            u['total'] += r['c']
+
+        ranked = sorted(users.values(), key=lambda x: x['total'], reverse=True)
+
+        feature_totals = {}
+        for u in ranked:
+            for k, v in u['events'].items():
+                feature_totals[k] = feature_totals.get(k, 0) + v
+
+        return Response({
+            'days': days,
+            'active_users': len(ranked),
+            'feature_totals': feature_totals,  # event_type → 전체 합
+            'users': ranked,                   # 사용량 내림차순
+        })
+
+
 class AdminLogoutView(APIView):
     """POST /api/v1/admin/auth/logout/ — 토큰 폐기."""
     permission_classes = [IsAdmin]
