@@ -58,6 +58,19 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             return CustomerListSerializer
         return CustomerSerializer
 
+    SUBSTANTIVE = {
+        'name', 'gender', 'birth_day', 'mobile_phone_number',
+        'job_code', 'memo', 'color', 'avatar_label',
+        'lead_source', 'is_agree_term', 'sales_stage', 'tag_ids',
+    }
+
+    def perform_update(self, serializer):
+        keys = set(self.request.data.keys())
+        if keys & self.SUBSTANTIVE:
+            serializer.save(last_contacted_at=timezone.now())
+        else:
+            serializer.save()
+
 
 class CustomerTagViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
     """고객 태그 CRUD — 소유자 전용. /api/v1/customer-tags/"""

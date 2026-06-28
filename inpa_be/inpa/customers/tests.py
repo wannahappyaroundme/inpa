@@ -629,3 +629,41 @@ class ConsentSerializerTests(TestCase):
         self.assertEqual(consents['personal_info']['status'], 'agreed')
         self.assertEqual(consents['personal_info']['subject'], 'customer_self')
         self.assertEqual(consents['marketing']['subject'], 'planner_attested')
+
+
+class DdayAutoUpdateTests(TestCase):
+    """D-Day 자동갱신: substantive 필드 PATCH → last_contacted_at 갱신. is_favorite/is_pinned만 → 불변."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('dday@test.com')
+        self.cust = Customer.objects.create(
+            owner=self.user,
+            name='테스트고객',
+            mobile_phone_number='010-0000-0000',
+            last_contacted_at=None,
+        )
+
+    def test_substantive_patch_updates_last_contacted_at(self):
+        """memo 수정 → last_contacted_at이 ~now로 갱신된다."""
+        before = timezone.now()
+        r = self.client.patch(
+            f'/api/v1/customers/{self.cust.id}/',
+            {'memo': '메모 수정'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 200)
+        self.cust.refresh_from_db()
+        self.assertIsNotNone(self.cust.last_contacted_at)
+        self.assertGreaterEqual(self.cust.last_contacted_at, before)
+
+    def test_non_substantive_patch_does_not_update_last_contacted_at(self):
+        """is_favorite만 PATCH → last_contacted_at 불변."""
+        original_ts = self.cust.last_contacted_at  # None
+        r = self.client.patch(
+            f'/api/v1/customers/{self.cust.id}/',
+            {'is_favorite': True},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 200)
+        self.cust.refresh_from_db()
+        self.assertEqual(self.cust.last_contacted_at, original_ts)
