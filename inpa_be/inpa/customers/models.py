@@ -366,8 +366,7 @@ DEFAULT_CONTRACT_CHECKLIST = [
 class ContractChecklistItem(models.Model):
     """계약 설명의무(완전판매) 체크리스트 항목 — 소유자 전용 (PM 06.24).
 
-    상담 시 설명 의무 이행 자가 점검 + 이력 보존. 완전판매 모니터링(해피콜) 대체 성격.
-    체크 이력이 쌓이면 분쟁 방어 자산이 된다(데이터 복리·해자).
+    상담 시 설명 의무 이행을 설계사가 직접 점검·기록하는 용도(고객 안내 이력).
     """
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                               related_name='contract_checklist_items')

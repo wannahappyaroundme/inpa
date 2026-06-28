@@ -51,12 +51,14 @@ import {
   addChecklistItem,
   deleteChecklistItem,
   createConsentRequest,
+  searchJobs,
   SALES_STAGES,
   CUSTOMER_STATUSES,
   ApiError,
   type CustomerDetail,
   type SalesStage,
   type CustomerStatus,
+  type JobMatch,
   type HeatmapResponse,
   type HeatmapDetail,
   type CompareResponse,
@@ -93,6 +95,40 @@ function genderLabel(g: string | null): string {
   if (s === "2" || s === "F") return "여";
   return "";
 }
+// 최종 연락일(없으면 등록일) → "YY.MM.DD" + "D+경과일"
+function lastContactDDay(lastContacted: string | null, createdAt: string): { date: string; dday: string } {
+  const ref = lastContacted ?? createdAt;
+  const d = new Date(ref);
+  const days = Math.max(0, Math.floor((Date.now() - d.getTime()) / 86_400_000));
+  const yy = String(d.getFullYear()).slice(2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return { date: `${yy}.${mm}.${dd}`, dday: `D+${days}` };
+}
+// 직업급수 칩 색 — 1급(저위험)=초록 … 3급(고위험)=빨강, 기타=회색
+function gradeChip(grade: number): string {
+  if (grade === 1) return "bg-emerald-100 text-emerald-700";
+  if (grade === 2) return "bg-amber-100 text-amber-700";
+  if (grade === 3) return "bg-rose-100 text-rose-700";
+  return "bg-surface2 text-ink3";
+}
+// 보험나이 = 만 나이 + (직전 생일로부터 6개월 이상이면 +1). BE compute_insurance_age와 동일 규칙(실시간 미리보기).
+function computeInsuranceAge(birthStr: string): number | null {
+  const [y, m, d] = (birthStr || "").split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const bd = new Date(y, m - 1, d);
+  const now = new Date();
+  let years = now.getFullYear() - bd.getFullYear();
+  let months = now.getMonth() - bd.getMonth();
+  if (now.getDate() < bd.getDate()) months -= 1;
+  if (months < 0) { years -= 1; months += 12; }
+  if (years < 0) return null;
+  return years + (months >= 6 ? 1 : 0);
+}
+const BIRTH_YEARS = Array.from({ length: 100 }, (_, i) => new Date().getFullYear() - i);
+const BIRTH_MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+const BIRTH_DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
+const pad2 = (n: number) => String(n).padStart(2, "0");
 
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -132,12 +168,15 @@ function CustomerDetailInner() {
     getProfile().then(setProfile).catch(() => setProfile(null));
   }, []);
   const isExclusive = profile?.affiliation_type === 1;
-  const visibleTabs = isExclusive ? TABS.filter((t) => t.key !== "switch") : TABS;
+  // 정보 탭은 탭바에서 빼고(요약카드 '세부정보' 링크로 접근), 기본 화면=정보 — PM 06.29.
+  const visibleTabs = TABS.filter(
+    (t) => t.key !== "info" && !(isExclusive && t.key === "switch")
+  );
 
-  // 탭 상태 (URL ?tab= 동기화). 전속이 switch 진입 시 분석으로 폴백.
+  // 탭 상태 (URL ?tab= 동기화). 기본=정보. 전속이 switch 진입 시 분석으로 폴백.
   const tabParam = searchParams.get("tab") as TabKey | null;
   let activeTab: TabKey =
-    tabParam && TABS.some((t) => t.key === tabParam) ? tabParam : "analysis";
+    tabParam && TABS.some((t) => t.key === tabParam) ? tabParam : "info";
   if (activeTab === "switch" && isExclusive) activeTab = "analysis";
 
   // 고객 상세
@@ -300,44 +339,42 @@ function CustomerDetailInner() {
           customer && <CustomerSummary customer={customer} />
         )}
 
-        {/* ── 영업 단계 변경 (DB·TA·FA·청약) — 칸반에서 이동 ── */}
+        {/* ── 영업 단계 + 상태 (한 줄) — PM 06.29 ── */}
         {customer && !custError && (
-          <div className="mt-3">
-            <div className="text-[11px] font-semibold text-ink3 mb-1">영업 단계</div>
-            <div className="inline-flex rounded-xl border border-line bg-surface2 p-0.5 text-[12px] font-semibold">
-              {SALES_STAGES.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => changeStage(s.key)}
-                  aria-pressed={customer.sales_stage === s.key}
-                  className={`px-3 py-1.5 rounded-[10px] transition ${
-                    customer.sales_stage === s.key ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
+          <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-2">
+            <div>
+              <div className="text-[11px] font-semibold text-ink3 mb-1">영업 단계</div>
+              <div className="inline-flex rounded-xl border border-line bg-surface2 p-0.5 text-[12px] font-semibold">
+                {SALES_STAGES.map((s) => (
+                  <button
+                    key={s.key}
+                    onClick={() => changeStage(s.key)}
+                    aria-pressed={customer.sales_stage === s.key}
+                    className={`px-3 py-1.5 rounded-[10px] transition ${
+                      customer.sales_stage === s.key ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-
-        {/* ── 고객 상태 변경 (진행중·보류·휴면·종료) — PM 06.29 ── */}
-        {customer && !custError && (
-          <div className="mt-3">
-            <div className="text-[11px] font-semibold text-ink3 mb-1">상태</div>
-            <div className="inline-flex rounded-xl border border-line bg-surface2 p-0.5 text-[12px] font-semibold">
-              {CUSTOMER_STATUSES.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => changeStatus(s.key)}
-                  aria-pressed={customer.status === s.key}
-                  className={`px-3 py-1.5 rounded-[10px] transition ${
-                    customer.status === s.key ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
+            <div>
+              <div className="text-[11px] font-semibold text-ink3 mb-1">상태</div>
+              <div className="inline-flex rounded-xl border border-line bg-surface2 p-0.5 text-[12px] font-semibold">
+                {CUSTOMER_STATUSES.map((s) => (
+                  <button
+                    key={s.key}
+                    onClick={() => changeStatus(s.key)}
+                    aria-pressed={customer.status === s.key}
+                    className={`px-3 py-1.5 rounded-[10px] transition ${
+                      customer.status === s.key ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -419,6 +456,7 @@ function CustomerSummary({ customer }: { customer: CustomerDetail }) {
   const sub = [age, genderLabel(customer.gender)]
     .filter(Boolean)
     .join(" · ");
+  const dday = lastContactDDay(customer.last_contacted_at, customer.created_at);
   return (
     <Card className="mt-3 p-4 flex items-center gap-3">
       <CustomerAvatar label={customer.avatar_label} color={customer.color} size={48} />
@@ -449,6 +487,18 @@ function CustomerSummary({ customer }: { customer: CustomerDetail }) {
           )}
         </div>
       </div>
+      <div className="shrink-0 text-right">
+        <div className="text-[11px] text-ink3">최종 연락</div>
+        <div className="text-[13px] font-semibold text-ink tnum whitespace-nowrap">
+          {dday.date} <span className="text-brand">{dday.dday}</span>
+        </div>
+        <Link
+          href={`/customer/${customer.id}?tab=info`}
+          className="mt-1 inline-block text-[12px] font-semibold text-brand"
+        >
+          세부정보 →
+        </Link>
+      </div>
     </Card>
   );
 }
@@ -464,18 +514,39 @@ function InfoTab({
   const [name, setName] = useState(customer.name);
   const [phone, setPhone] = useState(customer.mobile_phone_number ?? "");
   const [gender, setGender] = useState(customer.gender == null ? "" : String(customer.gender));
-  const [birth, setBirth] = useState(customer.birth_day ?? "");
+  // 생년월일 — 년·월·일 드롭다운(달력 대신). birth 는 셋이 다 차면 "YYYY-MM-DD".
+  const _b = (customer.birth_day ?? "").split("-");
+  const [by, setBy] = useState(_b[0] ?? "");
+  const [bm, setBm] = useState(_b[1] ?? "");
+  const [bd, setBd] = useState(_b[2] ?? "");
+  const birth = by && bm && bd ? `${by}-${bm.padStart(2, "0")}-${bd.padStart(2, "0")}` : "";
   const [color, setColor] = useState(customer.color ?? "");
   const [avatarLabel, setAvatarLabel] = useState(customer.avatar_label ?? "");
   const [memo, setMemo] = useState(customer.memo ?? "");
+  // 직업 변경(검색해서 고르면 급수 자동). pickedJob !== null 이면 저장 시 job_code 전송.
+  const [pickedJob, setPickedJob] = useState<JobMatch | null>(null);
+  const [jobQuery, setJobQuery] = useState("");
+  const [jobResults, setJobResults] = useState<JobMatch[]>([]);
+  const [jobOpen, setJobOpen] = useState(false);
   const [savingInfo, setSavingInfo] = useState(false);
   const [savingMemo, setSavingMemo] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // 저장 성공 안내는 폼을 다시 수정하면 사라진다(이전 저장 메시지가 계속 남지 않게).
-  useEffect(() => { setMsg(null); }, [name, phone, gender, birth, color, avatarLabel, memo]);
+  // 저장 성공 안내는 폼을 다시 수정하면 사라진다(직업·생년월일 포함 모든 편집 필드).
+  useEffect(() => { setMsg(null); }, [name, phone, gender, by, bm, bd, color, avatarLabel, memo, pickedJob]);
+
+  // 직업 검색 — 250ms 디바운스
+  useEffect(() => {
+    const q = jobQuery.trim();
+    if (!q) { setJobResults([]); setJobOpen(false); return; }
+    let alive = true;
+    const t = setTimeout(() => {
+      searchJobs(q).then((rows) => { if (alive) { setJobResults(rows); setJobOpen(true); } }).catch(() => {});
+    }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [jobQuery]);
 
   const flash = (m: string) => { setMsg(m); setErr(null); };
   const fail = (e: unknown) => { setErr(e instanceof ApiError ? e.message : "저장에 실패했어요."); setMsg(null); };
@@ -490,8 +561,10 @@ function InfoTab({
         birth_day: birth || undefined,
         color,
         avatar_label: avatarLabel.trim(),
+        job_code: pickedJob ? String(pickedJob.id) : undefined,
       });
       onUpdated(c);
+      setPickedJob(null);
       flash("상세정보를 저장했어요.");
     } catch (e) { fail(e); } finally { setSavingInfo(false); }
   }
@@ -591,10 +664,23 @@ function InfoTab({
               <span className="text-[12px] font-semibold text-ink3">연락처</span>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" className={inputCls} />
             </label>
-            <label className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1">
               <span className="text-[12px] font-semibold text-ink3">생년월일</span>
-              <input type="date" value={birth} onChange={(e) => setBirth(e.target.value)} className={inputCls} />
-            </label>
+              <div className="flex gap-1.5">
+                <select value={by} onChange={(e) => setBy(e.target.value)} className={`${inputCls} flex-1`}>
+                  <option value="">년</option>
+                  {BIRTH_YEARS.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+                </select>
+                <select value={bm} onChange={(e) => setBm(e.target.value)} className={`${inputCls} w-[72px]`}>
+                  <option value="">월</option>
+                  {BIRTH_MONTHS.map((m) => <option key={m} value={pad2(m)}>{m}월</option>)}
+                </select>
+                <select value={bd} onChange={(e) => setBd(e.target.value)} className={`${inputCls} w-[72px]`}>
+                  <option value="">일</option>
+                  {BIRTH_DAYS.map((d) => <option key={d} value={pad2(d)}>{d}일</option>)}
+                </select>
+              </div>
+            </div>
             <div className="flex flex-col gap-1">
               <span className="text-[12px] font-semibold text-ink3">성별</span>
               <div className="flex gap-1.5">
@@ -607,6 +693,48 @@ function InfoTab({
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* 직업 — 검색해서 변경(고르면 직업급수 자동) */}
+          <div className="mt-3 relative">
+            <span className="text-[12px] font-semibold text-ink3">직업 (고르면 직업급수 자동)</span>
+            {pickedJob ? (
+              <div className="mt-1 flex items-center justify-between gap-2 rounded-xl border border-line bg-accent-tint px-3.5 py-2.5">
+                <div className="text-[14px] font-semibold text-ink truncate">{pickedJob.name}</div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`rounded-full text-[12px] font-bold px-2 py-0.5 ${gradeChip(pickedJob.risk_grade)}`}>{pickedJob.risk_grade_label}</span>
+                  <button type="button" onClick={() => setPickedJob(null)} className="text-[12px] text-ink3 hover:text-ink underline">취소</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="mt-1 text-[12px] text-ink3">
+                  현재: <b className="text-ink2">{customer.job_name ?? "미지정"}</b>{riskLabel ? ` (${riskLabel})` : ""}
+                </div>
+                <input
+                  value={jobQuery}
+                  onChange={(e) => setJobQuery(e.target.value)}
+                  onFocus={() => { if (jobResults.length) setJobOpen(true); }}
+                  onBlur={() => setTimeout(() => setJobOpen(false), 120)}
+                  placeholder="직업명·키워드로 검색 (예: 의사, 용접, 시의원)"
+                  className={`${inputCls} mt-1`}
+                />
+                {jobOpen && jobQuery.trim() && (
+                  <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border border-line bg-surface shadow-lg">
+                    {jobResults.length > 0 ? jobResults.map((j) => (
+                      <button key={j.id} type="button" onClick={() => { setPickedJob(j); setJobQuery(""); setJobOpen(false); }}
+                        className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left hover:bg-surface2 border-b border-line last:border-b-0">
+                        <span className="min-w-0">
+                          <span className="block text-[14px] text-ink truncate">{j.name}</span>
+                          {j.description_short && <span className="block text-[11px] text-ink3 truncate">{j.description_short}</span>}
+                        </span>
+                        <span className={`shrink-0 rounded-full text-[12px] font-bold px-2 py-0.5 ${gradeChip(j.risk_grade)}`}>{j.risk_grade_label}</span>
+                      </button>
+                    )) : <div className="px-3.5 py-2.5 text-[13px] text-ink3">검색 결과가 없어요.</div>}
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {/* 아바타 글씨·색상 — 글씨 비우면 인파 로고. 색은 공통 배경 */}
@@ -636,10 +764,8 @@ function InfoTab({
 
           {/* 읽기 전용 파생 정보 */}
           <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-[13px]">
-            <dt className="text-ink3">보험나이</dt>
-            <dd className="text-ink2 text-right">{customer.insurance_age != null ? `${customer.insurance_age}세` : "-"}</dd>
-            <dt className="text-ink3">직업</dt>
-            <dd className="text-ink2 text-right">{customer.job_name ?? "-"}{riskLabel ? ` (${riskLabel})` : ""}</dd>
+            <dt className="text-ink3">보험나이 <span className="text-[10px] text-muted">(생년월일 자동)</span></dt>
+            <dd className="text-ink2 text-right">{(() => { const a = computeInsuranceAge(birth) ?? customer.insurance_age; return a != null ? `${a}세` : "-"; })()}</dd>
             <dt className="text-ink3">영업 단계</dt>
             <dd className="text-ink2 text-right">{customer.sales_stage.toUpperCase()}</dd>
           </dl>
@@ -651,16 +777,24 @@ function InfoTab({
               <span className="rounded-full bg-accent-tint px-2 py-0.5 text-brand">{consentLine("개인정보", piState)}</span>
               <span className="rounded-full bg-accent-tint px-2 py-0.5 text-brand">{consentLine("마케팅", mkState)}</span>
             </div>
-            <button
-              onClick={sendConsentLink}
-              disabled={consentBusy}
-              className="mt-2.5 w-full rounded-xl border border-brand text-brand text-[13px] font-semibold py-2 disabled:opacity-60"
-            >
-              {consentBusy ? "링크 생성 중…" : "동의 요청 링크 복사(고객 본인용)"}
-            </button>
-            <p className="mt-1.5 text-[11px] text-ink3 leading-4">
-              가장 안전한 건 고객 본인이 링크로 직접 동의하는 거예요. 링크를 복사해 고객에게 전달하세요.
-            </p>
+            {piState?.status === "agreed" ? (
+              <div className="mt-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-[13px] font-bold text-emerald-700">
+                ✓ 동의 완료
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={sendConsentLink}
+                  disabled={consentBusy}
+                  className="mt-2.5 w-full rounded-xl border border-brand text-brand text-[13px] font-semibold py-2 disabled:opacity-60"
+                >
+                  {consentBusy ? "링크 생성 중…" : "동의 요청 링크 복사(고객 본인용)"}
+                </button>
+                <p className="mt-1.5 text-[11px] text-ink3 leading-4">
+                  링크를 복사해 고객에게 전달하면, 고객 본인이 직접 동의해요. 가장 안전한 방법입니다.
+                </p>
+              </>
+            )}
           </div>
 
           <button onClick={saveInfo} disabled={savingInfo}

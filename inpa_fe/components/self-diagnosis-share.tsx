@@ -43,10 +43,10 @@ export function SelfDiagnosisShare({ compact = false }: { compact?: boolean }) {
 
   return (
     <Card className={compact ? "p-3.5" : "p-4"}>
-      <div className="text-[15px] font-bold text-ink">고객에게 셀프진단 링크 보내기</div>
+      <div className="text-[15px] font-bold text-ink">고객에게 무료 보장점검 링크 보내기</div>
       <p className="mt-1 text-[12px] text-ink3 leading-5">
-        이 링크를 받은 분이 직접 증권을 넣고 진단하면 내 고객(리드)으로 자동 등록돼요.{" "}
-        <b className="text-ink2">수신 동의를 받았거나 거래 관계가 있는 고객에게</b> 전달하세요. 받는 분이 직접 동의·입력합니다.
+        고객이 이 링크에서 가입한 증권(PDF)을 올리면, 어떤 보장을 얼마나 들었는지 <b className="text-ink2">1분 만에 한눈에 정리</b>해 드려요(무료). 점검을 마친 고객은 내 고객 목록에 자동으로 추가됩니다.{" "}
+        <b className="text-ink2">수신 동의를 받았거나 거래 관계가 있는 고객</b>에게 전달하세요. 받는 분이 직접 동의·입력합니다.
       </p>
       <div className="mt-2.5 flex items-center gap-2">
         <input

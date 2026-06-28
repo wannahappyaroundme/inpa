@@ -106,8 +106,19 @@ class Command(BaseCommand):
                 if to_update:
                     JobRiskCode.objects.bulk_update(to_update, _UPDATE_FIELDS, batch_size=500)
 
+            # ── 동기화: 파일에 없는 (sctg_cd, name)은 삭제(파일이 정본 — 데이터 교체 시 옛 행 정리).
+            #    Customer.job_code 는 SET_NULL 이라 직업 링크만 풀리고 고객은 보존된다. ──
+            pruned = 0
+            if not dry:
+                file_keys = {((row.get('sctg_cd') or '').strip(), (row.get('name') or '').strip())
+                             for row in rows}
+                stale = [j.pk for (k, j) in existing.items() if k not in file_keys]
+                if stale:
+                    pruned = len(stale)
+                    JobRiskCode.objects.filter(pk__in=stale).delete()
+
         self.stdout.write(self.style.SUCCESS('✅ 직업급수 시드 완료'))
-        self.stdout.write(f'   - 신규: {len(to_create)} / 갱신: {len(to_update)} / 스킵: {skipped}')
+        self.stdout.write(f'   - 신규: {len(to_create)} / 갱신: {len(to_update)} / 삭제(정리): {pruned} / 스킵: {skipped}')
         self.stdout.write(
             f'   - 등급: 1급 {grade_stat[1]} / 2급 {grade_stat[2]} / 3급 {grade_stat[3]} / 기타 {grade_stat[9]}'
         )
