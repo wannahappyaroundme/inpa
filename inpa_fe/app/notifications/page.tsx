@@ -398,7 +398,7 @@ function NotificationsContent() {
 
         {/* 고객 자동발송 아님 안내 (정직성 레드라인) */}
         <p className="mt-8 text-[11px] text-muted text-center leading-5">
-          인파 알림은 설계사 본인에게만 전송됩니다. 고객에게 자동 발송되지 않습니다.
+          인파 알림은 설계사 본인에게만 전송됩니다.
         </p>
       </main>
     </div>

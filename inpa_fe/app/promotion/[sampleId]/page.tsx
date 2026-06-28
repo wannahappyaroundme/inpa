@@ -377,7 +377,7 @@ export default function SampleDetailPage({
                 <img
                   src={currentImage.url}
                   alt={sample.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-surface2 text-muted text-[13px]">
@@ -403,7 +403,7 @@ export default function SampleDetailPage({
                     <img
                       src={img.url}
                       alt=""
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   </button>
                 ))}
@@ -508,7 +508,7 @@ export default function SampleDetailPage({
 
               {/* 수동 제작 안내 */}
               <p className="text-[12px] text-ink3 text-center">
-                주문 후 관리자가 직접 확인하여 제작·발송합니다. 자동 발송은 없으며, 진행 상황은 주문 목록에서 확인하세요.
+                주문 후 담당자가 확인해 제작·발송합니다. 진행 상황은 주문 목록에서 확인하세요.
               </p>
             </form>
             )}

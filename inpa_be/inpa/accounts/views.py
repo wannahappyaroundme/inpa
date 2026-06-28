@@ -15,6 +15,7 @@ from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from inpa.notifications.models import create_reminder_rules_for_user
@@ -67,6 +68,8 @@ class RegisterView(APIView):
     # 헌/무효 토큰이 요청에 실려도 401 로 막히지 않도록. 로그인/가입은 토큰 무관.)
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_email'  # 임의 이메일 대량 가입·발송(스팸/비용/평판) 방어
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
@@ -112,6 +115,8 @@ class VerifyEmailView(APIView):
 class ResendVerificationView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_email'  # 인증메일 폭탄 방어
 
     def post(self, request):
         email = (request.data.get('email') or '').lower()
@@ -313,6 +318,8 @@ class LogoutView(APIView):
 class PasswordResetView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_email'  # 비번재설정 메일 폭탄 방어
 
     def post(self, request):
         serializer = PasswordResetRequestSerializer(data=request.data)

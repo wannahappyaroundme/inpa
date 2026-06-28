@@ -297,9 +297,9 @@ export default function BaselineSettingsPage() {
             돼요(부족·충분을 단정하지 않음). 기준을 한 번 이상 설정하면 부족·적정·넉넉
             판정이 켜집니다.
             <br />
-            여기서 정한 기준은 <b className="font-semibold text-ink">설계사 본인이 결정·소유</b>하며,
-            그 기준에 따른 <b className="font-semibold text-ink">부족·충분 판정의 권위와 최종 책임은
-            설계사에게</b> 있습니다. 인파는 값을 저장·계산·표시만 합니다.
+            여기서 정한 기준은 <b className="font-semibold text-ink">설계사 본인이 결정·소유</b>합니다.
+            이 판정은 설정한 기준에 따른 결과예요. 보장 충분 여부의 최종 판단은 설계사님 몫입니다.
+            인파는 값을 저장·계산·표시만 합니다.
           </p>
         </div>
 
@@ -467,7 +467,6 @@ export default function BaselineSettingsPage() {
                 </p>
                 <ul className="mt-2 space-y-1 text-[12px] text-amber-700 leading-5 list-disc list-inside">
                   <li>적용 후 각 기준의 수치를 직접 검토·수정해야 합니다.</li>
-                  <li>부족·충분 판정 권위와 최종 책임은 설계사에게 있습니다.</li>
                   <li>인파는 이 시드값의 적정성을 보증하지 않습니다.</li>
                 </ul>
               </div>
@@ -681,7 +680,7 @@ function BaselineForm({
               ))}
             </select>
             <p className="mt-1 text-[11px] text-muted">
-              참고한 근거를 밝히는 라벨이에요. 어떤 출처든 최종 판정 책임은 설계사에게 있습니다.
+              참고한 근거를 밝히는 표시용 라벨이에요.
             </p>
           </div>
 
@@ -712,8 +711,7 @@ function BaselineForm({
 
         {/* 폼 내 면책 고정 */}
         <p className="mt-3 text-[11px] text-muted leading-5">
-          저장하면 이 기준은 ‘설계사 직접 설정(planner)’으로 기록돼요. 부족·충분
-          판정의 권위와 최종 책임은 설계사에게 있습니다.
+          저장하면 이 기준은 ‘설계사 직접 설정(planner)’으로 기록돼요.
         </p>
 
         <div className="mt-5 flex flex-col gap-2.5">

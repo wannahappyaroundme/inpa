@@ -46,7 +46,7 @@ export function SelfDiagnosisShare({ compact = false }: { compact?: boolean }) {
       <div className="text-[15px] font-bold text-ink">셀프진단 링크로 새 고객 받기</div>
       <p className="mt-1 text-[12px] text-ink3 leading-5">
         이 링크를 받은 분이 직접 증권을 넣고 진단하면 내 고객(리드)으로 자동 등록돼요.{" "}
-        <b className="text-ink2">아는 고객에게만</b> 전달하세요. 받는 분이 직접 동의·입력합니다.
+        <b className="text-ink2">수신 동의를 받았거나 거래 관계가 있는 고객에게</b> 전달하세요. 받는 분이 직접 동의·입력합니다.
       </p>
       <div className="mt-2.5 flex items-center gap-2">
         <input

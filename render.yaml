@@ -29,6 +29,7 @@ services:
     #   이라 실패 시 이전 트리로 롤백 → 부분 적재 없음.
     startCommand: >-
       python manage.py migrate --noinput &&
+      python manage.py createcachetable &&
       python manage.py seed_normalization &&
       python manage.py seed_jobs &&
       gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120

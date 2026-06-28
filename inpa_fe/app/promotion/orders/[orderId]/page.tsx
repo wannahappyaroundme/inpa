@@ -306,7 +306,7 @@ export default function OrderDetailPage({
 
             {/* 수동 제작 안내 */}
             <p className="text-[12px] text-muted pt-2 border-t border-line">
-              주문 후 관리자가 직접 확인하여 제작·발송합니다. 자동 발송은 없으며, 진행 상황은 이 페이지에서 확인하세요.
+              주문 후 담당자가 확인해 제작·발송합니다. 진행 상황은 이 페이지에서 확인하세요.
             </p>
           </Card>
         </div>

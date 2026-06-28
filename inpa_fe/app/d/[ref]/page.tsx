@@ -95,7 +95,7 @@ export default function SelfDiagnosisPage() {
             <Card className="px-4 py-6 text-center text-[14px] text-ink3">읽어들인 보유 담보가 없어요.</Card>
           )}
           <div className="mt-4 rounded-xl border border-line bg-surface px-4 py-3 text-[12px] text-ink3 leading-5">
-            {result.disclaimer || "이 자료는 등록된 증권 정보를 정리한 AI 초안이며, 보장 충분성 판단·최종 책임은 담당 설계사에게 있습니다."}
+            {result.disclaimer || "인파가 등록된 보장 정보를 정리한 참고 자료입니다."}
           </div>
           <div className="mt-3 rounded-2xl bg-brand text-white text-center text-[15px] font-bold py-4">
             담당 설계사가 곧 연락드릴 거예요 🙌
@@ -168,7 +168,7 @@ export default function SelfDiagnosisPage() {
           {loading ? "분석 중…" : "무료 진단 받기"}
         </button>
         <p className="mt-3 text-[11px] text-ink3 leading-5 text-center">
-          인파는 보험을 중개·권유하지 않습니다. 결과는 AI 초안이며 병력 정보는 수집하지 않습니다.
+          인파는 보험을 중개하지 않습니다. 결과는 참고용이며, 병력 정보는 수집하지 않습니다.
         </p>
       </main>
     </div>

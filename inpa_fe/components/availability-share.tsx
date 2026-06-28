@@ -57,7 +57,7 @@ export function AvailabilityShare() {
     <Card className="px-5 py-4">
       <div className="text-[15px] font-bold text-ink">가용시간 공유 문구</div>
       <p className="mt-1 text-[12px] text-ink3 leading-5">
-        고객에게 보낼 가능 시간 문구를 만들어 복사해요(자동발송은 하지 않아요).
+        고객에게 보낼 가능 시간 문구를 만들어 복사하세요.
       </p>
       <div className="mt-3 flex gap-1.5">
         <button onClick={() => setTab("auto")}

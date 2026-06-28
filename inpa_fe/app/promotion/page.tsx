@@ -25,7 +25,7 @@ function SampleThumb({ src, alt }: { src: string | null; alt: string }) {
       src={src}
       alt={alt}
       onError={() => setFailed(true)}
-      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+      className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
     />
   );
 }

@@ -160,7 +160,7 @@ export default function SharePage() {
         <section className="mt-4">
           <div className="rounded-xl border border-line bg-surface2 px-4 py-3 text-[12px] text-ink3 leading-5">
             {data.disclaimer ||
-              "이 자료는 등록된 증권 정보를 정리한 것이며, 보장의 충분성 판단·최종 책임은 담당 설계사에게 있습니다. AI가 처리한 초안입니다."}
+              "인파가 등록된 보장 정보를 정리한 참고 자료입니다."}
           </div>
         </section>
 
