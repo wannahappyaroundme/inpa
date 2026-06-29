@@ -303,7 +303,7 @@ export default function CustomersPage() {
   return (
     <div className="min-h-dvh">
       <AppNav active="customers" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         {/* ── 제목 + 범례 + 버튼 ── */}
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-x-4 gap-y-1 flex-wrap">

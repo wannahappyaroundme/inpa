@@ -260,7 +260,7 @@ export default function SchedulePage() {
   return (
     <div className="min-h-dvh">
       <AppNav active="schedule" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-[22px] font-extrabold text-ink">일정</h1>
           <button onClick={() => router.push("/settings/meetings")}

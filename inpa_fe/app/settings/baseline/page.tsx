@@ -258,7 +258,7 @@ export default function BaselineSettingsPage() {
   return (
     <div className="min-h-dvh">
       <AppNav active="settings" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         {/* 뒤로 */}
         <Link
           href="/analysis"

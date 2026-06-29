@@ -33,7 +33,6 @@ function pct(actual: number, target: number): number {
 const pad = (n: number) => String(n).padStart(2, "0");
 
 // 대시보드 캘린더 색·라벨 — 일정 탭과 동일한 5분류(고객미팅/생일·기념일/만기·갱신/업무/기타).
-// 알림은 캘린더에 그리지 않고 우측 상단 종 알림함에서만 본다 — PM 06.29.
 type Cat = ScheduleCategory;
 const CAT_META: Record<Cat, { dot: string; label: string }> = {
   meeting: { dot: "bg-brand", label: "고객미팅" },
@@ -59,6 +58,10 @@ const QUICK_ACTIONS: { label: string; href: string; icon: LucideIcon }[] = [
   { label: "상담 화법", href: "/scripts", icon: MessageSquare },
   { label: "일정 관리", href: "/schedule", icon: CalendarIcon },
 ];
+
+// 상담 예약 안내 기본 샘플 문구(복사용) — 설계사 설정 템플릿이 있으면 그걸 우선 사용.
+const SAMPLE_BOOKING_MSG =
+  "안녕하세요, 보장 상담 예약 안내드립니다.\n아래 링크에서 편하신 시간을 선택해 주시면 일정 잡아드리겠습니다.\n예약 링크: (여기에 내 예약 링크를 붙여넣기)";
 
 // ISO(+09:00) → Asia/Seoul 기준 'YYYY-MM-DD' / 'HH:mm'
 function kstYmd(iso: string): string {
@@ -101,18 +104,7 @@ function GoalRow({ label, actual, target, unit, won }: { label: string; actual: 
   );
 }
 
-function fmtMeeting(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("ko-KR", {
-      month: "numeric", day: "numeric", weekday: "short",
-      hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
-
-// 설계사 대시보드. KPI(실API) + 목표 + 환수레이더 + 캘린더(실제 미팅·일정) + 선택일 일정.
+// 설계사 대시보드. KPI(실API) + 목표 + 캘린더(실제 미팅·일정) + 선택일 일정.
 export default function HomePage() {
   const router = useRouter();
   const ready = useAuthGuard();
@@ -122,12 +114,13 @@ export default function HomePage() {
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [dash, setDash] = useState<DashboardSummary | null>(null);
   const [insights, setInsights] = useState<DashboardInsights | null>(null);
-  const [trendMonths, setTrendMonths] = useState<3 | 6 | 12 | 24>(12);
+  const [trendMonths, setTrendMonths] = useState<3 | 6>(6);
   const [editGoal, setEditGoal] = useState(false);
   const [gMeet, setGMeet] = useState(0);
   const [gPrem, setGPrem] = useState(0);
   const [gMult, setGMult] = useState(10);
   const [goalSaving, setGoalSaving] = useState(false);
+  const [copiedSample, setCopiedSample] = useState(false);
 
   // 캘린더가 보는 연·월 (실제 오늘 기준) + 선택일
   const now = new Date();
@@ -206,6 +199,15 @@ export default function HomePage() {
     }
   }
 
+  function copySample() {
+    const text = (profile?.booking_msg_template?.trim() || SAMPLE_BOOKING_MSG);
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text)
+        .then(() => { setCopiedSample(true); setTimeout(() => setCopiedSample(false), 1500); })
+        .catch(() => { /* 무시 */ });
+    }
+  }
+
   function shiftMonth(delta: number) {
     let y = viewY, m = viewM + delta;
     if (m < 1) { m = 12; y--; }
@@ -227,7 +229,6 @@ export default function HomePage() {
   const tCur = trend[trend.length - 1];
   const tPrev = trend[trend.length - 2];
   const momDelta = (key: "premium" | "new_customers" | "meetings"): number | null => {
-    // 백엔드 계산값(스펙 §5) 우선 — 있으면 그대로. 구 백엔드면 추이로 폴백.
     const be = dash?.deltas?.[key];
     if (be && be.pct !== null && be.pct !== undefined) return be.pct;
     if (!tCur || !tPrev) return null;
@@ -238,12 +239,10 @@ export default function HomePage() {
 
   // 막대 추이(월별 보험료) · 도넛(보유계약 유지현황)
   const trendBars = trend.map((t) => ({ label: `${Number(t.ym.slice(5, 7))}월`, value: t.premium }));
-  // 목표선: 기간 내 MonthlyGoal이 있는 달의 target_premium 평균 (0 제외, 없으면 undefined)
   const trendTargets = trend.map((t) => t.target_premium).filter((v): v is number => v != null && v > 0);
   const targetLine = trendTargets.length > 0
     ? Math.round(trendTargets.reduce((s, v) => s + v, 0) / trendTargets.length)
     : undefined;
-  // 평균선: 보험료 평균 (0 제외, 데이터가 2개 이상일 때만)
   const trendPremiums = trend.map((t) => t.premium).filter((v) => v > 0);
   const averageLine = trendPremiums.length >= 2
     ? Math.round(trendPremiums.reduce((s, v) => s + v, 0) / trendPremiums.length)
@@ -274,6 +273,7 @@ export default function HomePage() {
 
   // 이번 달 목표 달성률(게이지) — 가입 보험료 기준.
   const goalGaugePct = dash ? pct(dash.actual_premium, dash.target_premium) : 0;
+  const sampleText = profile?.booking_msg_template?.trim() || SAMPLE_BOOKING_MSG;
 
   return (
     <div className="min-h-dvh">
@@ -294,94 +294,124 @@ export default function HomePage() {
           <SelfDiagnosisShare />
         </div>
 
-        {/* 콘텐츠 그리드 — 좌(본문 8칸) + 우(사이드 레일 4칸). 한눈에 보이게 압축 배치. */}
-        <div className="mt-4 grid grid-cols-12 gap-4">
-          {/* ───────── 왼쪽 8칸 (본문) ───────── */}
-          <div className="col-span-12 lg:col-span-8 space-y-4">
-            {/* 이번 달 목표 + 달성률 게이지 */}
-            {dash && (
-              <Card className="p-4 sm:p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-[15px] font-bold text-ink">이번 달 목표</div>
-                  {editGoal ? (
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => { setEditGoal(false); setGMeet(dash.target_meetings); setGPrem(dash.target_premium); setGMult(dash.income_multiplier); }}
-                        className="text-[13px] text-ink3"
-                      >
-                        취소
-                      </button>
-                      <button onClick={saveGoal} disabled={goalSaving} className="text-[13px] font-bold text-brand disabled:opacity-60">저장</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setEditGoal(true)} className="text-[13px] font-semibold text-brand">목표 수정</button>
-                  )}
+        {/* ── 1행: 이번 달 목표(8) + 오늘의 일정(4) — 같은 높이(items-stretch) ── */}
+        <div className="mt-4 grid grid-cols-12 gap-4 items-stretch">
+          {/* 이번 달 목표 + 달성률 게이지 */}
+          <Card className="col-span-12 lg:col-span-8 p-4 sm:p-5 flex flex-col">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[15px] font-bold text-ink">이번 달 목표</div>
+              {editGoal ? (
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setEditGoal(false); if (dash) { setGMeet(dash.target_meetings); setGPrem(dash.target_premium); setGMult(dash.income_multiplier); } }}
+                    className="text-[13px] text-ink3"
+                  >
+                    취소
+                  </button>
+                  <button onClick={saveGoal} disabled={goalSaving} className="text-[13px] font-bold text-brand disabled:opacity-60">저장</button>
                 </div>
+              ) : (
+                <button onClick={() => setEditGoal(true)} className="text-[13px] font-semibold text-brand">목표 수정</button>
+              )}
+            </div>
 
-                {/* 이번 달 경과 — 남은 일수 · 경과 % */}
-                <div className="mb-4">
-                  <div className="flex items-baseline justify-between text-[12px]">
-                    <span className="text-ink3">이번 달 경과</span>
-                    <span className="text-ink2 tnum"><b className="text-ink">D-{monthDaysLeft}</b> · {monthPct}% 지남</span>
+            {/* 이번 달 경과 */}
+            <div className="mb-4">
+              <div className="flex items-baseline justify-between text-[12px]">
+                <span className="text-ink3">이번 달 경과</span>
+                <span className="text-ink2 tnum"><b className="text-ink">D-{monthDaysLeft}</b> · {monthPct}% 지남</span>
+              </div>
+              <div className="mt-1 h-1.5 rounded-full bg-surface2 overflow-hidden">
+                <div className="h-full bg-muted rounded-full" style={{ width: `${monthPct}%` }} />
+              </div>
+            </div>
+
+            {editGoal ? (
+              <div className="space-y-3">
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-[13px] text-ink2">만날 고객 (명)</span>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => setGMeet((v) => Math.max(0, v - 1))} className="w-7 h-7 rounded-lg border border-line text-ink2">−</button>
+                    <input type="number" min={0} value={gMeet} onChange={(e) => setGMeet(Math.max(0, Number(e.target.value) || 0))} className="w-16 text-center rounded-lg border border-line py-1.5 text-[14px] tnum" />
+                    <button onClick={() => setGMeet((v) => v + 1)} className="w-7 h-7 rounded-lg border border-line text-ink2">+</button>
                   </div>
-                  <div className="mt-1 h-1.5 rounded-full bg-surface2 overflow-hidden">
-                    <div className="h-full bg-muted rounded-full" style={{ width: `${monthPct}%` }} />
+                </label>
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-[13px] text-ink2">가입 보험료 (원)</span>
+                  <input type="number" min={0} step={10000} value={gPrem} onChange={(e) => setGPrem(Math.max(0, Number(e.target.value) || 0))} className="w-40 text-right rounded-lg border border-line px-2 py-1.5 text-[14px] tnum" />
+                </label>
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-[13px] text-ink2">예상 월급 배율 (×가입보험료)</span>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => setGMult((v) => Math.max(0, v - 1))} className="w-7 h-7 rounded-lg border border-line text-ink2">−</button>
+                    <input type="number" min={0} step={1} value={gMult} onChange={(e) => setGMult(Math.max(0, Number(e.target.value) || 0))} className="w-16 text-center rounded-lg border border-line py-1.5 text-[14px] tnum" />
+                    <button onClick={() => setGMult((v) => v + 1)} className="w-7 h-7 rounded-lg border border-line text-ink2">+</button>
+                  </div>
+                </label>
+                <p className="text-[11px] text-ink3 leading-4">예상 월급 = <b>가입 보험료(실적) × 배율</b>(기본 10배, 직접 수정). 만날 고객·가입 보험료 실적은 자동 반영돼요.</p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-5 flex-1">
+                <div className="flex-1 min-w-0 space-y-3.5">
+                  <GoalRow label="만날 고객" actual={dash?.actual_meetings ?? 0} target={dash?.target_meetings ?? 0} unit="명" />
+                  <GoalRow label="가입 보험료" actual={dash?.actual_premium ?? 0} target={dash?.target_premium ?? 0} won />
+                  <div className="flex items-center justify-between">
+                    <span className="text-[13px] text-ink2">
+                      예상 월급 <span className="text-ink3">(가입보험료 ×{dash?.income_multiplier ?? 10})</span>
+                    </span>
+                    <span className="text-[15px] font-extrabold tnum text-accent">
+                      {dash && dash.expected_income > 0 ? `${fmtWonShort(dash.expected_income)}원` : "-"}
+                    </span>
                   </div>
                 </div>
-
-                {editGoal ? (
-                  <div className="space-y-3">
-                    <label className="flex items-center justify-between gap-3">
-                      <span className="text-[13px] text-ink2">만날 고객 (명)</span>
-                      <div className="flex items-center gap-1.5">
-                        <button onClick={() => setGMeet((v) => Math.max(0, v - 1))} className="w-7 h-7 rounded-lg border border-line text-ink2">−</button>
-                        <input type="number" min={0} value={gMeet} onChange={(e) => setGMeet(Math.max(0, Number(e.target.value) || 0))} className="w-16 text-center rounded-lg border border-line py-1.5 text-[14px] tnum" />
-                        <button onClick={() => setGMeet((v) => v + 1)} className="w-7 h-7 rounded-lg border border-line text-ink2">+</button>
-                      </div>
-                    </label>
-                    <label className="flex items-center justify-between gap-3">
-                      <span className="text-[13px] text-ink2">가입 보험료 (원)</span>
-                      <input type="number" min={0} step={10000} value={gPrem} onChange={(e) => setGPrem(Math.max(0, Number(e.target.value) || 0))} className="w-40 text-right rounded-lg border border-line px-2 py-1.5 text-[14px] tnum" />
-                    </label>
-                    <label className="flex items-center justify-between gap-3">
-                      <span className="text-[13px] text-ink2">예상 월급 배율 (×가입보험료)</span>
-                      <div className="flex items-center gap-1.5">
-                        <button onClick={() => setGMult((v) => Math.max(0, v - 1))} className="w-7 h-7 rounded-lg border border-line text-ink2">−</button>
-                        <input type="number" min={0} step={1} value={gMult} onChange={(e) => setGMult(Math.max(0, Number(e.target.value) || 0))} className="w-16 text-center rounded-lg border border-line py-1.5 text-[14px] tnum" />
-                        <button onClick={() => setGMult((v) => v + 1)} className="w-7 h-7 rounded-lg border border-line text-ink2">+</button>
-                      </div>
-                    </label>
-                    <p className="text-[11px] text-ink3 leading-4">예상 월급 = <b>가입 보험료(실적) × 배율</b>(기본 10배, 직접 수정). 만날 고객·가입 보험료 실적은 자동 반영돼요.</p>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-5">
-                    <div className="flex-1 min-w-0 space-y-3.5">
-                      <GoalRow label="만날 고객" actual={dash.actual_meetings} target={dash.target_meetings} unit="명" />
-                      <GoalRow label="가입 보험료" actual={dash.actual_premium} target={dash.target_premium} won />
-                      <div className="flex items-center justify-between">
-                        <span className="text-[13px] text-ink2">
-                          예상 월급 <span className="text-ink3">(가입보험료 ×{dash.income_multiplier})</span>
-                        </span>
-                        <span className="text-[15px] font-extrabold tnum text-accent">
-                          {dash.expected_income > 0 ? `${fmtWonShort(dash.expected_income)}원` : "-"}
-                        </span>
-                      </div>
-                    </div>
-                    <DonutChart
-                      className="hidden sm:block w-24 shrink-0"
-                      segments={[
-                        { label: "달성", value: goalGaugePct, color: "var(--brand)" },
-                        { label: "남음", value: Math.max(0, 100 - goalGaugePct), color: "var(--line)" },
-                      ]}
-                      centerValue={`${goalGaugePct}%`}
-                      centerLabel="달성률"
-                    />
-                  </div>
-                )}
-              </Card>
+                <DonutChart
+                  className="hidden sm:block w-28 shrink-0"
+                  segments={[
+                    { label: "달성", value: goalGaugePct, color: "var(--brand)" },
+                    { label: "남음", value: Math.max(0, 100 - goalGaugePct), color: "var(--line)" },
+                  ]}
+                  centerValue={`${goalGaugePct}%`}
+                  centerLabel="달성률"
+                />
+              </div>
             )}
+          </Card>
 
-            {/* 통계 카드 4개 — 컬러 아이콘 뱃지 + 큰 숫자 + 전월 대비 증감 */}
+          {/* 오늘의 일정 · 할 일 — 목표와 같은 높이 */}
+          <Card className="col-span-12 lg:col-span-4 p-4 sm:p-5 flex flex-col">
+            <div className="text-[15px] font-bold text-ink mb-3">{agendaTitle}</div>
+            {selectedItems.length > 0 ? (
+              <div className="space-y-3.5">
+                {selectedItems.map((t, i) => (
+                  <div key={i} className="flex gap-3">
+                    <div className="text-[12px] font-semibold text-ink3 w-11 shrink-0 tnum pt-0.5">{t.time}</div>
+                    <div className="flex-1 flex items-start gap-2">
+                      <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${CAT_META[t.cat].dot}`} />
+                      <span className="text-[14px] text-ink leading-5">{t.title}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center py-6 text-center text-[13px] text-ink3">
+                예정된 일정이 없어요.
+                <div className="text-[12px] mt-1">미팅·일정이 생기면 여기에 표시돼요.</div>
+              </div>
+            )}
+            <button
+              onClick={() => router.push("/schedule")}
+              className="mt-auto pt-4 w-full rounded-xl border border-line text-[13px] font-semibold text-brand py-2.5 hover:bg-brand-soft transition"
+            >
+              일정 전체 보기 · 추가 →
+            </button>
+          </Card>
+        </div>
+
+        {/* ── 2행: 좌(통계·파이프라인·차트) 8 + 우 레일(유지현황·예약·판촉) 4 — 같은 높이 ── */}
+        <div className="mt-4 grid grid-cols-12 gap-4 items-stretch">
+          {/* ───── 왼쪽 8칸 ───── */}
+          <div className="col-span-12 lg:col-span-8 space-y-4">
+            {/* 통계 카드 4개 */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <StatCard icon={Users} tone="brand" label="내 고객" value={customerCount !== null ? String(customerCount) : "-"} unit="명" />
               <StatCard icon={UserPlus} tone="brand" label="이번 달 신규" value={dash ? String(dash.actual_new_customers) : "-"} unit="명" delta={momDelta("new_customers")} />
@@ -389,7 +419,7 @@ export default function HomePage() {
               <StatCard icon={Wallet} tone="brand" label="이번 달 보험료" value={dash ? fmtWonShort(dash.actual_premium) : "-"} unit="원" delta={momDelta("premium")} />
             </div>
 
-            {/* 영업 4단계 파이프라인 — 단계별 컬러 카드 + 화살표 */}
+            {/* 영업 4단계 파이프라인 */}
             {insights && (
               <button onClick={() => router.push("/customers")} className="block w-full text-left">
                 <Card className="p-4 sm:p-5 hover:shadow-cardhover transition">
@@ -430,20 +460,20 @@ export default function HomePage() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-[15px] font-bold text-ink">월별 보험료 추이</div>
                     <div className="flex gap-1">
-                      {([3, 6, 12, 24] as const).map((m) => (
+                      {([3, 6] as const).map((m) => (
                         <button
                           key={m}
                           onClick={() => setTrendMonths(m)}
-                          className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
                             trendMonths === m ? "bg-brand text-white" : "bg-surface2 text-ink3 hover:text-ink"
                           }`}
                         >
-                          {m === 3 ? "3개월" : m === 6 ? "6개월" : m === 12 ? "1년" : "2년"}
+                          {m === 3 ? "3개월" : "6개월"}
                         </button>
                       ))}
                     </div>
                   </div>
-                  <BarChart data={trendBars} format={(n) => fmtWonShort(n)} targetLine={targetLine} averageLine={averageLine} />
+                  <BarChart data={trendBars} format={(n) => fmtWonShort(n)} targetLine={targetLine} averageLine={averageLine} heightClass="h-44" />
                 </Card>
               )}
 
@@ -504,55 +534,8 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* ───────── 오른쪽 4칸 (사이드 레일) ───────── */}
-          <div className="col-span-12 lg:col-span-4 space-y-4">
-            {/* 오늘의 일정 · 할 일 */}
-            <Card className="p-4 sm:p-5">
-              <div className="text-[15px] font-bold text-ink mb-3">{agendaTitle}</div>
-              {selectedItems.length > 0 ? (
-                <div className="space-y-3.5">
-                  {selectedItems.map((t, i) => (
-                    <div key={i} className="flex gap-3">
-                      <div className="text-[12px] font-semibold text-ink3 w-11 shrink-0 tnum pt-0.5">{t.time}</div>
-                      <div className="flex-1 flex items-start gap-2">
-                        <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${CAT_META[t.cat].dot}`} />
-                        <span className="text-[14px] text-ink leading-5">{t.title}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="py-6 text-center text-[13px] text-ink3">
-                  예정된 일정이 없어요.
-                  <div className="text-[12px] mt-1">미팅·일정이 생기면 여기에 표시돼요.</div>
-                </div>
-              )}
-              <button
-                onClick={() => router.push("/schedule")}
-                className="mt-4 w-full rounded-xl border border-line text-[13px] font-semibold text-brand py-2.5 hover:bg-brand-soft transition"
-              >
-                일정 전체 보기 · 추가 →
-              </button>
-            </Card>
-
-            {/* 다가오는 미팅(예약 확정) */}
-            {meetings.length > 0 && (
-              <Card className="p-4 sm:p-5">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[14px] font-bold text-ink">다가오는 미팅</div>
-                  <button onClick={() => router.push("/settings/meetings")} className="text-[12px] font-semibold text-brand">관리 →</button>
-                </div>
-                <div className="divide-y divide-line">
-                  {meetings.slice(0, 4).map((m) => (
-                    <div key={m.id} className="py-2">
-                      <div className="text-[13px] font-semibold text-ink">{fmtMeeting(m.start_at)} · {m.customer_name}</div>
-                      <div className="text-[12px] text-ink3">{m.method_display}{m.location_detail ? ` · ${m.location_detail}` : ""}</div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            )}
-
+          {/* ───── 오른쪽 4칸 (사이드 레일) — 좌측과 같은 높이로 채움 ───── */}
+          <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
             {/* 보유계약 유지현황(도넛) */}
             {insights && (
               <Card className="p-4 sm:p-5">
@@ -581,51 +564,28 @@ export default function HomePage() {
               </Card>
             )}
 
-            {/* 계약 유지율(추정) 1/2/3년 */}
-            {insights && (
-              <Card className="p-4 sm:p-5">
-                <div className="text-[15px] font-bold text-ink mb-3">
-                  계약 유지율 <span className="text-[11px] font-normal text-ink3">(추정)</span>
-                </div>
-                {insights.retention.has_cancellation_data ? (
-                  <>
-                    <div className="grid grid-cols-3 gap-3">
-                      {([["y1", "1년"], ["y2", "2년"], ["y3", "3년"]] as const).map(([k, label]) => {
-                        const r = insights.retention[k];
-                        return (
-                          <div key={k} className="rounded-xl bg-surface2 px-3 py-3 text-center">
-                            <div className="text-[11px] text-ink3">{label}</div>
-                            <div className="mt-1 text-[20px] font-extrabold tnum text-ink">{r.rate == null ? "-" : `${Math.round(r.rate)}%`}</div>
-                            <div className="text-[11px] text-ink3 tnum">{r.survived}/{r.reached}건</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <p className="mt-2 text-[11px] text-ink3">해지 입력 기준 추정치예요.</p>
-                  </>
-                ) : (
-                  <div className="rounded-xl bg-surface2 px-4 py-5 text-center text-[13px] text-ink3 leading-6">
-                    아직 해지 입력이 없어 유지율을 계산하지 않았어요.
-                    <div className="text-[12px] mt-0.5">환수 레이더에서 해지된 계약을 표시하면 1·2·3년 유지율이 나와요.</div>
-                  </div>
-                )}
-              </Card>
-            )}
-
-            {/* 상담 예약 링크 CTA */}
-            <Card className="p-4 sm:p-5">
+            {/* 상담 예약 링크 + 안내 문구 복사 (남는 높이를 채움) */}
+            <Card className="p-4 sm:p-5 flex flex-col flex-1">
               <div className="flex items-start gap-3">
                 <span className="shrink-0 w-10 h-10 rounded-xl grid place-items-center bg-brand-soft text-brand" aria-hidden>
                   <Link2 className="w-5 h-5" strokeWidth={2} />
                 </span>
                 <div className="min-w-0">
                   <div className="text-[14px] font-bold text-ink">상담 예약 링크</div>
-                  <p className="text-[12px] text-ink3 mt-0.5 leading-5">고객에게 보낼 예약 링크를 만들어 간편하게 공유하세요.</p>
+                  <p className="text-[12px] text-ink3 mt-0.5 leading-5">고객에게 보낼 안내 문구를 복사해 보내세요.</p>
                 </div>
               </div>
-              <button onClick={() => router.push("/settings/meetings")} className="mt-3 w-full rounded-xl border border-line text-[13px] font-semibold text-brand py-2.5 hover:bg-brand-soft transition">
-                예약 링크 만들기 →
-              </button>
+              <div className="mt-3 flex-1 min-h-[88px] rounded-xl bg-surface2 border border-line p-3 text-[12px] text-ink2 leading-5 whitespace-pre-wrap overflow-auto">
+                {sampleText}
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button onClick={copySample} className="flex-1 rounded-xl bg-brand text-white text-[13px] font-bold py-2.5 hover:opacity-90 transition">
+                  {copiedSample ? "복사됐어요 ✓" : "안내 문구 복사"}
+                </button>
+                <button onClick={() => router.push("/settings/meetings")} className="shrink-0 rounded-xl border border-line text-[13px] font-semibold text-ink2 px-3 py-2.5 hover:bg-surface2 transition">
+                  링크 설정
+                </button>
+              </div>
             </Card>
 
             {/* 판촉물 신청 CTA */}
@@ -646,7 +606,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* 하단 퀵액션 바 — 자주 쓰는 기능 바로가기(레퍼런스 1번 하단) */}
+        {/* 하단 퀵액션 바 — 자주 쓰는 기능 바로가기 */}
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {QUICK_ACTIONS.map((q) => (
             <button

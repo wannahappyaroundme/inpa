@@ -46,7 +46,7 @@ function AnalysisPageSkeleton() {
   return (
     <div className="min-h-dvh">
       <AppNav active="analysis" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         <div className="h-8 w-40 rounded-xl bg-line animate-pulse" />
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => (
@@ -126,7 +126,7 @@ function AnalysisPageInner() {
   return (
     <div className="min-h-dvh">
       <AppNav active="analysis" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         {/* ── 헤더 ── */}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

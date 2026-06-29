@@ -42,7 +42,7 @@ export default function DemoLayout({ children }: { children: React.ReactNode }) 
           );
         })}
       </nav>
-      <div className="mx-auto max-w-5xl px-4 sm:px-6 py-6">{children}</div>
+      <div className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">{children}</div>
     </div>
   );
 }

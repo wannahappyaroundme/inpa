@@ -46,7 +46,7 @@ export default function ScriptsPage() {
   return (
     <div className="min-h-dvh">
       <AppNav active="scripts" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         <h1 className="text-[22px] font-extrabold text-ink">화법 · 문구</h1>
         <p className="mt-1 text-[13px] text-ink3 leading-5">
           상황별 문구를 골라 복사해 고객에게 바로 보내세요. 카톡·문자로 빠르게 전달할 수 있어요.

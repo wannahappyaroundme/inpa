@@ -325,7 +325,7 @@ export default function SampleDetailPage({
     return (
       <div className="min-h-dvh">
         <AppNav active="promotion" />
-        <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+        <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
           <Link href="/promotion" className="text-[13px] text-brand">← 판촉물 목록</Link>
           <p className="mt-4 text-[14px] text-ink3">{pageError ?? "샘플 정보를 찾을 수 없어요."}</p>
         </main>
@@ -356,7 +356,7 @@ export default function SampleDetailPage({
         info={upgradeInfo}
       />
 
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         {/* 뒤로 가기 */}
         <Link
           href="/promotion"
