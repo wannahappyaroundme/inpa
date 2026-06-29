@@ -122,7 +122,7 @@ export default function AdminFaqPage() {
             key={c}
             onClick={() => setCatFilter(c)}
             className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition ${
-              catFilter === c ? "bg-brand text-white" : "bg-surface2 text-ink2 hover:bg-line"
+              catFilter === c ? "bg-brand-soft text-brand" : "bg-surface2 text-ink2 hover:bg-line"
             }`}
           >
             {c === "all" ? "전체" : CAT_LABELS[c] ?? c}
@@ -131,7 +131,7 @@ export default function AdminFaqPage() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger-ink">{error}</div>
       )}
 
       {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}

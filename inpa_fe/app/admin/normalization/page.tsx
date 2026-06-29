@@ -134,7 +134,7 @@ export default function AdminNormalizationPage() {
                       key={item.id}
                       onClick={() => { setSelectedUnmatched(item); setStandardName(""); }}
                       className={`w-full text-left px-4 py-3.5 hover:bg-surface2 transition ${
-                        selectedUnmatched?.id === item.id ? "bg-accent-tint" : ""
+                        selectedUnmatched?.id === item.id ? "bg-brand-soft" : ""
                       }`}
                     >
                       <div className="flex items-center gap-2 mb-0.5">

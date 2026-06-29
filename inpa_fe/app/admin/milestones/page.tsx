@@ -188,7 +188,7 @@ function StatusBadge({ s }: { s: Status }) {
 
 function OwnerChip({ o }: { o: Owner }) {
   return (
-    <span className="text-[10px] font-semibold rounded-md px-1.5 py-0.5 bg-accent-tint text-brand">
+    <span className="text-[10px] font-semibold rounded-md px-1.5 py-0.5 bg-brand-soft text-brand">
       {o === "개발" ? "개발(코드)" : o}
     </span>
   );
@@ -258,8 +258,8 @@ export default function AdminMilestonesPage() {
                     </div>
                     <h3 className="text-[14px] font-bold text-ink leading-snug">{m.title}</h3>
                     <p className="text-[12.5px] text-ink2 mt-1.5 leading-relaxed">{m.detail}</p>
-                    <div className="mt-2.5 rounded-lg bg-surface2 px-3 py-2">
-                      <span className="text-[11px] font-bold text-brand-ink">해결책 </span>
+                    <div className="mt-2.5 rounded-xl bg-surface2 px-3 py-2">
+                      <span className="text-[11px] font-bold text-brand">해결책 </span>
                       <span className="text-[12px] text-ink2 leading-relaxed">{m.how}</span>
                     </div>
                   </Card>

@@ -153,6 +153,12 @@
   body:has(.app-bottom-nav) main { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
 
+/* 데스크탑(sm+): 좌측 고정 사이드바(.app-sidebar) 폭(w-60=15rem)만큼 본문을 오른쪽으로 민다.
+   각 페이지를 안 고쳐도 모든 <main>이 사이드바를 피해 정렬됨(:has 스코프). */
+@media (min-width: 640px) {
+  body:has(.app-sidebar) main { padding-left: 15rem; }
+}
+
 html, body { background: var(--canvas); color: var(--ink); }
 body {
   font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,

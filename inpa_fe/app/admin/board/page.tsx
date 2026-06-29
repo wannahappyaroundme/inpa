@@ -96,7 +96,7 @@ function BoardContent() {
             }}
             className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition ${
               statusFilter === s
-                ? "bg-brand text-white"
+                ? "bg-brand-soft text-brand"
                 : "bg-surface2 text-ink2 hover:bg-line"
             }`}
           >
@@ -106,7 +106,7 @@ function BoardContent() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>
+        <div className="mb-4 p-3 rounded-xl bg-neg-soft border border-line text-[13px] text-danger">{error}</div>
       )}
 
       {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}
@@ -126,9 +126,9 @@ function BoardContent() {
                       <span
                         className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${
                           item.status === "pending"
-                            ? "bg-orange-50 text-warning"
+                            ? "bg-warn-soft text-warning"
                             : item.status === "resolved"
-                            ? "bg-green-50 text-success"
+                            ? "bg-pos-soft text-success"
                             : "bg-surface2 text-ink3"
                         }`}
                       >

@@ -13,9 +13,9 @@ function fmt(d: string): string {
 }
 
 function statusBadge(u: AdminUserListItem) {
-  if (u.will_delete_at) return <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-red-50 text-danger">탈퇴 예정</span>;
+  if (u.will_delete_at) return <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-neg-soft text-neg-ink">탈퇴 예정</span>;
   if (u.is_dormant)     return <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-surface2 text-ink3">휴면</span>;
-  return <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-green-50 text-success">활성</span>;
+  return <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-pos-soft text-pos-ink">활성</span>;
 }
 
 function UsersContent() {
@@ -80,7 +80,7 @@ function UsersContent() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>
+        <div className="mb-4 p-3 rounded-xl bg-neg-soft border border-line text-[13px] text-neg-ink">{error}</div>
       )}
 
       {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}

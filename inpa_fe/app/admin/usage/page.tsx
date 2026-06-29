@@ -59,7 +59,7 @@ export default function AdminUsagePage() {
               key={d}
               onClick={() => setDays(d)}
               className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold transition ${
-                days === d ? "bg-brand text-white" : "bg-surface2 text-ink2 hover:bg-line"
+                days === d ? "bg-brand-soft text-brand" : "bg-surface2 text-ink2 hover:bg-line"
               }`}
             >
               {d}일

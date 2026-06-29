@@ -26,7 +26,7 @@ export default function DemoCustomers() {
                 <span className="text-[16px] font-bold text-ink">{c.name}</span>
                 <span className="text-[12px] text-ink3">{c.age}세 · {c.gender}</span>
                 {c.expirySoon && (
-                  <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-rose-50 text-rose-600">만기 임박</span>
+                  <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-neg-soft text-danger">만기 임박</span>
                 )}
               </div>
               <div className="text-[12px] text-ink3 mt-0.5">

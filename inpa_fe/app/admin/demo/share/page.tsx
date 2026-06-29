@@ -5,7 +5,7 @@ export default function DemoShare() {
   const s = shareMock;
   return (
     <div className="max-w-md mx-auto">
-      <Card className="p-5">
+      <Card className="p-5 rounded-2xl shadow-card">
         <div className="text-[12px] text-ink3">{s.plannerName}</div>
         <h1 className="text-[20px] font-extrabold text-ink mt-1">{s.customerName}님 보장 현황</h1>
         <div className="text-[13px] text-ink2 mt-1">{s.product}</div>

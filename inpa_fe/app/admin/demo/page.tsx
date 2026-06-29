@@ -18,7 +18,7 @@ export default function DemoIndex() {
         실제 운영 데이터가 아닌 <b>예시 데이터</b>로 각 화면이 채워졌을 때의 형식·UI를 보여줍니다.
         투자자·동료·디자인 검토용 미리보기예요. 실제 페이지는 로그인 후 각 메뉴에서 실데이터로 동작합니다.
       </p>
-      <div className="mt-5 grid sm:grid-cols-2 gap-3">
+      <div className="mt-5 grid sm:grid-cols-2 gap-4">
         {SCREENS.map((s) => (
           <Link key={s.href} href={s.href}>
             <Card className="p-4 hover:border-brand transition h-full">

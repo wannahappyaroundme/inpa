@@ -10,8 +10,8 @@ function amt(v: number): string {
 }
 
 const DEC: Record<string, { label: string; cls: string }> = {
-  SWITCH: { label: "전환 검토", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  KEEP: { label: "유지 검토", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+  SWITCH: { label: "전환 검토", cls: "bg-pos-soft text-pos border-line" },
+  KEEP: { label: "유지 검토", cls: "bg-brand-soft text-brand border-line" },
   NEUTRAL: { label: "중립", cls: "bg-surface2 text-ink3 border-line" },
 };
 
@@ -54,7 +54,7 @@ export default function DemoCompare() {
                 <div className="text-ink">{r.coverage}</div>
                 <div className="text-right text-ink2 tnum">{amt(r.current)}</div>
                 <div className="text-right text-ink font-semibold tnum">{amt(r.proposed)}</div>
-                <div className={`text-right tnum font-semibold ${d > 0 ? "text-emerald-600" : d < 0 ? "text-rose-600" : "text-ink3"}`}>
+                <div className={`text-right tnum font-semibold ${d > 0 ? "text-pos" : d < 0 ? "text-neg" : "text-ink3"}`}>
                   {d > 0 ? "▲ " : d < 0 ? "▼ " : "– "}
                   {d !== 0 ? amt(Math.abs(d)) : ""}
                 </div>
@@ -71,7 +71,7 @@ export default function DemoCompare() {
           <span className="text-[12px] text-ink3">설계사 내부 판단 근거 · 고객 노출 금지</span>
         </div>
         <p className="mt-2 text-[13px] text-ink2 leading-5">{c.verdict.reason}</p>
-        <div className="mt-2 text-[13px] text-ink2">1년 추정 순이득 <b className="text-emerald-600">+{amt(c.verdict.netBenefitYear)}</b></div>
+        <div className="mt-2 text-[13px] text-ink2">1년 추정 순이득 <b className="text-pos">+{amt(c.verdict.netBenefitYear)}</b></div>
       </Card>
 
       {/* 유의사항 */}
@@ -80,7 +80,7 @@ export default function DemoCompare() {
         <div className="space-y-2">
           {c.warnings.map((w) => (
             <div key={w.label} className="flex gap-2 text-[13px]">
-              <span className="text-amber-600 shrink-0">⚠️</span>
+              <span className="text-warn shrink-0">⚠️</span>
               <div><b className="text-ink">{w.label}</b> <span className="text-ink2">{w.detail}</span></div>
             </div>
           ))}
