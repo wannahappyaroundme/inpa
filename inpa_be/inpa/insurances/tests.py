@@ -339,27 +339,27 @@ class ChurnRadarTests(TestCase):
         self.assertEqual(body['expected_recovery_total'], 0)
         self.assertEqual(body['items'], [])
 
-    def test_overdue_flagged_at_risk(self):
-        """연체 + 13회차 전 → 위험, 환수예상액 합산, persistency=pre_13."""
-        _make_held(self.customer, status=2, period=5, recovery=1_200_000)
+    def test_milestone_imminent_flagged(self):
+        """25회차 2회 이내(24회차) → 회차 임박(is_at_risk), persistency=pre_25. 환수액 자동산출 없음."""
+        _make_held(self.customer, period=24)
         body = self.client.get('/api/v1/churn-radar/').json()
         self.assertEqual(body['risk_count'], 1)
-        self.assertEqual(body['expected_recovery_total'], 1_200_000)
+        self.assertEqual(body['expected_recovery_total'], 0)
         item = body['items'][0]
         self.assertTrue(item['is_at_risk'])
-        self.assertEqual(item['persistency_stage'], 'pre_13')
-        self.assertIn('연체', item['risk_reason'])
+        self.assertEqual(item['persistency_stage'], 'pre_25')
+        self.assertIn('25회차', item['risk_reason'])
 
-    def test_due_soon_flagged(self):
-        """다음 납입일 D-3 → 위험(미납 임박)."""
-        _make_held(self.customer, status=1, period=10, next_days=3)
+    def test_midwindow_not_imminent(self):
+        """회차 중간(18회차) → 임박 아님(13/25 어느 쪽도 2회 밖). 연체값 있어도 무시."""
+        _make_held(self.customer, status=2, period=18)
         body = self.client.get('/api/v1/churn-radar/').json()
-        self.assertEqual(body['risk_count'], 1)
-        self.assertIn('D-3', body['items'][0]['risk_reason'])
+        self.assertEqual(body['risk_count'], 0)
+        self.assertEqual(body['items'][0]['persistency_stage'], 'pre_25')
 
-    def test_safe_period_not_at_risk(self):
-        """연체여도 25회차 이상이면 환수 구간 밖 → 위험 아님."""
-        _make_held(self.customer, status=2, period=30)
+    def test_safe_period_not_imminent(self):
+        """25회차 이상이면 환수 구간 밖 → 임박 아님."""
+        _make_held(self.customer, period=30)
         body = self.client.get('/api/v1/churn-radar/').json()
         self.assertEqual(body['risk_count'], 0)
         self.assertEqual(body['items'][0]['persistency_stage'], 'safe')
@@ -413,7 +413,7 @@ class ChurnSyncAlertsTests(TestCase):
 
     def test_creates_and_dedups(self):
         from inpa.notifications.models import Notification, NotifType
-        _make_held(self.customer, status=2, period=5)  # 위험
+        _make_held(self.customer, period=12)  # 13회차 1회 전 → 임박
         r1 = self.client.post('/api/v1/churn-radar/sync-alerts/')
         self.assertEqual(r1.status_code, 200)
         self.assertEqual(r1.json()['created'], 1)

@@ -24,17 +24,44 @@ from inpa.customers.models import Customer
 from inpa.insurances.models import CustomerInsurance
 from inpa.notifications.models import NotifType, Notification
 
-RISK_DUE_WINDOW_DAYS = 7
-CHARGEBACK_PERIOD = 25  # 25회차 전까지 환수 구간(보수적 기준)
+CHARGEBACK_PERIOD = 25  # 25회차 전까지 환수(차지백) 구간(보수적 기준)
+MILESTONE_WINDOW = 2    # 13/25회차 N회 이내면 '임박' 타이머
 
+# ★ 정직성: 연체·미납·환수금액은 시스템이 알 수 없음(보험사 전산에만 존재) → 판정에서 제외.
+#   계약일 기준 '납입회차(경과 개월)'만 자동 계산해 13/25회차 임박을 알린다(회차 타이머).
 CHURN_DISCLAIMER = (
-    '납입회차·환수예상액은 설계사가 입력한 추정치입니다. '
-    '정확한 환수금액과 납입상태는 보험사·회사 전산에서 확인하세요.'
+    '납입회차는 계약일 기준 자동 계산값(또는 직접 입력)이에요. '
+    '정확한 납입상태·환수금액은 보험사·회사 전산에서 확인하세요.'
 )
 
 
+def _parse_ymd(s):
+    """'YYYY-MM-DD'|'YYYY.MM.DD'|'YYYY/MM/DD' → date 또는 None."""
+    if not s:
+        return None
+    for fmt in ('%Y-%m-%d', '%Y.%m.%d', '%Y/%m/%d'):
+        try:
+            return datetime.datetime.strptime(str(s).strip(), fmt).date()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _elapsed_period(ci, today):
+    """현재 납입회차 — 설계사 직접입력값 우선, 없으면 계약일로 자동 계산(월납 경과 개월)."""
+    if ci.current_payment_period is not None:
+        return ci.current_payment_period
+    cd = _parse_ymd(ci.contract_date)
+    if cd is None:
+        return None
+    months = (today.year - cd.year) * 12 + (today.month - cd.month)
+    if today.day < cd.day:
+        months -= 1
+    return max(0, months)
+
+
 def _persistency_stage(period):
-    """납입회차 → 유지율 단계. 13/25회차가 환수·정착의 분기점."""
+    """납입회차 → 유지 단계. 13/25회차가 환수·정착의 분기점."""
     if period is None:
         return 'unknown'
     if period < 13:
@@ -45,38 +72,37 @@ def _persistency_stage(period):
 
 
 def _assess(ci, today):
-    """한 보유계약 위험 평가 → (is_at_risk, reason, stage)."""
-    stage = _persistency_stage(ci.current_payment_period)
-    in_window = ci.current_payment_period is None or ci.current_payment_period < CHARGEBACK_PERIOD
-    reasons = []
-    if ci.payment_status == 2:
-        reasons.append('연체')
-    elif ci.payment_status == 3:
-        reasons.append('납입중단')
-    if ci.next_payment_date is not None:
-        days = (ci.next_payment_date - today).days
-        if days < 0:
-            reasons.append('납입일 경과')
-        elif days <= RISK_DUE_WINDOW_DAYS:
-            reasons.append(f'납입 D-{days}')
-    is_at_risk = bool(reasons) and in_window
-    return is_at_risk, ' · '.join(reasons), stage
+    """보유계약 회차 타이머 평가 → (is_imminent, label, stage, period).
+    연체·미납은 판정에서 제외(자동 인지 불가). 13/25회차 임박만 자동 표시."""
+    period = _elapsed_period(ci, today)
+    stage = _persistency_stage(period)
+    is_imminent, label = False, ''
+    if period is not None and period < CHARGEBACK_PERIOD:
+        if period >= 13:
+            remain = CHARGEBACK_PERIOD - period
+            if remain <= MILESTONE_WINDOW:
+                is_imminent, label = True, f'25회차까지 {remain}회'
+        else:
+            remain = 13 - period
+            if remain <= MILESTONE_WINDOW:
+                is_imminent, label = True, f'13회차까지 {remain}회'
+    return is_imminent, label, stage, period
 
 
 def _serialize(ci, today):
-    is_at_risk, reason, stage = _assess(ci, today)
+    is_imminent, label, stage, period = _assess(ci, today)
     return {
         'insurance_id': ci.id,
         'customer_id': ci.customer_id,
         'customer_name': ci.customer.name,
         'insurance_name': ci.name,
-        'current_payment_period': ci.current_payment_period,
-        'payment_status': ci.payment_status,
+        'current_payment_period': period,            # 계약일 자동계산(또는 수기)
+        'payment_status': ci.payment_status,         # 호환 유지(FE 미표시)
         'next_payment_date': ci.next_payment_date.isoformat() if ci.next_payment_date else None,
         'expected_recovery_amount': ci.expected_recovery_amount,
         'persistency_stage': stage,
-        'is_at_risk': is_at_risk,
-        'risk_reason': reason,
+        'is_at_risk': is_imminent,                   # = 13/25회차 임박
+        'risk_reason': label,
         'is_cancelled': ci.is_cancelled,
         'cancelled_at': ci.cancelled_at,
     }
@@ -103,13 +129,12 @@ class ChurnRadarView(_OwnerScopedMixin, APIView):
     def get(self, request):
         today = datetime.date.today()
         items = [_serialize(ci, today) for ci in self._owned_held_insurances()]
-        at_risk = [it for it in items if it['is_at_risk']]
-        expected_total = sum(it['expected_recovery_amount'] or 0 for it in at_risk)
-        # 위험 먼저, 그다음 다음납입일 빠른 순(없으면 맨 뒤).
-        items.sort(key=lambda it: (not it['is_at_risk'], it['next_payment_date'] or '9999-99-99'))
+        imminent = [it for it in items if it['is_at_risk']]
+        # 회차 적은 순(초기·임박 먼저) — 회차 미상(None)은 맨 뒤.
+        items.sort(key=lambda it: (it['current_payment_period'] is None, it['current_payment_period'] or 0))
         return Response({
-            'risk_count': len(at_risk),
-            'expected_recovery_total': expected_total,
+            'risk_count': len(imminent),
+            'expected_recovery_total': 0,   # 환수액은 자동 산출 불가(보험사 전산 권위)
             'items': items,
             'disclaimer': CHURN_DISCLAIMER,
         })
@@ -206,7 +231,7 @@ class ChurnSyncAlertsView(_OwnerScopedMixin, APIView):
         today = datetime.date.today()
         created = 0
         for ci in self._owned_held_insurances():
-            is_at_risk, reason, _ = _assess(ci, today)
+            is_at_risk, reason, _, _ = _assess(ci, today)
             if not is_at_risk:
                 continue
             _, was_created = Notification.objects.get_or_create(
@@ -215,8 +240,8 @@ class ChurnSyncAlertsView(_OwnerScopedMixin, APIView):
                 target_date=today,
                 customer=ci.customer,
                 defaults={
-                    'title': f'{ci.customer.name}님 환수 위험',
-                    'body': f'{ci.name or "보유 보험"} — {reason}. 환수(차지백) 전 확인하세요.',
+                    'title': f'{ci.customer.name}님 유지 회차 임박',
+                    'body': f'{ci.name or "보유 보험"} {reason}. 25회차(환수 구간) 전 유지 관리하세요.',
                 },
             )
             if was_created:
