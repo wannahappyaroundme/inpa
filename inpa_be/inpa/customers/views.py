@@ -22,7 +22,7 @@ from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 
 from .models import (
-    ConsentLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
+    ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
     CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
 )
 from .presets import (
@@ -30,7 +30,7 @@ from .presets import (
     iter_preset_rows,
 )
 from .serializers import (
-    ConsentLogSerializer, ContractChecklistItemSerializer, CustomerListSerializer,
+    ConsentLogSerializer, ContactLogSerializer, ContractChecklistItemSerializer, CustomerListSerializer,
     CustomerSerializer, CustomerMedicalHistorySerializer, CustomerTagSerializer,
     FamilyMemberSerializer, JobRiskCodeSerializer, PlannerBaselineSerializer,
 )
@@ -191,6 +191,24 @@ class ContractChecklistViewSet(_CustomerScopedViewSet):
         item.done_at = timezone.now() if item.is_done else None
         item.save(update_fields=['is_done', 'done_at', 'updated_at'])
         return Response(self.get_serializer(item).data)
+
+
+class ContactLogViewSet(_CustomerScopedViewSet):
+    """접촉 결과 로그 — /api/v1/customers/<customer_pk>/contact-logs/ (소유자 전용, append-only).
+
+    전화·문자 결과(부재중·연결·약속·거절·보류)+메모 기록. 생성 시 Customer.last_contacted_at 동시 갱신
+    (방치 경보 리셋 = 기존 '방금 연락함'과 동일 효과). UPDATE/DELETE는 차단(활동 이력 무결성).
+    """
+    serializer_class = ContactLogSerializer
+    queryset = ContactLog.objects.all()
+    http_method_names = ['get', 'post', 'head', 'options']  # append-only
+
+    def perform_create(self, serializer):
+        customer = self.get_customer()
+        serializer.save(customer=customer, owner=self.request.user)
+        # 접촉 기록 = 연락한 사실 → 무접촉 경보 리셋(기존 markContacted와 동일).
+        customer.last_contacted_at = timezone.now()
+        customer.save(update_fields=['last_contacted_at'])
 
 
 class ConsentRequestCreateView(APIView):

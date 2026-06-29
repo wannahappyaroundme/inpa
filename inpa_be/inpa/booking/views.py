@@ -130,6 +130,13 @@ class MeetingViewSet(OwnedQuerySetMixin, viewsets.ReadOnlyModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
         meeting.status = Meeting.STATUS_CONFIRMED
         meeting.save(update_fields=['status'])
+        # 수락 = 만나기로 확정 → 고객을 FA(대면) 단계로 자동 승급(db/contact일 때만).
+        # Customer.save() 훅이 fa_reached_at 최초 도달 시각을 자동 스탬프 → '이번 달 미팅' 실적 반영.
+        c = meeting.customer
+        if c and c.sales_stage in (Customer.STAGE_DB, Customer.STAGE_CONTACT):
+            c.sales_stage = Customer.STAGE_MEETING
+            # fa_reached_at은 save() 훅이 채우므로 update_fields에 함께 넣어야 영속됨(update_fields 함정).
+            c.save(update_fields=['sales_stage', 'fa_reached_at'])
         _push_to_google(meeting)
         return Response(self.get_serializer(meeting).data)
 

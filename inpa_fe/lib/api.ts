@@ -619,6 +619,31 @@ export async function deleteChecklistItem(customerId: number, itemId: number): P
   await requestVoid("DELETE", `/customers/${customerId}/checklist/${itemId}/`, true);
 }
 
+// ─── 접촉 결과 로그 (TA 콜 활동 기록, append-only) ──────────────────────────
+export type ContactResult = "no_answer" | "connected" | "appointment" | "rejected" | "hold";
+export const CONTACT_RESULTS: { key: ContactResult; label: string }[] = [
+  { key: "no_answer", label: "부재중" },
+  { key: "connected", label: "연결" },
+  { key: "appointment", label: "약속" },
+  { key: "rejected", label: "거절" },
+  { key: "hold", label: "보류" },
+];
+export interface ContactLog {
+  id: number;
+  result: ContactResult;
+  result_display: string;
+  memo: string;
+  created_at: string;
+}
+/** GET /api/v1/customers/<id>/contact-logs/ — 최근순 */
+export async function listContactLogs(customerId: number): Promise<PaginatedResult<ContactLog>> {
+  return request<PaginatedResult<ContactLog>>("GET", `/customers/${customerId}/contact-logs/`, undefined, true);
+}
+/** POST .../contact-logs/ — 접촉 결과 기록(생성 시 last_contacted_at 자동 갱신) */
+export async function createContactLog(customerId: number, payload: { result: ContactResult; memo?: string }): Promise<ContactLog> {
+  return request<ContactLog>("POST", `/customers/${customerId}/contact-logs/`, payload, true);
+}
+
 /** DELETE /api/v1/customers/{id}/ — 204 No Content → void */
 export async function deleteCustomer(id: number): Promise<void> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };

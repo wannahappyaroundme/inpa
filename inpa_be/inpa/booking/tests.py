@@ -187,6 +187,35 @@ class BookingCoreTests(TestCase):
         meeting.refresh_from_db()
         self.assertEqual(meeting.status, Meeting.STATUS_CONFIRMED)
 
+    def test_accept_promotes_customer_to_fa(self):
+        # 수락 = 만나기로 확정 → db/contact 고객이 FA(meeting)로 자동 승급 + fa_reached_at 스탬프.
+        _all_week_workhours(self.user_a)
+        self.customer.sales_stage = Customer.STAGE_CONTACT
+        self.customer.save(update_fields=['sales_stage'])
+        token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
+        self.public.post(f'/api/v1/b/{token}/',
+                         {'start_at': start_at, 'method': 'phone'}, format='json')
+        meeting = Meeting.objects.get(customer=self.customer)
+        self.client_a.post(f'/api/v1/meetings/{meeting.id}/accept/')
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.sales_stage, Customer.STAGE_MEETING)
+        self.assertIsNotNone(self.customer.fa_reached_at)
+
+    def test_accept_does_not_demote_contract(self):
+        # 이미 청약(contract) 단계면 수락해도 끌어내리지 않는다(승급은 db/contact만).
+        _all_week_workhours(self.user_a)
+        self.customer.sales_stage = Customer.STAGE_CONTRACT
+        self.customer.save(update_fields=['sales_stage'])
+        token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
+        self.public.post(f'/api/v1/b/{token}/',
+                         {'start_at': start_at, 'method': 'phone'}, format='json')
+        meeting = Meeting.objects.get(customer=self.customer)
+        self.client_a.post(f'/api/v1/meetings/{meeting.id}/accept/')
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.sales_stage, Customer.STAGE_CONTRACT)
+
     def test_decline_frees_time(self):
         _all_week_workhours(self.user_a)
         token = make_booking_token(self.customer)
