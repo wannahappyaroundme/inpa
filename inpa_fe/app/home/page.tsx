@@ -250,10 +250,10 @@ export default function HomePage() {
   const pf = insights?.portfolio;
   const portfolioSegs = pf
     ? [
-        { label: "유지 안정", value: pf.stable, color: "var(--success)" },
-        { label: "주의(13/25회차)", value: pf.watch, color: "var(--warning)" },
-        { label: "환수 위험", value: pf.at_risk, color: "var(--danger)" },
-        { label: "회차 미입력", value: pf.unknown, color: "var(--muted)" },
+        { label: "유지 안정 (25회차+)", value: pf.stable, color: "var(--success)" },
+        { label: "정착 중 (25회차 전)", value: pf.watch, color: "var(--warning)" },
+        { label: "초기 (13회차 전)", value: pf.at_risk, color: "var(--danger)" },
+        { label: "회차 미상", value: pf.unknown, color: "var(--muted)" },
       ]
     : [];
   const portfolioTotal = portfolioSegs.reduce((s, x) => s + x.value, 0);
@@ -536,10 +536,14 @@ export default function HomePage() {
 
           {/* ───── 오른쪽 4칸 (사이드 레일) — 좌측과 같은 높이로 채움 ───── */}
           <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
-            {/* 보유계약 유지현황(도넛) */}
+            {/* 보유계약 유지현황(도넛) → 클릭 시 유지 회차 타이머 */}
             {insights && (
-              <Card className="p-4 sm:p-5">
-                <div className="text-[15px] font-bold text-ink mb-3">보유계약 유지현황</div>
+              <button onClick={() => router.push("/churn-radar")} className="block w-full text-left">
+                <Card className="p-4 sm:p-5 hover:shadow-cardhover transition">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-[15px] font-bold text-ink">보유계약 유지현황</div>
+                    <span className="text-[12px] font-semibold text-brand">회차 타이머 →</span>
+                  </div>
                 {portfolioTotal > 0 ? (
                   <div className="flex items-center gap-4">
                     <DonutChart className="w-24 shrink-0" segments={portfolioSegs} centerValue={String(portfolioTotal)} centerLabel="보유계약" />
@@ -561,7 +565,8 @@ export default function HomePage() {
                     <div className="text-[12px] mt-1">증권을 등록하면 유지현황이 표시돼요.</div>
                   </div>
                 )}
-              </Card>
+                </Card>
+              </button>
             )}
 
             {/* 상담 예약 링크 + 안내 문구 복사 (남는 높이를 채움) */}

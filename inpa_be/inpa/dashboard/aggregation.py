@@ -112,17 +112,19 @@ def compute_portfolio_breakdown(user, today=None):
     today = today or datetime.date.today()
     qs = CustomerInsurance.objects.select_related('customer').filter(
         customer__owner=user, portfolio_type=1)
+    # 회차(계약일 자동계산) 단계별 분포. 연체/미납(자동 인지 불가)은 쓰지 않음.
+    #   at_risk = 초기(13회차 미만, 환수 민감) / watch = 정착중(13~24) / stable = 25회차+ / unknown = 회차 미상
     buckets = {'at_risk': 0, 'watch': 0, 'stable': 0, 'unknown': 0}
     for ci in qs:
-        is_at_risk, _, stage = _assess(ci, today)
-        if is_at_risk:
-            buckets['at_risk'] += 1
-        elif stage == 'safe':
+        _, _, stage, _ = _assess(ci, today)
+        if stage == 'safe':
             buckets['stable'] += 1
-        elif stage == 'unknown':
-            buckets['unknown'] += 1
-        else:  # pre_13 / pre_25 (위험 아님) = 주의 관찰
+        elif stage == 'pre_25':
             buckets['watch'] += 1
+        elif stage == 'pre_13':
+            buckets['at_risk'] += 1
+        else:
+            buckets['unknown'] += 1
     return buckets
 
 

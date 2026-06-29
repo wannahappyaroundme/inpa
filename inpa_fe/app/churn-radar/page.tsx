@@ -1,16 +1,15 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════════
-// 환수 레이더(A/S) — docs 회의 후속(분석→영업→소개→A/S의 A/S 단계)
+// 유지 회차 타이머 (구 '환수 레이더') — 보유계약의 납입회차(유지율)를 한눈에.
 //
-// ★ 정직성/컴플라이언스:
-//  - 납입회차·환수예상액은 설계사 '수기입력' 추정치. 정확액은 보험사/회사 전산 권위 → '추정' 라벨 상시.
-//  - owner 전용(BE customer__owner 격리). 보유(portfolio_type=1) 계약만.
-//  - 자동발송 없음 — 본 화면은 점검·표시·수기입력까지만.
+// ★ 정직성: 연체·미납·환수금액은 시스템이 알 수 없음(보험사 전산에만 존재) → 표시/판정 안 함.
+//   납입회차는 '계약일 기준 자동 계산'(설계사가 직접 입력하면 그 값 우선). 13/25회차 임박만 알림.
+//   owner 전용(BE customer__owner 격리). 보유(portfolio_type=1) 계약만.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback } from "react";
-import { ShieldAlert } from "lucide-react";
+import { Timer } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { Card, ReminderCard } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
@@ -23,27 +22,15 @@ import {
 } from "@/lib/api";
 
 const STAGE_META: Record<PersistencyStage, { label: string; cls: string }> = {
-  unknown: { label: "미입력", cls: "bg-surface2 text-ink3 border-line" },
-  pre_13: { label: "13회차 전", cls: "bg-warning-tint text-warning-ink border-short/40" },
-  pre_25: { label: "25회차 전", cls: "bg-accent-tint text-brand border-accent/30" },
-  safe: { label: "유지 안정", cls: "bg-success-tint text-success-ink border-enough/30" },
+  unknown: { label: "회차 미상", cls: "bg-surface2 text-ink3 border-line" },
+  pre_13: { label: "초기 (13회차 전)", cls: "bg-warning-tint text-warning-ink border-short/40" },
+  pre_25: { label: "정착 중 (25회차 전)", cls: "bg-accent-tint text-brand border-accent/30" },
+  safe: { label: "유지 안정 (25회차+)", cls: "bg-success-tint text-success-ink border-enough/30" },
 };
 
-const STATUS_OPTIONS = [
-  { v: "", label: "미입력" },
-  { v: "1", label: "정상" },
-  { v: "2", label: "연체" },
-  { v: "3", label: "납입중단" },
-];
-
-const krw = new Intl.NumberFormat("ko-KR");
-
-// 입력 드래프트(문자열 보관 → 저장 시 number|null 변환)
+// 입력 드래프트 — 회차(수기 override) + 해지 기록만(나머지 납입상태는 자동 인지 불가라 제거).
 type Draft = {
   current_payment_period: string;
-  payment_status: string;
-  next_payment_date: string;
-  expected_recovery_amount: string;
   is_cancelled: boolean;
   cancelled_at: string;
 };
@@ -51,9 +38,6 @@ type Draft = {
 function toDraft(it: ChurnRadarItem): Draft {
   return {
     current_payment_period: it.current_payment_period?.toString() ?? "",
-    payment_status: it.payment_status?.toString() ?? "",
-    next_payment_date: it.next_payment_date ?? "",
-    expected_recovery_amount: it.expected_recovery_amount?.toString() ?? "",
     is_cancelled: it.is_cancelled,
     cancelled_at: it.cancelled_at ?? "",
   };
@@ -104,15 +88,12 @@ export default function ChurnRadarPage() {
     try {
       await updateInsuranceChurn(it.insurance_id, {
         current_payment_period: numOrNull(d.current_payment_period),
-        payment_status: numOrNull(d.payment_status),
-        next_payment_date: d.next_payment_date.trim() === "" ? null : d.next_payment_date,
-        expected_recovery_amount: numOrNull(d.expected_recovery_amount),
         is_cancelled: d.is_cancelled,
         cancelled_at: d.is_cancelled && d.cancelled_at.trim() !== "" ? d.cancelled_at : null,
       });
       setSavedId(it.insurance_id);
       setTimeout(() => setSavedId(null), 1800);
-      load(); // 위험판정·집계 재계산 반영
+      load(); // 회차·임박 재계산 반영
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "저장 실패");
     } finally {
@@ -122,13 +103,13 @@ export default function ChurnRadarPage() {
 
   if (!ready) return null;
 
-  // 4색 리마인드 버킷 — 우리 데이터(환수위험·유지회차)에 정직하게 매핑(가짜 '갱신' 개념 안 씀).
-  // 위험도 그라데이션: 위험(빨강) → 13회차 이내(주황) → 25회차 이내(노랑) → 유지 안정(초록).
+  // 4색 리마인드 버킷 — 회차 단계(계약일 자동계산)에 정직하게 매핑.
+  // 임박(빨강) → 초기 13회차 전(주황) → 정착 25회차 전(파랑) → 유지 안정(초록).
   const items = data?.items ?? [];
   const reminderCards = [
-    { tone: "var(--danger)", icon: "!", label: "환수 위험", count: items.filter((i) => i.is_at_risk).length },
-    { tone: "var(--warning)", icon: "⏰", label: "13회차 이내", count: items.filter((i) => !i.is_at_risk && i.persistency_stage === "pre_13").length },
-    { tone: "var(--accent-blue)", icon: "📅", label: "25회차 이내", count: items.filter((i) => !i.is_at_risk && i.persistency_stage === "pre_25").length },
+    { tone: "var(--danger)", icon: "⏰", label: "회차 임박", count: items.filter((i) => i.is_at_risk).length },
+    { tone: "var(--warning)", icon: "①", label: "초기(13회차 전)", count: items.filter((i) => i.persistency_stage === "pre_13").length },
+    { tone: "var(--accent-blue)", icon: "②", label: "정착(25회차 전)", count: items.filter((i) => i.persistency_stage === "pre_25").length },
     { tone: "var(--success)", icon: "✓", label: "유지 안정", count: items.filter((i) => i.persistency_stage === "safe").length },
   ];
 
@@ -136,25 +117,18 @@ export default function ChurnRadarPage() {
     <div className="min-h-dvh">
       <AppNav active="home" />
       <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6">
-        <h1 className="text-[22px] font-extrabold text-ink">환수 레이더</h1>
+        <h1 className="text-[22px] font-extrabold text-ink">유지 회차 타이머</h1>
         <p className="mt-1 text-[13px] text-ink3 leading-5">
-          보유 계약의 납입상태와 유지율(13/25회차)을 점검해, 환수(차지백) 위험을 미리 막으세요.
+          보유 계약의 납입회차(유지율)를 계약일 기준으로 자동 계산해, 13/25회차(환수 구간) 전 유지 관리를 도와드려요.
         </p>
 
-        {/* 요약 — 4색 리마인드 카드(sample_2) + 예상 환수액 */}
+        {/* 요약 — 4색 회차 단계 리마인드 카드 */}
         {data && (
-          <>
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {reminderCards.map((c) => (
-                <ReminderCard key={c.label} tone={c.tone} icon={c.icon} label={c.label} count={c.count} unit="건" />
-              ))}
-            </div>
-            {data.expected_recovery_total > 0 && (
-              <div className="mt-3 text-[13px] text-ink2">
-                예상 환수액(추정) <b className="text-ink tnum">₩{krw.format(data.expected_recovery_total)}</b>
-              </div>
-            )}
-          </>
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {reminderCards.map((c) => (
+              <ReminderCard key={c.label} tone={c.tone} icon={c.icon} label={c.label} count={c.count} unit="건" />
+            ))}
+          </div>
         )}
 
         {/* 면책 */}
@@ -174,14 +148,14 @@ export default function ChurnRadarPage() {
         <div className="mt-5 space-y-3">
           {loading ? (
             [1, 2, 3].map((i) => (
-              <div key={i} className="h-28 rounded-2xl bg-line animate-pulse" />
+              <div key={i} className="h-24 rounded-2xl bg-line animate-pulse" />
             ))
           ) : !data || data.items.length === 0 ? (
             <Card className="px-4 py-10 text-center">
-              <ShieldAlert className="mx-auto w-8 h-8 text-ink3" />
+              <Timer className="mx-auto w-8 h-8 text-ink3" />
               <p className="mt-3 text-[14px] text-ink3">보유 보험이 아직 없어요.</p>
               <p className="mt-1 text-[12px] text-ink3">
-                고객 상세에서 증권을 올려 보험을 먼저 등록하면 여기서 납입·환수를 관리할 수 있어요.
+                고객 상세에서 증권을 올려 보험을 먼저 등록하면 여기서 유지 회차를 관리할 수 있어요.
               </p>
             </Card>
           ) : (
@@ -196,99 +170,67 @@ export default function ChurnRadarPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[15px] font-bold text-ink">{it.customer_name}</span>
                     <span className="text-[13px] text-ink3">{it.insurance_name ?? "보험"}</span>
+                    <span className="text-[12px] text-ink2 tnum">
+                      {it.current_payment_period != null ? `${it.current_payment_period}회차` : "회차 미상"}
+                    </span>
                     <span className={`ml-auto text-[11px] font-semibold rounded-full border px-2 py-0.5 ${stage.cls}`}>
                       {stage.label}
                     </span>
                   </div>
                   {it.is_at_risk && it.risk_reason && (
-                    <div className="mt-1.5 text-[12px] font-semibold text-danger-ink">
-                      ⚠️ {it.risk_reason}
+                    <div className="mt-1.5 text-[12px] font-semibold text-warning-ink">
+                      ⏰ {it.risk_reason} 남았어요. 유지 관리하세요.
                     </div>
                   )}
 
-                  {/* 수기입력 */}
-                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {/* 수기 보정 — 회차만(계약일 자동 계산이 부정확할 때) + 해지 기록 */}
+                  <div className="mt-3 flex flex-wrap items-end gap-3">
                     <label className="block">
-                      <span className="text-[11px] text-ink3">납입회차</span>
+                      <span className="text-[11px] text-ink3">납입회차 (비우면 자동)</span>
                       <input
                         type="number"
                         min={0}
                         value={d?.current_payment_period ?? ""}
                         onChange={(e) => setField(it.insurance_id, "current_payment_period", e.target.value)}
-                        className="mt-0.5 w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[14px] text-ink tnum"
+                        className="mt-0.5 w-28 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[14px] text-ink tnum"
                         placeholder="회"
                       />
                     </label>
-                    <label className="block">
-                      <span className="text-[11px] text-ink3">납입상태</span>
-                      <select
-                        value={d?.payment_status ?? ""}
-                        onChange={(e) => setField(it.insurance_id, "payment_status", e.target.value)}
-                        className="mt-0.5 w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[14px] text-ink"
+                    <label className="flex items-center gap-2 text-[13px] text-ink2 pb-1.5">
+                      <input
+                        type="checkbox"
+                        checked={d?.is_cancelled ?? false}
+                        onChange={(e) =>
+                          setDrafts((prev) => ({
+                            ...prev,
+                            [it.insurance_id]: { ...prev[it.insurance_id], is_cancelled: e.target.checked },
+                          }))
+                        }
+                        className="w-4 h-4 accent-cnone"
+                      />
+                      해지된 계약
+                      {d?.is_cancelled && (
+                        <input
+                          type="date"
+                          value={d?.cancelled_at ?? ""}
+                          onChange={(e) => setField(it.insurance_id, "cancelled_at", e.target.value)}
+                          className="ml-1 rounded-lg border border-line bg-surface px-2 py-1 text-[13px] text-ink"
+                          aria-label="해지일"
+                        />
+                      )}
+                    </label>
+                    <div className="ml-auto flex items-center gap-2 pb-0.5">
+                      {savedId === it.insurance_id && (
+                        <span className="text-[12px] font-semibold text-success-ink">저장됐어요</span>
+                      )}
+                      <button
+                        onClick={() => save(it)}
+                        disabled={savingId === it.insurance_id}
+                        className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-60 active:scale-[0.98] transition"
                       >
-                        {STATUS_OPTIONS.map((o) => (
-                          <option key={o.v} value={o.v}>{o.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block">
-                      <span className="text-[11px] text-ink3">다음 납입일</span>
-                      <input
-                        type="date"
-                        value={d?.next_payment_date ?? ""}
-                        onChange={(e) => setField(it.insurance_id, "next_payment_date", e.target.value)}
-                        className="mt-0.5 w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[14px] text-ink"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-[11px] text-ink3">예상 환수액(추정)</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={d?.expected_recovery_amount ?? ""}
-                        onChange={(e) => setField(it.insurance_id, "expected_recovery_amount", e.target.value)}
-                        className="mt-0.5 w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[14px] text-ink tnum"
-                        placeholder="원"
-                      />
-                    </label>
-                  </div>
-
-                  {/* 해지 여부 — 계약 유지율 계산용 (PM 06.24) */}
-                  <label className="mt-2.5 flex items-center gap-2 text-[13px] text-ink2">
-                    <input
-                      type="checkbox"
-                      checked={d?.is_cancelled ?? false}
-                      onChange={(e) =>
-                        setDrafts((prev) => ({
-                          ...prev,
-                          [it.insurance_id]: { ...prev[it.insurance_id], is_cancelled: e.target.checked },
-                        }))
-                      }
-                      className="w-4 h-4 accent-cnone"
-                    />
-                    해지된 계약
-                    {d?.is_cancelled && (
-                      <input
-                        type="date"
-                        value={d?.cancelled_at ?? ""}
-                        onChange={(e) => setField(it.insurance_id, "cancelled_at", e.target.value)}
-                        className="ml-1 rounded-lg border border-line bg-surface px-2 py-1 text-[13px] text-ink"
-                        aria-label="해지일"
-                      />
-                    )}
-                  </label>
-
-                  <div className="mt-2.5 flex items-center justify-end gap-2">
-                    {savedId === it.insurance_id && (
-                      <span className="text-[12px] font-semibold text-success-ink">저장됐어요</span>
-                    )}
-                    <button
-                      onClick={() => save(it)}
-                      disabled={savingId === it.insurance_id}
-                      className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-60 active:scale-[0.98] transition"
-                    >
-                      {savingId === it.insurance_id ? "저장 중…" : "저장"}
-                    </button>
+                        {savingId === it.insurance_id ? "저장 중…" : "저장"}
+                      </button>
+                    </div>
                   </div>
                 </Card>
               );
