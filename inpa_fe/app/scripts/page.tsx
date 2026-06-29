@@ -61,7 +61,7 @@ export default function ScriptsPage() {
         </p>
 
         {/* 치환 입력 — 비우면 '고객'·'담당 설계사'로 들어감 */}
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-[12px] font-semibold text-ink3">고객 이름 (선택)</span>
             <input

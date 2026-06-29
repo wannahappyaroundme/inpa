@@ -338,7 +338,7 @@ export default function HomePage() {
                 </label>
                 <label className="flex items-center justify-between gap-3">
                   <span className="text-[13px] text-ink2">가입 보험료 (원)</span>
-                  <input type="number" min={0} step={10000} value={gPrem} onChange={(e) => setGPrem(Math.max(0, Number(e.target.value) || 0))} className="w-40 text-right rounded-lg border border-line px-2 py-1.5 text-[14px] tnum" />
+                  <input type="number" min={0} step={10000} value={gPrem} onChange={(e) => setGPrem(Math.max(0, Number(e.target.value) || 0))} className="flex-1 max-w-[160px] text-right rounded-lg border border-line px-2 py-1.5 text-[14px] tnum" />
                 </label>
                 <label className="flex items-center justify-between gap-3">
                   <span className="text-[13px] text-ink2">예상 월급 배율 (×가입보험료)</span>
