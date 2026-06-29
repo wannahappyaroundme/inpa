@@ -132,7 +132,7 @@ export default function AccountSettingsPage() {
             </button>
           </div>
           <p className="mt-1 text-[12px] text-ink3 leading-5">
-            켜면 관리직이 내 <b>집계 KPI</b>(고객수·환수위험·공유열람)만 봅니다. 개별 고객 정보는 공유되지 않아요.
+            켜면 관리직이 내 <b>집계 수치</b>(이번 달 보험료·신규·미팅, 단계 분포, 고객수·유지율 등)만 봅니다. 개별 고객 이름·정보는 공유되지 않아요.
           </p>
           <label className="mt-3 block">
             <span className="text-[12px] text-ink3">관리직 이메일</span>

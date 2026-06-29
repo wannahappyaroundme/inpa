@@ -344,6 +344,14 @@ export interface ManagerAgentKpi {
   churn_risk_count: number;
   share_view_count: number;
   retention_y1: number | null;
+  premium_month: number;
+  new_month: number;
+  meetings_month: number;
+  premium_delta: number | null;          // 전월 대비 %
+  funnel: Record<SalesStage, number>;    // 단계 분포(미니바)
+  product_mix: { life: number; nonlife: number };
+  last_login: string | null;
+  is_active_month: boolean;              // 이번 달 활동 0 → 회색 강조
 }
 export interface ManagerTeamRoi {
   agent_count: number;
@@ -355,9 +363,14 @@ export interface ManagerTeamRoi {
 export interface ManagerDashboardResponse {
   agent_count: number;
   agents: ManagerAgentKpi[];
-  totals: { customer_count: number; churn_risk_count: number; share_view_count: number };
+  totals: {
+    customer_count: number; churn_risk_count: number; share_view_count: number;
+    premium_month: number; new_month: number; active_member_count: number;
+  };
   team_funnel: Record<SalesStage, number>;
   team_retention: RetentionYears;
+  team_product_mix: { life: number; nonlife: number };
+  team_premium_trend: { ym: string; premium: number }[];
   roi: ManagerTeamRoi;
 }
 export async function getManagerDashboard(): Promise<ManagerDashboardResponse> {

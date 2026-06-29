@@ -133,6 +133,23 @@ class ManagerDashboardTests(TestCase):
         self.assertNotIn('고객A', raw)
         self.assertNotIn('고객B', raw)
 
+    def test_agent_kpi_includes_performance_fields(self):
+        from inpa.customers.models import Customer
+        Customer.objects.create(owner=self.agent_yes, name='신규', birth_day='1990.01.01', gender=1)
+        body = self.mc.get('/api/v1/manager/dashboard/').json()
+        agent = body['agents'][0]
+        for k in ('premium_month', 'new_month', 'meetings_month', 'premium_delta',
+                  'funnel', 'product_mix', 'last_login', 'is_active_month'):
+            self.assertIn(k, agent)
+        self.assertGreaterEqual(agent['new_month'], 1)  # 이번 달 신규 고객
+        self.assertTrue(agent['is_active_month'])       # 활동 있음
+        self.assertEqual(set(agent['funnel'].keys()), {'db', 'contact', 'meeting', 'contract'})
+        self.assertEqual(set(agent['product_mix'].keys()), {'life', 'nonlife'})
+        for k in ('premium_month', 'new_month', 'active_member_count'):
+            self.assertIn(k, body['totals'])
+        self.assertIn('team_product_mix', body)
+        self.assertIn('team_premium_trend', body)
+
     def test_non_manager_sees_empty(self):
         _, lone = _verified_planner('lone@test.com')
         body = lone.get('/api/v1/manager/dashboard/').json()
