@@ -85,6 +85,7 @@ export function BarChart({
   targetLine,
   averageLine,
   className = "",
+  heightClass = "h-24",
 }: {
   data: BarPoint[];
   highlightLast?: boolean;
@@ -92,6 +93,7 @@ export function BarChart({
   targetLine?: number;
   averageLine?: number;
   className?: string;
+  heightClass?: string;   // 막대 영역 높이(예: 'h-24' 기본 / 'h-44' 더 높게)
 }) {
   const max = Math.max(1, ...data.map((d) => d.value));
   const total = data.reduce((s, d) => s + Math.max(0, d.value), 0);
@@ -102,7 +104,7 @@ export function BarChart({
   if (total === 0) {
     return (
       <div className={className} role="img" aria-label={aria}>
-        <div className="h-24 flex items-center justify-center text-[12px] text-ink3">데이터가 아직 없어요</div>
+        <div className={`${heightClass} flex items-center justify-center text-[12px] text-ink3`}>데이터가 아직 없어요</div>
         <div className="flex gap-1.5 mt-1">
           {data.map((d, i) => (
             <span key={i} className="flex-1 text-center text-[10px] text-ink3">{d.label}</span>
@@ -123,12 +125,12 @@ export function BarChart({
     <div className={className} role="img" aria-label={aria}>
       {/* 막대 영역 — relative 래퍼 높이=h-24(96px). 보조선 오버레이의 좌표 기준(월 라벨 제외) */}
       <div className="relative">
-        <div className="flex items-end gap-1.5 h-24">
+        <div className={`flex items-end gap-1.5 ${heightClass}`}>
           {data.map((d, i) => {
             const hot = highlightLast && i === lastIdx;
             const pct = Math.round((d.value / max) * 100);
             return (
-              <div key={i} className="relative flex-1 h-24 flex items-end">
+              <div key={i} className={`relative flex-1 ${heightClass} flex items-end`}>
                 <div
                   className="w-full rounded-t-md transition-all relative"
                   style={{

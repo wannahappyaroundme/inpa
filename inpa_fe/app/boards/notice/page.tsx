@@ -69,7 +69,7 @@ export default function NoticePage() {
   return (
     <div className="min-h-dvh">
       <AppNav active="board" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         <h1 className="text-[22px] font-extrabold text-ink mb-5">게시판</h1>
         <SubTabs active="notice" />
 

@@ -59,7 +59,7 @@ export default function InquiryDetailPage() {
     return (
       <div className="min-h-dvh">
         <AppNav active="board" />
-        <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+        <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
           <div className="py-12 text-center text-[14px] text-ink3">불러오는 중...</div>
         </main>
       </div>
@@ -70,7 +70,7 @@ export default function InquiryDetailPage() {
     return (
       <div className="min-h-dvh">
         <AppNav active="board" />
-        <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+        <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
           <button onClick={() => router.back()} className="text-[13px] text-ink3 mb-4">‹ 뒤로</button>
           <div className="py-12 text-center">
             <p className="text-[15px] font-semibold text-ink3">{error ?? "문의를 찾을 수 없어요."}</p>
@@ -86,7 +86,7 @@ export default function InquiryDetailPage() {
   return (
     <div className="min-h-dvh">
       <AppNav active="board" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         <button onClick={() => router.back()} className="text-[13px] text-ink3 flex items-center gap-1 hover:text-ink transition mb-5">
           ‹ 내 문의 목록
         </button>

@@ -58,7 +58,7 @@ export default function PromotionPage() {
   return (
     <div className="min-h-dvh">
       <AppNav active="promotion" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         {/* 헤더 */}
         <div className="flex items-center justify-between">
           <h1 className="text-[22px] font-extrabold text-ink">판촉물</h1>

@@ -145,7 +145,7 @@ function DetailSkeleton() {
   return (
     <div className="min-h-dvh">
       <AppNav active="customers" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         <div className="h-20 rounded-2xl bg-line animate-pulse" />
         <div className="mt-4 h-10 w-full rounded-xl bg-line animate-pulse" />
         <div className="mt-6 h-40 rounded-2xl bg-line animate-pulse" />
@@ -314,7 +314,7 @@ function CustomerDetailInner() {
         info={heatmapUpgradeInfo}
       />
 
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         {/* 뒤로 */}
         <Link
           href="/customers"
@@ -1884,7 +1884,7 @@ function NotFoundShell({ message }: { message: string }) {
   return (
     <div className="min-h-dvh">
       <AppNav active="customers" />
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         <div className="mt-10 rounded-2xl border border-line bg-surface2 px-4 py-12 text-center">
           <p className="text-[15px] font-semibold text-ink2">{message}</p>
           <Link
