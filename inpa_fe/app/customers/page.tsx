@@ -197,6 +197,8 @@ export default function CustomersPage() {
   const [visibleByStage, setVisibleByStage] = useState<Record<string, number>>({});
   // 보류·휴면·종료(정리된 고객) 접기 — '진행중만' 보기 토글.
   const [hideParked, setHideParked] = useState(false);
+  // 모바일 단계 탭 — 가로 스크롤 대신 버튼으로 단계 전환(데스크탑은 다단 보드 유지).
+  const [activeStage, setActiveStage] = useState<SalesStage>("db");
 
   const fetchCustomers = useCallback(async (q: string) => {
     setLoading(true);
@@ -432,7 +434,7 @@ export default function CustomersPage() {
         {/* ── 칸반 보기 (영업 4단계: DB·TA·FA·청약) ── */}
         {view === "kanban" && customers.length > 0 && (
           <>
-            <div className="mt-3 flex items-center justify-end">
+            <div className="mt-3 hidden sm:flex items-center justify-end">
               <button
                 type="button"
                 onClick={() => setShowContract((v) => !v)}
@@ -441,9 +443,32 @@ export default function CustomersPage() {
                 {showContract ? "청약 숨기기" : "청약 더보기"}
               </button>
             </div>
-            <div className="mt-2 flex gap-3 overflow-x-auto pb-2 snap-x">
+
+            {/* 모바일: 단계 버튼 탭 — 누르면 아래 컬럼이 그 단계로 바뀜(가로 슬라이드 대신) */}
+            <div className="mt-2 grid grid-cols-4 gap-1.5 sm:hidden">
               {SALES_STAGES.map((stage) => {
-                if (stage.key === "contract" && !showContract) return null;
+                const count = visible.filter((c) => c.sales_stage === stage.key).length;
+                const on = activeStage === stage.key;
+                return (
+                  <button
+                    key={stage.key}
+                    type="button"
+                    onClick={() => setActiveStage(stage.key)}
+                    aria-pressed={on}
+                    className={`rounded-xl border px-1 py-2 text-center transition ${
+                      on ? "border-brand bg-brand-soft text-brand" : "border-line bg-surface2 text-ink3"
+                    }`}
+                  >
+                    <div className="text-[13px] font-extrabold leading-none">{stage.label}</div>
+                    <div className={`text-[15px] font-extrabold tnum mt-1 ${on ? "text-brand" : "text-ink"}`}>{count}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 단계 보드 — 데스크탑은 가로 4단, 모바일은 위 탭에서 고른 한 단계만 세로로 */}
+            <div className="mt-2 flex flex-col sm:flex-row gap-3">
+              {SALES_STAGES.map((stage) => {
                 const col = visible.filter((c) => c.sales_stage === stage.key);
                 const vis = visibleByStage[stage.key] ?? KANBAN_PAGE;
                 const shown = col.slice(0, vis);
@@ -455,7 +480,9 @@ export default function CustomersPage() {
                       if (dragId != null) moveCustomer(dragId, stage.key);
                       setDragId(null);
                     }}
-                    className="rounded-2xl bg-surface2 border border-line p-2.5 min-h-[120px] w-[78vw] shrink-0 sm:w-auto sm:flex-1 sm:min-w-0 snap-start"
+                    className={`rounded-2xl bg-surface2 border border-line p-2.5 min-h-[120px] w-full sm:w-auto sm:flex-1 sm:min-w-0 ${
+                      stage.key === activeStage ? "block" : "hidden"
+                    } ${stage.key === "contract" && !showContract ? "sm:hidden" : "sm:block"}`}
                   >
                     <div className="flex items-center justify-between px-1 pb-2">
                       <span className="inline-flex items-center gap-1 text-[13px] font-bold text-ink">
