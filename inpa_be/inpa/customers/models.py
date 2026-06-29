@@ -389,6 +389,43 @@ class ContractChecklistItem(models.Model):
         return f'{self.customer_id}:{self.label}'
 
 
+class ContactLog(models.Model):
+    """접촉(연락) 결과 로그 — 소유자 전용, append-only (TA 콜 활동 기록).
+
+    전화·문자 시도의 결과(부재중·연결·약속·거절·보류) + 메모를 남긴다.
+    생성 시 Customer.last_contacted_at도 함께 갱신해 방치(무접촉) 경보를 리셋한다(기존 '방금 연락함'과 동일 효과).
+    """
+    RESULT_NO_ANSWER = 'no_answer'
+    RESULT_CONNECTED = 'connected'
+    RESULT_APPOINTMENT = 'appointment'
+    RESULT_REJECTED = 'rejected'
+    RESULT_HOLD = 'hold'
+    RESULT_CHOICES = (
+        (RESULT_NO_ANSWER, '부재중'),
+        (RESULT_CONNECTED, '연결'),
+        (RESULT_APPOINTMENT, '약속'),
+        (RESULT_REJECTED, '거절'),
+        (RESULT_HOLD, '보류'),
+    )
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                              related_name='contact_logs')
+    customer = models.ForeignKey('Customer', on_delete=models.CASCADE,
+                                 related_name='contact_logs')
+    result = models.CharField('접촉 결과', max_length=20, choices=RESULT_CHOICES)
+    memo = models.TextField('메모', blank=True, default='')
+    created_at = models.DateTimeField('기록 시각', auto_now_add=True)
+
+    class Meta:
+        db_table = 'contact_log'
+        verbose_name = '접촉 로그'
+        verbose_name_plural = '접촉 로그'
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['customer', '-created_at'])]
+
+    def __str__(self):
+        return f'{self.customer_id}:{self.result}'
+
+
 class PlannerBaseline(models.Model):
     """설계사 기준선 (소유자 전용 — ★ 준법 통제점, dev/02 §6 · dev/10).
 

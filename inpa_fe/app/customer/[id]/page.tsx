@@ -33,6 +33,7 @@ import {
   ConsentModal,
 } from "@/components/ocr-upload";
 import { BookingModal } from "@/components/booking-modal";
+import { ContactLogModal } from "@/components/contact-log-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 import { ShareLinkButton } from "@/components/share-link-button";
@@ -53,9 +54,11 @@ import {
   createConsentRequest,
   searchJobs,
   listManualInsurances,
+  listContactLogs,
   SALES_STAGES,
   CUSTOMER_STATUSES,
   ApiError,
+  type ContactLog,
   type ManualInsuranceItem,
   type CustomerDetail,
   type SalesStage,
@@ -421,6 +424,12 @@ function CustomerSummary({
   onTab: (tab: TabKey) => void;
 }) {
   const [bookingOpen, setBookingOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+  const [contactLogs, setContactLogs] = useState<ContactLog[]>([]);
+  const loadContacts = useCallback(() => {
+    listContactLogs(customer.id).then((r) => setContactLogs(r.results)).catch(() => {});
+  }, [customer.id]);
+  useEffect(() => { loadContacts(); }, [loadContacts]);
   const age =
     customer.insurance_age != null ? `${customer.insurance_age}세` : calcAge(customer.birth_day);
   const sub = [age, genderLabel(customer.gender)]
@@ -536,10 +545,28 @@ function CustomerSummary({
         {customer.sales_stage === "contract" && (
           <button onClick={() => onTab("contract")} className={actPrimary}>청약 체크리스트</button>
         )}
+        <button onClick={() => setContactOpen(true)} className={actGhost}>연락 기록</button>
       </div>
+
+      {/* 최근 연락(접촉 결과) — 최근 2건 압축 표시 */}
+      {contactLogs.length > 0 && (
+        <div className="mt-2 flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] text-ink3">
+          <span className="font-semibold text-ink2">최근 연락</span>
+          {contactLogs.slice(0, 2).map((c) => (
+            <span key={c.id} className="inline-flex items-center gap-1">
+              <span className="rounded-full bg-surface2 border border-line px-1.5 py-0.5 font-semibold text-ink2">{c.result_display}</span>
+              <span className="tnum">{new Date(c.created_at).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" })}</span>
+              {c.memo ? <span className="truncate max-w-[160px]">· {c.memo}</span> : null}
+            </span>
+          ))}
+        </div>
+      )}
     </Card>
     {bookingOpen && (
       <BookingModal customerId={customer.id} onClose={() => setBookingOpen(false)} />
+    )}
+    {contactOpen && (
+      <ContactLogModal customerId={customer.id} onClose={() => setContactOpen(false)} onSaved={loadContacts} />
     )}
     </>
   );

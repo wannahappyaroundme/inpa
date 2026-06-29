@@ -732,3 +732,42 @@ class JobSearchTests(TestCase):
         detail = self.client.get(f'/api/v1/customers/{cust.id}/')
         self.assertEqual(detail.data['job_risk_grade'], 1)
         self.assertEqual(detail.data['job_name'], '의사')
+
+
+class ContactLogTests(TestCase):
+    """접촉 결과 로그 — 생성 시 last_contacted_at 갱신, owner 격리, append-only."""
+
+    def setUp(self):
+        self.user_a, self.client_a = _make_planner('contact_a@test.com')
+        self.user_b, self.client_b = _make_planner('contact_b@test.com')
+        self.customer = Customer.objects.create(owner=self.user_a, name='접촉고객')
+
+    def _url(self, cid=None):
+        return f'/api/v1/customers/{cid or self.customer.id}/contact-logs/'
+
+    def test_create_bumps_last_contacted(self):
+        self.assertIsNone(self.customer.last_contacted_at)
+        r = self.client_a.post(self._url(), {'result': 'no_answer', 'memo': '부재중'}, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.json()['result'], 'no_answer')
+        self.assertEqual(r.json()['result_display'], '부재중')
+        self.customer.refresh_from_db()
+        self.assertIsNotNone(self.customer.last_contacted_at)  # 방치 경보 리셋
+
+    def test_list_returns_own_logs(self):
+        self.client_a.post(self._url(), {'result': 'connected'}, format='json')
+        self.client_a.post(self._url(), {'result': 'appointment', 'memo': '내일 2시'}, format='json')
+        body = self.client_a.get(self._url()).json()
+        results = body['results'] if isinstance(body, dict) and 'results' in body else body
+        self.assertEqual(len(results), 2)
+
+    def test_owner_isolation(self):
+        # B가 A의 고객에 접촉로그 시도 → 404(존재 은폐)
+        r = self.client_b.post(self._url(), {'result': 'connected'}, format='json')
+        self.assertEqual(r.status_code, 404)
+
+    def test_append_only_no_delete(self):
+        r = self.client_a.post(self._url(), {'result': 'hold'}, format='json')
+        log_id = r.json()['id']
+        rd = self.client_a.delete(f'{self._url()}{log_id}/')
+        self.assertIn(rd.status_code, (404, 405))  # detail 라우트 미등록 + append-only
