@@ -103,6 +103,20 @@ def compute_funnel(user):
     )}
 
 
+def compute_product_mix(user):
+    """취급 보험 종류 — 보유 증권(portfolio_type=1) insurance_type별 건수. {life, nonlife}.
+
+    insurance_type: 1=생명보험(life), 2=손해보험(nonlife). 관리자 화면 '취급 보험 종류'용.
+    """
+    counts = dict(
+        CustomerInsurance.objects
+        .filter(customer__owner=user, portfolio_type=1)
+        .values_list('insurance_type')
+        .annotate(c=Count('id'))
+    )
+    return {'life': counts.get(1, 0), 'nonlife': counts.get(2, 0)}
+
+
 def compute_portfolio_breakdown(user, today=None):
     """보유계약 유지현황 도넛(sample_1) — at_risk/watch/stable/unknown 카운트.
 

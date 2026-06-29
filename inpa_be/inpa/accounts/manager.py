@@ -17,7 +17,8 @@ from inpa.analytics.models import NorthStarEvent
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer
 from inpa.dashboard.aggregation import (
-    compute_funnel, compute_retention, compute_team_roi,
+    compute_actuals, compute_deltas, compute_funnel, compute_product_mix,
+    compute_retention, compute_team_roi, compute_trend,
 )
 from inpa.insurances.churn import _assess
 from inpa.insurances.models import CustomerInsurance
@@ -36,15 +37,19 @@ class ManagerDashboardView(APIView):
     def get(self, request):
         me = request.user
         today = datetime.date.today()
+        this_ym = today.strftime('%Y-%m')
         # 동의한 소속 설계사만(Profile.manager == me AND manager_share_opt_in=True)
         profiles = me.managed_agents.filter(manager_share_opt_in=True).select_related('user')
 
         agents = []
         tot_customers = tot_risk = tot_share = 0
-        # 팀 집계(PM 06.24): 퍼널·유지율은 기존 개별 집계 함수를 팀 루프로 재사용 — PII 비노출(수치만).
+        tot_premium = tot_new = active_members = 0
+        # 팀 집계(PM 06.24): 퍼널·유지율·실적은 기존 개별 집계 함수를 팀 루프로 재사용 — PII 비노출(수치만).
         STAGES = (Customer.STAGE_DB, Customer.STAGE_CONTACT,
                   Customer.STAGE_MEETING, Customer.STAGE_CONTRACT)
         team_funnel = {k: 0 for k in STAGES}
+        team_mix = {'life': 0, 'nonlife': 0}
+        trend_acc = {}  # ym -> 팀 premium 합(월별 추이)
         ret_acc = {f'y{n}': {'reached': 0, 'survived': 0} for n in (1, 2, 3)}
         team_has_cancel = False
         for profile in profiles:
@@ -55,8 +60,19 @@ class ManagerDashboardView(APIView):
             risk = sum(1 for ci in held if _assess(ci, today)[0])
             share_view = NorthStarEvent.objects.filter(
                 sender=agent, event_type=NorthStarEvent.SHARE_VIEW).count()
-            for k, v in compute_funnel(agent).items():
+            agent_funnel = compute_funnel(agent)
+            for k, v in agent_funnel.items():
                 team_funnel[k] = team_funnel.get(k, 0) + v
+            actuals = compute_actuals(agent, this_ym)
+            deltas = compute_deltas(agent, this_ym, cur=actuals)
+            mix = compute_product_mix(agent)
+            team_mix['life'] += mix['life']
+            team_mix['nonlife'] += mix['nonlife']
+            for pt in compute_trend(agent, 6):
+                trend_acc[pt['ym']] = trend_acc.get(pt['ym'], 0) + pt['premium']
+            is_active = (actuals['new_customers'] + actuals['meetings']) > 0
+            if is_active:
+                active_members += 1
             ret = compute_retention(agent, today)
             team_has_cancel = team_has_cancel or ret['has_cancellation_data']
             for n in (1, 2, 3):
@@ -68,10 +84,20 @@ class ManagerDashboardView(APIView):
                 'churn_risk_count': risk,
                 'share_view_count': share_view,
                 'retention_y1': ret['y1']['rate'],
+                'premium_month': actuals['premium'],
+                'new_month': actuals['new_customers'],
+                'meetings_month': actuals['meetings'],
+                'premium_delta': deltas['premium']['pct'],   # 전월 대비 % (None 가능)
+                'funnel': agent_funnel,                       # 단계 분포(미니바)
+                'product_mix': mix,
+                'last_login': agent.last_login.isoformat() if agent.last_login else None,
+                'is_active_month': is_active,                 # 이번 달 활동 0 → 회색 강조
             })
             tot_customers += customer_count
             tot_risk += risk
             tot_share += share_view
+            tot_premium += actuals['premium']
+            tot_new += actuals['new_customers']
 
         team_retention = {'has_cancellation_data': team_has_cancel}
         for n in (1, 2, 3):
@@ -81,6 +107,7 @@ class ManagerDashboardView(APIView):
                 'reached': r['reached'],
                 'survived': r['survived'],
             }
+        team_premium_trend = [{'ym': ym, 'premium': trend_acc[ym]} for ym in sorted(trend_acc)]
 
         return Response({
             'agent_count': len(agents),
@@ -89,8 +116,13 @@ class ManagerDashboardView(APIView):
                 'customer_count': tot_customers,
                 'churn_risk_count': tot_risk,
                 'share_view_count': tot_share,
+                'premium_month': tot_premium,
+                'new_month': tot_new,
+                'active_member_count': active_members,
             },
             'team_funnel': team_funnel,
             'team_retention': team_retention,
+            'team_product_mix': team_mix,
+            'team_premium_trend': team_premium_trend,
             'roi': compute_team_roi(len(agents)),
         })
