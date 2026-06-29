@@ -90,7 +90,7 @@ export default function AccountSettingsPage() {
       <main className="mx-auto max-w-xl px-4 sm:px-6 py-6 space-y-4">
         <h1 className="text-[22px] font-extrabold text-ink">계정 · 모드 설정</h1>
         {msg && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-[13px] text-emerald-700">{msg}</div>
+          <div className="rounded-xl border border-line bg-success-tint px-4 py-2 text-[13px] text-success">{msg}</div>
         )}
 
         {/* 위촉 형태 */}
@@ -107,7 +107,7 @@ export default function AccountSettingsPage() {
                 onClick={() => patch({ affiliation_type: o.v }, "위촉 형태를 저장했어요")}
                 className={`rounded-xl border px-4 py-3 text-[14px] font-bold transition ${
                   p.affiliation_type === o.v
-                    ? "border-brand bg-accent-tint text-brand"
+                    ? "border-brand bg-brand-soft text-brand"
                     : "border-line text-ink2 hover:bg-surface2"
                 }`}
               >

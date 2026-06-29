@@ -51,7 +51,7 @@ function ConsentLogsContent() {
       <p className="text-[12px] text-ink3 mb-6">감사 무결성 원칙: 수정·삭제 불가. 열람만 허용.</p>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger-ink">{error}</div>
       )}
 
       {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}
@@ -97,7 +97,7 @@ function ConsentLogsContent() {
                         {log.revoked_at ? (
                           <span className="text-[11px] font-semibold text-danger">{fmt(log.revoked_at)}</span>
                         ) : (
-                          <span className="text-[11px] text-ink3">—</span>
+                          <span className="text-[11px] text-ink3">-</span>
                         )}
                       </td>
                     </tr>

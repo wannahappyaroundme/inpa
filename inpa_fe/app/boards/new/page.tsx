@@ -126,7 +126,7 @@ export default function BoardNewPage() {
         </Card>
 
         {error && (
-          <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+          <div className="mt-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
             {error}
           </div>
         )}

@@ -78,7 +78,7 @@ export default function NoticePage() {
         )}
 
         {error && (
-          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between">
+          <div className="p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger flex items-center justify-between">
             <span>{error}</span>
             <button onClick={load} className="ml-3 font-semibold underline shrink-0">재시도</button>
           </div>
@@ -94,7 +94,7 @@ export default function NoticePage() {
               <Card className="p-4 hover:border-brand/40 transition">
                 <div className="flex items-start gap-3">
                   {n.is_pinned && (
-                    <span className="shrink-0 rounded-full bg-accent-tint text-brand text-[11px] font-bold px-2 py-0.5 mt-0.5">
+                    <span className="shrink-0 rounded-full bg-brand-soft text-brand text-[11px] font-bold px-2 py-0.5 mt-0.5">
                       📌 공지
                     </span>
                   )}

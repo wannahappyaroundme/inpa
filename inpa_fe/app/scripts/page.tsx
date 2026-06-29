@@ -89,7 +89,7 @@ export default function ScriptsPage() {
               key={c.key}
               onClick={() => setActiveKey(c.key)}
               className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition ${
-                c.key === activeKey ? "bg-brand text-white" : "bg-surface2 text-ink2 hover:bg-line"
+                c.key === activeKey ? "bg-brand-soft text-brand" : "bg-surface2 text-ink2 hover:bg-line"
               }`}
             >
               {c.label}

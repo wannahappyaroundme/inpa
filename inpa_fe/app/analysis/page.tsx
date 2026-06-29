@@ -154,7 +154,7 @@ function AnalysisPageInner() {
             {selectedId !== null && (
               <Link
                 href={`/customer/${selectedId}?tab=analysis`}
-                className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:border-brand transition"
+                className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
               >
                 고객 상세 ›
               </Link>
@@ -244,7 +244,7 @@ function AnalysisPageInner() {
           !heatmapError &&
           heatmap &&
           heatmap.insurance_count === 0 && (
-            <div className="mt-6 rounded-xl border border-dashed border-line px-4 py-12 text-center">
+            <div className="mt-6 rounded-2xl border border-dashed border-line px-4 py-12 text-center">
               <p className="text-[15px] font-semibold text-ink2">증권이 아직 없어요</p>
               <p className="mt-1 text-[13px] text-ink3">
                 증권을 등록하면 보장 공백이 보여요.

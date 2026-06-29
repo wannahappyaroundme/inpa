@@ -1,13 +1,42 @@
 import React from "react";
+import { ArrowUpRight, ArrowDownRight, type LucideIcon } from "lucide-react";
 import type { CovStatus } from "@/lib/mock";
 import { InpaMark } from "./inpa-logo";
 import { InfoDot } from "./info-dot";
 
 export function Card({ className = "", children }: { className?: string; children: React.ReactNode }) {
-  return <div className={`rounded-2xl bg-surface border border-line shadow-sm ${className}`}>{children}</div>;
+  return <div className={`rounded-2xl bg-surface border border-line shadow-card ${className}`}>{children}</div>;
 }
 
-/** 통계 KPI 카드 — 라벨 + 큰 수치(+단위) + 증감률 배지(+초록/–빨강). 홈 상단·퍼널 셀 공용. */
+/** 섹션 제목 — 좌측 굵은 제목 + 우측 액션(예: '칸반 보기 →'). 카드 안 머리줄 공용. */
+export function SectionTitle({
+  title,
+  action,
+  className = "",
+}: {
+  title: React.ReactNode;
+  action?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`flex items-center justify-between gap-2 mb-3 ${className}`}>
+      <h3 className="text-[15px] font-bold text-ink">{title}</h3>
+      {action}
+    </div>
+  );
+}
+
+// 통계 카드 아이콘 뱃지 톤 — 전부 '우리 4색'(brand/pos=초록/neg=빨강/warn=노랑)의 soft 배경.
+export type StatTone = "brand" | "pos" | "neg" | "warn";
+const STAT_BADGE: Record<StatTone, string> = {
+  brand: "bg-brand-soft text-brand",
+  pos: "bg-pos-soft text-pos-ink",
+  neg: "bg-neg-soft text-neg",
+  warn: "bg-warn-soft text-warn-ink",
+};
+
+/** 통계 KPI 카드 — (옵션)컬러 아이콘 뱃지 + 라벨 + 큰 수치(+단위) + 증감률 배지(↑초록/↓빨강).
+ *  icon/tone 미지정 시 뱃지 없이 동작(하위호환). 홈 상단 KPI 5개에서 아이콘과 함께 사용. */
 export function StatCard({
   label,
   value,
@@ -15,38 +44,51 @@ export function StatCard({
   delta,
   accent = false,
   hint,
+  icon: Icon,
+  tone = "brand",
   className = "",
 }: {
   label: string;
   value: React.ReactNode;
   unit?: string;
   delta?: number | null;     // 전월 대비 %(있으면 배지)
-  accent?: boolean;          // 강조(예: 환수 위험 > 0)
+  accent?: boolean;          // 강조(예: 환수 위험 > 0) — 숫자·뱃지를 빨강 톤으로
   hint?: string;             // 라벨 옆 ? 툴팁(용어 풀이 — 쉬운말)
+  icon?: LucideIcon;         // 컬러 아이콘 뱃지(lucide). 없으면 뱃지 생략
+  tone?: StatTone;           // 뱃지 톤(brand/pos/neg/warn) — 우리 4색 soft
   className?: string;
 }) {
+  const badgeTone = accent ? "neg" : tone;
   return (
-    <Card className={`p-3.5 ${className}`}>
-      <div className="flex items-center gap-1 text-[12px] text-ink3">
-        <span>{label}</span>
-        {hint && <InfoDot text={hint} />}
-      </div>
-      <div className="mt-1 flex items-baseline gap-1">
-        <span className={`text-[20px] font-bold leading-none tnum ${accent ? "text-danger" : "text-ink"}`}>
-          {value}
+    <Card className={`p-4 flex items-start gap-3 ${className}`}>
+      {Icon && (
+        <span className={`shrink-0 w-11 h-11 rounded-xl grid place-items-center ${STAT_BADGE[badgeTone]}`} aria-hidden>
+          <Icon className="w-[22px] h-[22px]" strokeWidth={2} />
         </span>
-        {unit && <span className="text-[12px] text-ink3">{unit}</span>}
-      </div>
-      {delta !== undefined && delta !== null && (
-        <div
-          className={`mt-1 text-[12px] font-semibold tnum ${
-            delta > 0 ? "text-success" : delta < 0 ? "text-danger" : "text-muted"
-          }`}
-        >
-          {delta > 0 ? "+" : ""}
-          {delta}%
-        </div>
       )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1 text-[12px] font-medium text-ink3">
+          <span className="truncate">{label}</span>
+          {hint && <InfoDot text={hint} />}
+        </div>
+        <p className="mt-1 flex items-baseline gap-1">
+          <span className={`text-[22px] sm:text-[26px] lg:text-[28px] font-extrabold leading-none tnum tracking-tight ${accent ? "text-danger" : "text-ink"}`}>
+            {value}
+          </span>
+          {unit && <span className="text-[12px] font-medium text-ink3">{unit}</span>}
+        </p>
+        {delta !== undefined && delta !== null && (
+          <span
+            className={`mt-1.5 inline-flex items-center gap-0.5 text-[12px] font-semibold tnum ${
+              delta > 0 ? "text-pos-ink" : delta < 0 ? "text-neg" : "text-muted"
+            }`}
+          >
+            {delta > 0 ? <ArrowUpRight className="w-3.5 h-3.5" strokeWidth={2.5} /> : delta < 0 ? <ArrowDownRight className="w-3.5 h-3.5" strokeWidth={2.5} /> : null}
+            {delta > 0 ? "+" : ""}
+            {delta}%
+          </span>
+        )}
+      </div>
     </Card>
   );
 }

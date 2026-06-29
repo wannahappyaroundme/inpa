@@ -48,11 +48,11 @@ export default function ForgotPasswordPage() {
           </Link>
         </div>
 
-        <div className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-sm p-6 flex flex-col gap-4">
+        <div className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-card p-6 flex flex-col gap-4">
           {sent ? (
             <>
               <div className="flex flex-col items-center gap-3 text-center py-4">
-                <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-[22px]">✓</div>
+                <div className="w-12 h-12 rounded-full bg-success-tint flex items-center justify-center text-success text-[22px]">✓</div>
                 <h1 className="text-[18px] font-extrabold text-[var(--ink)]">이메일을 확인하세요</h1>
                 <p className="text-[13px] text-[var(--ink-3)] leading-relaxed">
                   <strong className="text-[var(--ink)]">{email}</strong>로
@@ -74,7 +74,7 @@ export default function ForgotPasswordPage() {
               </p>
 
               {error && (
-                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+                <div className="p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
                   {error}
                 </div>
               )}

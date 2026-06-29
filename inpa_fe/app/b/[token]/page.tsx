@@ -176,7 +176,7 @@ export default function PublicBookingPage() {
         />
 
         {submitError && (
-          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-800 leading-5">
+          <div className="mt-3 rounded-xl border border-line bg-warning-tint px-4 py-2.5 text-[13px] text-warning leading-5">
             {submitError}
           </div>
         )}

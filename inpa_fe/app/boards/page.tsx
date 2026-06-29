@@ -476,7 +476,7 @@ function BoardFeedContent() {
 
       {/* 에러 */}
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
           {error}
         </div>
       )}

@@ -127,7 +127,7 @@ function OrdersContent() {
             }}
             className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition ${
               statusFilter === s
-                ? "bg-brand text-white"
+                ? "bg-brand-soft text-brand"
                 : "bg-surface2 text-ink2 hover:bg-line"
             }`}
           >
@@ -137,7 +137,7 @@ function OrdersContent() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">{error}</div>
       )}
 
       {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}
@@ -165,11 +165,11 @@ function OrdersContent() {
                         <span
                           className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${
                             item.status === "pending"
-                              ? "bg-orange-50 text-warning"
+                              ? "bg-warning-tint text-warning"
                               : item.status === "completed"
-                              ? "bg-green-50 text-success"
+                              ? "bg-success-tint text-success"
                               : item.status === "cancelled"
-                              ? "bg-red-50 text-danger"
+                              ? "bg-danger-tint text-danger"
                               : "bg-surface2 text-ink3"
                           }`}
                         >
@@ -331,7 +331,7 @@ function OrdersContent() {
                       <button
                         disabled={updating}
                         onClick={() => handleStatusUpdate("cancelled")}
-                        className="rounded-xl border border-danger text-danger text-[12px] font-semibold px-3 py-2 disabled:opacity-50 transition hover:bg-red-50"
+                        className="rounded-xl border border-danger text-danger text-[12px] font-semibold px-3 py-2 disabled:opacity-50 transition hover:bg-danger-tint"
                       >
                         취소
                       </button>

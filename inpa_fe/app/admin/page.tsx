@@ -78,7 +78,7 @@ export default function AdminDashboardPage() {
       <h1 className="text-[22px] font-extrabold text-ink mb-6">대시보드</h1>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between">
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger-ink flex items-center justify-between">
           <span>{error}</span>
           <button
             onClick={() => {

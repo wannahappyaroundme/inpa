@@ -166,8 +166,8 @@ export function BarChart({
                 className="absolute left-0 right-0 flex items-center"
                 style={{ top: lineY(averageLine) }}
               >
-                <div className="flex-1 border-t border-dashed" style={{ borderColor: "#3b82f6" }} />
-                <span className="ml-1 text-[9px] font-medium whitespace-nowrap" style={{ color: "#3b82f6" }}>
+                <div className="flex-1 border-t border-dashed" style={{ borderColor: "var(--accent)" }} />
+                <span className="ml-1 text-[9px] font-medium whitespace-nowrap" style={{ color: "var(--accent)" }}>
                   평균 {format(averageLine)}
                 </span>
               </div>

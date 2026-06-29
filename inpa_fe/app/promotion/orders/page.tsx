@@ -12,12 +12,12 @@ const STATUS_META: Record<
   PromotionOrderStatus,
   { label: string; bg: string; text: string }
 > = {
-  pending:   { label: "예약 접수", bg: "bg-surface2",      text: "text-ink3" },
-  reviewing: { label: "검토 중",   bg: "bg-blue-50",       text: "text-blue-700" },
-  producing: { label: "제작 중",   bg: "bg-yellow-50",     text: "text-yellow-700" },
-  shipping:  { label: "발송",      bg: "bg-orange-50",     text: "text-orange-700" },
-  completed: { label: "완료",      bg: "bg-green-50",      text: "text-green-700" },
-  cancelled: { label: "취소",      bg: "bg-red-50",        text: "text-red-700" },
+  pending:   { label: "예약 접수", bg: "bg-surface2",       text: "text-ink3" },
+  reviewing: { label: "검토 중",   bg: "bg-brand-soft",     text: "text-brand" },
+  producing: { label: "제작 중",   bg: "bg-warning-tint",   text: "text-warning" },
+  shipping:  { label: "발송",      bg: "bg-orange-50",      text: "text-orange-700" },
+  completed: { label: "완료",      bg: "bg-success-tint",   text: "text-success" },
+  cancelled: { label: "취소",      bg: "bg-danger-tint",    text: "text-danger" },
 };
 
 function StatusBadge({ status }: { status: PromotionOrderStatus }) {
@@ -70,7 +70,7 @@ export default function MyOrdersPage() {
 
         {/* 에러 */}
         {error && (
-          <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between">
+          <div className="mt-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger flex items-center justify-between">
             <span>{error}</span>
             <button
               onClick={() => {

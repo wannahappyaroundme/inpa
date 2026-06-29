@@ -1947,6 +1947,12 @@ export async function submitBooking(
 // 대시보드 월별 목표 — 수동 설정(목표) + 실적(계산). GET/PATCH /api/v1/dashboard/
 // ════════════════════════════════════════════════════════════════════════════
 
+/** 전월 대비 증감 — 백엔드 계산(스펙 §5). pct=null이면 비교 불가(전월 0). */
+export interface DeltaInfo {
+  pct: number | null;
+  dir: "up" | "down" | "flat";
+}
+
 export interface DashboardSummary {
   year_month: string;
   target_meetings: number;
@@ -1956,6 +1962,12 @@ export interface DashboardSummary {
   actual_meetings: number;
   actual_premium: number;
   actual_new_customers: number;
+  // 전월 대비 증감(%) — KPI 카드 배지용. 구 백엔드 호환 위해 옵셔널.
+  deltas?: {
+    new_customers: DeltaInfo;
+    meetings: DeltaInfo;
+    premium: DeltaInfo;
+  };
 }
 
 /** GET /api/v1/dashboard/?month=YYYY-MM (기본 현재월) — 목표+실적(인증) */

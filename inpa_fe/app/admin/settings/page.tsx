@@ -253,7 +253,7 @@ export default function AdminSettingsPage() {
                   <span className="text-[12px] text-ink3">{pol.version}</span>
                   <span className="text-[12px] text-ink3 tnum">{pol.effective_at}</span>
                   {pol.requires_reconsent && (
-                    <span className="text-[10px] font-bold rounded-full px-2 py-0.5 bg-orange-50 text-warning">재동의</span>
+                    <span className="text-[10px] font-bold rounded-full px-2 py-0.5 bg-warn-soft text-warning">재동의</span>
                   )}
                 </div>
               ))}

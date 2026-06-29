@@ -30,7 +30,7 @@ function ResetPasswordForm() {
   if (!uid || !token) {
     return (
       <div className="flex flex-col items-center gap-4 text-center py-4">
-        <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center text-red-500 text-[22px]">✕</div>
+        <div className="w-12 h-12 rounded-full bg-danger-tint flex items-center justify-center text-danger text-[22px]">✕</div>
         <h1 className="text-[18px] font-extrabold text-[var(--ink)]">잘못된 링크</h1>
         <p className="text-[13px] text-[var(--ink-3)]">
           비밀번호 재설정 링크가 올바르지 않습니다. 이메일에서 링크를 다시 클릭하거나,
@@ -94,7 +94,7 @@ function ResetPasswordForm() {
       </p>
 
       {error && (
-        <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+        <div className="p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
           {error}
           {error.includes("만료") && (
             <div className="mt-2">
@@ -164,7 +164,7 @@ export default function ResetPasswordPage() {
           </Link>
         </div>
 
-        <div className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-sm p-6 flex flex-col gap-4">
+        <div className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-card p-6 flex flex-col gap-4">
           <Suspense
             fallback={
               <div className="flex items-center justify-center py-8">

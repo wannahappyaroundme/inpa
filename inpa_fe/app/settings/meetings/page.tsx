@@ -93,7 +93,7 @@ export default function MeetingsSettingsPage() {
       <main className="mx-auto max-w-xl px-4 sm:px-6 py-6 space-y-4">
         <h1 className="text-[22px] font-extrabold text-ink">미팅 관리</h1>
         {err && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-[13px] text-rose-700">{err}</div>
+          <div className="rounded-xl border border-line bg-danger-tint px-4 py-2 text-[13px] text-danger">{err}</div>
         )}
 
         {/* 다가오는 미팅 */}

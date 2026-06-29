@@ -58,7 +58,7 @@ function StepDots({ current, total }: { current: number; total: number }) {
         <span
           key={i}
           className={`h-2 rounded-full transition-all ${
-            i === current ? "w-6 bg-[var(--brand)]" : "w-2 bg-[var(--line-2)]"
+            i === current ? "w-6 bg-brand" : "w-2 bg-[var(--line-2)]"
           }`}
         />
       ))}
@@ -128,7 +128,7 @@ export default function OnboardingPage() {
         </div>
 
         {/* 투어 카드 / 위촉 형태 설정 */}
-        <div className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-sm p-7">
+        <div className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-card p-7">
           {phase === "tour" ? (
             <>
               <div className="text-[52px] leading-none mb-4">{current.emoji}</div>
@@ -181,7 +181,7 @@ export default function OnboardingPage() {
           )}
 
           {error && (
-            <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+            <div className="mt-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
               {error}
             </div>
           )}

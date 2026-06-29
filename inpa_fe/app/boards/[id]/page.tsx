@@ -80,7 +80,7 @@ function ReportModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="w-full max-w-sm mx-4 rounded-2xl bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-sm mx-4 rounded-2xl bg-surface p-5 shadow-card" onClick={(e) => e.stopPropagation()}>
         {done ? (
           <>
             <p className="text-[15px] font-bold text-ink text-center">신고가 접수되었습니다</p>
@@ -417,7 +417,7 @@ export default function PostDetailPage() {
 
         {/* 댓글 목록 */}
         <Card className="p-4 mb-4">
-          <p className="text-[14px] font-bold text-ink mb-2">
+          <p className="text-[15px] font-bold text-ink mb-2">
             댓글 <span className="tnum text-ink3">{post.comment_count}</span>
           </p>
           {comments.length === 0 && (
@@ -442,7 +442,7 @@ export default function PostDetailPage() {
         {/* 댓글 입력 */}
         <Card className="p-4 sticky bottom-4">
           {(replyTo || editingComment) && (
-            <div className="flex items-center justify-between mb-2 text-[12px] text-ink3 bg-surface2 rounded-lg px-3 py-1.5">
+            <div className="flex items-center justify-between mb-2 text-[12px] text-ink3 bg-surface2 rounded-xl px-3 py-1.5">
               <span>
                 {editingComment ? "댓글 수정 중" : `@${replyTo?.author}에게 답글`}
               </span>

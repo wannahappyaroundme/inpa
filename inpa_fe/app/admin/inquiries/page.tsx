@@ -123,7 +123,7 @@ function InquiriesContent() {
             }}
             className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition ${
               statusFilter === s
-                ? "bg-brand text-white"
+                ? "bg-brand-soft text-brand"
                 : "bg-surface2 text-ink2 hover:bg-line"
             }`}
           >
@@ -133,7 +133,7 @@ function InquiriesContent() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger-ink">{error}</div>
       )}
 
       {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}
@@ -161,9 +161,9 @@ function InquiriesContent() {
                         <span
                           className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${
                             item.status === "open"
-                              ? "bg-red-50 text-danger"
+                              ? "bg-danger-tint text-danger-ink"
                               : item.status === "answered"
-                              ? "bg-green-50 text-success"
+                              ? "bg-success-tint text-success-ink"
                               : "bg-surface2 text-ink3"
                           }`}
                         >
@@ -239,7 +239,7 @@ function InquiriesContent() {
                       onClick={() => handleStatusChange(detail.id, s)}
                       className={`text-[11px] font-semibold rounded-full px-3 py-1 transition ${
                         detail.status === s
-                          ? "bg-brand text-white"
+                          ? "bg-brand-soft text-brand"
                           : "bg-surface2 text-ink2 hover:bg-line"
                       }`}
                     >

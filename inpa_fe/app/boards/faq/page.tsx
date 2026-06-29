@@ -100,7 +100,7 @@ function FaqContent() {
       </div>
 
       {loading && <div className="py-12 text-center text-[14px] text-ink3">불러오는 중...</div>}
-      {error && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>}
+      {error && <div className="p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">{error}</div>}
 
       {!loading && !error && faqs.length === 0 && (
         <div className="py-12 text-center text-[14px] text-ink3">

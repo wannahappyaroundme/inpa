@@ -40,7 +40,7 @@ export default function ManagerPage() {
         </p>
 
         {error && (
-          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] text-rose-700">
+          <div className="mt-4 rounded-xl border border-danger/30 bg-danger-tint px-4 py-2.5 text-[13px] text-danger">
             {error}
           </div>
         )}
@@ -58,7 +58,7 @@ export default function ManagerPage() {
             </Card>
             <Card className="px-4 py-3.5">
               <div className="text-[12px] text-ink3">환수 위험</div>
-              <div className="mt-1 text-[22px] font-extrabold tnum text-rose-600">{data.totals.churn_risk_count}</div>
+              <div className="mt-1 text-[22px] font-extrabold tnum text-danger">{data.totals.churn_risk_count}</div>
             </Card>
           </div>
         )}
@@ -128,7 +128,7 @@ export default function ManagerPage() {
           ) : (
             data.agents.map((a, i) => (
               <Card key={i} className="px-4 py-3.5 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-accent-tint text-brand flex items-center justify-center text-[14px] font-bold shrink-0">
+                <div className="w-9 h-9 rounded-full bg-brand-soft text-brand flex items-center justify-center text-[14px] font-bold shrink-0">
                   {a.name_masked[0]}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -139,7 +139,7 @@ export default function ManagerPage() {
                   </div>
                 </div>
                 {a.churn_risk_count > 0 && (
-                  <span className="shrink-0 text-[12px] font-semibold rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5">
+                  <span className="shrink-0 text-[12px] font-semibold rounded-full bg-danger-tint text-danger border border-danger/30 px-2 py-0.5">
                     환수 위험 {a.churn_risk_count}
                   </span>
                 )}

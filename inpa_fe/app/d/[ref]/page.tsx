@@ -157,7 +157,7 @@ export default function SelfDiagnosisPage() {
         </label>
 
         {error && (
-          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] text-rose-700">{error}</div>
+          <div className="mt-3 rounded-xl border border-line bg-danger-tint px-4 py-2.5 text-[13px] text-danger">{error}</div>
         )}
 
         <button

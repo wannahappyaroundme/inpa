@@ -29,6 +29,37 @@ def compute_actuals(user, year_month):
     return {'meetings': meetings, 'premium': int(premium), 'new_customers': new_customers}
 
 
+def _prev_ym(year_month):
+    """'YYYY-MM' → 직전 달 'YYYY-MM'."""
+    y, m = int(year_month[:4]), int(year_month[5:7])
+    m -= 1
+    if m == 0:
+        m, y = 12, y - 1
+    return f'{y:04d}-{m:02d}'
+
+
+def _delta(cur, prev):
+    """전월 대비 증감 — {'pct': int|None, 'dir': 'up'|'down'|'flat'}.
+
+    prev==0: cur>0이면 +100%/up, 아니면 None/flat(분모 0 표기 회피).
+    """
+    if prev == 0:
+        return {'pct': 100, 'dir': 'up'} if cur > 0 else {'pct': None, 'dir': 'flat'}
+    pct = round((cur - prev) / prev * 100)
+    return {'pct': pct, 'dir': 'up' if pct > 0 else 'down' if pct < 0 else 'flat'}
+
+
+def compute_deltas(user, year_month, cur=None):
+    """이번 달 vs 전월 실적 증감(%) — new_customers/meetings/premium. KPI 카드 배지용.
+
+    프론트가 화면에서 (이번달-지난달)/지난달 계산을 하지 않도록 백엔드에서 내려준다(스펙 §5).
+    cur 를 넘기면 이번 달 actuals 재계산을 생략(중복 쿼리 회피).
+    """
+    cur = cur or compute_actuals(user, year_month)
+    prev = compute_actuals(user, _prev_ym(year_month))
+    return {k: _delta(cur[k], prev[k]) for k in ('new_customers', 'meetings', 'premium')}
+
+
 def recent_months(n=6, today=None):
     """오래된→최근 순 'YYYY-MM' n개 (막대 추이용)."""
     today = today or datetime.date.today()

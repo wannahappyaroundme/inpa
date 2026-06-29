@@ -108,7 +108,7 @@ export default function AdminUserDetailPage() {
       <h1 className="text-[22px] font-extrabold text-ink mb-6">설계사 상세</h1>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">{error}</div>
+        <div className="mb-4 p-3 rounded-xl bg-danger-soft border border-line text-[13px] text-danger">{error}</div>
       )}
 
       {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}

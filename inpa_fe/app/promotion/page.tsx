@@ -78,7 +78,7 @@ export default function PromotionPage() {
               onClick={() => setActiveCategory(cat)}
               className={`shrink-0 px-3.5 py-1.5 rounded-full text-[13px] font-semibold transition border ${
                 activeCategory === cat
-                  ? "bg-brand text-white border-brand"
+                  ? "bg-brand-soft text-brand border-brand-soft"
                   : "bg-surface border-line text-ink2 hover:bg-surface2"
               }`}
             >
@@ -89,7 +89,7 @@ export default function PromotionPage() {
 
         {/* 에러 */}
         {error && (
-          <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700 flex items-center justify-between">
+          <div className="mt-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger flex items-center justify-between">
             <span>{error}</span>
             <button
               onClick={() => {
@@ -124,7 +124,7 @@ export default function PromotionPage() {
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {filtered.map((s) => (
             <Link key={s.id} href={`/promotion/${s.id}`} className="group">
-              <Card className="overflow-hidden transition hover:shadow-md">
+              <Card className="overflow-hidden transition hover:shadow-card">
                 {/* 대표 이미지 */}
                 <div className="aspect-square bg-surface2 relative overflow-hidden">
                   <SampleThumb src={s.primary_image} alt={s.name} />

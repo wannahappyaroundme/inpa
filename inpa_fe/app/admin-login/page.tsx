@@ -39,12 +39,12 @@ function AdminLoginForm() {
         </div>
 
         {denied && (
-          <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+          <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-danger-tint text-[13px] text-danger">
             관리자 권한이 없는 계정입니다.
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="bg-surface rounded-2xl border border-line shadow-sm p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="bg-surface rounded-2xl border border-line shadow-card p-6 space-y-4">
           <div>
             <label className="block text-[13px] font-semibold text-ink mb-1.5">아이디</label>
             <input
@@ -70,7 +70,7 @@ function AdminLoginForm() {
           </div>
 
           {error && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[13px] text-red-700">
+            <div className="p-3 rounded-xl bg-danger-tint border border-danger-tint text-[13px] text-danger">
               {error}
             </div>
           )}

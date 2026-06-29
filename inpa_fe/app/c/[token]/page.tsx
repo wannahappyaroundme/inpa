@@ -145,7 +145,7 @@ export default function CustomerConsentPage() {
         <p className="mt-3 text-[12px] text-muted leading-5">{disclosure.disclaimer}</p>
 
         {submitError && (
-          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] text-rose-700">
+          <div className="mt-3 rounded-xl border border-line bg-danger-tint px-4 py-2.5 text-[13px] text-danger">
             {submitError}
           </div>
         )}
