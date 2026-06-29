@@ -587,7 +587,7 @@ export default function HomePage() {
                 <button onClick={copySample} className="flex-1 rounded-xl bg-brand text-white text-[13px] font-bold py-2.5 hover:opacity-90 transition">
                   {copiedSample ? "복사됐어요 ✓" : "안내 문구 복사"}
                 </button>
-                <button onClick={() => router.push("/settings/meetings")} className="shrink-0 rounded-xl border border-line text-[13px] font-semibold text-ink2 px-3 py-2.5 hover:bg-surface2 transition">
+                <button onClick={() => router.push("/schedule")} className="shrink-0 rounded-xl border border-line text-[13px] font-semibold text-ink2 px-3 py-2.5 hover:bg-surface2 transition">
                   링크 설정
                 </button>
               </div>
