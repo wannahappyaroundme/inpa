@@ -87,12 +87,13 @@ export default function AccountSettingsPage() {
   return (
     <div className="min-h-dvh">
       <AppNav active="settings" />
-      <main className="mx-auto max-w-xl px-4 sm:px-6 py-6 space-y-4">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         <h1 className="text-[22px] font-extrabold text-ink">계정 · 모드 설정</h1>
         {msg && (
-          <div className="rounded-xl border border-line bg-success-tint px-4 py-2 text-[13px] text-success">{msg}</div>
+          <div className="mt-4 rounded-xl border border-line bg-success-tint px-4 py-2 text-[13px] text-success">{msg}</div>
         )}
 
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         {/* 위촉 형태 */}
         <Card className="px-5 py-4">
           <div className="text-[15px] font-bold text-ink">위촉 형태</div>
@@ -269,6 +270,7 @@ export default function AccountSettingsPage() {
             로그아웃
           </button>
         </Card>
+        </div>
       </main>
     </div>
   );

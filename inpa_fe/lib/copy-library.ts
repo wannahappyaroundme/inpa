@@ -21,14 +21,19 @@ export interface CopyCategory {
   templates: CopyTemplate[];
 }
 
-/** {고객명}·{설계사명} 치환(booking/templates_text.render 패턴의 FE판). 빈 값은 안전한 일반어로. */
+/** {고객명}·{설계사명}·{소속}·{직책}·{소속직책} 치환(booking/templates_text.render 패턴의 FE판). 빈 값은 안전한 일반어로. */
 export function renderCopy(
   body: string,
-  vars: { customer?: string; planner?: string }
+  vars: { customer?: string; planner?: string; affiliation?: string; title?: string }
 ): string {
+  const aff = (vars.affiliation || "").trim();
+  const title = (vars.title || "").trim();
   return body
     .replace(/\{고객명\}/g, (vars.customer || "").trim() || "고객")
-    .replace(/\{설계사명\}/g, (vars.planner || "").trim() || "담당 설계사");
+    .replace(/\{설계사명\}/g, (vars.planner || "").trim() || "담당 설계사")
+    .replace(/\{소속직책\}/g, [aff, title].filter(Boolean).join(" "))
+    .replace(/\{소속\}/g, aff)
+    .replace(/\{직책\}/g, title);
 }
 
 export const COPY_CATEGORIES: CopyCategory[] = [

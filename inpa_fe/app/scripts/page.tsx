@@ -20,12 +20,20 @@ export default function ScriptsPage() {
   const ready = useAuthGuard();
   const [planner, setPlanner] = useState("");
   const [customer, setCustomer] = useState("");
+  const [affiliation, setAffiliation] = useState("");
+  const [title, setTitle] = useState("");
   const [activeKey, setActiveKey] = useState(COPY_CATEGORIES[0].key);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!ready) return;
-    getProfile().then((p) => setPlanner(p.name?.trim() || "")).catch(() => {});
+    getProfile()
+      .then((p) => {
+        setPlanner(p.name?.trim() || "");
+        setAffiliation(p.affiliation?.trim() || "");
+        setTitle(p.title?.trim() || "");
+      })
+      .catch(() => {});
   }, [ready]);
 
   const active = useMemo(
@@ -36,7 +44,7 @@ export default function ScriptsPage() {
   if (!ready) return null;
 
   async function handleCopy(id: string, body: string) {
-    const ok = await copyText(renderCopy(body, { customer, planner }));
+    const ok = await copyText(renderCopy(body, { customer, planner, affiliation, title }));
     if (ok) {
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 1800);
@@ -72,7 +80,28 @@ export default function ScriptsPage() {
               className="rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none focus:border-brand"
             />
           </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[12px] font-semibold text-ink3">소속 (선택)</span>
+            <input
+              value={affiliation}
+              onChange={(e) => setAffiliation(e.target.value)}
+              placeholder="예: 메리츠화재 강남지점"
+              className="rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none focus:border-brand"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[12px] font-semibold text-ink3">직책 (선택)</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="예: FC, 팀장"
+              className="rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none focus:border-brand"
+            />
+          </label>
         </div>
+        <p className="mt-2 text-[12px] text-ink3 leading-5">
+          문구 속 <b>{"{고객명}"}</b> · <b>{"{설계사명}"}</b> · <b>{"{소속}"}</b> · <b>{"{직책}"}</b> · <b>{"{소속직책}"}</b> 자리에 위 값이 자동으로 채워져요. (소속·직책은 계정 설정에서 가져와요)
+        </p>
 
         {/* 문자(광고) 가드 */}
         <div className="mt-4 rounded-xl border border-amber-300/70 bg-amber-50 px-3.5 py-3">
@@ -103,7 +132,7 @@ export default function ScriptsPage() {
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {active.templates.map((t) => {
             const badge = CHANNEL_BADGE[t.channel];
-            const preview = renderCopy(t.body, { customer, planner });
+            const preview = renderCopy(t.body, { customer, planner, affiliation, title });
             return (
               <Card key={t.id} className="p-4 flex flex-col">
                 <div className="flex items-center justify-between gap-2">
