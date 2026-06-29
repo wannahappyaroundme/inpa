@@ -93,7 +93,9 @@ export default function SharePage() {
 
   const handleCta = useCallback(() => {
     if (token) postShareEvent(token, "cta_click");
-  }, [token]);
+    // 예약 가능하면(설계사 영업시간 존재) 예약 페이지로 이동. 아니면 기존처럼 행동 로깅만.
+    if (data?.booking_url) window.location.href = data.booking_url;
+  }, [token, data?.booking_url]);
 
   if (loading) return <ShareSkeleton />;
   if (notFound || !data) return <ShareNotFound />;
@@ -188,7 +190,7 @@ export default function SharePage() {
           onClick={handleCta}
           className="w-full rounded-2xl bg-brand text-white text-[16px] font-bold py-4 active:scale-[0.99] transition"
         >
-          담당 설계사에게 물어보기
+          {data.booking_url ? "바로 상담 예약하기 →" : "담당 설계사에게 물어보기"}
         </button>
       </div>
     </ContentProtect>

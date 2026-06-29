@@ -342,6 +342,7 @@ function CustomerDetailInner() {
               customer={customer}
               onChangeStage={changeStage}
               onChangeStatus={changeStatus}
+              onTab={setTab}
             />
           )
         )}
@@ -412,11 +413,14 @@ function CustomerSummary({
   customer,
   onChangeStage,
   onChangeStatus,
+  onTab,
 }: {
   customer: CustomerDetail;
   onChangeStage: (s: SalesStage) => void;
   onChangeStatus: (s: CustomerStatus) => void;
+  onTab: (tab: TabKey) => void;
 }) {
+  const [bookingOpen, setBookingOpen] = useState(false);
   const age =
     customer.insurance_age != null ? `${customer.insurance_age}세` : calcAge(customer.birth_day);
   const sub = [age, genderLabel(customer.gender)]
@@ -427,7 +431,11 @@ function CustomerSummary({
   const seg = "inline-flex rounded-xl bg-surface2 p-0.5 text-[12px] font-semibold";
   const segBtn = (active: boolean) =>
     `px-3 py-1.5 rounded-[10px] transition ${active ? "bg-surface text-brand shadow-sm" : "text-ink3 hover:text-ink2"}`;
+  // 단계별 '다음 행동' 버튼 — 주(brand) / 보조(ghost)
+  const actPrimary = "rounded-lg bg-brand text-white text-[12px] font-bold px-3 py-1.5 hover:opacity-90 transition";
+  const actGhost = "rounded-lg border border-line bg-surface2 text-ink2 text-[12px] font-semibold px-3 py-1.5 hover:bg-surface transition";
   return (
+    <>
     <Card className="mt-3 p-4">
       {/* 한 줄: 왼쪽 신원 · 가운데 영업단계+상태 · 오른쪽 최종연락 — PM 06.29 */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -499,7 +507,41 @@ function CustomerSummary({
           </Link>
         </div>
       </div>
+
+      {/* ── 단계별 '다음 행동' — 이 단계에서 바로 할 일(퍼널 척추) ── */}
+      <div className="mt-3 pt-3 border-t border-line flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-semibold text-ink3 mr-0.5">다음 할 일</span>
+        {customer.sales_stage === "db" && (
+          <>
+            {customer.mobile_phone_number ? (
+              <>
+                <a href={`tel:${customer.mobile_phone_number}`} className={actPrimary}>전화</a>
+                <a href={`sms:${customer.mobile_phone_number}`} className={actGhost}>문자</a>
+              </>
+            ) : (
+              <Link href={`/customer/${customer.id}?tab=info`} className={actGhost}>연락처 입력</Link>
+            )}
+            <Link href={`/scripts?customer=${encodeURIComponent(customer.name)}`} className={actGhost}>화법</Link>
+          </>
+        )}
+        {customer.sales_stage === "contact" && (
+          <button onClick={() => setBookingOpen(true)} className={actPrimary}>예약 링크 보내기</button>
+        )}
+        {customer.sales_stage === "meeting" && (
+          <>
+            <button onClick={() => onTab("analysis")} className={actPrimary}>분석 시작</button>
+            <Link href={`/scripts?customer=${encodeURIComponent(customer.name)}`} className={actGhost}>화법</Link>
+          </>
+        )}
+        {customer.sales_stage === "contract" && (
+          <button onClick={() => onTab("contract")} className={actPrimary}>청약 체크리스트</button>
+        )}
+      </div>
     </Card>
+    {bookingOpen && (
+      <BookingModal customerId={customer.id} onClose={() => setBookingOpen(false)} />
+    )}
+    </>
   );
 }
 

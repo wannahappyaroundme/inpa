@@ -36,6 +36,12 @@ export default function ScriptsPage() {
       .catch(() => {});
   }, [ready]);
 
+  // 고객 상세 '화법' 버튼에서 /scripts?customer=<이름>으로 들어오면 고객 이름을 미리 채움.
+  useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get("customer");
+    if (c) setCustomer(c);
+  }, []);
+
   const active = useMemo(
     () => COPY_CATEGORIES.find((c) => c.key === activeKey) ?? COPY_CATEGORIES[0],
     [activeKey]

@@ -165,6 +165,21 @@ class ShareViewTests(TestCase):
         self.assertNotIn('mobile_phone_number', cust)          # 연락처 부재
         self.assertNotIn('medical_histories', cust)            # 병력 부재
 
+    def test_share_view_no_booking_url_without_work_hours(self):
+        """영업시간 미설정 → booking_url 키 부재(FE는 기존 안내문으로 폴백)."""
+        body = self.public.get(self._url()).json()
+        self.assertNotIn('booking_url', body)
+
+    def test_share_view_booking_url_present_with_work_hours(self):
+        """설계사 영업시간 설정 → '바로 예약' booking_url 포함(/b/<token>)."""
+        from datetime import time
+        from inpa.booking.models import WorkHour
+        WorkHour.objects.create(owner=self.user, weekday=0,
+                                start_time=time(9, 0), end_time=time(18, 0))
+        body = self.public.get(self._url()).json()
+        self.assertIn('booking_url', body)
+        self.assertIn('/b/', body['booking_url'])
+
     def test_share_view_logs_share_view_event(self):
         self.public.get(self._url())
         self.assertEqual(
