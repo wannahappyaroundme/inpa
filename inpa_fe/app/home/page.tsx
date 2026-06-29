@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Users, UserPlus, CalendarCheck, Wallet, AlertTriangle, ShieldCheck,
+  Users, UserPlus, CalendarCheck, Wallet,
   ChevronRight, MessageSquare, Calendar as CalendarIcon, Activity,
   Link2, Gift, type LucideIcon,
 } from "lucide-react";
@@ -13,10 +13,10 @@ import { BarChart, DonutChart } from "@/components/charts";
 import { SelfDiagnosisShare } from "@/components/self-diagnosis-share";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
-  listCustomers, getProfile, getChurnRadar, syncChurnAlerts, listMeetings,
+  listCustomers, getProfile, listMeetings,
   getDashboard, updateDashboardGoal, listScheduleItems,
   getDashboardInsights, SALES_STAGES,
-  type ProfileResponse, type ChurnRadarResponse, type Meeting, type DashboardSummary,
+  type ProfileResponse, type Meeting, type DashboardSummary,
   type ScheduleItem, type ScheduleCategory, type DashboardInsights,
 } from "@/lib/api";
 
@@ -118,7 +118,6 @@ export default function HomePage() {
   const ready = useAuthGuard();
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [customerCount, setCustomerCount] = useState<number | null>(null);
-  const [churn, setChurn] = useState<ChurnRadarResponse | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [dash, setDash] = useState<DashboardSummary | null>(null);
@@ -159,9 +158,6 @@ export default function HomePage() {
         setGMeet(d.target_meetings); setGPrem(d.target_premium); setGMult(d.income_multiplier);
       })
       .catch(() => setDash(null));
-    syncChurnAlerts().catch(() => { /* 무시 */ }).finally(() => {
-      getChurnRadar().then((res) => setChurn(res)).catch(() => setChurn(null));
-    });
   }, [ready, router]);
 
   // 기간 필터 변경 시 insights 재조회 (기간 버튼 포함)
@@ -556,39 +552,6 @@ export default function HomePage() {
                 </div>
               </Card>
             )}
-
-            {/* 환수 레이더(A/S) */}
-            <button
-              onClick={() => router.push("/churn-radar")}
-              className={`w-full text-left rounded-2xl border px-4 py-3.5 flex items-center gap-3 transition active:scale-[0.997] ${
-                churn && churn.risk_count > 0
-                  ? "border-cnone/30 bg-danger-tint hover:bg-danger-tint/70"
-                  : "border-line bg-surface shadow-card hover:bg-surface2"
-              }`}
-            >
-              <span
-                className={`shrink-0 w-10 h-10 rounded-xl grid place-items-center ${
-                  churn && churn.risk_count > 0 ? "bg-neg-soft text-neg" : "bg-pos-soft text-pos-ink"
-                }`}
-                aria-hidden
-              >
-                {churn && churn.risk_count > 0 ? <AlertTriangle className="w-5 h-5" strokeWidth={2} /> : <ShieldCheck className="w-5 h-5" strokeWidth={2} />}
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="text-[14px] font-bold text-ink">
-                  환수 레이더
-                  {churn && churn.risk_count > 0 && <span className="ml-2 text-danger-ink">위험 {churn.risk_count}건</span>}
-                </div>
-                <div className="text-[12px] text-ink3 mt-0.5">
-                  {churn === null
-                    ? "보유계약 납입상태·유지율(13/25회차)을 점검하세요"
-                    : churn.risk_count > 0
-                    ? `예상 환수액(추정) ${fmtWonShort(churn.expected_recovery_total)}원 · 지금 확인`
-                    : "현재 환수 위험 없음 · 납입정보 입력·점검"}
-                </div>
-              </div>
-              <ChevronRight className="w-5 h-5 text-muted shrink-0" strokeWidth={2.5} />
-            </button>
 
             {/* 보유계약 유지현황(도넛) */}
             {insights && (
