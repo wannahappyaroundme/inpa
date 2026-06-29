@@ -24,9 +24,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from django.utils import timezone
+from django.conf import settings
 
 from inpa.analysis.calculate import calculate_total_analysis
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, ChartDetail
+from inpa.booking.models import WorkHour
+from inpa.booking.tokens import make_booking_token
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer
 
@@ -134,6 +137,21 @@ class ShareAnalysisView(_NoIndexMixin, APIView):
         return Response(body)
 
 
+def _booking_url(customer):
+    """'바로 상담 예약' CTA 링크 — 예약 가능할 때만 고객용 /b 링크를 신선하게 발급.
+
+    BOOKING_ENABLED + 설계사(owner)에게 영업시간(WorkHour)이 있을 때만 발급한다.
+    응답이 요청 시점마다 새로 만들어지므로 토큰 72h TTL 무관(고객이 보는 순간 유효).
+    조건 미충족이면 None → 페이로드에서 키 부재 → FE는 기존 안내문으로 폴백.
+    """
+    if not getattr(settings, 'BOOKING_ENABLED', True):
+        return None
+    if not customer.owner_id or not WorkHour.objects.filter(owner_id=customer.owner_id).exists():
+        return None
+    base = (getattr(settings, 'FRONTEND_BASE_URL', '') or '').rstrip('/')
+    return f'{base}/b/{make_booking_token(customer)}'
+
+
 def _build_share_payload(customer):
     """공유뷰 페이로드 — '사실'만(neutral 강제, baseline 부재).
 
@@ -193,7 +211,7 @@ def _build_share_payload(customer):
     )
     summary = {k: result[k] for k in summary_keys}
 
-    return {
+    payload = {
         'customer': {
             'name_masked': _mask_name(customer.name),
             'gender': customer.gender,
@@ -205,6 +223,11 @@ def _build_share_payload(customer):
         'tree': tree,
         'disclaimer': SHARE_DISCLAIMER,
     }
+    # ★ '바로 상담 예약' CTA — 예약 가능할 때만 booking_url 포함(없으면 키 부재 → FE 폴백).
+    booking_url = _booking_url(customer)
+    if booking_url:
+        payload['booking_url'] = booking_url
+    return payload
 
 
 class ShareEventView(_NoIndexMixin, APIView):

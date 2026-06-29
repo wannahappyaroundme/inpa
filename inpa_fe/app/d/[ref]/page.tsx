@@ -97,9 +97,23 @@ export default function SelfDiagnosisPage() {
           <div className="mt-4 rounded-xl border border-line bg-surface px-4 py-3 text-[12px] text-ink3 leading-5">
             {result.disclaimer || "인파가 등록된 보장 정보를 정리한 참고 자료입니다."}
           </div>
-          <div className="mt-3 rounded-2xl bg-brand text-white text-center text-[15px] font-bold py-4">
-            담당 설계사가 곧 연락드릴 거예요 🙌
-          </div>
+          {result.booking_url ? (
+            <>
+              <a
+                href={result.booking_url}
+                className="mt-3 block rounded-2xl bg-brand text-white text-center text-[16px] font-bold py-4 hover:opacity-90 transition"
+              >
+                바로 상담 예약하기 →
+              </a>
+              <p className="mt-2 text-center text-[12px] text-ink3">
+                편한 시간을 직접 고르면 담당 설계사가 확인해 드려요.
+              </p>
+            </>
+          ) : (
+            <div className="mt-3 rounded-2xl bg-brand text-white text-center text-[15px] font-bold py-4">
+              담당 설계사가 곧 연락드릴 거예요 🙌
+            </div>
+          )}
         </main>
       </div>
     );

@@ -377,6 +377,7 @@ export interface SelfDiagnosisResult {
   tree: ShareCategory[];
   disclaimer: string;
   lead_created?: boolean;
+  booking_url?: string; // 예약 가능할 때만(설계사 영업시간 존재) — '바로 상담 예약' CTA
 }
 /** POST /api/v1/d/<refcode>/ — multipart: file, consent_overseas, consent_share, name?, phone? */
 export async function postSelfDiagnosis(refcode: string, form: FormData): Promise<SelfDiagnosisResult> {
@@ -2076,6 +2077,7 @@ export interface ShareViewResponse {
   summary: ShareSummary;
   tree: ShareCategory[];
   disclaimer: string;
+  booking_url?: string; // 예약 가능할 때만(설계사 영업시간 존재) — '바로 상담 예약' CTA
 }
 
 /**

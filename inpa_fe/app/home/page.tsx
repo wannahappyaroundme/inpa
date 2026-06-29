@@ -421,36 +421,42 @@ export default function HomePage() {
 
             {/* 영업 4단계 파이프라인 */}
             {insights && (
-              <button onClick={() => router.push("/customers")} className="block w-full text-left">
-                <Card className="p-4 sm:p-5 hover:shadow-cardhover transition">
-                  <SectionTitle
-                    title="영업 단계별 고객"
-                    action={<span className="text-[12px] font-semibold text-brand">단계별 보기 →</span>}
-                  />
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    {SALES_STAGES.map((s, i) => {
-                      const tone = STAGE_TONE[s.key] ?? STAGE_TONE.db;
-                      return (
-                        <div key={s.key} className="relative">
-                          <div className={`rounded-xl p-4 ${tone.bg}`}>
-                            <div className="flex items-center gap-1.5">
-                              <span className={`text-[13px] font-extrabold tnum ${tone.fg}`}>{s.short}</span>
-                              <span className="text-[13px] font-semibold text-ink">{s.label}</span>
-                            </div>
-                            <p className="mt-2 flex items-baseline gap-0.5">
-                              <span className="text-[26px] font-extrabold text-ink tnum leading-none">{insights.funnel[s.key]}</span>
-                              <span className="text-[12px] font-normal text-ink3">{s.key === "contract" ? "건" : "명"}</span>
-                            </p>
+              <Card className="p-4 sm:p-5">
+                <SectionTitle
+                  title="영업 단계별 고객"
+                  action={
+                    <button onClick={() => router.push("/customers")} className="text-[12px] font-semibold text-brand">
+                      단계별 보기 →
+                    </button>
+                  }
+                />
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  {SALES_STAGES.map((s, i) => {
+                    const tone = STAGE_TONE[s.key] ?? STAGE_TONE.db;
+                    return (
+                      <div key={s.key} className="relative">
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/customers?stage=${s.key}`)}
+                          className={`w-full text-left rounded-xl p-4 ${tone.bg} hover:shadow-cardhover transition`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[13px] font-extrabold tnum ${tone.fg}`}>{s.short}</span>
+                            <span className="text-[13px] font-semibold text-ink">{s.label}</span>
                           </div>
-                          {i < SALES_STAGES.length - 1 && (
-                            <ChevronRight className="hidden lg:block absolute -right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" strokeWidth={2.5} />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-              </button>
+                          <p className="mt-2 flex items-baseline gap-0.5">
+                            <span className="text-[26px] font-extrabold text-ink tnum leading-none">{insights.funnel[s.key]}</span>
+                            <span className="text-[12px] font-normal text-ink3">{s.key === "contract" ? "건" : "명"}</span>
+                          </p>
+                        </button>
+                        {i < SALES_STAGES.length - 1 && (
+                          <ChevronRight className="hidden lg:block absolute -right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted z-10 pointer-events-none" strokeWidth={2.5} />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
             )}
 
             {/* 차트 행 — 월별 보험료 추이(막대) + 캘린더 */}

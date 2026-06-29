@@ -199,6 +199,21 @@ export default function CustomersPage() {
   const [hideParked, setHideParked] = useState(false);
   // 모바일 단계 탭 — 가로 스크롤 대신 버튼으로 단계 전환(데스크탑은 다단 보드 유지).
   const [activeStage, setActiveStage] = useState<SalesStage>("db");
+  // 단계별 보드에서 ?stage= 진입 시 하이라이트할 단계(데스크탑 컬럼 시선 유도).
+  const [focusStage, setFocusStage] = useState<SalesStage | null>(null);
+
+  // 대시보드 퍼널 카드에서 /customers?stage=<key>로 들어오면 단계별 보드를 열고 그 단계를 선택.
+  // (auth-gated 클라이언트 페이지라 useSearchParams Suspense 래핑 대신 클라이언트 전용 읽기)
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search).get("stage");
+    if (sp && SALES_STAGES.some((s) => s.key === sp)) {
+      setView("kanban");
+      setActiveStage(sp as SalesStage);
+      setFocusStage(sp as SalesStage);
+      const t = setTimeout(() => setFocusStage(null), 2200); // 잠깐 하이라이트 후 해제
+      return () => clearTimeout(t);
+    }
+  }, []);
 
   const fetchCustomers = useCallback(async (q: string) => {
     setLoading(true);
@@ -480,9 +495,11 @@ export default function CustomersPage() {
                       if (dragId != null) moveCustomer(dragId, stage.key);
                       setDragId(null);
                     }}
-                    className={`rounded-2xl bg-surface2 border border-line p-2.5 min-h-[120px] w-full sm:w-auto sm:flex-1 sm:min-w-0 ${
+                    className={`rounded-2xl bg-surface2 border border-line p-2.5 min-h-[120px] w-full sm:w-auto sm:flex-1 sm:min-w-0 transition ${
                       stage.key === activeStage ? "block" : "hidden"
-                    } ${stage.key === "contract" && !showContract ? "sm:hidden" : "sm:block"}`}
+                    } ${stage.key === "contract" && !showContract ? "sm:hidden" : "sm:block"} ${
+                      focusStage === stage.key ? "ring-2 ring-brand" : ""
+                    }`}
                   >
                     <div className="flex items-center justify-between px-1 pb-2">
                       <span className="inline-flex items-center gap-1 text-[13px] font-bold text-ink">
