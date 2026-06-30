@@ -588,6 +588,12 @@ export async function createCustomer(payload: CustomerWritePayload): Promise<Cus
   return request<CustomerDetail>("POST", "/customers/", payload, true);
 }
 
+/** POST /api/v1/customers/bulk/ — 여러 고객 일괄 등록(이름 필수, 이름+연락처 중복은 건너뜀) */
+export interface BulkCustomerRow { name: string; mobile_phone_number?: string; sales_stage?: SalesStage }
+export async function createCustomersBulk(rows: BulkCustomerRow[]): Promise<{ created: number; skipped: number }> {
+  return request<{ created: number; skipped: number }>("POST", "/customers/bulk/", { customers: rows }, true);
+}
+
 /** PATCH /api/v1/customers/{id}/ */
 export async function updateCustomer(
   id: number,

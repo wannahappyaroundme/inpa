@@ -771,3 +771,32 @@ class ContactLogTests(TestCase):
         log_id = r.json()['id']
         rd = self.client_a.delete(f'{self._url()}{log_id}/')
         self.assertIn(rd.status_code, (404, 405))  # detail 라우트 미등록 + append-only
+
+
+class CustomerBulkCreateTests(TestCase):
+    """고객 일괄 등록 — 중복(이름+연락처) 건너뛰기, 이름 없는 행 무시, db 단계."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('bulk@test.com')
+
+    def test_bulk_create_with_dedup(self):
+        Customer.objects.create(owner=self.user, name='기존', mobile_phone_number='010-1')
+        body = {'customers': [
+            {'name': '김민수', 'mobile_phone_number': '010-1234-5678'},
+            {'name': '기존', 'mobile_phone_number': '010-1'},                  # 기존 중복 → skip
+            {'name': '김민수', 'mobile_phone_number': '010-1234-5678'},        # 배치 내 중복 → skip
+            {'name': '', 'mobile_phone_number': '010-9'},                      # 이름 없음 → skip
+            {'name': '이영희'},
+        ]}
+        r = self.client.post('/api/v1/customers/bulk/', body, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.json()['created'], 2)   # 김민수, 이영희
+        self.assertEqual(r.json()['skipped'], 3)
+        self.assertEqual(Customer.objects.filter(owner=self.user).count(), 3)  # 기존1 + 신규2
+        new = Customer.objects.get(name='이영희')
+        self.assertEqual(new.sales_stage, 'db')
+        self.assertEqual(new.lead_source, 'direct')
+
+    def test_bulk_empty_rejected(self):
+        r = self.client.post('/api/v1/customers/bulk/', {'customers': []}, format='json')
+        self.assertEqual(r.status_code, 400)
