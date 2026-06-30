@@ -427,3 +427,30 @@ class SubscriptionAutoCreateTests(TestCase):
         self.assertIsNotNone(sub)
         self.assertEqual(sub.plan.code, 'free')
         self.assertEqual(sub.status, 'active')
+
+
+# ─── seed_billing 관리 명령 ──────────────────────────────────────
+
+
+class SeedBillingCommandTests(TestCase):
+    """seed_billing — free·plus 플랜 시드 + 구독 없는 사용자 free 구독 백필(멱등)."""
+
+    def test_seeds_plans_and_backfills_missing_subscription(self):
+        from django.core.management import call_command
+
+        # free 플랜이 없는 상태에서 만든 사용자 = 시그널이 구독 생성을 스킵(무구독) 재현.
+        user = User.objects.create_user(email='nosub@test.com', password='pass123!')
+        Subscription.objects.filter(user=user).delete()
+        self.assertFalse(Subscription.objects.filter(user=user).exists())
+
+        call_command('seed_billing')
+
+        self.assertTrue(Plan.objects.filter(code='free').exists())
+        self.assertTrue(Plan.objects.filter(code='plus').exists())
+        sub = Subscription.objects.get(user=user)
+        self.assertEqual(sub.plan.code, 'free')
+        self.assertEqual(sub.status, 'active')
+
+        # 멱등 — 재실행해도 중복/오류 없음(구독 1개 유지).
+        call_command('seed_billing')
+        self.assertEqual(Subscription.objects.filter(user=user).count(), 1)
