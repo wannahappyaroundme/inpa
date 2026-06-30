@@ -467,33 +467,38 @@ export default function HomePage() {
                 </div>
               </Card>
             )}
+          </div>
 
-            {/* 차트 행 — 월별 보험료 추이(막대) + 캘린더 */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {insights && (
-                <Card className="p-4 sm:p-5 lg:order-2">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-[15px] font-bold text-ink">월별 보험료 추이</div>
-                    <div className="flex gap-1">
-                      {([3, 6] as const).map((m) => (
-                        <button
-                          key={m}
-                          onClick={() => setTrendMonths(m)}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
-                            trendMonths === m ? "bg-brand text-white" : "bg-surface2 text-ink3 hover:text-ink"
-                          }`}
-                        >
-                          {m === 3 ? "3개월" : "6개월"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <BarChart data={trendBars} format={(n) => fmtWonShort(n)} targetLine={targetLine} averageLine={averageLine} heightClass="h-44" />
-                </Card>
-              )}
+          {/* 우 4: 월별 보험료 추이 — 좌측(통계+단계) 높이만큼 채움 */}
+          {insights && (
+            <Card className="col-span-12 lg:col-span-4 p-4 sm:p-5 flex flex-col min-h-[260px] lg:min-h-0">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[15px] font-bold text-ink">월별 보험료 추이</div>
+                <div className="flex gap-1">
+                  {([3, 6] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setTrendMonths(m)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                        trendMonths === m ? "bg-brand text-white" : "bg-surface2 text-ink3 hover:text-ink"
+                      }`}
+                    >
+                      {m === 3 ? "3개월" : "6개월"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <BarChart data={trendBars} format={(n) => fmtWonShort(n)} targetLine={targetLine} averageLine={averageLine} heightClass="h-full" className="flex-1 min-h-0" />
+            </Card>
+          )}
+        </div>
 
-              {/* 캘린더(실제 월·미팅·일정) — 데스크탑에서 차트보다 왼쪽 */}
-              <Card className="p-4 sm:p-5 lg:order-1">
+        {/* ── 2-B행: 좌(캘린더 + 유지현황) 8 + 우(셀프진단 + 예약/판촉) 4 ── */}
+        <div className="mt-4 grid grid-cols-12 gap-4 items-stretch">
+          {/* 좌 8: 캘린더 + 보유계약 유지현황 */}
+          <div className="col-span-12 lg:col-span-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* 캘린더(실제 월·미팅·일정) */}
+            <Card className="p-4 sm:p-5">
                 <div className="flex items-center justify-between mb-3">
                   <button onClick={() => shiftMonth(-1)} className="w-8 h-8 rounded-lg hover:bg-surface2 text-ink2 text-[18px]">‹</button>
                   <div className="text-[16px] font-bold text-ink">{viewY}년 {viewM}월</div>
@@ -546,15 +551,11 @@ export default function HomePage() {
                   ))}
                 </div>
               </Card>
-            </div>
-          </div>
 
-          {/* ───── 오른쪽 4칸 (사이드 레일) — 좌측과 같은 높이로 채움 ───── */}
-          <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
             {/* 보유계약 유지현황(도넛) → 클릭 시 유지 회차 타이머 */}
             {insights && (
-              <button onClick={() => router.push("/churn-radar")} className="block w-full text-left">
-                <Card className="p-4 sm:p-5 hover:shadow-cardhover transition">
+              <button onClick={() => router.push("/churn-radar")} className="block w-full text-left h-full">
+                <Card className="p-4 sm:p-5 hover:shadow-cardhover transition h-full">
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-[15px] font-bold text-ink">보유계약 유지현황</div>
                     <span className="text-[12px] font-semibold text-brand">회차 타이머 →</span>
@@ -583,8 +584,11 @@ export default function HomePage() {
                 </Card>
               </button>
             )}
+          </div>
 
-            {/* 무료 보장점검(셀프진단) 링크 — 발굴 입구를 우 레일로 이동(상담 예약이 있던 자리) */}
+          {/* 우 4: 셀프진단 + 상담예약/판촉물 */}
+          <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
+            {/* 무료 보장점검(셀프진단) 링크 */}
             <SelfDiagnosisShare />
 
             {/* 상담 예약 링크 + 판촉물 신청 — 가로형 카드(아이콘 · 텍스트 · 버튼) */}

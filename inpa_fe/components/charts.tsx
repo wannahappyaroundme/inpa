@@ -123,14 +123,14 @@ export function BarChart({
 
   return (
     <div className={className} role="img" aria-label={aria}>
-      {/* 막대 영역 — relative 래퍼 높이=h-24(96px). 보조선 오버레이의 좌표 기준(월 라벨 제외) */}
-      <div className="relative">
-        <div className={`flex items-end gap-1.5 ${heightClass}`}>
+      {/* 막대 영역 — relative 래퍼가 높이 기준(보조선 오버레이 좌표 기준). heightClass='h-full'이면 부모를 채움. */}
+      <div className={`relative ${heightClass}`}>
+        <div className="flex items-end gap-1.5 h-full">
           {data.map((d, i) => {
             const hot = highlightLast && i === lastIdx;
             const pct = Math.round((d.value / max) * 100);
             return (
-              <div key={i} className={`relative flex-1 ${heightClass} flex items-end`}>
+              <div key={i} className="relative flex-1 h-full flex items-end">
                 <div
                   className="w-full rounded-t-md transition-all relative"
                   style={{
