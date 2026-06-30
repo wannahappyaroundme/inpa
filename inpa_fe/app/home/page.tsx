@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Users, UserPlus, CalendarCheck, Wallet,
   ChevronRight, MessageSquare, Calendar as CalendarIcon, Activity,
-  Link2, Gift, type LucideIcon,
+  Link2, Gift, X, type LucideIcon,
 } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { Card, StatCard, SectionTitle } from "@/components/ui";
@@ -85,6 +85,25 @@ function hhmmToMin(t: string): number {
 
 interface AgendaItem { ymd: string; time: string; title: string; cat: Cat; sort: number }
 
+// 일정/할일/차단 + 미팅 → 날짜별 일정 맵. (캘린더 = 보는 달, 오늘 카드 = 이번 달 전용으로 각각 호출)
+function buildAgenda(scheduleItems: ScheduleItem[], meetings: Meeting[]): Map<string, AgendaItem[]> {
+  const map = new Map<string, AgendaItem[]>();
+  const add = (it: AgendaItem) => { const a = map.get(it.ymd) ?? []; a.push(it); map.set(it.ymd, a); };
+  for (const s of scheduleItems) {
+    if (s.kind === "block" && s.recur_weekday !== null) continue; // 반복차단은 /schedule 풀뷰에서만
+    if (!s.start_at) continue;
+    const t = s.all_day ? "" : kstTime(s.start_at);
+    const cat: Cat = s.kind === "block" ? "etc" : s.category;
+    add({ ymd: kstYmd(s.start_at), time: t || "종일", title: s.title, cat, sort: t ? hhmmToMin(t) : -1 });
+  }
+  for (const m of meetings) {
+    const t = kstTime(m.start_at);
+    add({ ymd: kstYmd(m.start_at), time: t || "-", title: `${m.customer_name} · ${m.method_display}`, cat: "meeting", sort: t ? hhmmToMin(t) : 0 });
+  }
+  for (const [, arr] of map) arr.sort((a, b) => a.sort - b.sort);
+  return map;
+}
+
 function GoalRow({ label, actual, target, unit, won }: { label: string; actual: number; target: number; unit?: string; won?: boolean }) {
   const p = pct(actual, target);
   const fmt = (v: number) => (won ? fmtWonShort(v) : krw.format(v));
@@ -112,6 +131,7 @@ export default function HomePage() {
   const [customerCount, setCustomerCount] = useState<number | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
+  const [todayScheduleItems, setTodayScheduleItems] = useState<ScheduleItem[]>([]); // 보는 달과 무관하게 '오늘 카드'용(이번 달 고정)
   const [dash, setDash] = useState<DashboardSummary | null>(null);
   const [insights, setInsights] = useState<DashboardInsights | null>(null);
   const [trendMonths, setTrendMonths] = useState<3 | 6>(6);
@@ -130,6 +150,7 @@ export default function HomePage() {
   const [viewY, setViewY] = useState(todayY);
   const [viewM, setViewM] = useState(todayM);
   const [selDay, setSelDay] = useState(todayD);
+  const [dayModalOpen, setDayModalOpen] = useState(false); // 캘린더 날짜 클릭 시 그 날 일정 모달
 
   useEffect(() => {
     if (!ready) return;
@@ -159,7 +180,7 @@ export default function HomePage() {
     getDashboardInsights({ months: trendMonths }).then(setInsights).catch(() => setInsights(null));
   }, [ready, trendMonths]);
 
-  // 보고 있는 달의 내 일정/할일/차단 로드(월 이동 시 갱신)
+  // 보고 있는 달의 내 일정/할일/차단 로드(월 이동 시 갱신) — 캘린더용
   useEffect(() => {
     if (!ready) return;
     listScheduleItems({ month: `${viewY}-${pad(viewM)}` })
@@ -167,24 +188,17 @@ export default function HomePage() {
       .catch(() => setScheduleItems([]));
   }, [ready, viewY, viewM]);
 
-  // 내 일정/할일/차단 + 미팅 → 날짜별 일정 맵 (알림은 우측 상단 종에서만)
-  const agenda = useMemo(() => {
-    const map = new Map<string, AgendaItem[]>();
-    const add = (it: AgendaItem) => { const a = map.get(it.ymd) ?? []; a.push(it); map.set(it.ymd, a); };
-    for (const s of scheduleItems) {
-      if (s.kind === "block" && s.recur_weekday !== null) continue; // 반복차단은 /schedule 풀뷰에서만
-      if (!s.start_at) continue;
-      const t = s.all_day ? "" : kstTime(s.start_at);
-      const cat: Cat = s.kind === "block" ? "etc" : s.category;
-      add({ ymd: kstYmd(s.start_at), time: t || "종일", title: s.title, cat, sort: t ? hhmmToMin(t) : -1 });
-    }
-    for (const m of meetings) {
-      const t = kstTime(m.start_at);
-      add({ ymd: kstYmd(m.start_at), time: t || "-", title: `${m.customer_name} · ${m.method_display}`, cat: "meeting", sort: t ? hhmmToMin(t) : 0 });
-    }
-    for (const [, arr] of map) arr.sort((a, b) => a.sort - b.sort);
-    return map;
-  }, [scheduleItems, meetings]);
+  // 이번 달 일정(오늘 카드용) — 캘린더를 다른 달로 넘겨도 '오늘 일정'은 항상 보이게 별도 로드.
+  useEffect(() => {
+    if (!ready) return;
+    listScheduleItems({ month: `${todayY}-${pad(todayM)}` })
+      .then((r) => setTodayScheduleItems(r.results))
+      .catch(() => setTodayScheduleItems([]));
+  }, [ready, todayY, todayM]);
+
+  // 날짜별 일정 맵 — 캘린더(보는 달) / 오늘 카드(이번 달) 각각. (알림은 우측 상단 종에서만)
+  const agenda = useMemo(() => buildAgenda(scheduleItems, meetings), [scheduleItems, meetings]);
+  const todayAgenda = useMemo(() => buildAgenda(todayScheduleItems, meetings), [todayScheduleItems, meetings]);
 
   async function saveGoal() {
     setGoalSaving(true);
@@ -268,8 +282,10 @@ export default function HomePage() {
   const isCurrentMonth = viewY === todayY && viewM === todayM;
 
   const selectedYmd = `${viewY}-${pad(viewM)}-${pad(selDay)}`;
-  const selectedItems = agenda.get(selectedYmd) ?? [];
-  const agendaTitle = isCurrentMonth && selDay === todayD ? "오늘의 일정 · 할 일" : `${viewM}월 ${selDay}일 일정`;
+  const selectedItems = agenda.get(selectedYmd) ?? [];                 // 모달(클릭한 날짜)
+  const dayModalTitle = isCurrentMonth && selDay === todayD ? "오늘 일정" : `${viewM}월 ${selDay}일 일정`;
+  const todayYmd = `${todayY}-${pad(todayM)}-${pad(todayD)}`;
+  const todayItems = todayAgenda.get(todayYmd) ?? [];                  // 우측 레일 카드(항상 오늘)
 
   // 이번 달 목표 달성률(게이지) — 가입 보험료 기준.
   const goalGaugePct = dash ? pct(dash.actual_premium, dash.target_premium) : 0;
@@ -372,12 +388,12 @@ export default function HomePage() {
             )}
           </Card>
 
-          {/* 오늘의 일정 · 할 일 — 목표와 같은 높이 */}
+          {/* 오늘의 일정 · 할 일 — 항상 '금일'만(캘린더 선택과 무관). 목표와 같은 높이 */}
           <Card className="col-span-12 lg:col-span-4 p-4 sm:p-5 flex flex-col">
-            <div className="text-[15px] font-bold text-ink mb-3">{agendaTitle}</div>
-            {selectedItems.length > 0 ? (
+            <div className="text-[15px] font-bold text-ink mb-3">오늘의 일정 · 할 일</div>
+            {todayItems.length > 0 ? (
               <div className="space-y-3.5">
-                {selectedItems.map((t, i) => (
+                {todayItems.map((t, i) => (
                   <div key={i} className="flex gap-3">
                     <div className="text-[12px] font-semibold text-ink3 w-11 shrink-0 tnum pt-0.5">{t.time}</div>
                     <div className="flex-1 flex items-start gap-2">
@@ -524,7 +540,7 @@ export default function HomePage() {
                     return (
                       <div key={i} className="flex flex-col items-center pt-1.5 pb-1 min-h-[52px]">
                         <button
-                          onClick={() => setSelDay(d)}
+                          onClick={() => { setSelDay(d); setDayModalOpen(true); }}
                           aria-label={`${viewM}월 ${d}일${cats.length > 0 ? ` · 일정 ${items?.length ?? 0}건` : ""}`}
                           aria-pressed={d === selDay}
                           className={`w-9 h-9 rounded-full flex items-center justify-center text-[14px] font-medium ${cls}`}
@@ -591,9 +607,9 @@ export default function HomePage() {
             {/* 무료 보장점검(셀프진단) 링크 */}
             <SelfDiagnosisShare />
 
-            {/* 상담 예약 링크 + 판촉물 신청 — 가로형 카드(아이콘 · 텍스트 · 버튼) */}
-            <div className="space-y-4">
-              <Card className="p-4 flex items-center gap-3">
+            {/* 상담 예약 링크 + 판촉물 신청 — 가로형 카드(아이콘 · 텍스트 · 버튼), 두 카드 동일 높이 */}
+            <div className="grid grid-rows-2 gap-4 flex-1">
+              <Card className="h-full p-4 flex items-center gap-3">
                 <span className="shrink-0 w-10 h-10 rounded-xl grid place-items-center bg-brand-soft text-brand" aria-hidden>
                   <Link2 className="w-5 h-5" strokeWidth={2} />
                 </span>
@@ -611,7 +627,7 @@ export default function HomePage() {
                 </div>
               </Card>
 
-              <Card className="p-4 flex items-center gap-3">
+              <Card className="h-full p-4 flex items-center gap-3">
                 <span className="shrink-0 w-10 h-10 rounded-xl grid place-items-center bg-warn-soft text-warn-ink" aria-hidden>
                   <Gift className="w-5 h-5" strokeWidth={2} />
                 </span>
@@ -644,6 +660,51 @@ export default function HomePage() {
           ))}
         </div>
       </main>
+
+      {/* 캘린더 날짜 클릭 → 그 날 일정 모달 (배경/✕ 클릭 시 닫힘) */}
+      {dayModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6"
+          onClick={() => setDayModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-surface border border-line shadow-card p-5 max-h-[80dvh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[16px] font-bold text-ink">{dayModalTitle}</div>
+              <button
+                onClick={() => setDayModalOpen(false)}
+                aria-label="닫기"
+                className="w-8 h-8 rounded-lg grid place-items-center hover:bg-surface2 text-ink2"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {selectedItems.length > 0 ? (
+              <div className="space-y-3.5">
+                {selectedItems.map((t, i) => (
+                  <div key={i} className="flex gap-3">
+                    <div className="text-[12px] font-semibold text-ink3 w-11 shrink-0 tnum pt-0.5">{t.time}</div>
+                    <div className="flex-1 flex items-start gap-2">
+                      <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${CAT_META[t.cat].dot}`} />
+                      <span className="text-[14px] text-ink leading-5">{t.title}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-8 text-center text-[13px] text-ink3">이 날은 예정된 일정이 없어요.</div>
+            )}
+            <button
+              onClick={() => router.push("/schedule")}
+              className="mt-4 w-full rounded-xl border border-line text-[13px] font-semibold text-brand py-2.5 hover:bg-brand-soft transition"
+            >
+              일정 전체 보기 · 추가 →
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
