@@ -9,6 +9,7 @@ new_customers = 이번달 신규 고객 수(Customer)
 import datetime
 
 from django.db.models import Count, Sum
+from django.utils import timezone
 
 from inpa.customers.models import Customer
 from inpa.insurances.models import CustomerInsurance
@@ -62,7 +63,8 @@ def compute_deltas(user, year_month, cur=None):
 
 def recent_months(n=6, today=None):
     """오래된→최근 순 'YYYY-MM' n개 (막대 추이용)."""
-    today = today or datetime.date.today()
+    # ★ KST 기준(timezone.localdate). date.today()=OS 로컬이라 CI(UTC)와 운영(KST)이 갈림.
+    today = today or timezone.localdate()
     y, m = today.year, today.month
     out = []
     for _ in range(n):
