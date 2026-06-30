@@ -211,3 +211,42 @@ class WithdrawTests(TestCase):
         r = gc.post('/api/v1/auth/withdraw/', {'confirm': 'w-g@inpa.local'}, format='json')
         self.assertEqual(r.status_code, 200)
         self.assertFalse(User.objects.filter(email='w-g@inpa.local').exists())
+
+
+class IntroCardTests(TestCase):
+    """소개 카드(공개 /p) — GET 카드, POST 상담신청 → db 리드(introduction)."""
+
+    def setUp(self):
+        self.planner, _ = _verified_planner('intro@test.com')
+        self.profile = Profile.objects.get(user=self.planner)
+        self.profile.name = '홍길동'
+        self.profile.intro_text = '3년차 손해보험 전문'
+        self.profile.save(update_fields=['name', 'intro_text'])
+        self.public = APIClient()
+
+    def test_get_card(self):
+        r = self.public.get(f'/api/v1/p/{self.profile.ref_code}/')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body['planner']['name'], '홍길동')
+        self.assertEqual(body['planner']['intro_text'], '3년차 손해보험 전문')
+        self.assertEqual(body['self_diagnosis_url'], f'/d/{self.profile.ref_code}')
+
+    def test_post_creates_db_lead(self):
+        from inpa.customers.models import Customer
+        r = self.public.post(f'/api/v1/p/{self.profile.ref_code}/',
+                             {'name': '김상담', 'phone': '010-1234-5678', 'agreed': True}, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertTrue(r.json()['lead_created'])
+        c = Customer.objects.get(owner=self.planner, name='김상담')
+        self.assertEqual(c.sales_stage, 'db')
+        self.assertEqual(c.lead_source, 'introduction')
+        self.assertIsNone(c.consent_overseas_at)   # 소개 카드는 국외이전 동의 없음(병력/OCR 아님)
+
+    def test_post_requires_consent(self):
+        r = self.public.post(f'/api/v1/p/{self.profile.ref_code}/',
+                             {'name': '김상담', 'agreed': False}, format='json')
+        self.assertEqual(r.status_code, 400)
+
+    def test_invalid_ref_404(self):
+        self.assertEqual(self.public.get('/api/v1/p/NOPENOPE/').status_code, 404)

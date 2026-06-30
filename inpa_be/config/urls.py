@@ -6,6 +6,7 @@ from django.http import JsonResponse
 from django.urls import include, path
 
 from inpa.accounts.manager import ManagerDashboardView
+from inpa.accounts.public import IntroductionCardView
 
 
 def health(_request):
@@ -16,6 +17,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('healthz/', health),
     path('api/v1/manager/dashboard/', ManagerDashboardView.as_view(), name='manager-dashboard'),
+    path('api/v1/p/<str:refcode>/', IntroductionCardView.as_view(), name='public-intro-card'),
     path('api/v1/auth/', include('inpa.accounts.urls')),
     path('api/v1/', include('inpa.customers.urls')),
     path('api/v1/', include('inpa.analysis.urls')),

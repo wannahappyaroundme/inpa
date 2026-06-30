@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
+import { IntroductionCardShare } from "@/components/introduction-card-share";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import { listSamples, type PromotionSampleListItem } from "@/lib/api";
@@ -68,6 +69,11 @@ export default function PromotionPage() {
           >
             내 주문 목록 ›
           </Link>
+        </div>
+
+        {/* 내 소개 카드 — 판촉물 = 설계사 소개(DB 자동 유입) */}
+        <div className="mt-4">
+          <IntroductionCardShare />
         </div>
 
         {/* 카테고리 필터 칩 */}
