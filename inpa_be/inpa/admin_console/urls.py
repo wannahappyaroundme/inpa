@@ -31,6 +31,7 @@ from .views import (
     AdminReportListView,
     AdminUnmatchedListView,
     AdminUsageView,
+    AdminUserCustomersView,
     AdminUserDetailView,
     AdminUserListView,
     AdminUserSendResetEmailView,
@@ -49,6 +50,8 @@ urlpatterns = [
     # ── 설계사 관리 ───────────────────────────────────────────────────
     path('admin/users/', AdminUserListView.as_view(), name='admin-user-list'),
     path('admin/users/<int:user_id>/', AdminUserDetailView.as_view(), name='admin-user-detail'),
+    path('admin/users/<int:user_id>/customers/', AdminUserCustomersView.as_view(),
+         name='admin-user-customers'),
     path('admin/users/<int:user_id>/subscription/', AdminUserSubscriptionView.as_view(),
          name='admin-user-subscription'),
     path('admin/users/<int:user_id>/send_reset_email/', AdminUserSendResetEmailView.as_view(),

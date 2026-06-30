@@ -38,6 +38,7 @@ from inpa.promotion.models import PromotionOrder
 from .models import PolicyVersion
 from .serializers import (
     AdminConsentLogSerializer,
+    AdminCustomerListSerializer,
     AdminFaqSerializer,
     AdminFaqWriteSerializer,
     AdminInquiryDetailSerializer,
@@ -181,6 +182,24 @@ class AdminUserDetailView(APIView):
             pk=user_id,
         )
         return Response(AdminUserDetailSerializer(user).data)
+
+
+class AdminUserCustomersView(APIView):
+    """GET /api/v1/admin/users/:id/customers/
+    설계사가 보유한 고객 목록 (admin READ-ONLY, 비민감 필드만 — dev/19 §7 PII 원칙).
+    admin은 owner 격리를 우회(설계사 자산 운영 점검용), 단 목록은 사실 필드만 노출한다.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
+        qs = (Customer.objects.filter(owner=user)
+              .select_related('job_code')
+              .order_by('-created_at'))
+        return Response({
+            'count': qs.count(),
+            'results': AdminCustomerListSerializer(qs, many=True).data,
+        })
 
 
 class AdminUserSubscriptionView(APIView):
