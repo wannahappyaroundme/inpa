@@ -115,11 +115,11 @@ class ManagerDashboardTests(TestCase):
         self.manager, self.mc = _verified_planner('manager@test.com')
         self.agent_yes, _ = _verified_planner('agent-yes@test.com')
         self.agent_no, _ = _verified_planner('agent-no@test.com')
-        # 둘 다 매니저에 배정, 한 명만 공유 동의
+        # 둘 다 매니저에 배정, 한 명만 공유(full=활동+실적), 한 명은 공유 안 함(none)
         Profile.objects.filter(user=self.agent_yes).update(
-            manager=self.manager, manager_share_opt_in=True)
+            manager=self.manager, manager_share_level='full')
         Profile.objects.filter(user=self.agent_no).update(
-            manager=self.manager, manager_share_opt_in=False)
+            manager=self.manager, manager_share_level='none')
 
     def test_only_consented_agent_included(self):
         from inpa.customers.models import Customer
@@ -139,16 +139,32 @@ class ManagerDashboardTests(TestCase):
         body = self.mc.get('/api/v1/manager/dashboard/').json()
         agent = body['agents'][0]
         for k in ('premium_month', 'new_month', 'meetings_month', 'premium_delta',
-                  'funnel', 'product_mix', 'last_login', 'is_active_month'):
+                  'funnel', 'product_mix', 'last_login', 'is_active_month', 'shares_performance'):
             self.assertIn(k, agent)
+        self.assertTrue(agent['shares_performance'])    # full 동의 → 실적 공개
         self.assertGreaterEqual(agent['new_month'], 1)  # 이번 달 신규 고객
         self.assertTrue(agent['is_active_month'])       # 활동 있음
         self.assertEqual(set(agent['funnel'].keys()), {'db', 'contact', 'meeting', 'contract'})
         self.assertEqual(set(agent['product_mix'].keys()), {'life', 'nonlife'})
-        for k in ('premium_month', 'new_month', 'active_member_count'):
+        for k in ('premium_month', 'new_month', 'active_member_count', 'perf_agent_count'):
             self.assertIn(k, body['totals'])
         self.assertIn('team_product_mix', body)
         self.assertIn('team_premium_trend', body)
+
+    def test_activity_only_hides_performance(self):
+        """활동만 동의(activity) → 실적(보험료·유지율) None·shares_performance False, 팀 실적 합계 제외."""
+        from inpa.customers.models import Customer
+        agent_act, _ = _verified_planner('agent-act@test.com')
+        Profile.objects.filter(user=agent_act).update(
+            manager=self.manager, manager_share_level='activity')
+        Customer.objects.create(owner=agent_act, name='활동고객', sales_stage='contact')
+        body = self.mc.get('/api/v1/manager/dashboard/').json()
+        self.assertEqual(body['agent_count'], 2)  # full(agent_yes) + activity(agent_act)
+        act = next(a for a in body['agents'] if not a['shares_performance'])
+        self.assertIsNone(act['premium_month'])   # 실적 비공개
+        self.assertIsNone(act['retention_y1'])
+        self.assertIn('new_month', act)           # 활동은 공유
+        self.assertEqual(body['totals']['perf_agent_count'], 1)  # full 1명만 실적 합산
 
     def test_non_manager_sees_empty(self):
         _, lone = _verified_planner('lone@test.com')
@@ -158,7 +174,8 @@ class ManagerDashboardTests(TestCase):
 
     def test_profile_exposes_mode_fields(self):
         body = self.mc.get('/api/v1/auth/profile/').json()
-        for k in ('affiliation_type', 'manager_share_opt_in', 'managed_agents_count', 'manager_email'):
+        for k in ('affiliation_type', 'manager_share_opt_in', 'manager_share_level',
+                  'managed_agents_count', 'manager_email'):
             self.assertIn(k, body)
         self.assertEqual(body['managed_agents_count'], 2)  # 배정 총원(동의 무관)
 

@@ -89,7 +89,20 @@ class Profile(models.Model):
     # 익명 코호트 벤치마크(기준선 권위·데이터 해자) 수집 동의. 기본 거부.
     cohort_opt_in = models.BooleanField(default=False)
     # 지점장(manager)에게 내 KPI 집계 공유 동의. 기본 거부 → 동의 없으면 지점 대시보드 미포함.
+    # ★ 레거시 bool — manager_share_level(아래)로 대체. serializer가 level 저장 시 동기화(호환 유지).
     manager_share_opt_in = models.BooleanField(default=False)
+    # 지점장에게 공유할 수준(동의 단계). none=공유 안 함 / activity=활동만(고객수·신규·미팅·단계·활동) /
+    # full=활동+실적(보험료·유지율 포함). 기본 none. manager.py가 이 값으로 필터·성과필드 게이팅.
+    SHARE_NONE = 'none'
+    SHARE_ACTIVITY = 'activity'
+    SHARE_FULL = 'full'
+    MANAGER_SHARE_LEVEL_CHOICES = (
+        (SHARE_NONE, '공유 안 함'),
+        (SHARE_ACTIVITY, '활동만'),
+        (SHARE_FULL, '활동+실적'),
+    )
+    manager_share_level = models.CharField(max_length=10, default=SHARE_NONE,
+                                           choices=MANAGER_SHARE_LEVEL_CHOICES)
 
     # 설계사 본인 이름 — 예약/안내 문구의 {설계사명}에 자동 매핑. 비면 소속/이메일로 폴백.
     name = models.CharField('설계사 이름', max_length=30, blank=True, default='')

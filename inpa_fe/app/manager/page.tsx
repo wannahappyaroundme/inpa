@@ -73,13 +73,19 @@ function RankRow({ rank, a }: { rank: number; a: ManagerAgentKpi }) {
         </span>
       </span>
       <span className="text-right">
-        <span className="text-[13px] font-extrabold tnum text-ink">{fmtWonShort(a.premium_month)}</span>
-        <Delta pct={a.premium_delta} />
+        {a.shares_performance ? (
+          <>
+            <span className="text-[13px] font-extrabold tnum text-ink">{fmtWonShort(a.premium_month ?? 0)}</span>
+            <Delta pct={a.premium_delta} />
+          </>
+        ) : (
+          <span className="text-[12px] text-ink3">비공개</span>
+        )}
       </span>
       <span className="text-right text-[13px] tnum text-ink2">{a.new_month}</span>
       <span className="text-right text-[13px] tnum text-ink2">{a.meetings_month}</span>
       <span><FunnelMini funnel={a.funnel} /></span>
-      <span className="text-right text-[12px] tnum text-ink2">{a.retention_y1 == null ? "·" : `${a.retention_y1}%`}</span>
+      <span className="text-right text-[12px] tnum text-ink2">{!a.shares_performance ? "비공개" : a.retention_y1 == null ? "·" : `${a.retention_y1}%`}</span>
       <span className="text-right text-[11px] text-ink3">{loginAgo(a.last_login)}</span>
     </div>
   );
@@ -97,14 +103,20 @@ function RankCard({ rank, a }: { rank: number; a: ManagerAgentKpi }) {
           {idle && <span className="block text-[10px] text-ink3">이번 달 활동 없음</span>}
         </span>
         <span className="text-right">
-          <span className="text-[14px] font-extrabold tnum text-ink">{fmtWonShort(a.premium_month)}</span>
-          <Delta pct={a.premium_delta} />
+          {a.shares_performance ? (
+            <>
+              <span className="text-[14px] font-extrabold tnum text-ink">{fmtWonShort(a.premium_month ?? 0)}</span>
+              <Delta pct={a.premium_delta} />
+            </>
+          ) : (
+            <span className="text-[12px] text-ink3">비공개</span>
+          )}
         </span>
       </div>
       <div className="mt-2 flex items-center gap-3 text-[11px] text-ink3">
         <span>신규 <b className="text-ink2">{a.new_month}</b></span>
         <span>미팅 <b className="text-ink2">{a.meetings_month}</b></span>
-        <span>1년유지 <b className="text-ink2">{a.retention_y1 == null ? "·" : `${a.retention_y1}%`}</b></span>
+        <span>1년유지 <b className="text-ink2">{!a.shares_performance ? "비공개" : a.retention_y1 == null ? "·" : `${a.retention_y1}%`}</b></span>
         <span className="ml-auto">{loginAgo(a.last_login)}</span>
       </div>
       <div className="mt-2"><FunnelMini funnel={a.funnel} /></div>
@@ -127,7 +139,7 @@ export default function ManagerPage() {
   }, [ready]);
 
   const ranked = useMemo(
-    () => (data ? [...data.agents].sort((a, b) => b.premium_month - a.premium_month) : []),
+    () => (data ? [...data.agents].sort((a, b) => (b.premium_month ?? 0) - (a.premium_month ?? 0)) : []),
     [data]
   );
 
@@ -164,7 +176,7 @@ export default function ManagerPage() {
           <>
             {/* 상단 합계 바 */}
             <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <StatCard icon={Wallet} tone="brand" label="이번 달 팀 보험료" value={fmtWonShort(data.totals.premium_month)} unit="원" />
+              <StatCard icon={Wallet} tone="brand" label="이번 달 팀 보험료" value={fmtWonShort(data.totals.premium_month)} unit="원" hint={`실적까지 공유한 ${data.totals.perf_agent_count}명 기준 (활동만 공유한 팀원 제외)`} />
               <StatCard icon={UserPlus} tone="brand" label="이번 달 신규 유치" value={data.totals.new_month} unit="명" />
               <StatCard icon={Users} tone="pos" label="활동 멤버" value={`${data.totals.active_member_count}/${data.agent_count}`} unit="명" hint="이번 달 신규 등록이나 미팅이 있는 팀원 수" />
               <StatCard icon={AlertTriangle} tone="warn" accent={data.totals.churn_risk_count > 0} label="환수 위험" value={data.totals.churn_risk_count} unit="건" />

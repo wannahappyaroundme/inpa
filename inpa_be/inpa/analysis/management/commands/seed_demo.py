@@ -936,9 +936,9 @@ class Command(BaseCommand):
             user=manager, email_verified_at=now, onboarding_completed_at=now,
             agent_type=Profile.AGENT_BOTH, affiliation='[DEMO] 인파데모지점',
             affiliation_type=Profile.AFFILIATION_GA, license_self_declared=True)
-        # 소속 설계사 연결 + KPI 공유 동의(매니저 대시보드에 노출되려면 동의 필수)
+        # 소속 설계사 연결 + 성과 공유 동의(매니저 대시보드에 노출되려면 동의 필수). full=활동+실적.
         Profile.objects.filter(user__in=[planner, neutral_planner]).update(
-            manager=manager, manager_share_opt_in=True)
+            manager=manager, manager_share_level='full', manager_share_opt_in=True)
         self.stdout.write(f'  [13] 지점장: {manager.email} (소속 설계사 2명 동의 연결)')
         return manager
 

@@ -274,6 +274,7 @@ export interface ProfileResponse {
   affiliation_type: number | null;
   cohort_opt_in: boolean;
   manager_share_opt_in: boolean;
+  manager_share_level: "none" | "activity" | "full";  // 관리자 공유 단계
   manager_email: string | null;
   managed_agents_count: number;
   license_self_declared: boolean;
@@ -307,6 +308,7 @@ export interface ProfileUpdatePayload {
   affiliation_type?: number | null;
   cohort_opt_in?: boolean;
   manager_share_opt_in?: boolean;
+  manager_share_level?: "none" | "activity" | "full";
   manager_email?: string;
   booking_msg_template?: string;
   booking_location?: string;
@@ -343,15 +345,16 @@ export interface ManagerAgentKpi {
   customer_count: number;
   churn_risk_count: number;
   share_view_count: number;
-  retention_y1: number | null;
-  premium_month: number;
+  retention_y1: number | null;           // 실적: 미공유(activity)면 null
+  premium_month: number | null;          // 실적: 미공유면 null('비공개')
   new_month: number;
   meetings_month: number;
-  premium_delta: number | null;          // 전월 대비 %
+  premium_delta: number | null;          // 전월 대비 % (미공유면 null)
   funnel: Record<SalesStage, number>;    // 단계 분포(미니바)
   product_mix: { life: number; nonlife: number };
   last_login: string | null;
   is_active_month: boolean;              // 이번 달 활동 0 → 회색 강조
+  shares_performance: boolean;           // false면 실적(보험료·유지율) '비공개'
 }
 export interface ManagerTeamRoi {
   agent_count: number;
@@ -366,6 +369,7 @@ export interface ManagerDashboardResponse {
   totals: {
     customer_count: number; churn_risk_count: number; share_view_count: number;
     premium_month: number; new_month: number; active_member_count: number;
+    perf_agent_count: number;   // 실적까지 공유한 팀원 수(팀 보험료 합계 기준)
   };
   team_funnel: Record<SalesStage, number>;
   team_retention: RetentionYears;
