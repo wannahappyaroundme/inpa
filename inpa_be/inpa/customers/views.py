@@ -72,6 +72,50 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         else:
             serializer.save()
 
+    @action(detail=False, methods=['post'], url_path='bulk')
+    def bulk_create(self, request):
+        """여러 고객을 한 번에 등록 — POST /api/v1/customers/bulk/.
+
+        body: {"customers": [{"name", "mobile_phone_number"?, "sales_stage"?}, ...]}.
+        name 필수(빈 행 skip). (이름+연락처) 중복(기존 고객 또는 같은 배치 내)은 건너뜀. owner 자동 주입.
+        """
+        rows = request.data.get('customers')
+        if not isinstance(rows, list) or not rows:
+            raise ValidationError({'customers': '등록할 고객 목록이 비었어요.'})
+        if len(rows) > 200:
+            raise ValidationError({'customers': '한 번에 최대 200명까지 등록할 수 있어요.'})
+        owner = request.user
+        existing = set(
+            Customer.objects.filter(owner=owner).values_list('name', 'mobile_phone_number'))
+        valid_stages = {c[0] for c in Customer.SALES_STAGE_CHOICES}
+        seen = set()
+        to_create = []
+        skipped = 0
+        for row in rows:
+            if not isinstance(row, dict):
+                skipped += 1
+                continue
+            name = (row.get('name') or '').strip()[:20]
+            if not name:
+                skipped += 1
+                continue
+            phone = (row.get('mobile_phone_number') or '').strip()[:15]
+            key = (name, phone)
+            if key in existing or key in seen:
+                skipped += 1
+                continue
+            stage = row.get('sales_stage')
+            if stage not in valid_stages:
+                stage = Customer.STAGE_DB
+            seen.add(key)
+            to_create.append(Customer(
+                owner=owner, name=name, mobile_phone_number=phone,
+                sales_stage=stage, lead_source=Customer.LEAD_DIRECT))
+        if to_create:
+            Customer.objects.bulk_create(to_create)
+        return Response({'created': len(to_create), 'skipped': skipped},
+                        status=status.HTTP_201_CREATED)
+
 
 class CustomerTagViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
     """고객 태그 CRUD — 소유자 전용. /api/v1/customer-tags/"""

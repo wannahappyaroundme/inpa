@@ -18,6 +18,7 @@ import {
   type CustomerWritePayload,
 } from "@/lib/api";
 import { CustomerCreateModal } from "@/components/customer-create-modal";
+import { CustomerBulkModal } from "@/components/customer-bulk-modal";
 
 // 고객 관리(CRM) — 영업 4단계(DB·TA·FA·청약) 칸반/리스트. 방치 색상경보·즐겨찾기·보험나이.
 
@@ -189,6 +190,7 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [dragId, setDragId] = useState<number | null>(null);
   const [moving, setMoving] = useState<Set<number>>(new Set());
@@ -357,6 +359,12 @@ export default function CustomersPage() {
                 </button>
               ))}
             </div>
+            <button
+              onClick={() => setShowBulk(true)}
+              className="rounded-xl border border-line bg-surface2 text-ink2 text-[13px] font-semibold px-3 py-2.5 hover:bg-surface active:scale-[0.98] transition"
+            >
+              여러 명 등록
+            </button>
             <button
               onClick={() => setShowCreate(true)}
               className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2.5 active:scale-[0.98] transition"
@@ -593,6 +601,16 @@ export default function CustomersPage() {
           onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
+            fetchCustomers(search);
+          }}
+        />
+      )}
+
+      {showBulk && (
+        <CustomerBulkModal
+          onClose={() => setShowBulk(false)}
+          onCreated={() => {
+            setShowBulk(false);
             fetchCustomers(search);
           }}
         />
