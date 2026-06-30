@@ -1371,14 +1371,17 @@ export async function listNotifications(
 }
 
 /** GET /api/v1/notifications/unread-count/ — 벨 배지 */
-// unread_count = 전체(받은함·벨). customers/schedule = 그 부분집합(네비 고객·일정 배지).
-export async function getUnreadCount(): Promise<{ unread_count: number; customers: number; schedule: number }> {
-  return request<{ unread_count: number; customers: number; schedule: number }>(
-    "GET",
-    "/notifications/unread-count/",
-    undefined,
-    true
-  );
+// unread_count = 전체(받은함·벨). 나머지 = 그 부분집합(네비 메뉴별 배지). 13종 파티션.
+export interface UnreadCount {
+  unread_count: number;
+  customers: number;
+  schedule: number;
+  board: number;
+  promotion: number;
+  admin: number;
+}
+export async function getUnreadCount(): Promise<UnreadCount> {
+  return request<UnreadCount>("GET", "/notifications/unread-count/", undefined, true);
 }
 
 /** PATCH /api/v1/notifications/{id}/read/ — 단일 읽음 */

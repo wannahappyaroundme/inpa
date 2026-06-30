@@ -59,10 +59,6 @@ const QUICK_ACTIONS: { label: string; href: string; icon: LucideIcon }[] = [
   { label: "일정 관리", href: "/schedule", icon: CalendarIcon },
 ];
 
-// 상담 예약 안내 기본 샘플 문구(복사용) — 설계사 설정 템플릿이 있으면 그걸 우선 사용.
-const SAMPLE_BOOKING_MSG =
-  "안녕하세요, 보장 상담 예약 안내드립니다.\n아래 링크에서 편하신 시간을 선택해 주시면 일정 잡아드리겠습니다.\n예약 링크: (여기에 내 예약 링크를 붙여넣기)";
-
 // ISO(+09:00) → Asia/Seoul 기준 'YYYY-MM-DD' / 'HH:mm'
 function kstYmd(iso: string): string {
   try {
@@ -140,7 +136,6 @@ export default function HomePage() {
   const [gPrem, setGPrem] = useState(0);
   const [gMult, setGMult] = useState(10);
   const [goalSaving, setGoalSaving] = useState(false);
-  const [copiedSample, setCopiedSample] = useState(false);
 
   // 캘린더가 보는 연·월 (실제 오늘 기준) + 선택일
   const now = new Date();
@@ -213,15 +208,6 @@ export default function HomePage() {
     }
   }
 
-  function copySample() {
-    const text = (profile?.booking_msg_template?.trim() || SAMPLE_BOOKING_MSG);
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(text)
-        .then(() => { setCopiedSample(true); setTimeout(() => setCopiedSample(false), 1500); })
-        .catch(() => { /* 무시 */ });
-    }
-  }
-
   function shiftMonth(delta: number) {
     let y = viewY, m = viewM + delta;
     if (m < 1) { m = 12; y--; }
@@ -289,7 +275,6 @@ export default function HomePage() {
 
   // 이번 달 목표 달성률(게이지) — 가입 보험료 기준.
   const goalGaugePct = dash ? pct(dash.actual_premium, dash.target_premium) : 0;
-  const sampleText = profile?.booking_msg_template?.trim() || SAMPLE_BOOKING_MSG;
 
   return (
     <div className="min-h-dvh">
@@ -509,9 +494,9 @@ export default function HomePage() {
           )}
         </div>
 
-        {/* ── 2-B행: 좌(캘린더 + 유지현황) 8 + 우(셀프진단 + 예약/판촉) 4 ── */}
+        {/* ── 2-B행: 좌(캘린더 + 셀프진단) 8 + 우(유지현황 + 예약/판촉) 4 ── */}
         <div className="mt-4 grid grid-cols-12 gap-4 items-stretch">
-          {/* 좌 8: 캘린더 + 보유계약 유지현황 */}
+          {/* 좌 8: 캘린더 + 무료 보장점검(셀프진단) 링크 */}
           <div className="col-span-12 lg:col-span-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* 캘린더(실제 월·미팅·일정) */}
             <Card className="p-4 sm:p-5">
@@ -568,10 +553,16 @@ export default function HomePage() {
                 </div>
               </Card>
 
+            {/* 무료 보장점검(셀프진단) 링크 — 캘린더 옆 prominent 슬롯(그리드 stretch로 동일 높이) */}
+            <SelfDiagnosisShare />
+          </div>
+
+          {/* 우 4: 유지현황 + 상담예약/판촉물 */}
+          <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
             {/* 보유계약 유지현황(도넛) → 클릭 시 유지 회차 타이머 */}
             {insights && (
-              <button onClick={() => router.push("/churn-radar")} className="block w-full text-left h-full">
-                <Card className="p-4 sm:p-5 hover:shadow-cardhover transition h-full">
+              <button onClick={() => router.push("/churn-radar")} className="block w-full text-left">
+                <Card className="p-4 sm:p-5 hover:shadow-cardhover transition">
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-[15px] font-bold text-ink">보유계약 유지현황</div>
                     <span className="text-[12px] font-semibold text-brand">회차 타이머 →</span>
@@ -600,34 +591,23 @@ export default function HomePage() {
                 </Card>
               </button>
             )}
-          </div>
 
-          {/* 우 4: 셀프진단 + 상담예약/판촉물 */}
-          <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
-            {/* 무료 보장점검(셀프진단) 링크 */}
-            <SelfDiagnosisShare />
-
-            {/* 상담 예약 링크 + 판촉물 신청 — 가로형 카드(아이콘 · 텍스트 · 버튼), 두 카드 동일 높이 */}
-            <div className="grid grid-rows-2 gap-4 flex-1">
-              <Card className="h-full p-4 flex items-center gap-3">
+            {/* 상담 예약 링크 + 판촉물 신청 — 가로형 카드(아이콘 · 텍스트 · 버튼) */}
+            <div className="space-y-4">
+              <Card className="p-4 flex items-center gap-3">
                 <span className="shrink-0 w-10 h-10 rounded-xl grid place-items-center bg-brand-soft text-brand" aria-hidden>
                   <Link2 className="w-5 h-5" strokeWidth={2} />
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="text-[14px] font-bold text-ink">상담 예약 링크</div>
-                  <p className="text-[12px] text-ink3 mt-0.5 leading-5">안내 문구를 복사해 보내세요.</p>
+                  <p className="text-[12px] text-ink3 mt-0.5 leading-5">예약 링크를 설정해 보내세요.</p>
                 </div>
-                <div className="shrink-0 flex flex-col gap-1.5">
-                  <button onClick={copySample} className="rounded-xl bg-brand text-white text-[12px] font-bold px-3 py-2 whitespace-nowrap hover:opacity-90 transition">
-                    {copiedSample ? "복사됐어요 ✓" : "안내 문구 복사"}
-                  </button>
-                  <button onClick={() => router.push("/schedule")} className="rounded-xl border border-line text-[12px] font-semibold text-ink2 px-3 py-1.5 whitespace-nowrap hover:bg-surface2 transition">
-                    링크 설정
-                  </button>
-                </div>
+                <button onClick={() => router.push("/schedule")} className="shrink-0 rounded-xl border border-line text-[12px] font-semibold text-ink2 px-3 py-2 whitespace-nowrap hover:bg-surface2 transition">
+                  링크 설정
+                </button>
               </Card>
 
-              <Card className="h-full p-4 flex items-center gap-3">
+              <Card className="p-4 flex items-center gap-3">
                 <span className="shrink-0 w-10 h-10 rounded-xl grid place-items-center bg-warn-soft text-warn-ink" aria-hidden>
                   <Gift className="w-5 h-5" strokeWidth={2} />
                 </span>

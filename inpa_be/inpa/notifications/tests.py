@@ -155,22 +155,32 @@ class UnreadCategoryTests(TestCase):
         self.user, self.client = _make_planner('catbadge@test.com')
 
     def test_breakdown_subsets_and_clear(self):
-        _make_notif(self.user, NotifType.SELF_DIAGNOSIS_LEAD)  # 고객
-        _make_notif(self.user, NotifType.BIRTHDAY_SOON)        # 고객
-        _make_notif(self.user, NotifType.MEETING_BOOKED)       # 일정
-        _make_notif(self.user, NotifType.BOARD_COMMENT)        # 기타(받은함만)
+        _make_notif(self.user, NotifType.SELF_DIAGNOSIS_LEAD)          # 고객
+        _make_notif(self.user, NotifType.BIRTHDAY_SOON)               # 고객
+        _make_notif(self.user, NotifType.MEETING_BOOKED)              # 일정
+        _make_notif(self.user, NotifType.BOARD_COMMENT)               # 게시판
+        _make_notif(self.user, NotifType.PROMOTION_DIGITAL_READY)     # 판촉물
+        _make_notif(self.user, NotifType.PROMOTION_DIGITAL_REQUESTED)  # 관리자
         r = self.client.get('/api/v1/notifications/unread-count/').json()
-        self.assertEqual(r['unread_count'], 4)  # 전체(받은함)
+        self.assertEqual(r['unread_count'], 6)  # 전체(받은함)
         self.assertEqual(r['customers'], 2)
         self.assertEqual(r['schedule'], 1)
-        # 고객 알림 하나 읽으면 customers·전체 감소, schedule 불변.
+        self.assertEqual(r['board'], 1)
+        self.assertEqual(r['promotion'], 1)
+        self.assertEqual(r['admin'], 1)
+        # 파티션 검증 — 각 카테고리 합 = 전체.
+        self.assertEqual(r['customers'] + r['schedule'] + r['board'] + r['promotion'] + r['admin'],
+                         r['unread_count'])
+        # 고객 알림 하나 읽으면 customers·전체 감소, 나머지 불변.
         lead = Notification.objects.filter(
             owner=self.user, notif_type=NotifType.SELF_DIAGNOSIS_LEAD).first()
         self.client.patch(f'/api/v1/notifications/{lead.id}/read/')
         r2 = self.client.get('/api/v1/notifications/unread-count/').json()
-        self.assertEqual(r2['unread_count'], 3)
+        self.assertEqual(r2['unread_count'], 5)
         self.assertEqual(r2['customers'], 1)
-        self.assertEqual(r2['schedule'], 1)
+        self.assertEqual(r2['board'], 1)
+        self.assertEqual(r2['promotion'], 1)
+        self.assertEqual(r2['admin'], 1)
 
 
 # ─── 3. 삭제 ─────────────────────────────────────────────────────
