@@ -396,9 +396,10 @@ export interface SelfDiagnosisResult {
   tree: ShareCategory[];
   disclaimer: string;
   lead_created?: boolean;
+  analyzed?: boolean;   // PDF 분석 수행 여부. false = 증권 미첨부(리드만 접수, 결과 없음)
   booking_url?: string; // 예약 가능할 때만(설계사 영업시간 존재) — '바로 상담 예약' CTA
 }
-/** POST /api/v1/d/<refcode>/ — multipart: file, consent_overseas, consent_share, name?, phone? */
+/** POST /api/v1/d/<refcode>/ — multipart: name·phone·birth·gender 필수, consent_*·file 선택 */
 export async function postSelfDiagnosis(refcode: string, form: FormData): Promise<SelfDiagnosisResult> {
   const res = await fetch(`${API_BASE}/d/${encodeURIComponent(refcode)}/`, {
     method: "POST",

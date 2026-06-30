@@ -29,7 +29,9 @@ class MonthlyGoal(models.Model):
 
     @classmethod
     def current_month(cls):
-        return timezone.now().strftime('%Y-%m')
+        # ★ KST 기준. __month/__year ORM 조회가 TIME_ZONE(Asia/Seoul)로 버킷팅하므로 창도 KST로 맞춤.
+        #   (timezone.now()=UTC를 쓰면 UTC/KST 월 경계일에 '이번 달' 카운트가 어긋남.)
+        return timezone.localtime().strftime('%Y-%m')
 
     def __str__(self):
         return f'{self.owner_id}/{self.year_month}'

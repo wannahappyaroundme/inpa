@@ -44,7 +44,8 @@
   transform-origin: center;
   animation: inpaPing 1.7s cubic-bezier(0, 0.2, 0.8, 1) infinite;
 }
-.inpa-ping-2 { animation-delay: 0.85s; }
+.inpa-ping-2 { animation-delay: 0.57s; }
+.inpa-ping-3 { animation-delay: 1.13s; }   /* intense(3겹) — 로딩 화면에서 신호가 끊김 없이 퍼짐 */
 @media (prefers-reduced-motion: reduce) {
   .inpa-ping { display: none; }
 }

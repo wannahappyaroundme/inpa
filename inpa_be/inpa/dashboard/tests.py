@@ -149,7 +149,7 @@ class InsightsTests(TestCase):
         """해당 월 MonthlyGoal이 있으면 target_premium이 그 값으로 반환된다."""
         from .models import MonthlyGoal
         from django.utils import timezone
-        ym = timezone.now().strftime('%Y-%m')
+        ym = timezone.localtime().strftime('%Y-%m')  # KST — 추이/창과 동일 기준
         MonthlyGoal.objects.create(owner=self.user, year_month=ym, target_premium=3000000)
         r = self.client.get('/api/v1/dashboard/insights/?months=3')
         trend = r.json()['monthly_trend']
