@@ -73,26 +73,34 @@ export function BottomNav({
   isManager,
   custUnread = 0,
   schedUnread = 0,
+  boardUnread = 0,
+  promoUnread = 0,
+  adminUnread = 0,
 }: {
   active?: NavKey;
   isAdmin: boolean;
   isManager: boolean;
   custUnread?: number;
   schedUnread?: number;
+  boardUnread?: number;
+  promoUnread?: number;
+  adminUnread?: number;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreActive = !!active && !PRIMARY_KEYS.includes(active);
 
-  const moreLinks: { href: string; label: string }[] = [
+  const moreLinks: { href: string; label: string; badge?: number }[] = [
     { href: "/scripts", label: "화법" },
     { href: "/settings/baseline", label: "기준" },
-    { href: "/boards", label: "게시판" },
-    { href: "/promotion", label: "판촉물" },
+    { href: "/boards", label: "게시판", badge: boardUnread },
+    { href: "/promotion", label: "판촉물", badge: promoUnread },
     { href: "/notifications", label: "알림" },
     ...(isManager ? [{ href: "/manager", label: "관리직 KPI" }] : []),
-    ...(isAdmin ? [{ href: "/admin", label: "관리자" }] : []),
+    ...(isAdmin ? [{ href: "/admin", label: "관리자", badge: adminUnread }] : []),
     { href: "/settings/account", label: "내 계정" },
   ];
+  // 더보기 안에 숨은 항목들의 합 — 더보기 탭에 롤업 배지로 표시(모바일).
+  const moreBadge = boardUnread + promoUnread + (isAdmin ? adminUnread : 0);
 
   const tabCls = (on: boolean) =>
     `flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold transition ${
@@ -121,7 +129,12 @@ export function BottomNav({
               </Link>
             );
           })}
-          <button type="button" onClick={() => setMoreOpen(true)} className={tabCls(moreActive)}>
+          <button type="button" onClick={() => setMoreOpen(true)} className={`relative ${tabCls(moreActive)}`}>
+            {moreBadge > 0 && (
+              <span className="absolute top-1 right-[22%] min-w-[16px] h-[16px] px-1 rounded-full bg-danger text-white text-[9px] font-bold flex items-center justify-center tnum">
+                {moreBadge > 99 ? "99+" : moreBadge}
+              </span>
+            )}
             <Icon name="more" />
             더보기
           </button>

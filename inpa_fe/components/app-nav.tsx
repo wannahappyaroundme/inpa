@@ -68,6 +68,9 @@ export function AppNav({ active }: { active?: NavKey }) {
   const [unread, setUnread] = useState(0);
   const [custUnread, setCustUnread] = useState(0);     // 고객 관련 미읽음(네비 배지)
   const [schedUnread, setSchedUnread] = useState(0);   // 일정 관련 미읽음(네비 배지)
+  const [boardUnread, setBoardUnread] = useState(0);   // 게시판(댓글·좋아요)
+  const [promoUnread, setPromoUnread] = useState(0);   // 판촉물(주문상태·전자자료 준비)
+  const [adminUnread, setAdminUnread] = useState(0);   // 관리자(전자자료 요청 — 어드민)
   const [isAdmin, setIsAdmin] = useState(false);
   const [isManager, setIsManager] = useState(false);
   const [initial, setInitial] = useState("이");
@@ -78,7 +81,10 @@ export function AppNav({ active }: { active?: NavKey }) {
     if (!tokenStore.get()) return;
     const poll = () =>
       getUnreadCount()
-        .then((r) => { setUnread(r.unread_count); setCustUnread(r.customers); setSchedUnread(r.schedule); })
+        .then((r) => {
+          setUnread(r.unread_count); setCustUnread(r.customers); setSchedUnread(r.schedule);
+          setBoardUnread(r.board); setPromoUnread(r.promotion); setAdminUnread(r.admin);
+        })
         .catch(() => { /* 무시 */ });
     poll();
     const timer = setInterval(poll, 60000);
@@ -93,6 +99,16 @@ export function AppNav({ active }: { active?: NavKey }) {
       .catch(() => { /* 토큰 만료 등 — 무시 */ });
     return () => clearInterval(timer);
   }, []);
+
+  const badgeFor = (key: NavKey): number => {
+    switch (key) {
+      case "customers": return custUnread;
+      case "schedule": return schedUnread;
+      case "board": return boardUnread;
+      case "promotion": return promoUnread;
+      default: return 0;
+    }
+  };
 
   const items: Item[] = [
     { key: "home", href: "/home", label: "대시보드", icon: LayoutDashboard },
@@ -122,11 +138,11 @@ export function AppNav({ active }: { active?: NavKey }) {
               key={it.key}
               item={it}
               active={active === it.key}
-              badge={it.key === "customers" ? custUnread : it.key === "schedule" ? schedUnread : 0}
+              badge={badgeFor(it.key)}
             />
           ))}
           {isManager && <SideItem item={managerItem} active={active === "manager"} />}
-          {isAdmin && <SideItem item={adminItem} active={active === "admin"} />}
+          {isAdmin && <SideItem item={adminItem} active={active === "admin"} badge={adminUnread} />}
           <SideItem item={notiItem} active={active === "notifications"} badge={unread} />
         </nav>
         <Link
@@ -175,7 +191,16 @@ export function AppNav({ active }: { active?: NavKey }) {
         </div>
       </header>
 
-      <BottomNav active={active} isAdmin={isAdmin} isManager={isManager} custUnread={custUnread} schedUnread={schedUnread} />
+      <BottomNav
+        active={active}
+        isAdmin={isAdmin}
+        isManager={isManager}
+        custUnread={custUnread}
+        schedUnread={schedUnread}
+        boardUnread={boardUnread}
+        promoUnread={promoUnread}
+        adminUnread={adminUnread}
+      />
     </>
   );
 }
