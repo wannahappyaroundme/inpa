@@ -15,7 +15,7 @@ import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers, getProfile, listMeetings,
   getDashboard, updateDashboardGoal, listScheduleItems,
-  getDashboardInsights, SALES_STAGES,
+  getDashboardInsights, SALES_STAGES, funnelConversion,
   type ProfileResponse, type Meeting, type DashboardSummary,
   type ScheduleItem, type ScheduleCategory, type DashboardInsights,
 } from "@/lib/api";
@@ -450,6 +450,20 @@ export default function HomePage() {
                       </div>
                     );
                   })}
+                </div>
+                {/* 단계 전환율(스냅샷) — 지금까지 각 단계를 넘어간 비율 */}
+                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink3">
+                  <span className="font-semibold text-ink2">단계 전환율</span>
+                  {funnelConversion(insights.funnel).map((c) => {
+                    const fl = SALES_STAGES.find((s) => s.key === c.from)?.label;
+                    const tl = SALES_STAGES.find((s) => s.key === c.to)?.label;
+                    return (
+                      <span key={c.from} className="inline-flex items-center gap-1">
+                        {fl}→{tl} <b className="text-ink tnum">{c.rate == null ? "-" : `${c.rate}%`}</b>
+                      </span>
+                    );
+                  })}
+                  <span className="text-muted">지금까지 넘어간 비율</span>
                 </div>
               </Card>
             )}

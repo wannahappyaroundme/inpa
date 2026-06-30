@@ -427,6 +427,20 @@ export const SALES_STAGES: { key: SalesStage; label: string; short: string; desc
   { key: "contract", label: "청약", short: "04", desc: "고객이 보험계약을 신청(청약서 작성)하는 계약 체결 단계." },
 ];
 
+/** 단계 전환율(스냅샷) — 현재 분포 기준 '지금까지 각 단계를 넘어간 비율'. db→contact→meeting→contract 3개 구간.
+ *  누적 도달(해당 단계 이상에 있는 고객 수)로 계산. 단계 기본값이 db라 모두 db에서 출발한다는 가정. */
+export function funnelConversion(
+  funnel: Record<SalesStage, number>
+): { from: SalesStage; to: SalesStage; rate: number | null }[] {
+  const order: SalesStage[] = ["db", "contact", "meeting", "contract"];
+  const reached = (i: number) => order.slice(i).reduce((s, k) => s + (funnel[k] ?? 0), 0);
+  return [0, 1, 2].map((i) => {
+    const denom = reached(i);
+    const numer = reached(i + 1);
+    return { from: order[i], to: order[i + 1], rate: denom > 0 ? Math.round((numer / denom) * 100) : null };
+  });
+}
+
 /** 고객 상태(설계사 집중 관리) — BE Customer.STATUS_CHOICES 대응. 영업 단계와 별개의 '진행 상태'.
  *  진행중만 방치(무접촉) 경보 대상, 보류·휴면·종료는 흐리게 처리해 집중 고객과 구분한다. */
 export type CustomerStatus = "active" | "hold" | "dormant" | "closed";
