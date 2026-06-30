@@ -553,22 +553,22 @@ export default function HomePage() {
                 </div>
               </Card>
 
-            {/* 무료 보장점검(셀프진단) 링크 — 캘린더 옆 prominent 슬롯(그리드 stretch로 동일 높이) */}
-            <SelfDiagnosisShare />
+            {/* 무료 보장점검(셀프진단) 링크 — 캘린더 옆 prominent 슬롯(그리드 stretch + fill로 높이 꽉) */}
+            <SelfDiagnosisShare fill />
           </div>
 
           {/* 우 4: 유지현황 + 상담예약/판촉물 */}
           <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
-            {/* 보유계약 유지현황(도넛) → 클릭 시 유지 회차 타이머 */}
+            {/* 보유계약 유지현황(도넛) → 클릭 시 유지 회차 타이머. flex-1로 레일 잔여 높이 흡수(캘린더 높이 맞춤) */}
             {insights && (
-              <button onClick={() => router.push("/churn-radar")} className="block w-full text-left">
-                <Card className="p-4 sm:p-5 hover:shadow-cardhover transition">
+              <button onClick={() => router.push("/churn-radar")} className="block w-full text-left flex-1">
+                <Card className="p-4 sm:p-5 hover:shadow-cardhover transition h-full flex flex-col">
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-[15px] font-bold text-ink">보유계약 유지현황</div>
                     <span className="text-[12px] font-semibold text-brand">회차 타이머 →</span>
                   </div>
                 {portfolioTotal > 0 ? (
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4 flex-1">
                     <DonutChart className="w-24 shrink-0" segments={portfolioSegs} centerValue={String(portfolioTotal)} centerLabel="보유계약" />
                     <ul className="flex-1 space-y-1.5">
                       {portfolioSegs.map((s) => (

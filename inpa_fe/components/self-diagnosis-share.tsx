@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui";
 import { getProfile } from "@/lib/api";
 
-export function SelfDiagnosisShare({ compact = false }: { compact?: boolean }) {
+export function SelfDiagnosisShare({ compact = false, fill = false }: { compact?: boolean; fill?: boolean }) {
   const [refCode, setRefCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -42,13 +42,13 @@ export function SelfDiagnosisShare({ compact = false }: { compact?: boolean }) {
   if (!refCode) return null;
 
   return (
-    <Card className={compact ? "p-3.5" : "px-4 py-5"}>
+    <Card className={`${compact ? "p-3.5" : "px-4 py-5"}${fill ? " h-full flex flex-col" : ""}`}>
       <div className="text-[15px] font-bold text-ink">고객에게 무료 보장점검 링크 보내기</div>
       <p className="mt-1.5 text-[12px] text-ink3 leading-5">
         고객이 이 링크에서 가입한 증권(PDF)을 올리면, 어떤 보장을 얼마나 들었는지 <b className="text-ink2">1분 만에 한눈에 정리</b>해 드려요(무료). 점검을 마친 고객은 내 고객 목록에 자동으로 추가됩니다.{" "}
         <b className="text-ink2">수신 동의를 받았거나 거래 관계가 있는 고객</b>에게 전달하세요. 받는 분이 직접 동의·입력합니다.
       </p>
-      <div className="mt-3.5 flex items-center gap-2">
+      <div className={`flex items-center gap-2 ${fill ? "mt-auto pt-4" : "mt-3.5"}`}>
         <input
           readOnly
           value={link}
