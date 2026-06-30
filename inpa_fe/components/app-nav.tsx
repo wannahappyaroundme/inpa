@@ -66,6 +66,8 @@ function SideItem({
 
 export function AppNav({ active }: { active?: NavKey }) {
   const [unread, setUnread] = useState(0);
+  const [custUnread, setCustUnread] = useState(0);     // 고객 관련 미읽음(네비 배지)
+  const [schedUnread, setSchedUnread] = useState(0);   // 일정 관련 미읽음(네비 배지)
   const [isAdmin, setIsAdmin] = useState(false);
   const [isManager, setIsManager] = useState(false);
   const [initial, setInitial] = useState("이");
@@ -76,7 +78,7 @@ export function AppNav({ active }: { active?: NavKey }) {
     if (!tokenStore.get()) return;
     const poll = () =>
       getUnreadCount()
-        .then((r) => setUnread(r.unread_count))
+        .then((r) => { setUnread(r.unread_count); setCustUnread(r.customers); setSchedUnread(r.schedule); })
         .catch(() => { /* 무시 */ });
     poll();
     const timer = setInterval(poll, 60000);
@@ -116,7 +118,12 @@ export function AppNav({ active }: { active?: NavKey }) {
         </Link>
         <nav className="flex-1 overflow-y-auto scrollbar-none px-3 py-2 space-y-0.5">
           {items.map((it) => (
-            <SideItem key={it.key} item={it} active={active === it.key} />
+            <SideItem
+              key={it.key}
+              item={it}
+              active={active === it.key}
+              badge={it.key === "customers" ? custUnread : it.key === "schedule" ? schedUnread : 0}
+            />
           ))}
           {isManager && <SideItem item={managerItem} active={active === "manager"} />}
           {isAdmin && <SideItem item={adminItem} active={active === "admin"} />}
@@ -168,7 +175,7 @@ export function AppNav({ active }: { active?: NavKey }) {
         </div>
       </header>
 
-      <BottomNav active={active} isAdmin={isAdmin} isManager={isManager} />
+      <BottomNav active={active} isAdmin={isAdmin} isManager={isManager} custUnread={custUnread} schedUnread={schedUnread} />
     </>
   );
 }
