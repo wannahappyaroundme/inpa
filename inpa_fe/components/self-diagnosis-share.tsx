@@ -44,29 +44,35 @@ export function SelfDiagnosisShare({ compact = false, fill = false }: { compact?
   return (
     <Card className={`${compact ? "p-3.5" : "px-4 py-5"}${fill ? " h-full flex flex-col" : ""}`}>
       <div className="text-[15px] font-bold text-ink">고객에게 무료 보장점검 링크 보내기</div>
-      <p className="mt-1.5 text-[12px] text-ink3 leading-5">
-        고객이 이 링크에서 가입한 증권(PDF)을 올리면, 어떤 보장을 얼마나 들었는지 <b className="text-ink2">1분 만에 한눈에 정리</b>해 드려요(무료). 점검을 마친 고객은 내 고객 목록에 자동으로 추가됩니다.{" "}
-        <b className="text-ink2">수신 동의를 받았거나 거래 관계가 있는 고객</b>에게 전달하세요. 받는 분이 직접 동의·입력합니다.
+      <p className="mt-1.5 text-[14px] text-ink3 leading-6">
+        고객이 이 링크에서 가입한 증권(PDF)을 올리면,<br />
+        어떤 보장을 얼마나 들었는지 <b className="text-ink2">1분 만에 한눈에 정리</b>해 드려요(무료).<br />
+        점검을 마친 고객은 내 고객 목록에 자동으로 추가됩니다.<br />
+        <b className="text-ink2">수신 동의를 받았거나 거래 관계가 있는 고객</b>에게 전달하세요.<br />
+        받는 분이 직접 동의·입력합니다.
       </p>
-      <div className={`flex items-center gap-2 ${fill ? "mt-auto pt-4" : "mt-3.5"}`}>
+      {/* 하단: 링크(한 줄) + 복사·공유(아랫줄) — 2단 구성 */}
+      <div className={`${fill ? "mt-auto pt-4" : "mt-3.5"} space-y-2`}>
         <input
           readOnly
           value={link}
           onFocus={(e) => e.currentTarget.select()}
-          className="flex-1 min-w-0 rounded-xl border border-line bg-surface2 px-3 py-2 text-[12px] text-ink2 truncate"
+          className="w-full rounded-xl border border-line bg-surface2 px-3 py-2 text-[12px] text-ink2 truncate"
         />
-        <button
-          onClick={copy}
-          className="shrink-0 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 active:scale-[0.98] transition"
-        >
-          {copied ? "복사됨" : "링크 복사"}
-        </button>
-        <button
-          onClick={share}
-          className="shrink-0 rounded-xl border border-line text-ink2 text-[13px] font-semibold px-3 py-2 hover:bg-surface2"
-        >
-          공유
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={copy}
+            className="flex-1 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 active:scale-[0.98] transition"
+          >
+            {copied ? "복사됨" : "링크 복사"}
+          </button>
+          <button
+            onClick={share}
+            className="flex-1 rounded-xl border border-line text-ink2 text-[13px] font-semibold px-3 py-2 hover:bg-surface2"
+          >
+            공유
+          </button>
+        </div>
       </div>
     </Card>
   );
