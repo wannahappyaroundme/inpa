@@ -12,6 +12,7 @@ import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   getManagerDashboard,
   SALES_STAGES,
+  funnelConversion,
   type ManagerDashboardResponse,
   type ManagerAgentKpi,
 } from "@/lib/api";
@@ -181,6 +182,20 @@ export default function ManagerPage() {
                         <div className="mt-1 text-[22px] font-extrabold tnum text-ink">{data.team_funnel[s.key] ?? 0}</div>
                       </div>
                     ))}
+                  </div>
+                  {/* 단계 전환율(스냅샷) — 어디서 막히는지 */}
+                  <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink3">
+                    <span className="font-semibold text-ink2">전환율</span>
+                    {funnelConversion(data.team_funnel).map((c) => {
+                      const fl = SALES_STAGES.find((s) => s.key === c.from)?.label;
+                      const tl = SALES_STAGES.find((s) => s.key === c.to)?.label;
+                      return (
+                        <span key={c.from} className="inline-flex items-center gap-1">
+                          {fl}→{tl} <b className="text-ink tnum">{c.rate == null ? "-" : `${c.rate}%`}</b>
+                        </span>
+                      );
+                    })}
+                    <span className="text-muted">지금까지 넘어간 비율</span>
                   </div>
                 </Card>
 
