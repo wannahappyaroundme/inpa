@@ -71,10 +71,14 @@ export function BottomNav({
   active,
   isAdmin,
   isManager,
+  custUnread = 0,
+  schedUnread = 0,
 }: {
   active?: NavKey;
   isAdmin: boolean;
   isManager: boolean;
+  custUnread?: number;
+  schedUnread?: number;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreActive = !!active && !PRIMARY_KEYS.includes(active);
@@ -103,12 +107,20 @@ export function BottomNav({
         aria-label="하단 탭"
       >
         <div className="grid grid-cols-5">
-          {TABS.map((t) => (
-            <Link key={t.key} href={t.href} className={tabCls(active === t.key)}>
-              <Icon name={t.icon} />
-              {t.label}
-            </Link>
-          ))}
+          {TABS.map((t) => {
+            const badge = t.key === "customers" ? custUnread : t.key === "schedule" ? schedUnread : 0;
+            return (
+              <Link key={t.key} href={t.href} className={`relative ${tabCls(active === t.key)}`}>
+                {badge > 0 && (
+                  <span className="absolute top-1 right-[22%] min-w-[16px] h-[16px] px-1 rounded-full bg-danger text-white text-[9px] font-bold flex items-center justify-center tnum">
+                    {badge > 99 ? "99+" : badge}
+                  </span>
+                )}
+                <Icon name={t.icon} />
+                {t.label}
+              </Link>
+            );
+          })}
           <button type="button" onClick={() => setMoreOpen(true)} className={tabCls(moreActive)}>
             <Icon name="more" />
             더보기

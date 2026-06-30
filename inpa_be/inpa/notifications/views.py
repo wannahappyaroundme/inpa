@@ -18,6 +18,7 @@
   Notification 생성 API 없음 — BE 내부(cron/signal)에서만 생성.
 """
 from django.db import transaction
+from django.db.models import Count
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -26,7 +27,7 @@ from rest_framework.response import Response
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 
-from .models import Notification, ReminderRule
+from .models import CUSTOMER_NOTIF_TYPES, SCHEDULE_NOTIF_TYPES, Notification, ReminderRule
 from .serializers import (
     NotificationSerializer,
     ReminderRuleBulkItemSerializer,
@@ -65,9 +66,19 @@ class NotificationViewSet(OwnedQuerySetMixin, viewsets.GenericViewSet):
     # ── GET /notifications/unread-count/ ──────────────────────────
     @action(detail=False, methods=['get'], url_path='unread-count')
     def unread_count(self, request):
-        """미읽음 수 — 헤더 벨 배지용 (dev/22 §5.3). 60초 staleTime 폴링."""
-        count = self.get_queryset().filter(is_read=False).count()
-        return Response({'unread_count': count})
+        """미읽음 수 — 벨 배지(전체) + 네비 카테고리 배지(고객/일정). 60초 폴링.
+
+        customers/schedule는 전체(unread_count)의 부분집합 — 알림은 받은함 전체 유지.
+        소거는 표준 읽음 처리(read/read-all)로 줄어듦 = '알림처럼'.
+        """
+        by_type = dict(
+            self.get_queryset().filter(is_read=False)
+            .values_list('notif_type').annotate(c=Count('id'))
+        )
+        total = sum(by_type.values())
+        customers = sum(v for k, v in by_type.items() if k in CUSTOMER_NOTIF_TYPES)
+        schedule = sum(v for k, v in by_type.items() if k in SCHEDULE_NOTIF_TYPES)
+        return Response({'unread_count': total, 'customers': customers, 'schedule': schedule})
 
     # ── POST /notifications/read-all/ ─────────────────────────────
     @action(detail=False, methods=['post'], url_path='read-all')

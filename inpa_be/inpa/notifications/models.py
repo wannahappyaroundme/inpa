@@ -45,6 +45,17 @@ class NotifType(models.TextChoices):
     PROMOTION_DIGITAL_READY = 'promotion_digital_ready', '전자자료 준비됨'         # → 설계사
 
 
+# 네비 사이드바 카테고리 배지용 — 미읽음 알림을 '고객'/'일정' 섹션으로 분류(전체 알림의 부분집합).
+# 나머지(게시판·판촉물)는 '알림(받은함)' 배지에만 집계. 소거는 표준 읽음 처리로 = '알림처럼'.
+CUSTOMER_NOTIF_TYPES = frozenset({
+    NotifType.BIRTHDAY_SOON.value, NotifType.SHARE_UNREAD.value, NotifType.SELF_DIAGNOSIS_LEAD.value,
+})
+SCHEDULE_NOTIF_TYPES = frozenset({
+    NotifType.EXPIRY_SOON.value, NotifType.CONSULT_REMINDER.value, NotifType.TASK_DUE.value,
+    NotifType.UNPAID_D_ALERT.value, NotifType.MEETING_BOOKED.value,
+})
+
+
 class Notification(models.Model):
     """발화된 알림 — 읽음/삭제 상태 머신 (dev/22 §2.2).
 

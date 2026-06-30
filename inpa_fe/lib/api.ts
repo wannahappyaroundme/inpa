@@ -1371,8 +1371,9 @@ export async function listNotifications(
 }
 
 /** GET /api/v1/notifications/unread-count/ — 벨 배지 */
-export async function getUnreadCount(): Promise<{ unread_count: number }> {
-  return request<{ unread_count: number }>(
+// unread_count = 전체(받은함·벨). customers/schedule = 그 부분집합(네비 고객·일정 배지).
+export async function getUnreadCount(): Promise<{ unread_count: number; customers: number; schedule: number }> {
+  return request<{ unread_count: number; customers: number; schedule: number }>(
     "GET",
     "/notifications/unread-count/",
     undefined,

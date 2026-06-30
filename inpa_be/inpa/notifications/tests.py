@@ -146,6 +146,33 @@ class ReadMarkTests(TestCase):
         self.assertEqual(r2.json()['unread_count'], 2)
 
 
+# ─── 2-b. unread-count 카테고리 배지(네비 고객/일정) ─────────────────
+
+class UnreadCategoryTests(TestCase):
+    """unread-count의 customers/schedule = 전체 미읽음의 부분집합 + 읽으면 소거('알림처럼')."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('catbadge@test.com')
+
+    def test_breakdown_subsets_and_clear(self):
+        _make_notif(self.user, NotifType.SELF_DIAGNOSIS_LEAD)  # 고객
+        _make_notif(self.user, NotifType.BIRTHDAY_SOON)        # 고객
+        _make_notif(self.user, NotifType.MEETING_BOOKED)       # 일정
+        _make_notif(self.user, NotifType.BOARD_COMMENT)        # 기타(받은함만)
+        r = self.client.get('/api/v1/notifications/unread-count/').json()
+        self.assertEqual(r['unread_count'], 4)  # 전체(받은함)
+        self.assertEqual(r['customers'], 2)
+        self.assertEqual(r['schedule'], 1)
+        # 고객 알림 하나 읽으면 customers·전체 감소, schedule 불변.
+        lead = Notification.objects.filter(
+            owner=self.user, notif_type=NotifType.SELF_DIAGNOSIS_LEAD).first()
+        self.client.patch(f'/api/v1/notifications/{lead.id}/read/')
+        r2 = self.client.get('/api/v1/notifications/unread-count/').json()
+        self.assertEqual(r2['unread_count'], 3)
+        self.assertEqual(r2['customers'], 1)
+        self.assertEqual(r2['schedule'], 1)
+
+
 # ─── 3. 삭제 ─────────────────────────────────────────────────────
 
 class DeleteTests(TestCase):
