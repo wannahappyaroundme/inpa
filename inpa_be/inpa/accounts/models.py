@@ -118,6 +118,8 @@ class Profile(models.Model):
     booking_buffer_min = models.PositiveSmallIntegerField('미팅 앞뒤 여유(분)', default=60)
     # 직책 — 예약 안내 문구의 {소속직책}에 소속과 함께 들어감(예: 부산지점 / FC).
     title = models.CharField('직책', max_length=40, blank=True, default='')
+    # 한줄소개 — 공개 소개 카드(/p)에 노출. 예: "3년차 손해보험 전문, 맞춤설계로 도와드려요".
+    intro_text = models.CharField('한줄소개', max_length=120, blank=True, default='')
 
     # ── 구글 연동 ────────────────────────────────────────────────────────
     # google_sub = 구글 계정 고유 id(병행 로그인 링크 키). unique+null → 비구글 계정 다수 NULL 허용.

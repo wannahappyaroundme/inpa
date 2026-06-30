@@ -19,6 +19,7 @@ export default function AccountSettingsPage() {
   const router = useRouter();
   const [p, setP] = useState<ProfileResponse | null>(null);
   const [managerEmail, setManagerEmail] = useState("");
+  const [introText, setIntroText] = useState("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -27,6 +28,7 @@ export default function AccountSettingsPage() {
     getProfile().then((res) => {
       setP(res);
       setManagerEmail(res.manager_email ?? "");
+      setIntroText(res.intro_text ?? "");
     }).catch(() => { /* useAuthGuard 처리 */ });
   }, [ready]);
 
@@ -116,6 +118,28 @@ export default function AccountSettingsPage() {
               </button>
             ))}
           </div>
+        </Card>
+
+        {/* 내 소개 카드 한줄소개 */}
+        <Card className="px-5 py-4">
+          <div className="text-[15px] font-bold text-ink">내 소개 카드 한줄소개</div>
+          <p className="mt-1 text-[12px] text-ink3 leading-5">
+            판촉물의 '내 소개 카드'에 보이는 한 줄이에요. 예: 3년차 손해보험 전문, 맞춤설계로 도와드려요.
+          </p>
+          <input
+            value={introText}
+            onChange={(e) => setIntroText(e.target.value)}
+            maxLength={120}
+            placeholder="한 줄 소개를 적어보세요"
+            className="mt-3 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+          />
+          <button
+            disabled={saving}
+            onClick={() => patch({ intro_text: introText.trim() }, "소개 문구를 저장했어요")}
+            className="mt-2 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-60"
+          >
+            저장
+          </button>
         </Card>
 
         {/* 관리직 KPI 공유 */}

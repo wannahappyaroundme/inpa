@@ -285,6 +285,7 @@ export interface ProfileResponse {
   booking_default_duration: number;
   booking_buffer_min: number;   // 미팅 앞뒤 여유(분)
   title: string;                // 직책({소속직책} 머지필드용)
+  intro_text: string;           // 한줄소개(공개 소개 카드 /p)
   google_calendar_connected: boolean;
   google_calendar_mask_name: boolean;
   has_usable_password: boolean;   // false=구글 전용 가입(비번 없음) → 비번변경 숨김·탈퇴는 이메일 확인
@@ -315,6 +316,7 @@ export interface ProfileUpdatePayload {
   booking_default_duration?: number;
   booking_buffer_min?: number;
   title?: string;
+  intro_text?: string;
   google_calendar_mask_name?: boolean;
 }
 export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
@@ -408,6 +410,36 @@ export async function postSelfDiagnosis(refcode: string, form: FormData): Promis
       (data as { detail?: string }).detail ?? "진단에 실패했어요.");
   }
   return data as SelfDiagnosisResult;
+}
+
+// ─── 소개 카드(공개, 비로그인) — /p/<refcode> ────────────────────────────────
+export interface IntroCardResponse {
+  planner: { name: string; affiliation: string; title: string; intro_text: string };
+  self_diagnosis_url: string;  // '/d/<ref>'
+}
+/** GET /api/v1/p/<refcode>/ — 설계사 소개 카드 데이터 */
+export async function getIntroductionCard(refcode: string): Promise<IntroCardResponse> {
+  const res = await fetch(`${API_BASE}/p/${encodeURIComponent(refcode)}/`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(res.status, (data as { code?: string }).code ?? "ERROR",
+      (data as { detail?: string }).detail ?? "불러오지 못했어요.");
+  }
+  return data as IntroCardResponse;
+}
+/** POST /api/v1/p/<refcode>/ — 상담 신청(설계사 db 리드 자동 생성) */
+export async function submitIntroLead(refcode: string, payload: { name: string; phone?: string; agreed: boolean }): Promise<{ lead_created: boolean }> {
+  const res = await fetch(`${API_BASE}/p/${encodeURIComponent(refcode)}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(res.status, (data as { code?: string }).code ?? "ERROR",
+      (data as { detail?: string }).detail ?? "신청에 실패했어요.");
+  }
+  return data as { lead_created: boolean };
 }
 
 // ─── Customer types ──────────────────────────────────────────────────────────
