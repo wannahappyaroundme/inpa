@@ -11,6 +11,8 @@ type Props = {
   title?: string;
   /** P 색(기본 파랑) — 어두운 배경에선 "#FFFFFF" */
   pColor?: string;
+  /** true → 링을 한 겹 더(3겹) 띄워 신호가 더 촘촘히 퍼짐(로딩 화면 등 강조용). live와 함께 사용. */
+  intense?: boolean;
 };
 
 export function InpaMark({
@@ -19,6 +21,7 @@ export function InpaMark({
   className = "",
   title = "인파",
   pColor = "#1E40C4",
+  intense = false,
 }: Props) {
   return (
     <svg
@@ -39,11 +42,14 @@ export function InpaMark({
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      {/* 신호(ping) — 점에서 방사형으로 퍼지며 옅어짐 */}
+      {/* 신호(ping) — 점에서 방사형으로 퍼지며 옅어짐(신호등 느낌) */}
       {live && (
         <>
           <circle className="inpa-ping" cx="16.5" cy="5.05" r="3.9" fill="#DC2626" />
           <circle className="inpa-ping inpa-ping-2" cx="16.5" cy="5.05" r="3.9" fill="#DC2626" />
+          {intense && (
+            <circle className="inpa-ping inpa-ping-3" cx="16.5" cy="5.05" r="3.9" fill="#DC2626" />
+          )}
         </>
       )}
       {/* i의 점 (신호등 빨강) */}

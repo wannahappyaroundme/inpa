@@ -431,7 +431,10 @@ class ChurnSyncAlertsTests(TestCase):
 
 
 class SelfDiagnosisGateTests(TestCase):
-    """셀프진단 인바운드 — 동의 게이트 + ref 검증(OCR 이전 단계)."""
+    """셀프진단 인바운드 — 본인정보 필수 + 동의 게이트 + 무첨부 리드 접수(OCR 이전 단계)."""
+
+    # 본인 식별 정보 필수 — 유효 페이로드 베이스(PM 06.30).
+    BASE = {'name': '홍길동', 'phone': '01012345678', 'birth': '1990-01-01', 'gender': '1'}
 
     def setUp(self):
         from django.core.cache import cache
@@ -444,22 +447,55 @@ class SelfDiagnosisGateTests(TestCase):
         r = self.public.post('/api/v1/d/NOPECODE/', {}, format='multipart')
         self.assertEqual(r.status_code, 404)
 
-    def test_missing_consent_412(self):
-        """동의 없이는 412 — Claude(OCR) 호출 전 물리 차단."""
-        r = self.public.post(f'/api/v1/d/{self.ref}/', {'consent_overseas': 'true'}, format='multipart')
-        self.assertEqual(r.status_code, 412)
-        self.assertEqual(r.json()['code'], 'CONSENT_REQUIRED')
-
-    def test_consent_then_file_required(self):
-        """동의 2건 충족 시 게이트 통과 → 다음 단계(파일 필수 400)로 진행."""
-        from inpa.customers.models import Customer
+    def test_missing_identity_400(self):
+        """이름·연락처·생년월일·성별 없으면 400 — 동의 검사 전에 차단."""
         r = self.public.post(
             f'/api/v1/d/{self.ref}/',
             {'consent_overseas': 'true', 'consent_share': 'true'}, format='multipart')
         self.assertEqual(r.status_code, 400)
-        self.assertEqual(r.json()['code'], 'FILE_REQUIRED')
-        # 동의/파일 전이라 리드 생성 안 됨(부작용 없음)
-        self.assertEqual(Customer.objects.filter(lead_source='self_diagnosis').count(), 0)
+        self.assertEqual(r.json()['code'], 'NAME_REQUIRED')
+
+    def test_invalid_phone_400(self):
+        r = self.public.post(
+            f'/api/v1/d/{self.ref}/',
+            {**self.BASE, 'phone': '123', 'consent_share': 'true'}, format='multipart')
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['code'], 'INVALID_PHONE')
+
+    def test_missing_share_consent_412(self):
+        """개인정보 수집·이용(설계사 전달) 동의 없으면 412."""
+        r = self.public.post(f'/api/v1/d/{self.ref}/', {**self.BASE}, format='multipart')
+        self.assertEqual(r.status_code, 412)
+        self.assertEqual(r.json()['code'], 'CONSENT_REQUIRED')
+
+    def test_no_pdf_creates_lead_201(self):
+        """증권 미첨부라도 본인정보+필수동의면 리드 접수(201, analyzed=False). OCR 안 함."""
+        from inpa.customers.models import Customer, ConsentLog
+        r = self.public.post(
+            f'/api/v1/d/{self.ref}/',
+            {**self.BASE, 'consent_share': 'true'}, format='multipart')
+        self.assertEqual(r.status_code, 201)
+        body = r.json()
+        self.assertTrue(body['lead_created'])
+        self.assertFalse(body['analyzed'])
+        c = Customer.objects.get(owner=self.planner, lead_source='self_diagnosis')
+        self.assertEqual(c.name, '홍길동')
+        self.assertEqual(c.birth_day, '1990-01-01')
+        self.assertEqual(c.gender, 1)
+        # 전송 없음 → 국외이전 게이트 비개방, 개인정보 동의는 기록.
+        self.assertIsNone(c.consent_overseas_at)
+        self.assertTrue(c.consent_logs.filter(scope=ConsentLog.SCOPE_PERSONAL_INFO).exists())
+        self.assertFalse(c.consent_logs.filter(scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL).exists())
+
+    def test_third_party_consent_recorded(self):
+        """제3자 제공·플랫폼 활용(선택) 체크 시에만 ConsentLog 기록."""
+        from inpa.customers.models import Customer, ConsentLog
+        r = self.public.post(
+            f'/api/v1/d/{self.ref}/',
+            {**self.BASE, 'consent_share': 'true', 'consent_thirdparty': 'true'}, format='multipart')
+        self.assertEqual(r.status_code, 201)
+        c = Customer.objects.get(owner=self.planner, lead_source='self_diagnosis')
+        self.assertTrue(c.consent_logs.filter(scope=ConsentLog.SCOPE_THIRD_PARTY).exists())
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -908,10 +944,10 @@ class SelfDiagnosisConsentTests(TestCase):
         from inpa.customers.models import ConsentLog, Customer
         r = self.anon.post(f'/api/v1/d/{self.ref}/', {
             'file': self._pdf(), 'consent_overseas': 'true', 'consent_share': 'true',
-            'name': '셀프김', 'phone': '010-9999-0000',
+            'name': '셀프김', 'phone': '010-9999-0000', 'birth': '1990-01-01', 'gender': '1',
         }, format='multipart')
         self.assertEqual(r.status_code, 201, r.content)
-        cust = Customer.objects.get(owner=self.planner, mobile_phone_number='010-9999-0000')
+        cust = Customer.objects.get(owner=self.planner, mobile_phone_number='01099990000')
         self.assertTrue(ConsentLog.objects.filter(
             customer=cust, scope=ConsentLog.SCOPE_PERSONAL_INFO,
             subject=ConsentLog.SUBJECT_CUSTOMER_SELF).exists())
@@ -925,10 +961,11 @@ class SelfDiagnosisConsentTests(TestCase):
         from inpa.customers.models import ConsentLog, Customer
         r = self.anon.post(f'/api/v1/d/{self.ref}/', {
             'file': self._pdf(), 'consent_overseas': 'true', 'consent_share': 'true',
-            'consent_marketing': 'true', 'phone': '010-8888-0000',
+            'consent_marketing': 'true', 'name': '마케팅김', 'phone': '010-8888-0000',
+            'birth': '1988-08-08', 'gender': '2',
         }, format='multipart')
         self.assertEqual(r.status_code, 201, r.content)
-        cust = Customer.objects.get(owner=self.planner, mobile_phone_number='010-8888-0000')
+        cust = Customer.objects.get(owner=self.planner, mobile_phone_number='01088880000')
         self.assertTrue(ConsentLog.objects.filter(
             customer=cust, scope=ConsentLog.SCOPE_MARKETING,
             subject=ConsentLog.SUBJECT_CUSTOMER_SELF).exists())
