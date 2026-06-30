@@ -471,7 +471,7 @@ export default function HomePage() {
             {/* 차트 행 — 월별 보험료 추이(막대) + 캘린더 */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {insights && (
-                <Card className="p-4 sm:p-5">
+                <Card className="p-4 sm:p-5 lg:order-2">
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-[15px] font-bold text-ink">월별 보험료 추이</div>
                     <div className="flex gap-1">
@@ -492,8 +492,8 @@ export default function HomePage() {
                 </Card>
               )}
 
-              {/* 캘린더(실제 월·미팅·일정) */}
-              <Card className="p-4 sm:p-5">
+              {/* 캘린더(실제 월·미팅·일정) — 데스크탑에서 차트보다 왼쪽 */}
+              <Card className="p-4 sm:p-5 lg:order-1">
                 <div className="flex items-center justify-between mb-3">
                   <button onClick={() => shiftMonth(-1)} className="w-8 h-8 rounded-lg hover:bg-surface2 text-ink2 text-[18px]">‹</button>
                   <div className="text-[16px] font-bold text-ink">{viewY}년 {viewM}월</div>
@@ -587,40 +587,36 @@ export default function HomePage() {
             {/* 무료 보장점검(셀프진단) 링크 — 발굴 입구를 우 레일로 이동(상담 예약이 있던 자리) */}
             <SelfDiagnosisShare />
 
-            {/* 상담 예약 링크(미리보기 제거) + 판촉물 신청 — 나란히·같은 높이 */}
-            <div className="grid grid-cols-2 gap-4 items-stretch flex-1">
-              <Card className="p-4 sm:p-5 flex flex-col">
-                <div className="flex items-start gap-3">
-                  <span className="shrink-0 w-10 h-10 rounded-xl grid place-items-center bg-brand-soft text-brand" aria-hidden>
-                    <Link2 className="w-5 h-5" strokeWidth={2} />
-                  </span>
-                  <div className="min-w-0">
-                    <div className="text-[14px] font-bold text-ink">상담 예약 링크</div>
-                    <p className="text-[12px] text-ink3 mt-0.5 leading-5">안내 문구를 복사해 보내세요.</p>
-                  </div>
+            {/* 상담 예약 링크 + 판촉물 신청 — 가로형 카드(아이콘 · 텍스트 · 버튼) */}
+            <div className="space-y-4">
+              <Card className="p-4 flex items-center gap-3">
+                <span className="shrink-0 w-10 h-10 rounded-xl grid place-items-center bg-brand-soft text-brand" aria-hidden>
+                  <Link2 className="w-5 h-5" strokeWidth={2} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-bold text-ink">상담 예약 링크</div>
+                  <p className="text-[12px] text-ink3 mt-0.5 leading-5">안내 문구를 복사해 보내세요.</p>
                 </div>
-                <div className="flex-1" />
-                <button onClick={copySample} className="mt-3 w-full rounded-xl bg-brand text-white text-[13px] font-bold py-2.5 hover:opacity-90 transition">
-                  {copiedSample ? "복사됐어요 ✓" : "안내 문구 복사"}
-                </button>
-                <button onClick={() => router.push("/schedule")} className="mt-2 w-full rounded-xl border border-line text-[13px] font-semibold text-ink2 py-2 hover:bg-surface2 transition">
-                  링크 설정
-                </button>
+                <div className="shrink-0 flex flex-col gap-1.5">
+                  <button onClick={copySample} className="rounded-xl bg-brand text-white text-[12px] font-bold px-3 py-2 whitespace-nowrap hover:opacity-90 transition">
+                    {copiedSample ? "복사됐어요 ✓" : "안내 문구 복사"}
+                  </button>
+                  <button onClick={() => router.push("/schedule")} className="rounded-xl border border-line text-[12px] font-semibold text-ink2 px-3 py-1.5 whitespace-nowrap hover:bg-surface2 transition">
+                    링크 설정
+                  </button>
+                </div>
               </Card>
 
-              <Card className="p-4 sm:p-5 flex flex-col">
-                <div className="flex items-start gap-3">
-                  <span className="shrink-0 w-10 h-10 rounded-xl grid place-items-center bg-warn-soft text-warn-ink" aria-hidden>
-                    <Gift className="w-5 h-5" strokeWidth={2} />
-                  </span>
-                  <div className="min-w-0">
-                    <div className="text-[14px] font-bold text-ink">판촉물 신청</div>
-                    <p className="text-[12px] text-ink3 mt-0.5 leading-5">디자인 요청부터 제작까지.</p>
-                  </div>
+              <Card className="p-4 flex items-center gap-3">
+                <span className="shrink-0 w-10 h-10 rounded-xl grid place-items-center bg-warn-soft text-warn-ink" aria-hidden>
+                  <Gift className="w-5 h-5" strokeWidth={2} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-bold text-ink">판촉물 신청</div>
+                  <p className="text-[12px] text-ink3 mt-0.5 leading-5">디자인 요청부터 제작까지.</p>
                 </div>
-                <div className="flex-1" />
-                <button onClick={() => router.push("/promotion")} className="mt-3 w-full rounded-xl border border-line text-[13px] font-semibold text-brand py-2.5 hover:bg-brand-soft transition">
-                  판촉물 디자인 요청 →
+                <button onClick={() => router.push("/promotion")} className="shrink-0 rounded-xl border border-line text-[12px] font-semibold text-brand px-3 py-2 whitespace-nowrap hover:bg-brand-soft transition">
+                  판촉물 신청 →
                 </button>
               </Card>
             </div>
