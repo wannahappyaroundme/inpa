@@ -172,6 +172,29 @@ export async function adminGetUser(id: number): Promise<AdminUserDetail> {
   return req<AdminUserDetail>("GET", `/admin/users/${id}/`);
 }
 
+// ─── 설계사별 고객 목록 (admin READ-ONLY, 비민감 필드만) ──────────────────────
+export interface AdminCustomerRow {
+  id: number;
+  name: string;
+  mobile_phone_number: string;
+  sales_stage: string;
+  sales_stage_display: string;
+  status: string;
+  status_display: string;
+  job_name: string | null;
+  insurance_count: number;
+  created_at: string;
+  last_contacted_at: string | null;
+}
+export interface AdminUserCustomersResponse {
+  count: number;
+  results: AdminCustomerRow[];
+}
+/** GET /api/v1/admin/users/{id}/customers/ — 그 설계사가 보유한 고객 목록(사실 필드만) */
+export async function adminGetUserCustomers(id: number): Promise<AdminUserCustomersResponse> {
+  return req<AdminUserCustomersResponse>("GET", `/admin/users/${id}/customers/`);
+}
+
 /** PATCH /api/v1/admin/users/{id}/subscription/ — 요금제 변경 */
 export async function adminUpdateSubscription(
   userId: number,

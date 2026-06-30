@@ -230,6 +230,30 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
         ]
 
 
+class AdminCustomerListSerializer(serializers.ModelSerializer):
+    """admin용 설계사별 고객 목록(READ-ONLY, 비민감 필드만 — dev/19 §7 PII 원칙).
+
+    이름·연락처·영업단계·상태·등록일·최종연락 + 보유증권 수만. 병력·메모·생월일 등 민감/불필요 필드 제외.
+    판정어(부족/충분) 없음 — 목록은 사실(보유 증권 수)만.
+    """
+    sales_stage_display = serializers.CharField(source='get_sales_stage_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    job_name = serializers.SerializerMethodField()
+    insurance_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Customer
+        fields = ('id', 'name', 'mobile_phone_number', 'sales_stage', 'sales_stage_display',
+                  'status', 'status_display', 'job_name', 'insurance_count',
+                  'created_at', 'last_contacted_at')
+
+    def get_job_name(self, obj):
+        return obj.job_code.name if obj.job_code_id else None
+
+    def get_insurance_count(self, obj):
+        return obj.customer_insurance_list.count()
+
+
 class AdminSubscriptionUpdateSerializer(serializers.Serializer):
     """요금제 변경 (admin용).
 

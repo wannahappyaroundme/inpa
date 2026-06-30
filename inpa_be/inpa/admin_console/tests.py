@@ -197,6 +197,24 @@ class AdminUserManagementTest(TestCase):
         res_planner = self.client_planner.get('/api/v1/admin/users/')
         self.assertEqual(res_planner.status_code, 403)
 
+    def test_U4_admin_user_customers(self):
+        """U4: admin → 설계사 고객 목록 200(비민감 필드만), 설계사 → 403."""
+        from inpa.customers.models import Customer
+        Customer.objects.create(owner=self.planner, name='홍고객',
+                                mobile_phone_number='010-1111-2222', sales_stage='contact')
+        res = self.client_admin.get(f'/api/v1/admin/users/{self.planner.id}/customers/')
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body['count'], 1)
+        row = body['results'][0]
+        self.assertEqual(row['name'], '홍고객')
+        for k in ('sales_stage', 'sales_stage_display', 'status', 'insurance_count', 'last_contacted_at'):
+            self.assertIn(k, row)
+        self.assertNotIn('memo', row)        # 민감/불필요 필드 미노출
+        self.assertNotIn('birth_day', row)
+        res_planner = self.client_planner.get(f'/api/v1/admin/users/{self.planner.id}/customers/')
+        self.assertEqual(res_planner.status_code, 403)
+
     def test_U2_subscription_change(self):
         """U2: admin이 설계사 요금제 변경 → Subscription 업데이트 + 알림 생성."""
         plus_plan = _make_plan('plus', 'Plus', 9900)

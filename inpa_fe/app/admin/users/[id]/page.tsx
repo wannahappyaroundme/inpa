@@ -6,10 +6,12 @@ import Link from "next/link";
 import { useAdminGuard } from "@/lib/useAdminGuard";
 import {
   adminGetUser,
+  adminGetUserCustomers,
   adminUpdateSubscription,
   adminSendResetEmail,
   adminListPlans,
   type AdminUserDetail,
+  type AdminCustomerRow,
   type AdminPlan,
 } from "@/lib/adminApi";
 import { Card } from "@/components/ui";
@@ -45,6 +47,9 @@ export default function AdminUserDetailPage() {
   const [resetSending, setResetSending] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
 
+  const [customers, setCustomers] = useState<AdminCustomerRow[]>([]);
+  const [custLoading, setCustLoading] = useState(true);
+
   useEffect(() => {
     if (!ready) return;
     setLoading(true);
@@ -56,6 +61,15 @@ export default function AdminUserDetailPage() {
       })
       .catch(() => setError("설계사 정보를 불러오지 못했어요."))
       .finally(() => setLoading(false));
+  }, [ready, userId]);
+
+  useEffect(() => {
+    if (!ready) return;
+    setCustLoading(true);
+    adminGetUserCustomers(userId)
+      .then((r) => setCustomers(r.results))
+      .catch(() => setCustomers([]))
+      .finally(() => setCustLoading(false));
   }, [ready, userId]);
 
   async function handlePlanChange() {
@@ -191,6 +205,49 @@ export default function AdminUserDetailPage() {
                 </div>
               ))}
             </dl>
+          </Card>
+
+          {/* 고객 목록 (admin READ-ONLY — 비민감 필드만) */}
+          <Card className="p-5">
+            <h2 className="text-[15px] font-bold text-ink mb-1">고객 목록 (읽기 전용)</h2>
+            <p className="text-[12px] text-ink3 mb-3">
+              이 설계사가 보유한 고객입니다. 이름·연락처·단계·상태·보유 증권 수만 표시합니다(메모·병력 등 민감정보 제외).
+            </p>
+            {custLoading ? (
+              <p className="text-[13px] text-ink3">불러오는 중...</p>
+            ) : customers.length === 0 ? (
+              <p className="text-[13px] text-ink3">등록된 고객이 없어요.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr className="text-ink3 text-[11px] border-b border-line">
+                      <th className="text-left font-semibold py-2 pr-3">이름</th>
+                      <th className="text-left font-semibold py-2 pr-3">연락처</th>
+                      <th className="text-left font-semibold py-2 pr-3">단계</th>
+                      <th className="text-left font-semibold py-2 pr-3">상태</th>
+                      <th className="text-right font-semibold py-2 pr-3">보유</th>
+                      <th className="text-right font-semibold py-2 pr-3">등록일</th>
+                      <th className="text-right font-semibold py-2">최종연락</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customers.map((c) => (
+                      <tr key={c.id} className="border-b border-line/60">
+                        <td className="py-2 pr-3 font-semibold text-ink">{c.name}</td>
+                        <td className="py-2 pr-3 text-ink2 tnum">{c.mobile_phone_number || "-"}</td>
+                        <td className="py-2 pr-3 text-ink2">{c.sales_stage_display}</td>
+                        <td className="py-2 pr-3 text-ink2">{c.status_display}</td>
+                        <td className="py-2 pr-3 text-right tnum text-ink2">{c.insurance_count}</td>
+                        <td className="py-2 pr-3 text-right tnum text-ink3">{fmt(c.created_at)}</td>
+                        <td className="py-2 text-right tnum text-ink3">{fmt(c.last_contacted_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-ink3 tnum">총 {customers.length}명</p>
           </Card>
 
           {/* 요금제 변경 */}
