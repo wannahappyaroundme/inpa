@@ -56,7 +56,8 @@ class ProfileSerializer(serializers.ModelSerializer):
         model = Profile
         # ★ google_sub / google_calendar_refresh_token 은 절대 노출 금지(여기에 넣지 않는다).
         fields = ('email', 'name', 'affiliation', 'agent_type', 'affiliation_type',
-                  'cohort_opt_in', 'manager_share_opt_in', 'manager_email', 'managed_agents_count',
+                  'cohort_opt_in', 'manager_share_opt_in', 'manager_share_level',
+                  'manager_email', 'managed_agents_count',
                   'license_self_declared', 'license_no', 'career_years',
                   'booking_msg_template', 'booking_location', 'booking_default_duration',
                   'booking_buffer_min', 'title',
@@ -66,6 +67,13 @@ class ProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ('email', 'onboarding_completed_at', 'ref_code', 'email_verified_at',
                             'is_admin', 'is_dormant', 'manager_email', 'managed_agents_count',
                             'google_calendar_connected', 'has_usable_password')
+
+    def update(self, instance, validated_data):
+        # 공유 단계(manager_share_level) 저장 시 레거시 bool(opt_in)을 동기화 — none이 아니면 True.
+        lvl = validated_data.get('manager_share_level')
+        if lvl is not None:
+            validated_data['manager_share_opt_in'] = (lvl != Profile.SHARE_NONE)
+        return super().update(instance, validated_data)
 
     def get_has_usable_password(self, obj):
         # 비번 변경/탈퇴 UI 분기 — 구글 전용 가입자는 False(unusable_password).

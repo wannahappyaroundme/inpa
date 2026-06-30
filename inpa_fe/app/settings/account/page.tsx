@@ -120,20 +120,32 @@ export default function AccountSettingsPage() {
 
         {/* 관리직 KPI 공유 */}
         <Card className="px-5 py-4">
-          <div className="flex items-center justify-between">
-            <div className="text-[15px] font-bold text-ink">관리직에게 KPI 공유</div>
-            <button
-              disabled={saving}
-              onClick={() => patch({ manager_share_opt_in: !p.manager_share_opt_in }, "공유 설정을 저장했어요")}
-              className={`relative w-11 h-6 rounded-full transition ${p.manager_share_opt_in ? "bg-brand" : "bg-line"}`}
-              aria-pressed={p.manager_share_opt_in}
-            >
-              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${p.manager_share_opt_in ? "left-[22px]" : "left-0.5"}`} />
-            </button>
-          </div>
+          <div className="text-[15px] font-bold text-ink">관리자에게 공유</div>
           <p className="mt-1 text-[12px] text-ink3 leading-5">
-            켜면 관리직이 내 <b>집계 수치</b>(이번 달 보험료·신규·미팅, 단계 분포, 고객수·유지율 등)만 봅니다. 개별 고객 이름·정보는 공유되지 않아요.
+            관리자(지점장·팀장)에게 내 <b>집계 수치</b>만 공유해요(개별 고객 이름·정보는 공유 안 함). 어디까지 보여줄지 고르세요.
           </p>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {([
+              { v: "none", label: "공유 안 함", desc: "보이지 않음" },
+              { v: "activity", label: "활동만", desc: "고객수·신규·미팅·단계" },
+              { v: "full", label: "활동+실적", desc: "보험료·유지율까지" },
+            ] as const).map((o) => (
+              <button
+                key={o.v}
+                disabled={saving}
+                onClick={() => patch({ manager_share_level: o.v }, "공유 설정을 저장했어요")}
+                aria-pressed={p.manager_share_level === o.v}
+                className={`rounded-xl border px-2 py-2.5 text-center transition ${
+                  p.manager_share_level === o.v
+                    ? "border-brand bg-accent-tint text-brand"
+                    : "border-line bg-surface2 text-ink3 hover:bg-surface"
+                }`}
+              >
+                <div className="text-[13px] font-bold">{o.label}</div>
+                <div className="text-[10px] mt-0.5 leading-tight">{o.desc}</div>
+              </button>
+            ))}
+          </div>
           <label className="mt-3 block">
             <span className="text-[12px] text-ink3">관리직 이메일</span>
             <div className="mt-1 flex gap-2">
