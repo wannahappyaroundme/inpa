@@ -22,7 +22,10 @@ from inpa.analysis.models import (
 from inpa.core.ocr.ocrdata import Ocr_Data
 from inpa.customers.models import Customer
 
-from .models import CustomerInsurance, CustomerInsuranceDetail
+from .models import (
+    CustomerInsurance, CustomerInsuranceDetail, InsuranceDetail,
+    InsuranceCategory, InsuranceSubCategory,
+)
 
 
 def _make_planner(email):
@@ -997,3 +1000,56 @@ class SelfDiagnosisConsentTests(TestCase):
         self.assertTrue(ConsentLog.objects.filter(
             customer=cust, scope=ConsentLog.SCOPE_PERSONAL_INFO,
             subject=ConsentLog.SUBJECT_CUSTOMER_SELF).exists())
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 담보별/보험별 요금 노출 — 갱신/비갱신 사실 직렬화
+# ──────────────────────────────────────────────────────────────────────
+class FeeSerializerTests(TestCase):
+    """담보별/보험별 요금 노출 — 갱신/비갱신 사실 직렬화."""
+
+    def setUp(self):
+        from inpa.accounts.models import Profile, User
+        from django.utils import timezone
+        self.user = User.objects.create_user(email='fee@test.com', password='inpaPass123!')
+        Profile.objects.create(user=self.user, email_verified_at=timezone.now())
+        from inpa.customers.models import Customer
+        self.customer = Customer.objects.create(owner=self.user, name='김보장')
+        self.ci = CustomerInsurance.objects.create(
+            customer=self.customer, name='무배당 갱신암보험', insurance_type=2, portfolio_type=1,
+            monthly_premiums=30000, monthly_renewal_premium=20000, monthly_non_renewal_premium=10000,
+            monthly_earned_premium=0, total_premiums=1000, total_renewal_premium=700,
+            total_non_renewal_premium=300, total_earned_premium=0)
+        # InsuranceDetail 생성: sub_category FK 필요
+        cat = InsuranceCategory.objects.create(insurance_type=2, name='진단비')
+        sub = InsuranceSubCategory.objects.create(insurance_type=2, category=cat, name='암')
+        self.det = InsuranceDetail.objects.create(sub_category=sub, name='암진단비')
+        self.case = CustomerInsuranceDetail.objects.create(
+            insurance=self.ci, detail=self.det, premium=20000, payment_period_type=3,
+            assurance_amount=50000000, total_renewal_premium=700, total_non_renewal_premium=0)
+
+    def test_case_fee_fields_and_is_renewal(self):
+        from inpa.insurances.serializers import CaseFeeSerializer
+        data = CaseFeeSerializer(self.case).data
+        self.assertEqual(data['detail_name'], '암진단비')
+        self.assertEqual(data['premium'], 20000)
+        self.assertEqual(data['payment_period_type'], 3)
+        self.assertTrue(data['is_renewal'])            # type==3 → 갱신
+        self.assertEqual(data['assurance_amount'], 50000000)
+
+    def test_insurance_fee_nests_case_fees(self):
+        from inpa.insurances.serializers import InsuranceFeeSerializer
+        data = InsuranceFeeSerializer(self.ci).data
+        self.assertEqual(data['monthly_renewal_premium'], 20000)
+        self.assertEqual(data['monthly_non_renewal_premium'], 10000)
+        self.assertEqual(len(data['case_fees']), 1)
+        self.assertEqual(data['case_fees'][0]['detail_name'], '암진단비')
+
+    def test_manual_insurance_has_empty_case_fees(self):
+        from inpa.insurances.serializers import InsuranceFeeSerializer
+        manual = CustomerInsurance.objects.create(
+            customer=self.customer, name='직접입력보험', insurance_type=1, portfolio_type=1,
+            monthly_premiums=50000)
+        data = InsuranceFeeSerializer(manual).data
+        self.assertEqual(data['case_fees'], [])        # 담보 행 없음
+        self.assertEqual(data['monthly_premiums'], 50000)

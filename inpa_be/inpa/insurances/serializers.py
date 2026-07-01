@@ -46,6 +46,36 @@ class CustomerInsuranceDetailSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class CaseFeeSerializer(serializers.ModelSerializer):
+    """담보별 요금(사실) — 판정 없음. 갱신 여부는 payment_period_type=3."""
+    detail_name = serializers.CharField(source='detail.name', read_only=True)
+    is_renewal = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomerInsuranceDetail
+        fields = ('detail_name', 'premium', 'payment_period_type', 'is_renewal',
+                  'assurance_amount', 'total_renewal_premium', 'total_non_renewal_premium')
+        read_only_fields = fields
+
+    def get_is_renewal(self, obj):
+        return obj.payment_period_type == 3
+
+
+class InsuranceFeeSerializer(serializers.ModelSerializer):
+    """보험별 요금 요약 + 담보별 요금(case_fees). 수기입력 보험은 case_fees=[]."""
+    case_fees = CaseFeeSerializer(source='case_list', many=True, read_only=True)
+
+    class Meta:
+        model = CustomerInsurance
+        fields = ('id', 'name', 'insurance_type', 'portfolio_type',
+                  'monthly_premiums', 'monthly_renewal_premium',
+                  'monthly_non_renewal_premium', 'monthly_earned_premium',
+                  'total_premiums', 'total_renewal_premium',
+                  'total_non_renewal_premium', 'total_earned_premium',
+                  'case_fees')
+        read_only_fields = fields
+
+
 class CustomerInsuranceManualSerializer(serializers.ModelSerializer):
     """수기 보험 등록(보유/제안) — OCR 없이 기본 정보만. 담보 트리 없이 환수레이더·요약용.
 
