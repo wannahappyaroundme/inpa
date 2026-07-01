@@ -800,3 +800,38 @@ class CustomerBulkCreateTests(TestCase):
     def test_bulk_empty_rejected(self):
         r = self.client.post('/api/v1/customers/bulk/', {'customers': []}, format='json')
         self.assertEqual(r.status_code, 400)
+
+    def test_bulk_create_full_fields(self):
+        """일괄 등록도 성별·생년월일·직업급수·유입경로·메모·아바타를 행별로 반영."""
+        job = JobRiskCode.objects.create(sctg_cd='D01', name='의사', risk_grade=1)
+        body = {'customers': [
+            {
+                'name': '김보장', 'mobile_phone_number': '010-1111-2222',
+                'gender': '1', 'birth_day': '1990-05-15',
+                'job_code': str(job.id), 'lead_source': 'introduction',
+                'memo': '지인 소개', 'avatar_label': 'KB', 'color': '#F8D7DD',
+            },
+            {
+                'name': '이영희',
+                'gender': '2',
+                'job_code': '99999',          # 존재하지 않는 직업 id → 무시(None)
+                'lead_source': 'weird',        # 잘못된 유입 → direct 폴백
+            },
+        ]}
+        r = self.client.post('/api/v1/customers/bulk/', body, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.json()['created'], 2)
+
+        a = Customer.objects.get(name='김보장')
+        self.assertEqual(a.gender, 1)
+        self.assertEqual(a.birth_day, '1990-05-15')
+        self.assertEqual(a.job_code_id, job.id)
+        self.assertEqual(a.lead_source, 'introduction')
+        self.assertEqual(a.memo, '지인 소개')
+        self.assertEqual(a.avatar_label, 'KB')
+        self.assertEqual(a.color, '#F8D7DD')
+
+        b = Customer.objects.get(name='이영희')
+        self.assertEqual(b.gender, 2)
+        self.assertIsNone(b.job_code_id)          # 없는 id → None
+        self.assertEqual(b.lead_source, 'direct')  # 잘못된 값 → 폴백

@@ -261,11 +261,7 @@ export default function SchedulePage() {
     <div className="min-h-dvh">
       <AppNav active="schedule" />
       <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-[22px] font-extrabold text-ink">일정</h1>
-          <button onClick={() => router.push("/settings/meetings")}
-            className="text-[13px] font-semibold text-brand">예약(가용시간) 관리 →</button>
-        </div>
+        <h1 className="text-[22px] font-extrabold text-ink mb-4">일정</h1>
 
         {/* 예약 요청(대기) — 알림을 놓쳐도 여기서 수락/거절 */}
         {pending.length > 0 && (
@@ -373,10 +369,22 @@ export default function SchedulePage() {
           </Card>
         </div>
 
-        {/* 예약(가용시간) 받기 — 설정 + 공유문구 */}
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <BookingSettings />
+        {/* 예약 가용시간 관리 — 가로 카드 */}
+        <button
+          onClick={() => router.push("/settings/meetings")}
+          className="mt-6 w-full flex items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-5 py-4 text-left shadow-card hover:border-brand transition"
+        >
+          <div className="min-w-0">
+            <div className="text-[15px] font-bold text-ink">예약 가용시간 관리</div>
+            <div className="mt-0.5 text-[13px] text-ink3">상담 받을 요일과 시간을 정해두면, 고객이 빈 시간에 바로 예약할 수 있어요.</div>
+          </div>
+          <span className="shrink-0 text-[13px] font-semibold text-brand">관리 →</span>
+        </button>
+
+        {/* 예약(가용시간) 받기 — 공유문구 + 설정 */}
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <AvailabilityShare />
+          <BookingSettings />
         </div>
       </main>
 

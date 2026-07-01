@@ -371,16 +371,18 @@ class ProfileView(APIView):
 
     def get(self, request):
         profile, _ = Profile.objects.get_or_create(user=request.user)
-        return Response(ProfileSerializer(profile).data)
+        return Response(ProfileSerializer(profile, context={'request': request}).data)
 
     def patch(self, request):
+        # request.data 는 JSON·멀티파트(프로필 사진 업로드) 모두 DRF 기본 파서가 처리.
         profile, _ = Profile.objects.get_or_create(user=request.user)
-        serializer = ProfileSerializer(profile, data=request.data, partial=True)
+        serializer = ProfileSerializer(profile, data=request.data, partial=True,
+                                       context={'request': request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         # 지점장 연결(이메일→User). 본인 지정 금지. 없는 이메일은 조용히 무시(미연결).
         _link_manager(profile, request.data.get('manager_email'))
-        return Response(ProfileSerializer(profile).data)
+        return Response(ProfileSerializer(profile, context={'request': request}).data)
 
 
 class WithdrawView(APIView):

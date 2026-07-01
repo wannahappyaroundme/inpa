@@ -107,6 +107,15 @@ async function request<T>(
             used: data["used"] as number | undefined,
           }
         : undefined;
+    // 401: 저장된 토큰이 무효/만료된 상태(서버가 인증 거부).
+    // 인증 요청(auth=true)에서만 처리 — 로그인/회원가입 등 비인증 요청의 401은 그대로 에러로 전달.
+    // 죽은 토큰을 비우고 로그인 화면으로 보낸다(이미 로그인 화면이면 재이동 안 함 → 루프 방지).
+    if (res.status === 401 && auth) {
+      tokenStore.remove();
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        window.location.href = "/login?session=expired";
+      }
+    }
     throw new ApiError(res.status, code, detail, creditBody);
   }
 
@@ -122,6 +131,9 @@ export interface RegisterPayload {
   tos_agreed: boolean;
   pp_agreed: boolean;
   marketing_agreed: boolean;
+  affiliation?: string;   // 소속(선택)
+  title?: string;         // 직책(선택)
+  license_no?: string;    // 설계사 번호(선택, 숫자 14자리)
 }
 
 export interface RegisterResponse {
@@ -286,6 +298,7 @@ export interface ProfileResponse {
   booking_buffer_min: number;   // 미팅 앞뒤 여유(분)
   title: string;                // 직책({소속직책} 머지필드용)
   intro_text: string;           // 한줄소개(공개 소개 카드 /p)
+  profile_image: string | null; // 프로필 사진 URL(없으면 null → 이니셜 아바타)
   google_calendar_connected: boolean;
   google_calendar_mask_name: boolean;
   has_usable_password: boolean;   // false=구글 전용 가입(비번 없음) → 비번변경 숨김·탈퇴는 이메일 확인
@@ -321,6 +334,30 @@ export interface ProfileUpdatePayload {
 }
 export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
   return request<ProfileResponse>("PATCH", "/auth/profile/", payload, true);
+}
+
+/** PATCH /api/v1/auth/profile/ — 프로필 사진 멀티파트 업로드. 저장은 명함과 동일 저장소(프로드=R2). */
+export async function uploadProfileImage(file: File): Promise<ProfileResponse> {
+  const form = new FormData();
+  form.append("profile_image", file);
+  const headers: Record<string, string> = {};
+  const tok = tokenStore.get();
+  if (tok) headers["Authorization"] = `Token ${tok}`;
+  const res = await fetch(`${API_BASE}/auth/profile/`, { method: "PATCH", headers, body: form });
+  let data: Record<string, unknown> = {};
+  try { data = await res.json(); } catch { /* empty */ }
+  if (!res.ok) {
+    const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
+    const detail = (data["detail"] as string) ?? (data["message"] as string) ?? res.statusText;
+    if (res.status === 401) {
+      tokenStore.remove();
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        window.location.href = "/login?session=expired";
+      }
+    }
+    throw new ApiError(res.status, code, detail);
+  }
+  return data as unknown as ProfileResponse;
 }
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────
@@ -625,8 +662,20 @@ export async function createCustomer(payload: CustomerWritePayload): Promise<Cus
   return request<CustomerDetail>("POST", "/customers/", payload, true);
 }
 
-/** POST /api/v1/customers/bulk/ — 여러 고객 일괄 등록(이름 필수, 이름+연락처 중복은 건너뜀) */
-export interface BulkCustomerRow { name: string; mobile_phone_number?: string; sales_stage?: SalesStage }
+/** POST /api/v1/customers/bulk/ — 여러 고객 일괄 등록(이름 필수, 이름+연락처 중복은 건너뜀).
+ *  단건 등록과 동일 필드 세트를 행별로 받음(전부 선택, name만 필수). */
+export interface BulkCustomerRow {
+  name: string;
+  mobile_phone_number?: string;
+  gender?: string;          // "1"(남) | "2"(여)
+  birth_day?: string;       // "YYYY-MM-DD"
+  job_code?: string;        // JobRiskCode id
+  memo?: string;
+  lead_source?: string;     // introduction | business_card | event | direct
+  avatar_label?: string;    // 약자·숫자(최대 3)
+  color?: string;           // 팔레트 hex 또는 ''
+  sales_stage?: SalesStage;
+}
 export async function createCustomersBulk(rows: BulkCustomerRow[]): Promise<{ created: number; skipped: number }> {
   return request<{ created: number; skipped: number }>("POST", "/customers/bulk/", { customers: rows }, true);
 }

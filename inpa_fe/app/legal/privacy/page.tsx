@@ -1,6 +1,6 @@
 // 개인정보처리방침 (PP-v1) — 정본: docs/dev/16-legal-and-consent.md §3.
 // 한국 개인정보보호법(PIPA) 기준. CPO·법인 정보는 확정 후 TBD 자리에 기재.
-import { LegalPage, Article, TBD, LegalTable } from "@/components/legal";
+import { LegalPage, Article, LegalTable } from "@/components/legal";
 
 export const metadata = { title: "개인정보처리방침" };
 
@@ -8,7 +8,7 @@ const Li = ({ children }: { children: React.ReactNode }) => <li className="ml-1"
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="개인정보처리방침" effective="버전 PP-v1 · 시행일 [확정 후 기재] · 한국 개인정보보호법(PIPA)·정보통신망법 기준.">
+    <LegalPage title="개인정보처리방침" effective="버전 PP-v1 · 운영 핀고(Fingo, 예비창업) · 시행일 [확정 후 기재] · 한국 개인정보보호법(PIPA)·정보통신망법 기준.">
       <Article n={1} title="수집하는 개인정보">
         <p className="font-semibold text-[var(--ink)]">가. 설계사(이용자) 정보</p>
         <LegalTable
@@ -76,12 +76,12 @@ export default function PrivacyPage() {
             ["전송 목적", "보험증권 텍스트 추출 및 담보 분석 AI 처리"],
             ["전송 항목", "증권 텍스트(병력 포함 가능)"],
             ["전송 시점·방법", "분석 요청 시 HTTPS 전송"],
-            ["보유 기간", "Anthropic 처리 완료 즉시(응답 후 별도 저장 없음)"],
+            ["보유 기간", "Anthropic의 데이터 처리·보관 정책에 따름"],
           ]}
         />
         <p className="mt-2 text-[13px]">
           Anthropic 데이터 보호 정책: <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener noreferrer" className="text-[var(--brand)] underline">anthropic.com/legal/privacy</a>.
-          인파는 API 설정에서 학습 미사용(do not use for training)을 적용합니다.
+          Anthropic은 API로 전송된 데이터를 <b>모델 학습에 사용하지 않습니다</b>(API 기본 정책). 구체적 보관 기간은 Anthropic 정책을 따릅니다.
         </p>
         <p className="mt-3 font-semibold text-[var(--ink)]">4.3 동의 게이트</p>
         <p>병력 국외이전 동의가 없으면 AI 분석 기능이 <b>시스템적으로 차단</b>됩니다(동의 전 분석 요청은 거부됩니다).</p>
@@ -91,11 +91,12 @@ export default function PrivacyPage() {
         <LegalTable
           head={["수탁자", "위탁 업무", "보유·이용 기간"]}
           rows={[
-            ["Anthropic, Inc. (미국)", "AI 텍스트 분석(병력 포함 가능)", "API 요청·응답 완료 즉시"],
+            ["Anthropic, Inc. (미국)", "AI 텍스트 분석(병력 포함 가능)", "Anthropic 정책에 따름"],
             ["Render, Inc. (미국)", "백엔드 서버 호스팅", "계약 기간"],
             ["Neon, Inc. (미국)", "데이터베이스 호스팅", "계약 기간"],
-            ["Vercel, Inc. (미국)", "프론트엔드 호스팅", "계약 기간"],
-            [<>이메일 발송 <TBD>Resend 등 확정</TBD></>, "가입·비밀번호 메일 발송", "계약 기간"],
+            ["Vercel, Inc. (미국)", "프론트엔드 호스팅·방문자 통계", "계약 기간"],
+            ["Cloudflare, Inc. (미국)", "업로드 이미지(명함·프로필 사진) 저장(R2)", "계약 기간"],
+            ["Resend, Inc. (미국)", "가입·비밀번호 등 메일 발송", "계약 기간"],
           ]}
         />
       </Article>
@@ -115,7 +116,11 @@ export default function PrivacyPage() {
       </Article>
 
       <Article n={7} title="개인정보 보호책임자(CPO)">
-        <p>개인정보 보호책임자(CPO) 및 연락처는 법인 설립·정식 출시 시 지정·게재합니다. 현재는 예비창업(베타) 단계이며, 개인정보 관련 문의는 서비스 내 1:1 문의를 이용해 주세요.</p>
+        <ul className="list-disc pl-6 space-y-0.5">
+          <Li>운영: 핀고(Fingo) · 예비창업 단계</Li>
+          <Li>개인정보 관련 문의: 서비스 내 1:1 문의</Li>
+        </ul>
+        <p className="mt-1 text-[13px]">사업자등록·법인 설립이 완료되는 대로 개인정보 보호책임자(이름·연락처)를 지정해 이 방침에 게재합니다.</p>
         <p className="mt-1 text-[13px]">개인정보 침해에 대한 신고·상담은 개인정보침해신고센터(118), 대검찰청·경찰청 사이버수사 등에 문의할 수 있습니다.</p>
       </Article>
 

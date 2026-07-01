@@ -37,6 +37,14 @@ from .serializers import (
 from .tokens import make_consent_token
 
 
+def _to_int(v):
+    """일괄 등록 행의 숫자 필드(직업 id 등)를 안전하게 int로. 실패 시 None."""
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
     """고객 CRUD — 소유자 전용.
 
@@ -76,8 +84,11 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
     def bulk_create(self, request):
         """여러 고객을 한 번에 등록 — POST /api/v1/customers/bulk/.
 
-        body: {"customers": [{"name", "mobile_phone_number"?, "sales_stage"?}, ...]}.
-        name 필수(빈 행 skip). (이름+연락처) 중복(기존 고객 또는 같은 배치 내)은 건너뜀. owner 자동 주입.
+        body: {"customers": [{"name", "mobile_phone_number"?, "gender"?, "birth_day"?,
+          "job_code"?, "memo"?, "lead_source"?, "avatar_label"?, "color"?, "sales_stage"?}, ...]}.
+        단건 등록과 동일 필드 세트(전부 선택, name만 필수·빈 행 skip). 모델 제약대로 길이·선택지 검증.
+        (이름+연락처) 중복(기존 고객 또는 같은 배치 내)은 건너뜀. owner 자동 주입.
+        직업급수(job_code)는 전역 마스터 id — 실제 존재하는 id만 반영(없는 값·비정상은 무시).
         """
         rows = request.data.get('customers')
         if not isinstance(rows, list) or not rows:
@@ -88,6 +99,16 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         existing = set(
             Customer.objects.filter(owner=owner).values_list('name', 'mobile_phone_number'))
         valid_stages = {c[0] for c in Customer.SALES_STAGE_CHOICES}
+        valid_leads = {c[0] for c in Customer.LEAD_SOURCE_CHOICES}
+        # 직업급수 FK — 요청에 실린 id 중 실제 존재하는 것만 미리 조회(1 쿼리).
+        raw_job_ids = {
+            jid for row in rows if isinstance(row, dict)
+            for jid in [_to_int(row.get('job_code'))] if jid is not None
+        }
+        valid_job_ids = set(
+            JobRiskCode.objects.filter(id__in=raw_job_ids).values_list('id', flat=True)
+        ) if raw_job_ids else set()
+
         seen = set()
         to_create = []
         skipped = 0
@@ -104,13 +125,32 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             if key in existing or key in seen:
                 skipped += 1
                 continue
+            seen.add(key)
+
             stage = row.get('sales_stage')
             if stage not in valid_stages:
                 stage = Customer.STAGE_DB
-            seen.add(key)
+            lead = row.get('lead_source')
+            if lead not in valid_leads:
+                lead = Customer.LEAD_DIRECT
+            gender_raw = str(row.get('gender')).strip()
+            gender = int(gender_raw) if gender_raw in ('1', '2') else None
+            jid = _to_int(row.get('job_code'))
+            job_id = jid if jid in valid_job_ids else None
+
             to_create.append(Customer(
-                owner=owner, name=name, mobile_phone_number=phone,
-                sales_stage=stage, lead_source=Customer.LEAD_DIRECT))
+                owner=owner,
+                name=name,
+                mobile_phone_number=phone,
+                gender=gender,
+                birth_day=(row.get('birth_day') or '').strip()[:10],
+                memo=(row.get('memo') or '').strip(),
+                color=(row.get('color') or '').strip()[:10],
+                avatar_label=(row.get('avatar_label') or '').strip()[:8],
+                job_code_id=job_id,
+                sales_stage=stage,
+                lead_source=lead,
+            ))
         if to_create:
             Customer.objects.bulk_create(to_create)
         return Response({'created': len(to_create), 'skipped': skipped},

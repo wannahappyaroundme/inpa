@@ -8,7 +8,7 @@ const Li = ({ children }: { children: React.ReactNode }) => <li className="ml-1"
 
 export default function TermsPage() {
   return (
-    <LegalPage title="서비스 이용약관" effective="버전 TOS-v1 · 시행일 [확정 후 기재] · 본 초안은 한국 전자상거래법·약관규제법·개인정보보호법을 참고해 작성되었습니다.">
+    <LegalPage title="서비스 이용약관" effective="버전 TOS-v1 · 운영 핀고(Fingo, 예비창업) · 시행일 [확정 후 기재] · 한국 전자상거래법·약관규제법·개인정보보호법을 참고해 작성되었습니다.">
       <Article n={1} title="목적">
         <p>
           이 약관은 인파(이하 &quot;인파&quot; 또는 &quot;서비스&quot;)의 운영자(이하 &quot;회사&quot;)가
@@ -89,9 +89,13 @@ export default function TermsPage() {
       </Article>
 
       <Article title="회사 정보 · 문의">
-        <p className="text-[var(--ink-3)]">
-          회사 정보(상호·대표자·사업자등록번호·주소·고객센터·통신판매업신고)는 법인 설립 및 정식 출시 시 기재됩니다.
-          현재는 예비창업(베타) 단계이며, 문의는 서비스 내 1:1 문의를 이용해 주세요.
+        <ul className="list-disc pl-6 space-y-0.5">
+          <Li>상호: 핀고(Fingo)</Li>
+          <Li>운영 단계: 예비창업</Li>
+          <Li>문의: 서비스 내 1:1 문의</Li>
+        </ul>
+        <p className="mt-2 text-[var(--ink-3)] text-[13px]">
+          예비창업 단계로, 사업자등록·통신판매업 신고 등 법정 표시사항은 등록이 완료되는 대로 이 약관에 갱신해 기재합니다.
         </p>
       </Article>
     </LegalPage>
