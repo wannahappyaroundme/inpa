@@ -26,6 +26,7 @@ from .models import (
     CustomerInsurance, CustomerInsuranceDetail, InsuranceDetail,
     InsuranceCategory, InsuranceSubCategory,
 )
+from .serializers import CaseFeeSerializer, InsuranceFeeSerializer
 
 
 def _make_planner(email):
@@ -1009,11 +1010,8 @@ class FeeSerializerTests(TestCase):
     """담보별/보험별 요금 노출 — 갱신/비갱신 사실 직렬화."""
 
     def setUp(self):
-        from inpa.accounts.models import Profile, User
-        from django.utils import timezone
         self.user = User.objects.create_user(email='fee@test.com', password='inpaPass123!')
         Profile.objects.create(user=self.user, email_verified_at=timezone.now())
-        from inpa.customers.models import Customer
         self.customer = Customer.objects.create(owner=self.user, name='김보장')
         self.ci = CustomerInsurance.objects.create(
             customer=self.customer, name='무배당 갱신암보험', insurance_type=2, portfolio_type=1,
@@ -1029,16 +1027,26 @@ class FeeSerializerTests(TestCase):
             assurance_amount=50000000, total_renewal_premium=700, total_non_renewal_premium=0)
 
     def test_case_fee_fields_and_is_renewal(self):
-        from inpa.insurances.serializers import CaseFeeSerializer
         data = CaseFeeSerializer(self.case).data
         self.assertEqual(data['detail_name'], '암진단비')
         self.assertEqual(data['premium'], 20000)
         self.assertEqual(data['payment_period_type'], 3)
         self.assertTrue(data['is_renewal'])            # type==3 → 갱신
         self.assertEqual(data['assurance_amount'], 50000000)
+        self.assertEqual(data['total_renewal_premium'], 700)
+        self.assertEqual(data['total_non_renewal_premium'], 0)
+
+        # Non-renewal case: payment_period_type=1 (비갱신)
+        case2 = CustomerInsuranceDetail.objects.create(
+            insurance=self.ci, detail=self.det, premium=15000, payment_period_type=1,
+            assurance_amount=30000000, total_renewal_premium=0, total_non_renewal_premium=500)
+        data2 = CaseFeeSerializer(case2).data
+        self.assertFalse(data2['is_renewal'])         # type==1 → 비갱신
+        self.assertEqual(data2['premium'], 15000)
+        self.assertEqual(data2['total_renewal_premium'], 0)
+        self.assertEqual(data2['total_non_renewal_premium'], 500)
 
     def test_insurance_fee_nests_case_fees(self):
-        from inpa.insurances.serializers import InsuranceFeeSerializer
         data = InsuranceFeeSerializer(self.ci).data
         self.assertEqual(data['monthly_renewal_premium'], 20000)
         self.assertEqual(data['monthly_non_renewal_premium'], 10000)
@@ -1046,7 +1054,6 @@ class FeeSerializerTests(TestCase):
         self.assertEqual(data['case_fees'][0]['detail_name'], '암진단비')
 
     def test_manual_insurance_has_empty_case_fees(self):
-        from inpa.insurances.serializers import InsuranceFeeSerializer
         manual = CustomerInsurance.objects.create(
             customer=self.customer, name='직접입력보험', insurance_type=1, portfolio_type=1,
             monthly_premiums=50000)
