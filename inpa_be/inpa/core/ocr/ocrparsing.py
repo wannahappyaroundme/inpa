@@ -792,6 +792,13 @@ def _detect_company(text_lines):
         if short_name and len(short_name) >= 3 and (short_name in full_text or short_name in no_space):
             return idx, 'life', company
 
+    # === Phase 4: 회사 미상이나 상품 유형이 명백히 생명보험(변액·종신)인 경우 ===
+    # 회사명이 증권에 없어도 변액·종신·유니버셜 상품은 생명보험으로 확정한다.
+    # 회사는 추측하지 않고 -1로 두되(정직), type='life'로 잡아 보험료·계약일·담보가
+    # 생명보험 경로로 정상 파싱되게 한다(기존엔 'unknown'이라 헤더·데이터 미적재).
+    if re.search(r'변액|종신|유니버셜', no_space):
+        return -1, 'life', ''
+
     return -1, 'unknown', ''
 
 
@@ -1569,6 +1576,7 @@ def _match_coverage(text):
     text = strip_exclusion_parens(text)
     no_space = text.replace(' ', '')
     no_space = re.sub(r'[\(（]\s*갱신[용형]?\s*[\)）]', '', no_space)
+    no_space = re.sub(r'[\(（]\s*제?\s*\d+\s*차\s*[\)）]', '', no_space)  # (1차)/(제2차) 갱신 회차 표기 제거
     no_space = re.sub(r'갱신형$', '', no_space)
     no_space = re.sub(r'담보$', '', no_space)
     for path, keywords in COVERAGE_KEYWORDS.items():
