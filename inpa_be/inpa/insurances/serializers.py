@@ -85,7 +85,9 @@ class CustomerInsuranceManualSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomerInsurance
         fields = ('id', 'name', 'insurance_type', 'portfolio_type',
-                  'monthly_premiums', 'contract_date', 'expiry_date',
+                  'monthly_premiums', 'monthly_renewal_premium',
+                  'monthly_non_renewal_premium', 'monthly_earned_premium',
+                  'payment_period_type', 'contract_date', 'expiry_date',
                   'contractor_name', 'insured_name', 'is_same_insured',
                   'payment_status', 'is_cancelled', 'cancelled_at', 'created_at')
         read_only_fields = ('id', 'created_at')

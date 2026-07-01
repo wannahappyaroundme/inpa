@@ -1060,3 +1060,12 @@ class FeeSerializerTests(TestCase):
         data = InsuranceFeeSerializer(manual).data
         self.assertEqual(data['case_fees'], [])        # 담보 행 없음
         self.assertEqual(data['monthly_premiums'], 50000)
+
+    def test_manual_serializer_exposes_renewal_fields(self):
+        """수기 보험 시리얼라이저가 갱신/비갱신 필드를 읽기 노출하는가."""
+        from inpa.insurances.serializers import CustomerInsuranceManualSerializer
+        data = CustomerInsuranceManualSerializer(self.ci).data
+        self.assertIn('monthly_renewal_premium', data)
+        self.assertIn('monthly_non_renewal_premium', data)
+        self.assertIn('payment_period_type', data)
+        self.assertIn('monthly_earned_premium', data)
