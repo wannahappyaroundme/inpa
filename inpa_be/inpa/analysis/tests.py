@@ -481,6 +481,94 @@ class CompareOwnerIsolationTests(TestCase):
         self.assertEqual(r.status_code, 401)
 
 
+class CompareRenewalSplitTests(TestCase):
+    """비교분석 응답에 갱신/비갱신 분리 + 보험별 요금 포함."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('cmp@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='김보장', birth_day='1990.01.01')
+        det = _build_std_tree()
+        idet = _catalog_detail_linked_to(det)
+
+        # 보유 보험A: 담보 케이스 비갱신(1) + 갱신(3)
+        # 비갱신 케이스: premium=10000, 갱신 케이스: premium=20000
+        ci_cur = CustomerInsurance.objects.create(
+            customer=self.customer, name='보유A', insurance_type=2, portfolio_type=1,
+            payment_period_type=1, payment_period=20,
+            monthly_premiums=30000, monthly_assurance_premium=30000,
+            monthly_earned_premium=0)
+        # 비갱신 케이스
+        CustomerInsuranceDetail.objects.create(
+            insurance=ci_cur, detail=idet,
+            assurance_amount=30000000, premium=10000,
+            payment_period_type=1, payment_period=20,
+            warranty_period_type=1, warranty_period='100',
+        )
+        # 갱신 케이스
+        CustomerInsuranceDetail.objects.create(
+            insurance=ci_cur, detail=idet,
+            assurance_amount=20000000, premium=20000,
+            payment_period_type=3, payment_period=20,
+            warranty_period_type=1, warranty_period='100',
+        )
+        ci_cur.set_renewal_month()
+        ci_cur.calculate()
+        ci_cur.save()
+
+        # 제안 보험B: 비갱신(1) 케이스만
+        ci_prop = CustomerInsurance.objects.create(
+            customer=self.customer, name='제안B', insurance_type=2, portfolio_type=2,
+            payment_period_type=1, payment_period=20,
+            monthly_premiums=30000, monthly_assurance_premium=30000,
+            monthly_earned_premium=0)
+        # 비갱신 케이스
+        CustomerInsuranceDetail.objects.create(
+            insurance=ci_prop, detail=idet,
+            assurance_amount=30000000, premium=30000,
+            payment_period_type=1, payment_period=20,
+            warranty_period_type=1, warranty_period='100',
+        )
+        ci_prop.set_renewal_month()
+        ci_prop.calculate()
+        ci_prop.save()
+
+    def test_compare_sides_carry_renewal_split_and_insurances(self):
+        """비교분석 응답의 current/proposed 에 갱신/비갱신/적립 분리 + insurances 배열 포함."""
+        r = self.client.post(f'/api/v1/customers/{self.customer.id}/compare/', {}, format='json')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        cur = body['current']
+        prop = body['proposed']
+
+        # 갱신/비갱신 분리 검증 (calculate()에 의해 자동 계산됨)
+        self.assertIn('monthly_renewal_premium', cur)
+        self.assertIn('monthly_non_renewal_premium', cur)
+        self.assertIn('monthly_earned_premium', cur)
+        self.assertIn('total_renewal_premium', cur)
+        self.assertIn('total_non_renewal_premium', cur)
+        self.assertIn('total_earned_premium', cur)
+
+        # insurances 배열 검증
+        self.assertIn('insurances', cur)
+        self.assertIn('insurances', prop)
+        self.assertEqual(len(cur['insurances']), 1)
+        self.assertEqual(len(prop['insurances']), 1)
+
+        # 첫 번째 insurances 요소 검증
+        cur_ins = cur['insurances'][0]
+        self.assertEqual(cur_ins['name'], '보유A')
+        self.assertIn('case_fees', cur_ins)
+        self.assertIn('monthly_renewal_premium', cur_ins)
+        self.assertEqual(cur_ins['monthly_renewal_premium'], 20000)
+
+        prop_ins = prop['insurances'][0]
+        self.assertEqual(prop_ins['name'], '제안B')
+        self.assertIn('case_fees', prop_ins)
+        # 제안B는 비갱신만 있으므로
+        self.assertEqual(prop_ins['monthly_non_renewal_premium'], 30000)
+
+
 class HeatmapInsurancesTests(TestCase):
     """히트맵 응답이 보험별 요금(insurances)을 담아 보낸다."""
 
