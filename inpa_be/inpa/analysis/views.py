@@ -27,6 +27,7 @@ from inpa.analysis.models import AnalysisCategory, AnalysisDetail, ChartDetail
 from inpa.billing.credit import LimitExceeded, check_and_consume
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer, PlannerBaseline
+from inpa.insurances.serializers import InsuranceFeeSerializer
 
 from .calculate import calculate_total_analysis
 
@@ -235,6 +236,7 @@ class CustomerHeatmapView(APIView):
             'baseline_count': len(baselines),  # graded 근거(설계사가 보유한 살아있는 기준 수)
             'insurance_count': len(insurance_list),
             'summary': summary,
+            'insurances': InsuranceFeeSerializer(insurance_list, many=True).data,
             'chart_list': result['chart_list'],
             'tree': tree,
         })

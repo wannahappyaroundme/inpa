@@ -479,3 +479,45 @@ class CompareOwnerIsolationTests(TestCase):
         c = APIClient()
         r = c.get(f'/api/v1/customers/{self.cust_b.id}/compare/')
         self.assertEqual(r.status_code, 401)
+
+
+class HeatmapInsurancesTests(TestCase):
+    """히트맵 응답이 보험별 요금(insurances)을 담아 보낸다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('hm@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='김보장', birth_day='1990.01.01')
+        self.ci = CustomerInsurance.objects.create(
+            customer=self.customer, name='보험A', insurance_type=2, portfolio_type=1,
+            payment_period_type=1, payment_period=20,
+            monthly_premiums=30000, monthly_assurance_premium=30000)
+        # 담보 케이스 추가 (InsuranceFeeSerializer 가 case_list 에서 case_fees 추출)
+        det = _build_std_tree()
+        idet = _catalog_detail_linked_to(det)
+        CustomerInsuranceDetail.objects.create(
+            insurance=self.ci, detail=idet,
+            assurance_amount=100000000, premium=30000,
+            payment_period_type=1, payment_period=20,
+            warranty_period_type=1, warranty_period='100',
+        )
+        self.ci.set_renewal_month()
+        self.ci.calculate()
+        self.ci.save()
+
+    def test_heatmap_includes_insurances_with_split(self):
+        """히트맵 응답에 insurances 배열이 있고, 각 보험이 monthly_renewal_premium 및 case_fees 포함."""
+        r = self.client.get(f'/api/v1/customers/{self.customer.id}/heatmap/')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn('insurances', body)
+        self.assertEqual(len(body['insurances']), 1)
+        # 보험 요금 필드 검증
+        insurance = body['insurances'][0]
+        self.assertEqual(insurance['id'], self.ci.id)
+        self.assertEqual(insurance['name'], '보험A')
+        self.assertIn('monthly_renewal_premium', insurance)
+        self.assertIn('case_fees', insurance)
+        # case_fees 는 배열 (담보별 요금)
+        self.assertIsInstance(insurance['case_fees'], list)
+        self.assertEqual(len(insurance['case_fees']), 1)
