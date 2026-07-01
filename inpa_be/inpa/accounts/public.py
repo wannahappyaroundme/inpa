@@ -19,6 +19,7 @@ from rest_framework.views import APIView
 from inpa.accounts.models import Profile
 from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
+from inpa.analytics.views import _NoIndexMixin
 from inpa.customers.models import ConsentLog, Customer
 from inpa.notifications.models import NotifType, Notification
 
@@ -27,7 +28,7 @@ def _planner_name(profile):
     return (profile.name or '').strip() or (profile.affiliation or '').strip() or '담당 설계사'
 
 
-class IntroductionCardView(APIView):
+class IntroductionCardView(_NoIndexMixin, APIView):
     """설계사 소개 카드(공개) — GET 카드 데이터 / POST 상담 신청(db 리드 생성)."""
     permission_classes = [AllowAny]
     authentication_classes = []
