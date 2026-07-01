@@ -55,7 +55,7 @@ function HeroSection() {
       <div className="pointer-events-none absolute -top-24 -right-24 w-[480px] h-[480px] rounded-full opacity-20" style={{ background: `radial-gradient(circle, ${MINT} 0%, transparent 70%)` }} />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16 py-20 md:py-28">
         <div className="flex flex-col md:flex-row items-center gap-12 md:gap-16">
-          <Reveal className="flex-1 text-center md:text-left">
+          <Reveal immediate className="flex-1 text-center md:text-left">
             <span className="inline-block text-[13px] font-bold tracking-wide" style={{ color: MINT }}>보험설계사 AI 영업 파트너</span>
             <h1 className="mt-3 text-[36px] sm:text-[48px] md:text-[56px] font-extrabold text-white leading-[1.12] tracking-tight">
               설계사님은<br />클로징만 준비하세요
@@ -73,7 +73,7 @@ function HeroSection() {
             <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 가입 시 한 달 무료 쿠폰 · 이메일로 가입</p>
           </Reveal>
 
-          <Reveal delay={120} className="flex-1 w-full max-w-md md:max-w-none">
+          <Reveal immediate delay={120} className="flex-1 w-full max-w-md md:max-w-none">
             <div className="rounded-2xl bg-white shadow-2xl overflow-hidden ring-1 ring-black/5">
               <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-[var(--line)] bg-[var(--surface-2)]">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--cov-none)" }} />
