@@ -258,27 +258,41 @@ export function OcrStatusBanner({
   phase,
   errorMsg,
   onDismiss,
+  onManualEntry,
 }: {
   phase: OcrPhase;
   errorMsg: string | null;
   onDismiss: () => void;
+  /** 있으면 오류 배너에 '직접 입력' 폴백 버튼을 노출. 인식 실패로 이탈하지 않게(P9c). */
+  onManualEntry?: () => void;
 }) {
   if (phase !== "error") return null;
   return (
-    <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-      <span className="mt-0.5 text-[15px]" aria-hidden>
-        !
-      </span>
-      <p className="flex-1 text-[13px] text-red-700 leading-5">
-        {errorMsg ?? "증권 업로드 중 오류가 발생했어요. 다시 시도해 주세요."}
-      </p>
-      <button
-        onClick={onDismiss}
-        className="shrink-0 text-[12px] font-semibold text-red-500"
-        aria-label="오류 닫기"
-      >
-        닫기
-      </button>
+    <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 text-[15px]" aria-hidden>
+          !
+        </span>
+        <p className="flex-1 text-[13px] text-red-700 leading-5">
+          {errorMsg ?? "증권 인식이 잘 안 됐어요."}
+          {onManualEntry ? " 직접 입력으로 바로 등록할 수 있어요." : " 잠시 후 다시 시도해 주세요."}
+        </p>
+        <button
+          onClick={onDismiss}
+          className="shrink-0 text-[12px] font-semibold text-red-500"
+          aria-label="오류 닫기"
+        >
+          닫기
+        </button>
+      </div>
+      {onManualEntry && (
+        <button
+          onClick={onManualEntry}
+          className="mt-2.5 w-full rounded-xl border border-brand bg-surface text-brand text-[13px] font-semibold py-2 hover:bg-accent-tint transition"
+        >
+          직접 입력으로 등록하기
+        </button>
+      )}
     </div>
   );
 }

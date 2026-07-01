@@ -4,13 +4,11 @@
 // 고객 1명 중심 상세 셸 — ★ 한 동선 IA 복원 (docs/dev/12 §12 고객상세·탭 IA)
 //
 // 발굴 → 보장분석 → 갈아타기 제안을 한 고객 화면에서 탭으로 연결한다.
-// 탭 4종: 분석(히트맵 + 증권 OCR 입구) / 갈아타기(§97 컴플라이언스 게이트 placeholder)
-//        / 공백(미보유 담보) / 이력(접점 placeholder).
+// 탭: 분석(히트맵 + 증권 OCR 입구) / 비교 분석(§97 컴플라이언스 게이트) / 정보 / 계약 / 이력.
 //
 // 정직성 레드라인:
 //  - 분석 판정은 BE 권위(neutral/graded). neutral 이면 부족/충분 단정 금지.
-//  - 갈아타기는 §97 법무 게이트 + BE 미구현 → 가짜 데이터 금지, 게이트 사유 명시.
-//  - 공백 탭: 부족/충분 단정은 mode='graded' 일 때만.
+//  - 비교 분석(갈아타기)은 §97 법무 게이트 → 가짜 데이터 금지, 게이트 사유 명시.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback, Suspense, type ChangeEvent } from "react";
@@ -65,7 +63,6 @@ import {
   type CustomerStatus,
   type JobMatch,
   type HeatmapResponse,
-  type HeatmapDetail,
   type CompareResponse,
   type HistoryEvent,
   type ProfileResponse,
@@ -73,7 +70,7 @@ import {
 } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 
-type TabKey = "analysis" | "switch" | "gap" | "info" | "contract" | "history";
+type TabKey = "analysis" | "switch" | "info" | "contract" | "history";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "analysis", label: "분석" },
@@ -1160,6 +1157,7 @@ function AnalysisTab({
         phase={ocr.phase}
         errorMsg={ocr.error}
         onDismiss={ocr.clearError}
+        onManualEntry={() => setManualOpen(true)}
       />
       {ocr.phase === "consent_required" && (
         <ConsentModal
@@ -1437,7 +1435,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
           )}
         </div>
       </div>
-      <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} />
+      <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} onManualEntry={() => setManualOpen(true)} />
       {propOcr.phase === "consent_required" && (
         <ConsentModal
           onGenerate={() => propOcr.generateConsentLink(customerId)}
@@ -1681,118 +1679,6 @@ function SwitchTab({ customerId }: { customerId: number }) {
   );
 }
 
-// ── 공백 탭 ── 보유 0(미보유) 담보 모음. 부족/충분 단정은 graded 일 때만 ─────
-function GapTab({
-  heatmap,
-  loading,
-  error,
-  onRetry,
-  isExclusive = false,
-}: {
-  heatmap: HeatmapResponse | null;
-  loading: boolean;
-  error: string | null;
-  onRetry: () => void;
-  isExclusive?: boolean;
-}) {
-  if (loading) {
-    return (
-      <div className="space-y-2">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-12 rounded-xl bg-line animate-pulse" />
-        ))}
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
-        <p className="text-[14px] text-ink3">{error}</p>
-        <button onClick={onRetry} className="mt-3 text-[13px] font-semibold text-brand">
-          다시 시도
-        </button>
-      </div>
-    );
-  }
-  if (!heatmap || heatmap.insurance_count === 0) {
-    return (
-      <div className="rounded-xl border border-dashed border-line px-4 py-12 text-center">
-        <p className="text-[15px] font-semibold text-ink2">아직 분석할 증권이 없어요</p>
-        <p className="mt-1 text-[13px] text-ink3">
-          분석 탭에서 증권을 등록하면 보장 공백을 모아 볼 수 있어요.
-        </p>
-      </div>
-    );
-  }
-
-  // 미보유(보유 0) 담보 수집 — held_amount === 0 또는 null
-  const gaps: { category: string; sub: string; detail: HeatmapDetail }[] = [];
-  for (const cat of heatmap.tree) {
-    for (const sub of cat.sub_categories) {
-      for (const d of sub.details) {
-        if (d.held_amount === null || d.held_amount === 0) {
-          gaps.push({ category: cat.name, sub: sub.name, detail: d });
-        }
-      }
-    }
-  }
-
-  return (
-    <div>
-      <div className="flex items-baseline justify-between">
-        <h3 className="text-[15px] font-bold text-ink">
-          {isExclusive ? "🎯 보장 공백(채울 기회)" : "보장 공백"}{" "}
-          <span className="text-ink3 tnum">{gaps.length}</span>
-        </h3>
-        <span className="text-[12px] text-ink3">보유 0 담보</span>
-      </div>
-
-      {/* graded 일 때만 '부족' 단정 가능, neutral 이면 '미보유' 사실만 */}
-      <p className="mt-1.5 text-[12px] leading-5 text-ink3">
-        {isExclusive
-          ? "보유하지 않은 담보예요. 새로운 상품으로 채울 수 있는 보장 기회를 검토하세요."
-          : heatmap.mode === "graded"
-          ? "보유 금액이 0인 담보예요. 부족 여부 판정은 설정한 기준에 따른 결과입니다."
-          : "보유 금액이 0인 담보(객관적 사실)만 모았어요. 기준을 정하면 부족 여부까지 한눈에 볼 수 있어요."}
-      </p>
-
-      {gaps.length === 0 ? (
-        <div className="mt-5 rounded-xl border border-line bg-surface2 px-4 py-10 text-center text-[14px] text-ink3">
-          미보유(보유 0) 담보가 없어요.
-        </div>
-      ) : (
-        <div className="mt-4 space-y-2">
-          {gaps.map(({ category, sub, detail }) => (
-            <div
-              key={detail.detail_id}
-              className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3"
-            >
-              <span className="w-2 h-2 rounded-full bg-cnone shrink-0" aria-hidden />
-              <div className="flex-1 min-w-0">
-                <div className="text-[14px] font-semibold text-ink">
-                  {detail.name}
-                </div>
-                <div className="text-[11px] text-ink3">
-                  {category} · {sub}
-                </div>
-              </div>
-              {/* 부족 배지: graded + shortage 일 때만 */}
-              {heatmap.mode === "graded" && detail.status === "shortage" ? (
-                <span className="shrink-0 inline-flex items-center rounded-full bg-amber-50 border-l-4 border-l-short border border-amber-200 px-2 py-0.5 text-[11px] font-semibold text-ink">
-                  부족
-                </span>
-              ) : (
-                <span className="shrink-0 text-[12px] text-ink3 tnum">
-                  {fmtAmount(detail.held_amount)}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── 이력 탭 ── getCustomerHistory 실연결. 타입별 아이콘·시각 표시 ─────────────
 function HistoryTab({ customerId }: { customerId: number }) {
