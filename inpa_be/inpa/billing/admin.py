@@ -7,7 +7,7 @@
 """
 from django.contrib import admin
 
-from .models import ClaudeApiLog, Plan, Subscription, UsageMeter
+from .models import ClaudeApiLog, Coupon, CouponRedemption, Plan, Subscription, UsageMeter
 
 
 @admin.register(Plan)
@@ -62,6 +62,35 @@ class UsageMeterAdmin(admin.ModelAdmin):
     search_fields = ['user__email']
     ordering = ['-year_month', '-count']
     readonly_fields = ['updated_at']
+
+
+@admin.register(Coupon)
+class CouponAdmin(admin.ModelAdmin):
+    """무료 쿠폰 발급 — 코드 배포 없이 Admin에서 생성(코드 비우면 자동 생성).
+
+    발급: '추가' → 요금제(Plus)·부여 기간(일)·최대 사용 수·유효기한 지정 → 저장 → 코드 복사해 배포.
+    """
+    list_display = [
+        'code', 'plan', 'duration_days',
+        'redeemed_count', 'max_redemptions',
+        'is_active', 'expires_at', 'note', 'created_at',
+    ]
+    list_filter = ['is_active', 'plan']
+    search_fields = ['code', 'note']
+    readonly_fields = ['redeemed_count', 'created_at']
+    ordering = ['-created_at']
+
+
+@admin.register(CouponRedemption)
+class CouponRedemptionAdmin(admin.ModelAdmin):
+    """쿠폰 사용 기록 — 읽기 전용(감사). 누가 어떤 코드를 언제·언제까지 부여받았는지."""
+    list_display = ['coupon', 'user', 'granted_until', 'redeemed_at']
+    search_fields = ['coupon__code', 'user__email']
+    readonly_fields = ['coupon', 'user', 'granted_until', 'redeemed_at']
+    ordering = ['-redeemed_at']
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(ClaudeApiLog)

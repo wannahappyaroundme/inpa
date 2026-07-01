@@ -22,21 +22,6 @@ class WorkHourSerializer(serializers.ModelSerializer):
         return data
 
 
-class MeetingSlotSerializer(serializers.ModelSerializer):
-    """설계사 슬롯 CRUD. status는 서버 관리(read_only)."""
-    class Meta:
-        model = MeetingSlot
-        fields = ('id', 'start_at', 'duration_min', 'status', 'created_at')
-        read_only_fields = ('id', 'status', 'created_at')
-
-    def validate_start_at(self, value):
-        # ★ 미래강제 로직 유지(레드존 — public_booking·테스트가 전제). 메시지만 친절화.
-        if value <= timezone.now():
-            raise serializers.ValidationError(
-                '지난 시간은 슬롯으로 만들 수 없어요. 지금보다 나중 시각을 골라주세요.')
-        return value
-
-
 class MeetingSerializer(serializers.ModelSerializer):
     """설계사용 미팅 읽기 직렬화."""
     customer_name = serializers.SerializerMethodField()

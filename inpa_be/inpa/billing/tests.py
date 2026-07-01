@@ -21,8 +21,11 @@ from rest_framework.test import APIClient
 
 from inpa.accounts.models import Profile, User
 
+from datetime import timedelta
+
+from .coupons import redeem_coupon  # noqa: F401 — 회귀·문서용
 from .credit import LimitExceeded, check_and_consume
-from .models import Plan, Subscription, UsageMeter
+from .models import Coupon, CouponRedemption, Plan, Subscription, UsageMeter
 
 
 # ─── 헬퍼 ────────────────────────────────────────────────────────
@@ -454,3 +457,80 @@ class SeedBillingCommandTests(TestCase):
         # 멱등 — 재실행해도 중복/오류 없음(구독 1개 유지).
         call_command('seed_billing')
         self.assertEqual(Subscription.objects.filter(user=user).count(), 1)
+
+
+class CouponRedeemTests(TestCase):
+    """무료 쿠폰 — 발급/사용/제한/만료 반영 (item 8, 관리자 발급 코드)."""
+
+    URL = '/api/v1/billing/coupons/redeem/'
+
+    def setUp(self):
+        self.free, self.plus = _get_or_create_plans()
+        self.user, self.client = _make_user('coupon@test.com')
+
+    def _coupon(self, **kw):
+        defaults = {'plan': self.plus, 'duration_days': 30, 'max_redemptions': 1}
+        defaults.update(kw)
+        return Coupon.objects.create(**defaults)
+
+    def test_redeem_grants_plus_with_expiry(self):
+        c = self._coupon(code='inpa-plus1')  # 소문자 입력 → 저장 시 대문자 정규화
+        r = self.client.post(self.URL, {'code': 'INPA-PLUS1'}, format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['plan_code'], 'plus')
+        sub = Subscription.objects.get(user=self.user)
+        self.assertEqual(sub.plan.code, 'plus')
+        self.assertEqual(sub.status, 'active')
+        self.assertIsNotNone(sub.expires_at)
+        self.assertGreater((sub.expires_at - timezone.now()).days, 28)  # ~30일
+        c.refresh_from_db()
+        self.assertEqual(c.redeemed_count, 1)
+        self.assertTrue(CouponRedemption.objects.filter(coupon=c, user=self.user).exists())
+
+    def test_case_insensitive_code(self):
+        self._coupon(code='INPA-ABCD')
+        r = self.client.post(self.URL, {'code': ' inpa-abcd '}, format='json')
+        self.assertEqual(r.status_code, 200)
+
+    def test_double_redeem_same_user_409(self):
+        self._coupon(code='INPA-ONCE', max_redemptions=5)
+        self.client.post(self.URL, {'code': 'INPA-ONCE'}, format='json')
+        r = self.client.post(self.URL, {'code': 'INPA-ONCE'}, format='json')
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()['code'], 'already')
+
+    def test_not_found_404(self):
+        r = self.client.post(self.URL, {'code': 'NOPE-XXXX'}, format='json')
+        self.assertEqual(r.status_code, 404)
+
+    def test_expired_coupon_410(self):
+        self._coupon(code='INPA-OLD', expires_at=timezone.now() - timedelta(days=1))
+        r = self.client.post(self.URL, {'code': 'INPA-OLD'}, format='json')
+        self.assertEqual(r.status_code, 410)
+        self.assertEqual(r.json()['code'], 'expired')
+
+    def test_exhausted_coupon_410(self):
+        self._coupon(code='INPA-MAX', max_redemptions=1)
+        _, other_client = _make_user('other@test.com')
+        other_client.post(self.URL, {'code': 'INPA-MAX'}, format='json')  # 1회 소진
+        r = self.client.post(self.URL, {'code': 'INPA-MAX'}, format='json')
+        self.assertEqual(r.status_code, 410)
+        self.assertEqual(r.json()['code'], 'exhausted')
+
+    def test_auto_generated_code(self):
+        c = Coupon.objects.create(plan=self.plus)  # code 비움 → 자동 생성
+        self.assertTrue(c.code.startswith('INPA-'))
+        self.assertEqual(len(c.code), 13)  # 'INPA-' + 8
+
+    @override_settings(FREE_TIER_UNLIMITED=False)
+    def test_expired_subscription_falls_back_to_free_limits(self):
+        # 만료된 Plus 구독은 Free 한도로 폴백(credit.py 만료 반영).
+        Subscription.objects.update_or_create(
+            user=self.user,
+            defaults={'plan': self.plus, 'status': 'active',
+                      'expires_at': timezone.now() - timedelta(days=1)},
+        )
+        for _ in range(10):  # Free ocr 한도=10
+            check_and_consume(self.user, 'ocr')
+        with self.assertRaises(LimitExceeded):
+            check_and_consume(self.user, 'ocr')

@@ -33,7 +33,7 @@ SELF_DIAG_DAILY_CAP_PER_REF = 30          # 설계사(refcode) 1명당 하루 �
 from inpa.accounts.models import Profile
 from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
-from inpa.analytics.views import _build_share_payload
+from inpa.analytics.views import _NoIndexMixin, _build_share_payload
 from inpa.core.ocr.claude_parser import claude_parse
 from inpa.customers.models import ConsentLog, Customer
 from inpa.notifications.models import NotifType, Notification
@@ -45,7 +45,7 @@ def _truthy(v):
     return str(v).lower() in ('1', 'true', 'on', 'yes', 'y')
 
 
-class SelfDiagnosisView(APIView):
+class SelfDiagnosisView(_NoIndexMixin, APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
     parser_classes = [MultiPartParser, FormParser]

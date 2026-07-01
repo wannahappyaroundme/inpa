@@ -71,27 +71,6 @@ class BookingCoreTests(TestCase):
         with self.assertRaises(signing.BadSignature):
             read_booking_token('nope.bad.token')
 
-    # ── 슬롯 CRUD + owner 격리 ──
-    def test_slot_create_owner_injected(self):
-        r = self.client_a.post('/api/v1/meeting-slots/',
-                               {'start_at': _future().isoformat()}, format='json')
-        self.assertEqual(r.status_code, 201)
-        slot = MeetingSlot.objects.get(id=r.json()['id'])
-        self.assertEqual(slot.owner_id, self.user_a.id)
-        self.assertEqual(slot.duration_min, 30)  # profile 기본값
-
-    def test_slot_past_rejected(self):
-        r = self.client_a.post('/api/v1/meeting-slots/',
-                               {'start_at': (timezone.now() - timedelta(hours=1)).isoformat()},
-                               format='json')
-        self.assertEqual(r.status_code, 400)
-
-    def test_slot_owner_isolation(self):
-        slot = MeetingSlot.objects.create(owner=self.user_a, start_at=_future())
-        r = self.client_b.get('/api/v1/meeting-slots/')
-        ids = [s['id'] for s in r.json()['results']] if isinstance(r.json(), dict) else []
-        self.assertNotIn(slot.id, ids)
-
     # ── 예약 링크 생성(설계사) ──
     def test_booking_request_owner_ok(self):
         r = self.client_a.post(f'/api/v1/customers/{self.customer.id}/booking-requests/')
@@ -272,9 +251,6 @@ class BookingDisabledGateTests(TestCase):
         self.user, self.client, _ = _make_planner('agent@test.com')
         self.customer = Customer.objects.create(owner=self.user, name='홍길동')
         self.public = APIClient()
-
-    def test_authed_slots_403(self):
-        self.assertEqual(self.client.get('/api/v1/meeting-slots/').status_code, 403)
 
     def test_booking_request_403(self):
         r = self.client.post(f'/api/v1/customers/{self.customer.id}/booking-requests/')

@@ -13,6 +13,7 @@ from .views import (
     AdminBillingUsageView,
     AdminSubscriptionPatchView,
     BillingUsageView,
+    CouponRedeemView,
     PlanListView,
 )
 
@@ -22,6 +23,7 @@ urlpatterns = [
     # 설계사 공개 / 본인 조회
     path('billing/plans/', PlanListView.as_view(), name='plan-list'),
     path('billing/usage/', BillingUsageView.as_view(), name='billing-usage'),
+    path('billing/coupons/redeem/', CouponRedeemView.as_view(), name='coupon-redeem'),
 
     # 관리자 전용
     path('admin/billing/usage/', AdminBillingUsageView.as_view(), name='admin-billing-usage'),

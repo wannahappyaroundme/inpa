@@ -173,6 +173,7 @@ function AnalysisPageInner() {
           phase={ocr.phase}
           errorMsg={ocr.error}
           onDismiss={ocr.clearError}
+          onManualEntry={selectedId !== null ? () => setManualOpen(true) : undefined}
         />
 
         {ocr.phase === "consent_required" && (

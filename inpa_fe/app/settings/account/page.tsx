@@ -10,7 +10,7 @@ import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { AccountSecurity } from "@/components/account-security";
 import { useAuthGuard } from "@/lib/useAuthGuard";
-import { getProfile, updateProfile, uploadProfileImage, getGoogleCalendarConnectUrl, disconnectGoogleCalendar, logout, type ProfileResponse } from "@/lib/api";
+import { getProfile, updateProfile, uploadProfileImage, getGoogleCalendarConnectUrl, disconnectGoogleCalendar, logout, redeemCoupon, ApiError, type ProfileResponse } from "@/lib/api";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
@@ -22,6 +22,7 @@ export default function AccountSettingsPage() {
   const [introText, setIntroText] = useState("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [couponCode, setCouponCode] = useState("");
 
   useEffect(() => {
     if (!ready) return;
@@ -99,6 +100,24 @@ export default function AccountSettingsPage() {
       setMsg("사진 업로드에 실패했어요. 다시 시도해 주세요.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function redeem() {
+    const code = couponCode.trim();
+    if (!code) return;
+    setSaving(true);
+    setMsg(null);
+    try {
+      const res = await redeemCoupon(code);
+      const until = res.expires_at ? new Date(res.expires_at).toLocaleDateString("ko-KR") : "";
+      setMsg(`${res.plan_display_name} 이용권이 적용됐어요${until ? ` (${until}까지)` : ""}.`);
+      setCouponCode("");
+    } catch (e) {
+      setMsg(e instanceof ApiError ? e.message : "쿠폰 적용에 실패했어요. 코드를 확인해 주세요.");
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMsg(null), 3000);
     }
   }
 
@@ -180,6 +199,29 @@ export default function AccountSettingsPage() {
           >
             저장
           </button>
+        </Card>
+
+        {/* 무료 쿠폰 */}
+        <Card className="px-5 py-4">
+          <div className="text-[15px] font-bold text-ink">무료 쿠폰</div>
+          <p className="mt-1 text-[12px] text-ink3 leading-5">
+            받으신 쿠폰 코드를 입력하면 플러스 이용권이 적용돼요.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <input
+              value={couponCode}
+              onChange={(e) => setCouponCode(e.target.value)}
+              placeholder="예: INPA-XXXXXXXX"
+              className="flex-1 rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand uppercase"
+            />
+            <button
+              disabled={saving || !couponCode.trim()}
+              onClick={redeem}
+              className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 disabled:opacity-60"
+            >
+              적용
+            </button>
+          </div>
         </Card>
 
         {/* 관리직 KPI 공유 */}

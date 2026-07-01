@@ -1,6 +1,5 @@
 """미팅 예약 라우팅 — config/urls.py에서 /api/v1/로 마운트.
 
-  /api/v1/meeting-slots/                          MeetingSlotViewSet (owner)
   /api/v1/meetings/                               MeetingViewSet (owner, +cancel)
   /api/v1/customers/<id>/booking-requests/        예약 링크 생성(설계사)
   /api/v1/b/<token>/                              공개 예약(고객, 비로그인)
@@ -15,7 +14,6 @@ app_name = 'booking'
 
 router = SimpleRouter()
 router.register('work-hours', views.WorkHourViewSet, basename='work-hour')
-router.register('meeting-slots', views.MeetingSlotViewSet, basename='meeting-slot')
 router.register('meetings', views.MeetingViewSet, basename='meeting')
 
 urlpatterns = router.urls + [

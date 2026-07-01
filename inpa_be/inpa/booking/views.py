@@ -17,8 +17,8 @@ from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.customers.models import Customer
 
-from .models import Meeting, MeetingSlot, WorkHour
-from .serializers import MeetingSerializer, MeetingSlotSerializer, WorkHourSerializer
+from .models import Meeting, WorkHour
+from .serializers import MeetingSerializer, WorkHourSerializer
 from .templates_text import DEFAULT_BOOKING_MSG_TEMPLATE, render_booking_message
 from .tokens import make_booking_token
 
@@ -59,51 +59,6 @@ class WorkHourViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
-
-
-class MeetingSlotViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
-    """설계사 가용 슬롯 CRUD — /api/v1/meeting-slots/ (owner 전용)."""
-    permission_classes = [IsAuthenticated, IsEmailVerified, IsOwner]
-    serializer_class = MeetingSlotSerializer
-    queryset = MeetingSlot.objects.all()
-
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if not _booking_enabled():
-            raise PermissionDenied('미팅 예약 기능이 현재 비활성화되어 있습니다.')
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        if self.request.query_params.get('upcoming') == 'true':
-            qs = qs.filter(status=MeetingSlot.STATUS_OPEN, start_at__gte=timezone.now())
-        return qs
-
-    def perform_create(self, serializer):
-        dur = serializer.validated_data.get('duration_min')
-        if not dur:
-            profile = getattr(self.request.user, 'profile', None)
-            dur = getattr(profile, 'booking_default_duration', 30) or 30
-        try:
-            serializer.save(owner=self.request.user, duration_min=dur)
-        except IntegrityError:
-            # uniq_slot_owner_start 충돌 — 같은 시각 슬롯 중복(원시 400/500 대신 친절 메시지)
-            raise ValidationError({'start_at': ['그 시간에 이미 열어둔 슬롯이 있어요.']})
-
-    def _block_if_booked(self):
-        if self.get_object().status == MeetingSlot.STATUS_BOOKED:
-            raise PermissionDenied('이미 예약된 슬롯은 수정/삭제할 수 없습니다. 미팅을 먼저 취소하세요.')
-
-    def update(self, request, *args, **kwargs):
-        self._block_if_booked()
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        self._block_if_booked()
-        return super().partial_update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        self._block_if_booked()
-        return super().destroy(request, *args, **kwargs)
 
 
 class MeetingViewSet(OwnedQuerySetMixin, viewsets.ReadOnlyModelViewSet):

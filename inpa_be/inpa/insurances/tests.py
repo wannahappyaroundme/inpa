@@ -824,6 +824,31 @@ class InpatientSectionTests(TestCase):
         # 대조: 진짜 일반암은 여전히 일반암 path
         self.assertEqual(_match_coverage('일반암진단비'), '진단비->암->일반암')
 
+    def test_round_marker_parens_stripped_before_match(self):
+        """전처리 회귀: 갱신 회차 괄호 표기 '(1차)/(제2차)'는 매칭 전에 제거된다.
+
+        담보 정체성과 무관한 회차 표기가 붙어도 동일 담보로 매칭되게 함(정규화 정확도, P6c).
+        """
+        from inpa.core.ocr.ocrparsing import _match_coverage
+        self.assertEqual(_match_coverage('뇌출혈진단비(1차)'), '진단비->뇌->뇌출혈')
+        self.assertEqual(_match_coverage('뇌출혈진단비(제2차)'), '진단비->뇌->뇌출혈')
+        # 대조: 회차 표기 없는 원본도 동일 결과
+        self.assertEqual(_match_coverage('뇌출혈진단비'), '진단비->뇌->뇌출혈')
+
+    def test_variable_life_without_company_classified_as_life(self):
+        """회귀: 회사명이 없는 변액·종신 상품은 'unknown'이 아닌 'life'로 분류(회사는 -1 유지).
+
+        회사는 추측하지 않되(정직, idx=-1), 상품 유형이 명백히 생명보험이면 type='life'로
+        잡아 보험료·계약일·담보가 생명보험 경로로 정상 파싱되게 함.
+        """
+        from inpa.core.ocr.ocrparsing import _detect_company
+        idx, itype, name = _detect_company(['변액유니버셜종신', '월보험료 100,000원'])
+        self.assertEqual(itype, 'life')
+        self.assertEqual(idx, -1)   # 회사는 추측하지 않음(정직)
+        self.assertEqual(name, '')
+        # 대조: 생명보험 신호 없는 미상 텍스트는 여전히 unknown
+        self.assertEqual(_detect_company(['그냥 알 수 없는 텍스트'])[1], 'unknown')
+
     def test_claude_pipeline_fixed_benefit_not_polluting_silsohn(self):
         """TC3b: Claude가 정액 입원을 실손으로 오라우팅해도 가드가 실손 적재를 차단."""
         from inpa.core.ocr.claude_parser import _add_coverage

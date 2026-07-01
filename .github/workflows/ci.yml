@@ -58,6 +58,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 정직성 카피 가드(P8c) — 렌더 문자열의 em-dash(—) 자동 차단. 빌드 전 빠른 실패.
+      - name: Copy guard (정직성 카피)
+        run: npm run lint:copy
+
       - name: Build
         run: npm run build
         env:

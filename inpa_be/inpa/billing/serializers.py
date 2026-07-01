@@ -69,6 +69,11 @@ class BillingUsageSerializer(serializers.Serializer):
     usage = UsageItemSerializer(many=True)
 
 
+class CouponRedeemSerializer(serializers.Serializer):
+    """POST /api/v1/billing/coupons/redeem/ 요청 — 설계사가 쿠폰 코드를 입력."""
+    code = serializers.CharField(max_length=32, trim_whitespace=True)
+
+
 class AdminSubscriptionPatchSerializer(serializers.Serializer):
     """PATCH /api/v1/admin/billing/subscription/<user_id>/ 요청 검증 (dev/23 §4.3).
 

@@ -1531,6 +1531,19 @@ export async function getMyPlan(): Promise<BillingUsage["plan"] & { status: stri
   return { ...u.plan, status: u.subscription.status, expires_at: u.subscription.expires_at };
 }
 
+export interface CouponRedeemResult {
+  plan_code: string;
+  plan_display_name: string;
+  expires_at: string;   // ISO — 부여 만료 시각
+  duration_days: number;
+}
+
+/** POST /api/v1/billing/coupons/redeem/ — 무료 쿠폰 코드 사용(인증).
+ *  실패 시 ApiError(.code = not_found/already/expired/exhausted/inactive, .message = 안내문). */
+export async function redeemCoupon(code: string): Promise<CouponRedeemResult> {
+  return request<CouponRedeemResult>("POST", "/billing/coupons/redeem/", { code }, true);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // 관리자 콘솔 (admin)  — base: /admin/   (is_admin 권한 필요)
 // ════════════════════════════════════════════════════════════════════════════
@@ -1860,19 +1873,10 @@ export async function submitConsent(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 미팅 예약(Calendly식) — 슬롯(설계사)/미팅/예약링크 + 공개 예약 페이지
+// 미팅 예약(Calendly식) — 미팅/예약링크 + 공개 예약 페이지(영업 시간 기반 자동 슬롯)
 // ════════════════════════════════════════════════════════════════════════════
 
 export type MeetingMethod = "in_person" | "phone" | "video";
-export type MeetingSlotStatus = "open" | "booked" | "canceled";
-
-export interface MeetingSlot {
-  id: number;
-  start_at: string;
-  duration_min: number;
-  status: MeetingSlotStatus;
-  created_at: string;
-}
 
 export type MeetingStatus = "pending" | "confirmed" | "canceled" | "declined";
 
@@ -1914,27 +1918,6 @@ export interface PublicBookingInfo {
   duration_min: number;
   slots: { start_at: string; duration_min: number }[];
   disclaimer: string;
-}
-
-/** GET /api/v1/meeting-slots/ — 내 슬롯 목록(인증) */
-export async function listMeetingSlots(
-  upcoming = false
-): Promise<PaginatedResult<MeetingSlot>> {
-  const q = upcoming ? "?upcoming=true" : "";
-  return request<PaginatedResult<MeetingSlot>>("GET", `/meeting-slots/${q}`, undefined, true);
-}
-
-/** POST /api/v1/meeting-slots/ — 슬롯 추가(인증). start_at은 ISO(+09:00) */
-export async function createMeetingSlot(payload: {
-  start_at: string;
-  duration_min?: number;
-}): Promise<MeetingSlot> {
-  return request<MeetingSlot>("POST", "/meeting-slots/", payload, true);
-}
-
-/** DELETE /api/v1/meeting-slots/<id>/ — 슬롯 삭제(인증, booked면 403) */
-export async function deleteMeetingSlot(id: number): Promise<void> {
-  await requestVoid("DELETE", `/meeting-slots/${id}/`, true);
 }
 
 /** GET /api/v1/meetings/ — 내 미팅 목록(인증) */
