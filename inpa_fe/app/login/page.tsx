@@ -29,10 +29,12 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [verifiedBanner, setVerifiedBanner] = useState(false);
   const [resetBanner, setResetBanner] = useState(false);
+  const [expiredBanner, setExpiredBanner] = useState(false);
 
   useEffect(() => {
     if (params.get("verified") === "true") setVerifiedBanner(true);
     if (params.get("reset") === "done") setResetBanner(true);
+    if (params.get("session") === "expired") setExpiredBanner(true);
     // Redirect if already logged in
     if (tokenStore.get()) router.replace("/home");
   }, [params, router]);
@@ -95,6 +97,11 @@ function LoginForm() {
         {resetBanner && (
           <div className="mb-4 p-3 rounded-xl bg-success-tint border border-line text-[13px] text-success">
             비밀번호가 변경되었습니다. 새 비밀번호로 로그인하세요.
+          </div>
+        )}
+        {expiredBanner && (
+          <div className="mb-4 p-3 rounded-xl bg-surface2 border border-line text-[13px] text-ink2">
+            로그인 정보가 만료되어 로그아웃되었어요. 다시 로그인해주세요.
           </div>
         )}
 

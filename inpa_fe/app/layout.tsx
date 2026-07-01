@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { PwaRegister } from "@/components/pwa-register";
 import { GlobalContentGuard } from "@/components/content-guard";
@@ -73,6 +75,9 @@ export default function RootLayout({
           <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
         )}
         {children}
+        {/* Vercel 방문자 통계 + 웹 성능(Web Vitals). 실제 수집은 Vercel 대시보드에서 켠 뒤 배포부터 */}
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

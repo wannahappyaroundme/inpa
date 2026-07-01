@@ -107,6 +107,15 @@ async function request<T>(
             used: data["used"] as number | undefined,
           }
         : undefined;
+    // 401: 저장된 토큰이 무효/만료된 상태(서버가 인증 거부).
+    // 인증 요청(auth=true)에서만 처리 — 로그인/회원가입 등 비인증 요청의 401은 그대로 에러로 전달.
+    // 죽은 토큰을 비우고 로그인 화면으로 보낸다(이미 로그인 화면이면 재이동 안 함 → 루프 방지).
+    if (res.status === 401 && auth) {
+      tokenStore.remove();
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        window.location.href = "/login?session=expired";
+      }
+    }
     throw new ApiError(res.status, code, detail, creditBody);
   }
 
@@ -625,8 +634,20 @@ export async function createCustomer(payload: CustomerWritePayload): Promise<Cus
   return request<CustomerDetail>("POST", "/customers/", payload, true);
 }
 
-/** POST /api/v1/customers/bulk/ — 여러 고객 일괄 등록(이름 필수, 이름+연락처 중복은 건너뜀) */
-export interface BulkCustomerRow { name: string; mobile_phone_number?: string; sales_stage?: SalesStage }
+/** POST /api/v1/customers/bulk/ — 여러 고객 일괄 등록(이름 필수, 이름+연락처 중복은 건너뜀).
+ *  단건 등록과 동일 필드 세트를 행별로 받음(전부 선택, name만 필수). */
+export interface BulkCustomerRow {
+  name: string;
+  mobile_phone_number?: string;
+  gender?: string;          // "1"(남) | "2"(여)
+  birth_day?: string;       // "YYYY-MM-DD"
+  job_code?: string;        // JobRiskCode id
+  memo?: string;
+  lead_source?: string;     // introduction | business_card | event | direct
+  avatar_label?: string;    // 약자·숫자(최대 3)
+  color?: string;           // 팔레트 hex 또는 ''
+  sales_stage?: SalesStage;
+}
 export async function createCustomersBulk(rows: BulkCustomerRow[]): Promise<{ created: number; skipped: number }> {
   return request<{ created: number; skipped: number }>("POST", "/customers/bulk/", { customers: rows }, true);
 }

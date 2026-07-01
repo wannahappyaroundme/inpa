@@ -75,6 +75,14 @@ export default function RegisterPage() {
     }
   }
 
+  const allAgreed = tosAgreed && ppAgreed && marketingAgreed;
+  function agreeAll() {
+    const next = !allAgreed;
+    setTosAgreed(next);
+    setPpAgreed(next);
+    setMarketingAgreed(next);
+  }
+
   if (success) {
     return (
       <div className="min-h-dvh bg-[var(--surface-2)] flex items-center justify-center px-4">
@@ -162,6 +170,16 @@ export default function RegisterPage() {
           {/* Terms */}
           <div className="flex flex-col gap-2 pt-1 border-t border-[var(--line)]">
             <p className="text-[12px] font-semibold text-[var(--ink-2)]">약관 동의</p>
+
+            <button
+              type="button"
+              onClick={agreeAll}
+              className={`w-full rounded-xl border py-2.5 text-[13px] font-bold transition ${
+                allAgreed ? "border-brand bg-brand text-white" : "border-brand/40 bg-accent-tint text-brand"
+              }`}
+            >
+              {allAgreed ? "전체 동의 완료" : "전체 동의하기"}
+            </button>
 
             <label className="flex items-start gap-3 cursor-pointer min-h-[44px]">
               <input
