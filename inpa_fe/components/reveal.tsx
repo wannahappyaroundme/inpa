@@ -9,10 +9,12 @@ function prefersReduced() {
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
-function useInView<T extends HTMLElement>() {
+function useInView<T extends HTMLElement>(immediate = false) {
   const ref = useRef<T>(null);
-  const [inView, setInView] = useState(false);
+  // immediate=첫 화면(above-the-fold): SSR부터 is-in으로 렌더 → JS 없이도 즉시 보임(LCP 개선).
+  const [inView, setInView] = useState(immediate);
   useEffect(() => {
+    if (immediate) return;
     const el = ref.current;
     if (!el) return;
     if (typeof IntersectionObserver === "undefined" || prefersReduced()) {
@@ -25,13 +27,13 @@ function useInView<T extends HTMLElement>() {
     );
     io.observe(el);
     return () => io.disconnect();
-  }, []);
+  }, [immediate]);
   return { ref, inView };
 }
 
-/** 스크롤 진입 시 아래에서 떠오르며 페이드인. */
-export function Reveal({ children, className = "", delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
-  const { ref, inView } = useInView<HTMLDivElement>();
+/** 스크롤 진입 시 아래에서 떠오르며 페이드인. immediate=첫 화면은 숨기지 않고 즉시 렌더. */
+export function Reveal({ children, className = "", delay = 0, immediate = false }: { children: ReactNode; className?: string; delay?: number; immediate?: boolean }) {
+  const { ref, inView } = useInView<HTMLDivElement>(immediate);
   return (
     <div
       ref={ref}
