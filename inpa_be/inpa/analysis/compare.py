@@ -96,6 +96,10 @@ def _aggregate_side(insurance_list):
     summary: {monthly_premiums, total_premiums, 월/총 갱신/비갱신/적립 분리} — 보험이 0건이면 None.
     coverage_amounts: 표준 담보(AnalysisDetail.name) 별 보장금액 합(case.assurance_amount).
       ★ 순수 사실 집계 — AI 불필요. 담보명은 case.detail.analysis_detail(표준 담보) 기준.
+
+    ★ None 의미론: 각 키마다 non-null 소스가 0개 → 그 키는 None 유지(미상).
+      (수동 입력 등) 한 쪽에서만 월보험료는 있는데 월갱신보험료=None 인 경우,
+      집계 결과는 0 이 아니라 None 을 반환 → "알려지지 않음", 거짓이 아님.
     """
     keys = ('monthly_premiums', 'monthly_renewal_premium', 'monthly_non_renewal_premium',
             'monthly_earned_premium', 'total_premiums', 'total_renewal_premium',
@@ -104,6 +108,7 @@ def _aggregate_side(insurance_list):
         return {k: None for k in keys}, {}
 
     acc = {k: 0 for k in keys}
+    has_nonnull = {k: False for k in keys}  # ★ 각 키별 non-null 여부 추적
     coverage_amounts = {}
 
     for ci in insurance_list:
@@ -111,6 +116,7 @@ def _aggregate_side(insurance_list):
             v = getattr(ci, k, None)
             if v is not None:
                 acc[k] += v
+                has_nonnull[k] = True
         for case in ci.case_list.all():
             amount = case.assurance_amount or 0
             if amount <= 0:
@@ -123,7 +129,14 @@ def _aggregate_side(insurance_list):
             for name in std_names:
                 coverage_amounts[name] = coverage_amounts.get(name, 0) + amount
 
-    summary = {k: (round(acc[k]) if isinstance(acc[k], float) else acc[k]) for k in keys}
+    # ★ 각 키마다 non-null 값이 없으면 None, 있으면 합계(반올림)
+    summary = {}
+    for k in keys:
+        if not has_nonnull[k]:
+            summary[k] = None
+        else:
+            summary[k] = round(acc[k]) if isinstance(acc[k], float) else acc[k]
+
     return summary, coverage_amounts
 
 

@@ -569,6 +569,55 @@ class CompareRenewalSplitTests(TestCase):
         self.assertEqual(prop_ins['monthly_non_renewal_premium'], 30000)
 
 
+class CompareRenewalSplitTests(TestCase):
+    """비교표 요금 분리 — 월/총 갱신·비갱신·적립 분리 + None 의미론."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('renewal-split@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='분리고객', birth_day='1990.01.01', gender=1)
+
+    def test_manual_insurance_renewal_fields_become_none(self):
+        """수기 입력 보험(케이스 없음): monthly_premiums=50000 있으나,
+        월갱신보험료=None 인 경우, 집계 후 응답의 monthly_renewal_premium=None (0 아님).
+        ★ "알려지지 않음"(None) vs "0"(알려진 영)을 구분 → 거짓 방지."""
+        det = _build_std_tree()
+        idet = _catalog_detail_linked_to(det)
+
+        # 수기 입력 보험 1건: monthly_premiums=50000 설정, 갱신 분리 필드는 None 유지
+        ci = CustomerInsurance.objects.create(
+            customer=self.customer, name='수기입력', insurance_type=2, portfolio_type=1,
+            payment_period_type=1, payment_period=20,
+            monthly_premiums=50000, monthly_assurance_premium=50000,
+            # ★ 아래 필드들은 명시적으로 None (calculate() 안 함)
+            monthly_renewal_premium=None,
+            monthly_non_renewal_premium=None,
+            monthly_earned_premium=None,
+            total_premiums=50000,
+            total_renewal_premium=None,
+            total_non_renewal_premium=None,
+            total_earned_premium=None,
+        )
+        # ★ 케이스 추가 안 함 (case_list 빔)
+
+        # 비교 요청
+        r = self.client.post(f'/api/v1/customers/{self.customer.id}/compare/', {}, format='json')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        current = body['current']
+
+        # ★ 핵심: monthly_premiums=50000 (알려진 값), 하지만 갱신 필드는 None (미상)
+        self.assertEqual(current['monthly_premiums'], 50000)
+        self.assertIsNone(current['monthly_renewal_premium'],
+                         msg='갱신분리 미상이면 0 아닌 None')
+        self.assertIsNone(current['monthly_non_renewal_premium'])
+        self.assertIsNone(current['monthly_earned_premium'])
+        self.assertEqual(current['total_premiums'], 50000)
+        self.assertIsNone(current['total_renewal_premium'])
+        self.assertIsNone(current['total_non_renewal_premium'])
+        self.assertIsNone(current['total_earned_premium'])
+
+
 class HeatmapInsurancesTests(TestCase):
     """히트맵 응답이 보험별 요금(insurances)을 담아 보낸다."""
 
