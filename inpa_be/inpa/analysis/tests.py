@@ -487,51 +487,51 @@ class CompareRenewalSplitTests(TestCase):
     def setUp(self):
         self.user, self.client = _make_planner('cmp@test.com')
         self.customer = Customer.objects.create(
-            owner=self.user, name='김보장', birth_day='1990.01.01')
-        det = _build_std_tree()
-        idet = _catalog_detail_linked_to(det)
+            owner=self.user, name='김보장', birth_day='1990.01.01', gender=1)
+        self.det = _build_std_tree()
+        self.idet = _catalog_detail_linked_to(self.det)
 
         # 보유 보험A: 담보 케이스 비갱신(1) + 갱신(3)
         # 비갱신 케이스: premium=10000, 갱신 케이스: premium=20000
-        ci_cur = CustomerInsurance.objects.create(
+        self.ci_cur = CustomerInsurance.objects.create(
             customer=self.customer, name='보유A', insurance_type=2, portfolio_type=1,
             payment_period_type=1, payment_period=20,
             monthly_premiums=30000, monthly_assurance_premium=30000,
             monthly_earned_premium=0)
         # 비갱신 케이스
         CustomerInsuranceDetail.objects.create(
-            insurance=ci_cur, detail=idet,
+            insurance=self.ci_cur, detail=self.idet,
             assurance_amount=30000000, premium=10000,
             payment_period_type=1, payment_period=20,
             warranty_period_type=1, warranty_period='100',
         )
         # 갱신 케이스
         CustomerInsuranceDetail.objects.create(
-            insurance=ci_cur, detail=idet,
+            insurance=self.ci_cur, detail=self.idet,
             assurance_amount=20000000, premium=20000,
             payment_period_type=3, payment_period=20,
             warranty_period_type=1, warranty_period='100',
         )
-        ci_cur.set_renewal_month()
-        ci_cur.calculate()
-        ci_cur.save()
+        self.ci_cur.set_renewal_month()
+        self.ci_cur.calculate()
+        self.ci_cur.save()
 
         # 제안 보험B: 비갱신(1) 케이스만
-        ci_prop = CustomerInsurance.objects.create(
+        self.ci_prop = CustomerInsurance.objects.create(
             customer=self.customer, name='제안B', insurance_type=2, portfolio_type=2,
             payment_period_type=1, payment_period=20,
             monthly_premiums=30000, monthly_assurance_premium=30000,
             monthly_earned_premium=0)
         # 비갱신 케이스
         CustomerInsuranceDetail.objects.create(
-            insurance=ci_prop, detail=idet,
+            insurance=self.ci_prop, detail=self.idet,
             assurance_amount=30000000, premium=30000,
             payment_period_type=1, payment_period=20,
             warranty_period_type=1, warranty_period='100',
         )
-        ci_prop.set_renewal_month()
-        ci_prop.calculate()
-        ci_prop.save()
+        self.ci_prop.set_renewal_month()
+        self.ci_prop.calculate()
+        self.ci_prop.save()
 
     def test_compare_sides_carry_renewal_split_and_insurances(self):
         """비교분석 응답의 current/proposed 에 갱신/비갱신/적립 분리 + insurances 배열 포함."""
@@ -568,25 +568,17 @@ class CompareRenewalSplitTests(TestCase):
         # 제안B는 비갱신만 있으므로
         self.assertEqual(prop_ins['monthly_non_renewal_premium'], 30000)
 
-
-class CompareRenewalSplitTests(TestCase):
-    """비교표 요금 분리 — 월/총 갱신·비갱신·적립 분리 + None 의미론."""
-
-    def setUp(self):
-        self.user, self.client = _make_planner('renewal-split@test.com')
-        self.customer = Customer.objects.create(
-            owner=self.user, name='분리고객', birth_day='1990.01.01', gender=1)
-
     def test_manual_insurance_renewal_fields_become_none(self):
         """수기 입력 보험(케이스 없음): monthly_premiums=50000 있으나,
         월갱신보험료=None 인 경우, 집계 후 응답의 monthly_renewal_premium=None (0 아님).
         ★ "알려지지 않음"(None) vs "0"(알려진 영)을 구분 → 거짓 방지."""
-        det = _build_std_tree()
-        idet = _catalog_detail_linked_to(det)
+        # 별도 고객 생성 (setUp의 ci_cur/ci_prop와 격리)
+        manual_cust = Customer.objects.create(
+            owner=self.user, name='수기고객', birth_day='1990.01.01', gender=1)
 
         # 수기 입력 보험 1건: monthly_premiums=50000 설정, 갱신 분리 필드는 None 유지
         ci = CustomerInsurance.objects.create(
-            customer=self.customer, name='수기입력', insurance_type=2, portfolio_type=1,
+            customer=manual_cust, name='수기입력', insurance_type=2, portfolio_type=1,
             payment_period_type=1, payment_period=20,
             monthly_premiums=50000, monthly_assurance_premium=50000,
             # ★ 아래 필드들은 명시적으로 None (calculate() 안 함)
@@ -601,7 +593,7 @@ class CompareRenewalSplitTests(TestCase):
         # ★ 케이스 추가 안 함 (case_list 빔)
 
         # 비교 요청
-        r = self.client.post(f'/api/v1/customers/{self.customer.id}/compare/', {}, format='json')
+        r = self.client.post(f'/api/v1/customers/{manual_cust.id}/compare/', {}, format='json')
         self.assertEqual(r.status_code, 200)
         body = r.json()
         current = body['current']
