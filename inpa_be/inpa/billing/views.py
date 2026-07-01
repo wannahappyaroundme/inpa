@@ -23,9 +23,14 @@ from rest_framework.views import APIView
 
 from inpa.core.permissions import IsAdmin
 
+from .coupons import CouponError, redeem_coupon
 from .credit import LimitExceeded  # noqa: F401 — 뷰 사용 예시용 (실제 뷰에서 직접 catch)
 from .models import Plan, Subscription, UsageMeter
-from .serializers import AdminSubscriptionPatchSerializer, PlanSerializer
+from .serializers import (
+    AdminSubscriptionPatchSerializer,
+    CouponRedeemSerializer,
+    PlanSerializer,
+)
 
 User = get_user_model()
 
@@ -122,6 +127,30 @@ class BillingUsageView(APIView):
     def get(self, request):
         data = _build_usage_response(request.user)
         return Response(data)
+
+
+class CouponRedeemView(APIView):
+    """무료 쿠폰 사용 — 설계사가 발급받은 코드를 입력해 Plus를 한시적으로 부여받는다.
+
+    POST /api/v1/billing/coupons/redeem/  body {code}
+      성공 200 {plan_code, plan_display_name, expires_at, duration_days}
+      실패 404(없음)/409(이미 사용)/410(만료·소진·비활성) + {code, detail}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = CouponRedeemSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = redeem_coupon(request.user, serializer.validated_data['code'])
+        except CouponError as exc:
+            status_map = {
+                'not_found': status.HTTP_404_NOT_FOUND,
+                'already': status.HTTP_409_CONFLICT,
+            }
+            code = status_map.get(exc.code, status.HTTP_410_GONE)
+            return Response({'code': exc.code, 'detail': str(exc)}, status=code)
+        return Response(result, status=status.HTTP_200_OK)
 
 
 # ─── 관리자 전용 ──────────────────────────────────────────────────

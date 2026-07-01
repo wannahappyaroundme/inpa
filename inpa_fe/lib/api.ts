@@ -1531,6 +1531,19 @@ export async function getMyPlan(): Promise<BillingUsage["plan"] & { status: stri
   return { ...u.plan, status: u.subscription.status, expires_at: u.subscription.expires_at };
 }
 
+export interface CouponRedeemResult {
+  plan_code: string;
+  plan_display_name: string;
+  expires_at: string;   // ISO — 부여 만료 시각
+  duration_days: number;
+}
+
+/** POST /api/v1/billing/coupons/redeem/ — 무료 쿠폰 코드 사용(인증).
+ *  실패 시 ApiError(.code = not_found/already/expired/exhausted/inactive, .message = 안내문). */
+export async function redeemCoupon(code: string): Promise<CouponRedeemResult> {
+  return request<CouponRedeemResult>("POST", "/billing/coupons/redeem/", { code }, true);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // 관리자 콘솔 (admin)  — base: /admin/   (is_admin 권한 필요)
 // ════════════════════════════════════════════════════════════════════════════

@@ -14,6 +14,9 @@
   - 한도 초과 = 기능 차단 X, 업그레이드 안내 소프트 블록(402 Payment Required).
   - share_link / customer_add 는 이 모델에서 제한하지 않는다(북극성 계측 차단 금지).
 """
+import secrets
+import string
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -219,3 +222,81 @@ class ClaudeApiLog(models.Model):
         return (f'{self.action} / {self.model} / '
                 f'in={self.input_tokens} out={self.output_tokens} '
                 f'cache_r={self.cache_read_input_tokens} @ {self.created_at:%Y-%m-%d}')
+
+
+class Coupon(models.Model):
+    """관리자 발급 무료 쿠폰 — 코드 입력 시 지정 요금제(보통 Plus)를 duration_days만큼 부여.
+
+    관리자가 Django Admin에서 발급(코드·기간·최대 사용 수 지정). 설계사가 설정 화면에서 코드를
+    입력해 사용한다. 유료 결제 전, 인터뷰·LOI 대상 등에 '선별 배포'하는 통제형 방식(§98 부당혜택 회피).
+    코드 유효기한(expires_at)·최대 사용 수(max_redemptions)로 남용을 제한한다.
+    """
+    code = models.CharField('쿠폰 코드', max_length=32, unique=True, blank=True,
+                            help_text='대문자·숫자. 비워두면 자동 생성(INPA-XXXXXXXX).')
+    plan = models.ForeignKey(Plan, on_delete=models.PROTECT, verbose_name='부여 요금제',
+                             help_text='보통 Plus.')
+    duration_days = models.PositiveIntegerField('부여 기간(일)', default=30,
+                                                help_text='기본 30일(1개월).')
+    max_redemptions = models.PositiveIntegerField('최대 사용 횟수', default=1,
+                                                  help_text='이 코드를 총 몇 명이 쓸 수 있는지. 기본 1(1회용).')
+    redeemed_count = models.PositiveIntegerField('사용된 횟수', default=0)
+    expires_at = models.DateTimeField('코드 유효기한', null=True, blank=True,
+                                      help_text='이 시각 이후 사용 불가. null=무기한.')
+    is_active = models.BooleanField('활성', default=True)
+    note = models.CharField('메모(관리자)', max_length=200, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'billing_coupon'
+        verbose_name = '쿠폰'
+        verbose_name_plural = '쿠폰'
+
+    def __str__(self):
+        return f'{self.code} ({self.plan.code}, {self.duration_days}일)'
+
+    def save(self, *args, **kwargs):
+        if self.code:
+            self.code = self.code.strip().upper()
+        else:
+            self.code = self._generate_code()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_code():
+        # 헷갈리는 글자(O/0, I/1) 제외한 대문자·숫자.
+        alphabet = (string.ascii_uppercase + string.digits).translate(
+            str.maketrans('', '', 'O0I1'))
+        while True:
+            code = 'INPA-' + ''.join(secrets.choice(alphabet) for _ in range(8))
+            if not Coupon.objects.filter(code=code).exists():
+                return code
+
+    def redeemable_reason(self, now=None):
+        """사용 가능하면 None, 불가하면 사유코드(inactive/expired/exhausted) 반환."""
+        now = now or timezone.now()
+        if not self.is_active:
+            return 'inactive'
+        if self.expires_at is not None and self.expires_at <= now:
+            return 'expired'
+        if self.redeemed_count >= self.max_redemptions:
+            return 'exhausted'
+        return None
+
+
+class CouponRedemption(models.Model):
+    """쿠폰 사용 기록 — (쿠폰, 사용자) 유일. 이중 사용 방지 + 감사 로그."""
+    coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE,
+                               related_name='redemptions', verbose_name='쿠폰')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name='coupon_redemptions', verbose_name='설계사')
+    granted_until = models.DateTimeField('부여 만료 시각')
+    redeemed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'billing_coupon_redemption'
+        unique_together = ('coupon', 'user')
+        verbose_name = '쿠폰 사용'
+        verbose_name_plural = '쿠폰 사용'
+
+    def __str__(self):
+        return f'{self.user.email} / {self.coupon.code} / ~{self.granted_until:%Y-%m-%d}'

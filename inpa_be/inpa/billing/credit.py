@@ -14,6 +14,7 @@ share_link / customer_add = 이 함수 호출 대상이 아님(북극성 차단 
 """
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 
 class LimitExceeded(Exception):
@@ -72,9 +73,11 @@ def check_and_consume(user, kind: str) -> dict:
         .filter(user=user)
         .first()
     )
-    if sub is not None:
+    if sub is not None and (sub.expires_at is None or sub.expires_at > timezone.now()):
         plan = sub.plan
     else:
+        # 구독이 없거나, 기간제 구독(쿠폰·체험)이 만료됐으면 Free 한도로 폴백.
+        # expires_at=null = 무기한(Free 또는 무기한 Plus) → 만료 판정 없음.
         plan = _get_free_plan()
 
     ym = UsageMeter.current_month()
