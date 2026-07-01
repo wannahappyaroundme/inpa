@@ -120,6 +120,9 @@ class Profile(models.Model):
     title = models.CharField('직책', max_length=40, blank=True, default='')
     # 한줄소개 — 공개 소개 카드(/p)에 노출. 예: "3년차 손해보험 전문, 맞춤설계로 도와드려요".
     intro_text = models.CharField('한줄소개', max_length=120, blank=True, default='')
+    # 프로필 사진 — 마이페이지에서 등록. 프로드는 명함과 동일한 S3 호환(R2) 저장소로 자동 저장.
+    # 비면 이니셜/로고 아바타 폴백. (Pillow 필요 — 이미 의존성에 포함)
+    profile_image = models.ImageField('프로필 사진', upload_to='planners/', null=True, blank=True)
 
     # ── 구글 연동 ────────────────────────────────────────────────────────
     # google_sub = 구글 계정 고유 id(병행 로그인 링크 키). unique+null → 비구글 계정 다수 NULL 허용.

@@ -298,6 +298,7 @@ export interface ProfileResponse {
   booking_buffer_min: number;   // 미팅 앞뒤 여유(분)
   title: string;                // 직책({소속직책} 머지필드용)
   intro_text: string;           // 한줄소개(공개 소개 카드 /p)
+  profile_image: string | null; // 프로필 사진 URL(없으면 null → 이니셜 아바타)
   google_calendar_connected: boolean;
   google_calendar_mask_name: boolean;
   has_usable_password: boolean;   // false=구글 전용 가입(비번 없음) → 비번변경 숨김·탈퇴는 이메일 확인
@@ -333,6 +334,30 @@ export interface ProfileUpdatePayload {
 }
 export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
   return request<ProfileResponse>("PATCH", "/auth/profile/", payload, true);
+}
+
+/** PATCH /api/v1/auth/profile/ — 프로필 사진 멀티파트 업로드. 저장은 명함과 동일 저장소(프로드=R2). */
+export async function uploadProfileImage(file: File): Promise<ProfileResponse> {
+  const form = new FormData();
+  form.append("profile_image", file);
+  const headers: Record<string, string> = {};
+  const tok = tokenStore.get();
+  if (tok) headers["Authorization"] = `Token ${tok}`;
+  const res = await fetch(`${API_BASE}/auth/profile/`, { method: "PATCH", headers, body: form });
+  let data: Record<string, unknown> = {};
+  try { data = await res.json(); } catch { /* empty */ }
+  if (!res.ok) {
+    const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
+    const detail = (data["detail"] as string) ?? (data["message"] as string) ?? res.statusText;
+    if (res.status === 401) {
+      tokenStore.remove();
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        window.location.href = "/login?session=expired";
+      }
+    }
+    throw new ApiError(res.status, code, detail);
+  }
+  return data as unknown as ProfileResponse;
 }
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────

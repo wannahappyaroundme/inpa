@@ -10,7 +10,7 @@ import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { AccountSecurity } from "@/components/account-security";
 import { useAuthGuard } from "@/lib/useAuthGuard";
-import { getProfile, updateProfile, getGoogleCalendarConnectUrl, disconnectGoogleCalendar, logout, type ProfileResponse } from "@/lib/api";
+import { getProfile, updateProfile, uploadProfileImage, getGoogleCalendarConnectUrl, disconnectGoogleCalendar, logout, type ProfileResponse } from "@/lib/api";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
@@ -84,6 +84,24 @@ export default function AccountSettingsPage() {
     }
   }
 
+  async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";  // 같은 파일 재선택 허용
+    if (!file) return;
+    setSaving(true);
+    setMsg(null);
+    try {
+      const res = await uploadProfileImage(file);
+      setP(res);
+      setMsg("프로필 사진을 저장했어요");
+      setTimeout(() => setMsg(null), 1800);
+    } catch {
+      setMsg("사진 업로드에 실패했어요. 다시 시도해 주세요.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (!ready || !p) return null;
 
   return (
@@ -96,6 +114,28 @@ export default function AccountSettingsPage() {
         )}
 
         <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        {/* 프로필 사진 */}
+        <Card className="px-5 py-4">
+          <div className="text-[15px] font-bold text-ink">프로필 사진</div>
+          <p className="mt-1 text-[12px] text-ink3 leading-5">
+            설계사님을 나타내는 사진이에요. 넣지 않으면 이니셜로 표시됩니다.
+          </p>
+          <div className="mt-3 flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full overflow-hidden bg-surface2 border border-line flex items-center justify-center shrink-0">
+              {p.profile_image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={p.profile_image} alt="프로필 사진" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-[20px] font-bold text-ink3">{(p.name || p.email || "인").trim().charAt(0)}</span>
+              )}
+            </div>
+            <label className={`rounded-xl border border-line bg-surface2 text-ink2 text-[13px] font-semibold px-4 py-2 cursor-pointer hover:bg-surface ${saving ? "opacity-60 pointer-events-none" : ""}`}>
+              {p.profile_image ? "사진 변경" : "사진 등록"}
+              <input type="file" accept="image/*" className="hidden" disabled={saving} onChange={onPickPhoto} />
+            </label>
+          </div>
+        </Card>
+
         {/* 위촉 형태 */}
         <Card className="px-5 py-4">
           <div className="text-[15px] font-bold text-ink">위촉 형태</div>
