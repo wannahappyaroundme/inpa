@@ -114,14 +114,17 @@ export function FilterChip({
   active,
   onClick,
   children,
+  title,
 }: {
   active: boolean;
   onClick: () => void;
   children: ReactNode;
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      title={title}
       className={`shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition ${
         active
           ? "bg-brand text-white border-brand"
@@ -191,6 +194,8 @@ export function HeatmapGrid({
 }) {
   // 보장 있는 것만 보기 토글(내부 상태) — held_amount>0 인 담보만. 기본 false(전체).
   const [coverageOnly, setCoverageOnly] = useState(false);
+  // 기준 미설정 상태에서 넉넉/적정/부족을 누르면 '먼저 기준을 설정' 안내를 띄운다(PM 07.01).
+  const [gateNotice, setGateNotice] = useState(false);
 
   const filteredTree = heatmap.tree
     .map((cat) => ({
@@ -291,13 +296,27 @@ export function HeatmapGrid({
             <FilterChip
               key={key}
               active={filter === key}
-              onClick={() => onFilterChange(key)}
+              title={heatmap.mode !== "graded" && key !== "all" ? "보장 기준을 먼저 설정해 주세요." : undefined}
+              onClick={() => {
+                // 기준 미설정이면 넉넉/적정/부족은 판정이 없으므로 필터 대신 기준 설정으로 유도.
+                if (heatmap.mode !== "graded" && key !== "all") { setGateNotice(true); return; }
+                setGateNotice(false);
+                onFilterChange(key);
+              }}
             >
               {label}
             </FilterChip>
           ))}
         </div>
       </div>
+
+      {/* 기준 미설정 상태에서 판정 필터를 누른 경우 — 기준 설정으로 유도(부정어 없이 다음 단계로) */}
+      {gateNotice && heatmap.mode !== "graded" && (
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12px]">
+          <span className="text-amber-800">보장 기준을 먼저 설정해 주세요. 그러면 넉넉·적정·부족을 색으로 볼 수 있어요.</span>
+          <Link href="/settings/baseline" className="shrink-0 font-semibold text-brand whitespace-nowrap">기준 설정하기 ›</Link>
+        </div>
+      )}
 
       {/* 그리드 */}
       <div className="mt-5">

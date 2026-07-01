@@ -21,6 +21,9 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [affiliation, setAffiliation] = useState("");
+  const [title, setTitle] = useState("");
+  const [licenseNo, setLicenseNo] = useState("");
   const [tosAgreed, setTosAgreed] = useState(false);
   const [ppAgreed, setPpAgreed] = useState(false);
   const [marketingAgreed, setMarketingAgreed] = useState(false);
@@ -35,6 +38,7 @@ export default function RegisterPage() {
   function validate(): string | null {
     if (password.length < 8) return "비밀번호는 8자 이상이어야 합니다.";
     if (password !== passwordConfirm) return "비밀번호가 일치하지 않습니다.";
+    if (licenseNo && licenseNo.length !== 14) return "설계사 번호는 숫자 14자리로 입력해 주세요.";
     if (!tosAgreed) return "이용약관에 동의해야 합니다.";
     if (!ppAgreed) return "개인정보처리방침에 동의해야 합니다.";
     return null;
@@ -56,6 +60,9 @@ export default function RegisterPage() {
         tos_agreed: tosAgreed,
         pp_agreed: ppAgreed,
         marketing_agreed: marketingAgreed,
+        affiliation: affiliation.trim() || undefined,
+        title: title.trim() || undefined,
+        license_no: licenseNo || undefined,
       });
       setSuccess(true);
     } catch (err) {
@@ -165,6 +172,44 @@ export default function RegisterPage() {
               className="w-full rounded-xl border border-[var(--line)] px-4 py-3 text-[14px] text-[var(--ink)] bg-[var(--surface)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)] min-h-[48px]"
               placeholder="비밀번호 재입력"
             />
+          </label>
+
+          {/* 설계사 정보(선택) — 소속/직책/설계사 번호 */}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[13px] font-semibold text-[var(--ink-2)]">소속 <span className="font-normal text-[var(--ink-3)]">(선택)</span></span>
+              <input
+                value={affiliation}
+                onChange={(e) => setAffiliation(e.target.value)}
+                className="w-full rounded-xl border border-[var(--line)] px-4 py-3 text-[14px] text-[var(--ink)] bg-[var(--surface)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)] min-h-[48px]"
+                placeholder="예: 메리츠화재 강남지점"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[13px] font-semibold text-[var(--ink-2)]">직책 <span className="font-normal text-[var(--ink-3)]">(선택)</span></span>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full rounded-xl border border-[var(--line)] px-4 py-3 text-[14px] text-[var(--ink)] bg-[var(--surface)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)] min-h-[48px]"
+                placeholder="예: FC, 팀장"
+              />
+            </label>
+          </div>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-[13px] font-semibold text-[var(--ink-2)]">설계사 번호 <span className="font-normal text-[var(--ink-3)]">(선택, 숫자 14자리)</span></span>
+            <input
+              inputMode="numeric"
+              value={licenseNo}
+              onChange={(e) => setLicenseNo(e.target.value.replace(/\D/g, "").slice(0, 14))}
+              className="w-full rounded-xl border border-[var(--line)] px-4 py-3 text-[14px] text-[var(--ink)] bg-[var(--surface)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)] min-h-[48px]"
+              placeholder="숫자 14자리"
+            />
+            {licenseNo.length > 0 && (
+              <span className={`text-[12px] ${licenseNo.length === 14 ? "text-success" : "text-[var(--ink-3)]"}`}>
+                {licenseNo.length === 14 ? "✓ 14자리 확인" : `숫자 14자리 (현재 ${licenseNo.length}자리)`}
+              </span>
+            )}
           </label>
 
           {/* Terms */}

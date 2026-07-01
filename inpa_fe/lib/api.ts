@@ -131,6 +131,9 @@ export interface RegisterPayload {
   tos_agreed: boolean;
   pp_agreed: boolean;
   marketing_agreed: boolean;
+  affiliation?: string;   // 소속(선택)
+  title?: string;         // 직책(선택)
+  license_no?: string;    // 설계사 번호(선택, 숫자 14자리)
 }
 
 export interface RegisterResponse {

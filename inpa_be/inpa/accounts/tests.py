@@ -80,6 +80,23 @@ class AuthFlowTests(TestCase):
         self._register()
         self.assertEqual(self._register().status_code, 400)
 
+    def test_register_with_planner_fields(self):
+        """회원가입에서 소속·직책·설계사 번호(14자리)를 함께 저장."""
+        payload = {**self.reg, 'affiliation': '메리츠화재 강남지점', 'title': '팀장',
+                   'license_no': '01234567890123'}
+        r = self.c.post('/api/v1/auth/register/', payload, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        p = Profile.objects.get(user__email=self.reg['email'])
+        self.assertEqual(p.affiliation, '메리츠화재 강남지점')
+        self.assertEqual(p.title, '팀장')
+        self.assertEqual(p.license_no, '01234567890123')
+
+    def test_register_rejects_bad_license_no(self):
+        """설계사 번호는 숫자 14자리만 허용(그 외 400)."""
+        r = self.c.post('/api/v1/auth/register/',
+                        {**self.reg, 'license_no': '12345'}, format='json')
+        self.assertEqual(r.status_code, 400)
+
     def test_login_lockout_after_5_fails(self):
         self._register()
         User.objects.filter(email=self.reg['email']).update(is_active=True)

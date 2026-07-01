@@ -14,12 +14,21 @@ class RegisterSerializer(serializers.Serializer):
     pp_agreed = serializers.BooleanField()
     marketing_agreed = serializers.BooleanField(required=False, default=False)
     affiliation = serializers.CharField(required=False, allow_blank=True)
+    title = serializers.CharField(required=False, allow_blank=True)
+    license_no = serializers.CharField(required=False, allow_blank=True)
     agent_type = serializers.IntegerField(required=False, allow_null=True)
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError('이미 가입된 이메일입니다.')
         return value.lower()
+
+    def validate_license_no(self, value):
+        # 설계사(모집인) 번호 — 선택 입력. 넣으면 숫자 14자리만 허용.
+        v = (value or '').strip()
+        if v and (not v.isdigit() or len(v) != 14):
+            raise serializers.ValidationError('설계사 번호는 숫자 14자리로 입력해 주세요.')
+        return v
 
     def validate(self, data):
         if data['password'] != data['password_confirm']:
@@ -41,6 +50,8 @@ class RegisterSerializer(serializers.Serializer):
             marketing_agreed_at=now if data.get('marketing_agreed') else None,
             affiliation=(data.get('affiliation') or None),
             agent_type=data.get('agent_type'),
+            title=(data.get('title') or ''),
+            license_no=(data.get('license_no') or None),
         )
         return user
 
