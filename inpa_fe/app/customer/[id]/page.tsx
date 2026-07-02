@@ -33,6 +33,7 @@ import {
 import { BookingModal } from "@/components/booking-modal";
 import { ContactLogModal } from "@/components/contact-log-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { PremiumSplitSection } from "@/components/premium-split";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 import { ShareLinkButton } from "@/components/share-link-button";
 import { CompareBarChart } from "@/components/charts";
@@ -1260,6 +1261,9 @@ function AnalysisTab({
             onFilterChange={onFilterChange}
           />
         </div>
+      )}
+      {heatmap && heatmap.insurance_count > 0 && (
+        <PremiumSplitSection summary={heatmap.summary} insurances={heatmap.insurances} />
       )}
     </div>
   );
