@@ -144,7 +144,7 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 ## 11. Changelog (newest first — condensed; the durable detail lives in the sections above)
 
-- **2026-07-02 (post-feature bundle — 유료화 스위치 + 기준선 방침 + 담보 확장 + 마일스톤, 6 commits on `feat/design-refactor`, subagent-driven, PENDING MERGE):**
+- **2026-07-02 (post-feature bundle — 유료화 스위치 + 기준선 방침 + 담보 확장 + 마일스톤, 8 commits on `feat/design-refactor`, subagent-driven, PR #57 DEPLOYED):**
   - *유료화 관리자 토글 (billing, migration 0004):* `RuntimeConfig` singleton(pk=1, `free_tier_unlimited`). `credit.py::free_tier_unlimited()`가 DB값 우선(solo()가 최초 get_or_create 시 env 시드 → 기존 `@override_settings` 테스트 보존; 예외 폴백 = env 기본 **True** = fail-open 베타안전). `GET/PATCH /admin/billing/mode/`(IsAdmin) + Django admin + FE `/admin/settings` '유료화 모드' 토글(확인창). PM이 **재배포 없이** 유료 한도(402) ON/OFF. commits 0cf1333 + 4fd847a.
   - *기준선 = 설계사 직접 입력만 (§8 게이트 #1 해소):* apply-preset(인파 제공 '미검증 권장금액') **비활성**(`customers/views.py::apply_preset` → 400 `PRESET_DISABLED`, 코드 dormant 보존) + FE 프리셋 UI 제거. 인파는 적정 금액 숫자를 제공하지 않음(무등록중개 회피). 히트맵 neutral(기준 미설정) 시 `components/baseline-required-modal.tsx`(비차단, `/settings/baseline` 링크)로 '기준 먼저 설정' 안내. commit ce6df71.
   - *종합보험 미매칭 담보 확장 (정규화 core, NEUTRAL only):* STANDARD_TREE +15 leaf(특수수술8·특수입원5·표적항암2), NORMALIZATION_V0 +47 alias, coverage_bridge PARSER_TO_STD +15, claude_parser `_CATEGORY_MAP`/프롬프트, ocrdata dict, COVERAGE_KEYWORDS +15 — **5-way 정합**. 함정 회피: 수술 키워드 ≠ `진단비->` path(treatment 차단), 입원 ≠ `실손->` path(fixed-benefit 차단), **질병중환자실입원일당 ≠ 일반 중환자실입원일당**(경로 분리, 오흡수 픽스 55f2434). NEUTRAL 표시만(판정은 PlannerBaseline). `chart_based_amount`=차트참조(적정금액 아님). 마이그레이션 0(seed/data). commits 2c47c64 + 55f2434. 회귀테스트 8.
