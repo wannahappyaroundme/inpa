@@ -1126,17 +1126,42 @@ class CoverageExpansionRegressionTests(TestCase):
                          f'중환자실입원일당이 실손 경로로 잘못 라우팅됨: {path}')
 
     def test_icu_daily_distinct_from_disease_icu_daily(self):
-        """중환자실입원일당(특수입원)은 질병중환자실입원일당(기존 leaf)과 별개로 매핑."""
+        """질병중환자실입원일당(기존 leaf)과 중환자실입원일당(신규 특수입원 leaf)이
+        각자 올바른 별개 경로로 라우팅되는지 검증.
+
+        수정 전 버그(2026-07-02): '중환자실입원일당'이 '질병중환자실입원일당'의
+        substring이어서 _match_coverage('질병중환자실입원일당')가 generic 특수입원
+        경로('입원->특수->중환자실입원일당')로 오흡수됐다.
+
+        수정 후: COVERAGE_KEYWORDS에 '입원->질병->질병중환자실입원일당' 엔트리를 먼저
+        배치하고 keyword='질병중환자실입원일당'(전체 이름)으로 등록해 first-path-wins로
+        정확한 경로를 반환하도록 했다.
+        """
         from inpa.core.ocr.ocrparsing import _match_coverage
 
-        # 특수 leaf
-        self.assertEqual(_match_coverage('중환자실입원일당'), '입원->특수->중환자실입원일당')
-        # 기존 질병 leaf — regex fallback에서 잡히지 않아야 함(질병중환자실입원일당은
-        # COVERAGE_KEYWORDS에 없어 None 반환 → Claude pipeline으로만 처리됨)
-        result = _match_coverage('질병중환자실입원일당')
-        # None이어도 OK(Claude pipeline 처리), 단 실손 경로로 흘러가선 안 됨
-        if result is not None:
-            self.assertFalse(result.startswith('실손 의료비->'))
+        generic_path = _match_coverage('중환자실입원일당')
+        disease_path = _match_coverage('질병중환자실입원일당')
+
+        # 1) 질병 ICU는 질병 전용 경로로 라우팅돼야 함
+        self.assertEqual(
+            disease_path,
+            '입원->질병->질병중환자실입원일당',
+            f'질병중환자실입원일당이 잘못된 경로로 라우팅됨: {disease_path}',
+        )
+
+        # 2) 일반(특수) ICU는 특수입원 경로로 라우팅돼야 함
+        self.assertEqual(
+            generic_path,
+            '입원->특수->중환자실입원일당',
+            f'중환자실입원일당이 잘못된 경로로 라우팅됨: {generic_path}',
+        )
+
+        # 3) 두 경로는 반드시 달라야 함
+        self.assertNotEqual(
+            disease_path,
+            generic_path,
+            '질병 ICU와 일반 ICU가 동일 경로로 흡수됨 — 충돌 미해결',
+        )
 
     def test_match_coverage_targeted_chemo_routes_correctly(self):
         """표적항암 키워드가 처치->표적항암->* 경로로 매핑되는가."""
