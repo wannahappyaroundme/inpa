@@ -8,9 +8,12 @@ import {
   adminListPolicyVersions,
   adminCreatePolicyVersion,
   adminGetFlags,
+  getBillingMode,
+  setBillingMode,
   type AdminPlan,
   type PolicyVersion,
   type FeatureFlags,
+  type BillingMode,
 } from "@/lib/adminApi";
 import { Card } from "@/components/ui";
 
@@ -40,12 +43,38 @@ export default function AdminSettingsPage() {
   const [flags, setFlags] = useState<FeatureFlags | null>(null);
   const [flagsLoading, setFlagsLoading] = useState(true);
 
+  const [billingMode, setBillingModeState] = useState<BillingMode | null>(null);
+  const [billingLoading, setBillingLoading] = useState(true);
+  const [billingToggling, setBillingToggling] = useState(false);
+  const [billingMsg, setBillingMsg] = useState<string | null>(null);
+
   useEffect(() => {
     if (!ready) return;
     adminListPlans().then(setPlans).finally(() => setPlansLoading(false));
     adminListPolicyVersions().then((r) => setPolicies(r.results)).finally(() => setPolLoading(false));
     adminGetFlags().then(setFlags).finally(() => setFlagsLoading(false));
+    getBillingMode().then(setBillingModeState).finally(() => setBillingLoading(false));
   }, [ready]);
+
+  async function toggleBillingMode() {
+    if (!billingMode) return;
+    const next = !billingMode.free_tier_unlimited;
+    const confirmMsg = next
+      ? "다시 무료 무제한(베타)으로 되돌릴까요? 402 한도 안내가 해제됩니다."
+      : "유료 한도를 켜면 모든 설계사에게 402(한도 초과 안내)가 발동됩니다. 진행할까요?";
+    if (!confirm(confirmMsg)) return;
+    setBillingToggling(true);
+    setBillingMsg(null);
+    try {
+      const result = await setBillingMode(next);
+      setBillingModeState(result);
+      setBillingMsg(next ? "무료 무제한(베타)으로 변경됐어요." : "유료 한도 적용으로 변경됐어요.");
+    } catch {
+      setBillingMsg("변경에 실패했어요. 다시 시도해 주세요.");
+    } finally {
+      setBillingToggling(false);
+    }
+  }
 
   function openEditPlan(p: AdminPlan) {
     setEditingPlan({ ...p });
@@ -257,6 +286,50 @@ export default function AdminSettingsPage() {
                   )}
                 </div>
               ))}
+            </div>
+          </Card>
+        )}
+      </section>
+
+      {/* 유료화 모드 */}
+      <section className="mb-8">
+        <h2 className="text-[16px] font-bold text-ink mb-3">유료화 모드</h2>
+        {billingLoading && <div className="text-[13px] text-ink3">불러오는 중...</div>}
+        {!billingLoading && billingMode !== null && (
+          <Card className="p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[14px] font-semibold text-ink mb-1">
+                  현재 상태:&nbsp;
+                  <span className={billingMode.free_tier_unlimited ? "text-success font-bold" : "text-warning font-bold"}>
+                    {billingMode.free_tier_unlimited ? "무료 무제한(베타)" : "유료 한도 적용 중"}
+                  </span>
+                </div>
+                <div className="text-[12px] text-ink3">
+                  무제한(베타): 모든 한도 무시, 402 미발동. 유료 한도: 요금제별 한도 적용, 초과 시 402 발동.
+                </div>
+                <div className="text-[12px] text-warn-ink mt-1 font-semibold">
+                  주의: 전환 시 모든 설계사에게 즉시 적용됩니다.
+                </div>
+                {billingMsg && (
+                  <div className="text-[12px] text-ink mt-2">{billingMsg}</div>
+                )}
+              </div>
+              <button
+                onClick={toggleBillingMode}
+                disabled={billingToggling}
+                className={`shrink-0 rounded-xl px-4 py-2 text-[13px] font-bold disabled:opacity-50 ${
+                  billingMode.free_tier_unlimited
+                    ? "bg-warning text-white hover:opacity-90"
+                    : "bg-success text-white hover:opacity-90"
+                }`}
+              >
+                {billingToggling
+                  ? "처리 중..."
+                  : billingMode.free_tier_unlimited
+                  ? "유료 한도 켜기"
+                  : "무제한으로 되돌리기"}
+              </button>
             </div>
           </Card>
         )}

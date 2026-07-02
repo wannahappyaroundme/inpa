@@ -433,3 +433,25 @@ export interface FeatureFlags {
 export async function adminGetFlags(): Promise<FeatureFlags> {
   return req<FeatureFlags>("GET", "/admin/settings/flags/");
 }
+
+// ─── Billing Mode (유료화 모드 토글) ──────────────────────────────────────────
+
+export interface BillingMode {
+  free_tier_unlimited: boolean;
+}
+
+/**
+ * GET /api/v1/admin/billing/mode/
+ * 현재 유료화 모드 조회. free_tier_unlimited=true → 베타 무제한, false → 유료 한도 적용.
+ */
+export async function getBillingMode(): Promise<BillingMode> {
+  return req<BillingMode>("GET", "/admin/billing/mode/");
+}
+
+/**
+ * PATCH /api/v1/admin/billing/mode/
+ * 유료화 모드 전환. 모든 설계사에게 즉시 적용됨.
+ */
+export async function setBillingMode(free_tier_unlimited: boolean): Promise<BillingMode> {
+  return req<BillingMode>("PATCH", "/admin/billing/mode/", { free_tier_unlimited });
+}
