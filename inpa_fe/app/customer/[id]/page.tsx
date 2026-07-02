@@ -1012,6 +1012,12 @@ function InsuranceCard({ it }: { it: ManualInsuranceItem }) {
         <dt className="text-ink3">월 보험료</dt><dd className="text-ink2 text-right tnum">{fmtWon(it.monthly_premiums)}</dd>
         <dt className="text-ink3">기간</dt><dd className="text-ink2 text-right">{it.contract_date ?? "-"} ~ {it.expiry_date ?? "-"}</dd>
       </dl>
+      {(it.monthly_renewal_premium != null || it.monthly_non_renewal_premium != null) && (
+        <div className="mt-1 flex gap-3 text-[12px] text-ink3">
+          {it.monthly_renewal_premium != null && <span>갱신 {fmtWon(it.monthly_renewal_premium)}</span>}
+          {it.monthly_non_renewal_premium != null && <span>비갱신 {fmtWon(it.monthly_non_renewal_premium)}</span>}
+        </div>
+      )}
     </div>
   );
 }
