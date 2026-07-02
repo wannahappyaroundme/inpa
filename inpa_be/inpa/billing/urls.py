@@ -10,6 +10,7 @@ config/urls.py에서 /api/v1/ 로 마운트.
 from django.urls import path
 
 from .views import (
+    AdminBillingModeView,
     AdminBillingUsageView,
     AdminSubscriptionPatchView,
     BillingUsageView,
@@ -26,6 +27,7 @@ urlpatterns = [
     path('billing/coupons/redeem/', CouponRedeemView.as_view(), name='coupon-redeem'),
 
     # 관리자 전용
+    path('admin/billing/mode/', AdminBillingModeView.as_view(), name='admin-billing-mode'),
     path('admin/billing/usage/', AdminBillingUsageView.as_view(), name='admin-billing-usage'),
     path(
         'admin/billing/subscription/<int:user_id>/',

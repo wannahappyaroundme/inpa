@@ -119,7 +119,7 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 ## 8. Pre-build compliance gates (zero code until resolved)
 
-1. Coverage baseline (core 담보) source + disclaimer definition.
+1. Coverage baseline (core 담보) source + disclaimer definition. **→ RESOLVED (2026-07-02): source = 설계사 직접 입력 only (Inpa provides NO 적정금액 numbers); `apply-preset` disabled(`PRESET_DISABLED` 400, code dormant). Grading stays `PlannerBaseline`-gated(neutral without). Neutral coverage display (incl. the expanded 담보 tree) is allowed pre-gate.**
 2. Medical (sensitive) data → Claude API overseas-transfer consent form — **legal prerequisite**.
 3. Switch comparison-doc §97 legal requirements finalized.
 
@@ -144,6 +144,12 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 ## 11. Changelog (newest first — condensed; the durable detail lives in the sections above)
 
+- **2026-07-02 (post-feature bundle — 유료화 스위치 + 기준선 방침 + 담보 확장 + 마일스톤, 6 commits on `feat/design-refactor`, subagent-driven, PENDING MERGE):**
+  - *유료화 관리자 토글 (billing, migration 0004):* `RuntimeConfig` singleton(pk=1, `free_tier_unlimited`). `credit.py::free_tier_unlimited()`가 DB값 우선(solo()가 최초 get_or_create 시 env 시드 → 기존 `@override_settings` 테스트 보존; 예외 폴백 = env 기본 **True** = fail-open 베타안전). `GET/PATCH /admin/billing/mode/`(IsAdmin) + Django admin + FE `/admin/settings` '유료화 모드' 토글(확인창). PM이 **재배포 없이** 유료 한도(402) ON/OFF. commits 0cf1333 + 4fd847a.
+  - *기준선 = 설계사 직접 입력만 (§8 게이트 #1 해소):* apply-preset(인파 제공 '미검증 권장금액') **비활성**(`customers/views.py::apply_preset` → 400 `PRESET_DISABLED`, 코드 dormant 보존) + FE 프리셋 UI 제거. 인파는 적정 금액 숫자를 제공하지 않음(무등록중개 회피). 히트맵 neutral(기준 미설정) 시 `components/baseline-required-modal.tsx`(비차단, `/settings/baseline` 링크)로 '기준 먼저 설정' 안내. commit ce6df71.
+  - *종합보험 미매칭 담보 확장 (정규화 core, NEUTRAL only):* STANDARD_TREE +15 leaf(특수수술8·특수입원5·표적항암2), NORMALIZATION_V0 +47 alias, coverage_bridge PARSER_TO_STD +15, claude_parser `_CATEGORY_MAP`/프롬프트, ocrdata dict, COVERAGE_KEYWORDS +15 — **5-way 정합**. 함정 회피: 수술 키워드 ≠ `진단비->` path(treatment 차단), 입원 ≠ `실손->` path(fixed-benefit 차단), **질병중환자실입원일당 ≠ 일반 중환자실입원일당**(경로 분리, 오흡수 픽스 55f2434). NEUTRAL 표시만(판정은 PlannerBaseline). `chart_based_amount`=차트참조(적정금액 아님). 마이그레이션 0(seed/data). commits 2c47c64 + 55f2434. 회귀테스트 8.
+  - *마일스톤 페이지(`/admin/milestones`):* P3c·P4c·P5c·P8c·P9c → 완료(✅), P6c → 전처리 일부 정정. commit eb67c77.
+  - Verified: BE **455 tests**, FE `npm run build` + `lint:copy`(100 files, 0), coverage-expansion opus 전체리뷰(교차파일 정합 15/15, 함정 회피 확인).
 - **2026-07-02 (갱신/비갱신 요금 분리 — 11 commits on `feat/design-refactor`, subagent-driven SDD):** 보장분석·비교분석·보험카드에서 보험료를 갱신형/비갱신형/적립으로 **표·절대수치**로 분리 표시(도넛·막대·상대수치 없음). foliio 데이터 완결성은 살리되 foliio의 자체기준 판정(레이더/충분도)은 **이식 안 함**. **마이그레이션 0** — 데이터는 pdfplumber 저장 경로에서 이미 계산·저장됨(`CustomerInsuranceDetail.premium`·`payment_period_type`(3=갱신/1·2=비갱신)·`.calculate()` 총갱신/비갱신, 보험단위 `CustomerInsurance.monthly_renewal_premium` 등).
   - *BE:* `insurances/serializers.py` **`CaseFeeSerializer`**(담보별: detail_name·premium·payment_period_type·is_renewal·assurance_amount·총갱신/비갱신) + **`InsuranceFeeSerializer`**(보험별 요약 + `case_fees[]`; 수기입력 보험은 case_list 없어 `[]`); `CustomerInsuranceManualSerializer`에 갱신/비갱신 월보험료 노출. 히트맵 응답에 `insurances: InsuranceFee[]` 추가(기존 `case_list__detail` prefetch 재사용 → N+1 0; `summary`는 이미 월/총 갱신·비갱신·적립 6필드 포함). `compare.py::_aggregate_side`가 6분리필드 None-safe 합산(**한 측 전부 null이면 0 아닌 `None`=미상**, 2-튜플 arity 유지) + `current/proposed`에 `insurances` 첨부. verdict(KEEP/SWITCH)·rows·`/s` 공유뷰 **무변경**(고객 대면 미노출 유지).
   - *FE:* `lib/api.ts` 타입(`InsuranceCaseFee`·`InsuranceFee` + `HeatmapSummary`/`CompareSide`/`ManualInsuranceItem` 확장); **`components/premium-split.tsx`** 신규 — `PremiumSplitSection`(월/총 요약표 + 담보별 요금표 + 중립 '데이터 확인' 안내: gap=월−갱신−비갱신−적립, overage/unclassified) + `ComparePremiumSplit`(현재↔제안 증감표, 증감=**절대금액+부호**). 고객상세 분석/비교 탭 + `InsuranceCard` 배선.

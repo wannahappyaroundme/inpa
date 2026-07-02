@@ -283,6 +283,28 @@ class Coupon(models.Model):
         return None
 
 
+class RuntimeConfig(models.Model):
+    """관리자 런타임 토글(재배포 없이 변경). 단일 행(pk=1)."""
+    free_tier_unlimited = models.BooleanField(
+        '무료 무제한(베타)', default=True,
+        help_text='True=모든 한도 무시(베타 무차감). False=유료 한도 적용(402 발동).')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'billing_runtime_config'
+        verbose_name = '런타임 설정'
+        verbose_name_plural = '런타임 설정'
+
+    def __str__(self):
+        return f'free_tier_unlimited={self.free_tier_unlimited}'
+
+    @classmethod
+    def solo(cls):
+        obj, _ = cls.objects.get_or_create(
+            pk=1, defaults={'free_tier_unlimited': bool(getattr(settings, 'FREE_TIER_UNLIMITED', True))})
+        return obj
+
+
 class CouponRedemption(models.Model):
     """쿠폰 사용 기록 — (쿠폰, 사용자) 유일. 이중 사용 방지 + 감사 로그."""
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE,

@@ -19,6 +19,7 @@ import {
   ConsentModal,
 } from "@/components/ocr-upload";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { BaselineRequiredModal } from "@/components/baseline-required-modal";
 import { UpgradeModal } from "@/components/upgrade-modal";
 import {
   getHeatmap,
@@ -74,6 +75,7 @@ function AnalysisPageInner() {
   const [graded, setGraded] = useState(true);
   const [filter, setFilter] = useState<FilterKey>("all");
   const [manualOpen, setManualOpen] = useState(false);
+  const [baselineModalDismissed, setBaselineModalDismissed] = useState(false);
 
   // ── 히트맵 로드 ────────────────────────────
   const fetchHeatmap = useCallback(async (id: number) => {
@@ -116,7 +118,10 @@ function AnalysisPageInner() {
   }, [ready, searchParams, router]);
 
   useEffect(() => {
-    if (selectedId !== null) fetchHeatmap(selectedId);
+    if (selectedId !== null) {
+      fetchHeatmap(selectedId);
+      setBaselineModalDismissed(false);
+    }
   }, [selectedId, fetchHeatmap]);
 
   if (!ready) return null;
@@ -193,7 +198,12 @@ function AnalysisPageInner() {
           info={ocr.upgradeInfo}
         />
 
-        {/* 기준 미설정 안내는 HeatmapGrid 상단 CTA로 일원화 — 중복 박스 제거(PM 06.29) */}
+        {/* 기준 미설정 안내 모달 — neutral 이고 보험 있을 때 한 번만 표시(닫으면 해제) */}
+        {!heatmapLoading && !heatmapError && heatmap &&
+          heatmap.mode === "neutral" && heatmap.insurance_count > 0 &&
+          !baselineModalDismissed && (
+          <BaselineRequiredModal onDismiss={() => setBaselineModalDismissed(true)} />
+        )}
 
         {/* ── summary KPI ── */}
         {heatmap && (

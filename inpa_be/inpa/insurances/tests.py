@@ -1069,3 +1069,163 @@ class FeeSerializerTests(TestCase):
         self.assertIn('monthly_non_renewal_premium', data)
         self.assertIn('payment_period_type', data)
         self.assertIn('monthly_earned_premium', data)
+
+
+class CoverageExpansionRegressionTests(TestCase):
+    """2026-07-02 확장: 특수수술·특수입원·표적항암 담보 매핑 회귀 테스트.
+
+    검증 항목:
+    1. _match_coverage: 새 키워드가 올바른 path 반환, 잘못된 path 미반환.
+    2. seed_normalization: 새 표준 leaf 생성 + alias 0 skip 확인.
+    3. coverage_bridge: resolve_std_detail이 표준 AnalysisDetail에 연결.
+    4. 중환자실입원일당 vs 질병중환자실입원일당 충돌 없음.
+    """
+
+    def test_match_coverage_special_surgery_routes_correctly(self):
+        """특수수술 키워드가 수술->특수->* 경로로 매핑되는가."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        self.assertEqual(_match_coverage('골절수술비'), '수술->특수->골절수술비')
+        self.assertEqual(_match_coverage('화상수술비'), '수술->특수->화상수술비')
+        self.assertEqual(_match_coverage('조혈모세포이식수술비'), '수술->특수->조혈모세포이식수술비')
+        self.assertEqual(_match_coverage('장기이식수술비'), '수술->특수->장기이식수술비')
+        self.assertEqual(_match_coverage('각막이식수술비'), '수술->특수->각막이식수술비')
+        self.assertEqual(_match_coverage('흉터복원수술비'), '수술->특수->흉터복원수술비')
+        self.assertEqual(_match_coverage('인공관절수술비'), '수술->특수->인공관절수술비')
+        self.assertEqual(_match_coverage('호흡기수술비'), '수술->특수->호흡기수술비')
+
+    def test_match_coverage_special_surgery_not_under_diagnosis(self):
+        """특수수술 키워드가 진단비->* 경로로 흘러가지 않는가."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        path = _match_coverage('골절수술비')
+        self.assertIsNotNone(path)
+        self.assertFalse(path.startswith('진단비->'),
+                         f'골절수술비가 진단비 경로로 잘못 라우팅됨: {path}')
+        path2 = _match_coverage('조혈모세포이식수술비')
+        self.assertFalse(path2.startswith('진단비->'),
+                         f'조혈모세포이식수술비가 진단비 경로로 잘못 라우팅됨: {path2}')
+
+    def test_match_coverage_special_inpatient_routes_correctly(self):
+        """특수입원 키워드가 입원->특수->* 경로로 매핑되는가."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        self.assertEqual(_match_coverage('중환자실입원일당'), '입원->특수->중환자실입원일당')
+        self.assertEqual(_match_coverage('환경성질환입원일당'), '입원->특수->환경성질환입원일당')
+        self.assertEqual(_match_coverage('14대질병입원일당'), '입원->특수->14대질병입원일당')
+        self.assertEqual(_match_coverage('여성특정질병입원일당'), '입원->특수->여성특정질병입원일당')
+        self.assertEqual(_match_coverage('희귀난치성질환입원일당'), '입원->특수->희귀난치성질환입원일당')
+
+    def test_match_coverage_special_inpatient_not_under_silsohn(self):
+        """특수입원 키워드가 실손 의료비 경로로 오염되지 않는가."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        path = _match_coverage('중환자실입원일당')
+        self.assertIsNotNone(path)
+        self.assertFalse(path.startswith('실손 의료비->'),
+                         f'중환자실입원일당이 실손 경로로 잘못 라우팅됨: {path}')
+
+    def test_icu_daily_distinct_from_disease_icu_daily(self):
+        """질병중환자실입원일당(기존 leaf)과 중환자실입원일당(신규 특수입원 leaf)이
+        각자 올바른 별개 경로로 라우팅되는지 검증.
+
+        수정 전 버그(2026-07-02): '중환자실입원일당'이 '질병중환자실입원일당'의
+        substring이어서 _match_coverage('질병중환자실입원일당')가 generic 특수입원
+        경로('입원->특수->중환자실입원일당')로 오흡수됐다.
+
+        수정 후: COVERAGE_KEYWORDS에 '입원->질병->질병중환자실입원일당' 엔트리를 먼저
+        배치하고 keyword='질병중환자실입원일당'(전체 이름)으로 등록해 first-path-wins로
+        정확한 경로를 반환하도록 했다.
+        """
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        generic_path = _match_coverage('중환자실입원일당')
+        disease_path = _match_coverage('질병중환자실입원일당')
+
+        # 1) 질병 ICU는 질병 전용 경로로 라우팅돼야 함
+        self.assertEqual(
+            disease_path,
+            '입원->질병->질병중환자실입원일당',
+            f'질병중환자실입원일당이 잘못된 경로로 라우팅됨: {disease_path}',
+        )
+
+        # 2) 일반(특수) ICU는 특수입원 경로로 라우팅돼야 함
+        self.assertEqual(
+            generic_path,
+            '입원->특수->중환자실입원일당',
+            f'중환자실입원일당이 잘못된 경로로 라우팅됨: {generic_path}',
+        )
+
+        # 3) 두 경로는 반드시 달라야 함
+        self.assertNotEqual(
+            disease_path,
+            generic_path,
+            '질병 ICU와 일반 ICU가 동일 경로로 흡수됨 — 충돌 미해결',
+        )
+
+    def test_match_coverage_targeted_chemo_routes_correctly(self):
+        """표적항암 키워드가 처치->표적항암->* 경로로 매핑되는가."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        self.assertEqual(_match_coverage('표적항암약물치료비'),
+                         '처치->표적항암->표적항암약물치료')
+        self.assertEqual(_match_coverage('표적항암방사선치료비'),
+                         '처치->표적항암->표적항암방사선치료')
+
+    def test_seed_normalization_creates_new_leaves_no_skip(self):
+        """seed_normalization이 새 특수수술·특수입원·표적항암 leaf를 생성하고 skip=0인가."""
+        from django.core.management import call_command
+        from io import StringIO
+        from inpa.analysis.models import AnalysisDetail
+
+        out = StringIO()
+        call_command('seed_normalization', stdout=out)
+        output = out.getvalue()
+
+        # skip=0 확인
+        self.assertIn('skip=0', output)
+
+        # 새 leaf 존재 확인 (STANDARD_TREE에서 생성됨)
+        new_leaves = [
+            '골절수술비', '화상수술비', '조혈모세포이식수술비', '장기이식수술비',
+            '각막이식수술비', '흉터복원수술비', '인공관절수술비', '호흡기수술비',
+            '중환자실입원일당', '환경성질환입원일당', '14대질병입원일당',
+            '여성특정질병입원일당', '희귀난치성질환입원일당',
+            '표적항암약물치료비', '표적항암방사선치료비',
+        ]
+        for leaf in new_leaves:
+            exists = AnalysisDetail.objects.filter(
+                name=leaf,
+                sub_category__category__name__startswith='[표준]',
+            ).exists()
+            self.assertTrue(exists, f'표준 leaf 미생성: {leaf}')
+
+    def test_bridge_resolve_new_special_leaves(self):
+        """coverage_bridge가 새 특수 담보를 표준 AnalysisDetail에 연결하는가."""
+        from django.core.management import call_command
+        from inpa.insurances.coverage_bridge import resolve_std_detail
+
+        call_command('seed_normalization')
+
+        # 특수수술
+        det = resolve_std_detail('수술', '특수', '골절수술비')
+        self.assertIsNotNone(det)
+        self.assertEqual(det.name, '골절수술비')
+
+        det2 = resolve_std_detail('수술', '특수', '조혈모세포이식수술비')
+        self.assertIsNotNone(det2)
+        self.assertEqual(det2.name, '조혈모세포이식수술비')
+
+        # 특수입원
+        det3 = resolve_std_detail('입원', '특수', '중환자실입원일당')
+        self.assertIsNotNone(det3)
+        self.assertEqual(det3.name, '중환자실입원일당')
+
+        # 표적항암
+        det4 = resolve_std_detail('처치', '표적항암', '표적항암약물치료')
+        self.assertIsNotNone(det4)
+        self.assertEqual(det4.name, '표적항암약물치료비')
+
+        det5 = resolve_std_detail('처치', '표적항암', '표적항암방사선치료')
+        self.assertIsNotNone(det5)
+        self.assertEqual(det5.name, '표적항암방사선치료비')

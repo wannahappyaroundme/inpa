@@ -219,6 +219,26 @@ class AdminBillingUsageView(APIView):
         return Response({'count': len(results), 'results': results})
 
 
+class AdminBillingModeView(APIView):
+    """유료화 모드 토글 — 관리자. GET 현재값 / PATCH {free_tier_unlimited: bool}."""
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from .models import RuntimeConfig
+        return Response({'free_tier_unlimited': RuntimeConfig.solo().free_tier_unlimited})
+
+    def patch(self, request):
+        from rest_framework.exceptions import ValidationError
+        from .models import RuntimeConfig
+        val = request.data.get('free_tier_unlimited')
+        if not isinstance(val, bool):
+            raise ValidationError({'free_tier_unlimited': 'true/false 값이 필요합니다.'})
+        cfg = RuntimeConfig.solo()
+        cfg.free_tier_unlimited = val
+        cfg.save(update_fields=['free_tier_unlimited', 'updated_at'])
+        return Response({'free_tier_unlimited': cfg.free_tier_unlimited})
+
+
 class AdminSubscriptionPatchView(APIView):
     """관리자 — 구독 수동 변경 (MVP 결제 확인 후 수동 활성화, dev/23 §4.3).
 

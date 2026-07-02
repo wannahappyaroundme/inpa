@@ -326,102 +326,30 @@ class AuthGateTests(TestCase):
 
 
 class ApplyPresetTests(TestCase):
-    """★ v0 스타터 프리셋 적용 — 생성·owner 격리·멱등·검증·준법 게이트."""
+    """★ PRESET_DISABLED — apply-preset 은 §97/무등록중개 레드라인으로 비활성.
+       모든 호출(인증 성공 포함)이 400 PRESET_DISABLED 를 반환하고 PlannerBaseline 행을 만들지 않음."""
 
     URL = '/api/v1/planner-baselines/apply-preset/'
-    NONLIFE = PlannerBaseline.PRODUCT_GROUP_NONLIFE   # 2 (프리셋 행 다수)
-    ANNUITY = PlannerBaseline.PRODUCT_GROUP_ANNUITY   # 4 (v0 빈 프리셋)
+    NONLIFE = PlannerBaseline.PRODUCT_GROUP_NONLIFE   # 2
 
     def setUp(self):
         self.user_a, self.client_a = _make_planner('preset-a@test.com')
-        self.user_b, self.client_b = _make_planner('preset-b@test.com')
 
-    @staticmethod
-    def _expected_rows(product_group):
-        return list(iter_preset_rows(product_group))
-
-    def test_apply_creates_baselines_for_owner(self):
-        """프리셋 적용 → 해당 상품군 전체 행 생성, owner=요청자, source/origin 라벨 고정."""
-        expected = self._expected_rows(self.NONLIFE)
-        self.assertGreater(len(expected), 0)  # 손해는 프리셋 행이 있어야 의미 있는 테스트
-
+    def test_apply_preset_returns_400_and_creates_nothing(self):
+        """프리셋 적용 → 400 PRESET_DISABLED, PlannerBaseline 행 0개."""
         r = self.client_a.post(self.URL, {'product_group': self.NONLIFE}, format='json')
-        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.status_code, 400)
         body = r.json()
-        self.assertEqual(body['created'], len(expected))
-        self.assertEqual(body['preset_origin'], PRESET_ORIGIN_V0)
-        self.assertIn('검토', body['note'])  # 한계 고지 문구 존재(정직성 레드라인)
-
-        qs = PlannerBaseline.objects.filter(owner=self.user_a, product_group=self.NONLIFE)
-        self.assertEqual(qs.count(), len(expected))
-        for b in qs:
-            self.assertEqual(b.owner_id, self.user_a.id)
-            self.assertEqual(b.baseline_source, 'preset')   # ★ graded 게이트 ON
-            self.assertEqual(b.preset_origin, PRESET_ORIGIN_V0)
-            self.assertTrue(b.is_active)
-            self.assertEqual(b.unit, 1)
-
-    def test_apply_is_idempotent(self):
-        """재적용 시 중복 생성 없음(created=0) — 설계사 수정값 보존 멱등."""
-        r1 = self.client_a.post(self.URL, {'product_group': self.NONLIFE}, format='json')
-        first = r1.json()['created']
-        self.assertGreater(first, 0)
-        count_after_first = PlannerBaseline.objects.filter(owner=self.user_a).count()
-
-        r2 = self.client_a.post(self.URL, {'product_group': self.NONLIFE}, format='json')
-        self.assertEqual(r2.status_code, 201)
-        self.assertEqual(r2.json()['created'], 0)
-        # 행 수 불변(멱등)
+        self.assertEqual(body.get('code'), 'PRESET_DISABLED')
         self.assertEqual(
-            PlannerBaseline.objects.filter(owner=self.user_a).count(),
-            count_after_first)
+            PlannerBaseline.objects.filter(owner=self.user_a).count(), 0)
 
-    def test_idempotent_preserves_planner_edits(self):
-        """설계사가 프리셋 행을 직접 수정해도 재적용이 덮어쓰지 않는다."""
-        self.client_a.post(self.URL, {'product_group': self.NONLIFE}, format='json')
-        b = PlannerBaseline.objects.filter(owner=self.user_a).first()
-        b.recommend_min = 99999
-        b.baseline_source = 'planner'  # 설계사가 직접 확정한 값으로 전환
-        b.save(update_fields=['recommend_min', 'baseline_source'])
-
-        r = self.client_a.post(self.URL, {'product_group': self.NONLIFE}, format='json')
-        self.assertEqual(r.json()['created'], 0)
-        b.refresh_from_db()
-        self.assertEqual(float(b.recommend_min), 99999)      # 보존
-        self.assertEqual(b.baseline_source, 'planner')       # 프리셋이 훼손하지 않음
-
-    def test_owner_isolation(self):
-        """A 적용은 B 데이터에 영향 없음 — owner 격리."""
-        self.client_a.post(self.URL, {'product_group': self.NONLIFE}, format='json')
-        self.assertEqual(
-            PlannerBaseline.objects.filter(owner=self.user_b).count(), 0)
-        # B가 적용해도 A 행 수에 영향 없음
-        a_count = PlannerBaseline.objects.filter(owner=self.user_a).count()
-        self.client_b.post(self.URL, {'product_group': self.NONLIFE}, format='json')
-        self.assertEqual(
-            PlannerBaseline.objects.filter(owner=self.user_a).count(), a_count)
-        self.assertGreater(
-            PlannerBaseline.objects.filter(owner=self.user_b).count(), 0)
-
-    def test_empty_product_group_returns_zero(self):
-        """v0 미정의 상품군(연금) → 정상 201 + created=0(거짓 성공 아님)."""
-        self.assertEqual(len(self._expected_rows(self.ANNUITY)), 0)
-        r = self.client_a.post(self.URL, {'product_group': self.ANNUITY}, format='json')
-        self.assertEqual(r.status_code, 201)
-        self.assertEqual(r.json()['created'], 0)
-
-    def test_missing_product_group_400(self):
-        r = self.client_a.post(self.URL, {}, format='json')
-        self.assertEqual(r.status_code, 400)
-
-    def test_invalid_product_group_400(self):
-        """허용 코드 밖(99) → 400."""
-        r = self.client_a.post(self.URL, {'product_group': 99}, format='json')
-        self.assertEqual(r.status_code, 400)
-
-    def test_non_integer_product_group_400(self):
-        r = self.client_a.post(self.URL, {'product_group': 'abc'}, format='json')
-        self.assertEqual(r.status_code, 400)
+    def test_apply_preset_any_group_returns_400(self):
+        """상품군 값과 무관하게 400 반환."""
+        for pg in [1, 2, 3, 4]:
+            r = self.client_a.post(self.URL, {'product_group': pg}, format='json')
+            self.assertEqual(r.status_code, 400,
+                             msg=f'product_group={pg} 는 400 이어야 함')
 
     def test_unauthenticated_blocked(self):
         c = APIClient()
@@ -436,24 +364,6 @@ class ApplyPresetTests(TestCase):
         c.force_authenticate(user=user)
         r = c.post(self.URL, {'product_group': self.NONLIFE}, format='json')
         self.assertEqual(r.status_code, 403)
-
-    def test_preset_coverage_keys_match_standard_tree(self):
-        """★ 매칭 무결성: 프리셋 coverage_key 는 표준 담보 트리(seed) 표준 담보명과 일치해야
-        히트맵/비교 판정에서 매칭된다. 시드 후 모든 coverage_key 가 표준 담보로 존재함을 검증."""
-        from django.core.management import call_command
-        from inpa.analysis.models import AnalysisDetail
-
-        call_command('seed_normalization', verbosity=0)
-        std_names = set(AnalysisDetail.objects.values_list('name', flat=True))
-
-        preset_keys = set()
-        for groups in PRESET_V0.values():
-            for coverage_key, _bands in groups:
-                preset_keys.add(coverage_key)
-
-        missing = preset_keys - std_names
-        self.assertEqual(missing, set(),
-                         f'표준 담보 트리에 없는 프리셋 coverage_key: {missing}')
 
 
 class SalesStageTests(TestCase):
