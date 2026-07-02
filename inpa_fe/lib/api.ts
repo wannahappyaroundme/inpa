@@ -810,9 +810,41 @@ export interface HeatmapCategory {
   sub_categories: HeatmapSubCategory[];
 }
 
+export interface InsuranceCaseFee {
+  detail_name: string;
+  premium: number | null;             // 월 보험료(담보)
+  payment_period_type: number;        // 1 년/2 세 = 비갱신, 3 년갱신 = 갱신
+  is_renewal: boolean;
+  assurance_amount: number | null;
+  total_renewal_premium: number | null;
+  total_non_renewal_premium: number | null;
+}
+
+export interface InsuranceFee {
+  id: number;
+  name: string | null;
+  insurance_type: number;
+  portfolio_type: number;
+  monthly_premiums: number | null;
+  monthly_renewal_premium: number | null;
+  monthly_non_renewal_premium: number | null;
+  monthly_earned_premium: number | null;
+  total_premiums: number | null;
+  total_renewal_premium: number | null;
+  total_non_renewal_premium: number | null;
+  total_earned_premium: number | null;
+  case_fees: InsuranceCaseFee[];      // 수기입력 보험은 []
+}
+
 export interface HeatmapSummary {
   monthly_premiums: number | null;
+  monthly_renewal_premium: number | null;
+  monthly_non_renewal_premium: number | null;
+  monthly_earned_premium: number | null;
   total_premiums: number | null;
+  total_renewal_premium: number | null;
+  total_non_renewal_premium: number | null;
+  total_earned_premium: number | null;
   [key: string]: unknown;
 }
 
@@ -825,6 +857,7 @@ export interface HeatmapResponse {
   summary: HeatmapSummary;
   chart_list: unknown[];
   tree: HeatmapCategory[];
+  insurances: InsuranceFee[];
 }
 
 /** GET /api/v1/customers/<id>/heatmap/ — requires token */
@@ -2264,6 +2297,13 @@ export interface CompareRow {
 export interface CompareSide {
   monthly_premiums: number | null;
   total_premiums: number | null;
+  monthly_renewal_premium: number | null;
+  monthly_non_renewal_premium: number | null;
+  monthly_earned_premium: number | null;
+  total_renewal_premium: number | null;
+  total_non_renewal_premium: number | null;
+  total_earned_premium: number | null;
+  insurances: InsuranceFee[];
 }
 
 /** 갈아타기 유의사항(설계사 내부면 전용). amount=null 이면 정성 경고. */
@@ -2337,6 +2377,10 @@ export interface ManualInsuranceItem {
   is_cancelled: boolean;
   cancelled_at: string | null;
   created_at: string;
+  monthly_renewal_premium?: number | null;
+  monthly_non_renewal_premium?: number | null;
+  monthly_earned_premium?: number | null;
+  payment_period_type?: number | null;
 }
 
 export interface ManualInsuranceWritePayload {

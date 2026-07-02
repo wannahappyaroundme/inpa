@@ -33,6 +33,7 @@ import {
 import { BookingModal } from "@/components/booking-modal";
 import { ContactLogModal } from "@/components/contact-log-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { PremiumSplitSection, ComparePremiumSplit } from "@/components/premium-split";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 import { ShareLinkButton } from "@/components/share-link-button";
 import { CompareBarChart } from "@/components/charts";
@@ -1011,6 +1012,12 @@ function InsuranceCard({ it }: { it: ManualInsuranceItem }) {
         <dt className="text-ink3">월 보험료</dt><dd className="text-ink2 text-right tnum">{fmtWon(it.monthly_premiums)}</dd>
         <dt className="text-ink3">기간</dt><dd className="text-ink2 text-right">{it.contract_date ?? "-"} ~ {it.expiry_date ?? "-"}</dd>
       </dl>
+      {(it.monthly_renewal_premium != null || it.monthly_non_renewal_premium != null) && (
+        <div className="mt-1 flex gap-3 text-[12px] text-ink3">
+          {it.monthly_renewal_premium != null && <span>갱신 {fmtWon(it.monthly_renewal_premium)}</span>}
+          {it.monthly_non_renewal_premium != null && <span>비갱신 {fmtWon(it.monthly_non_renewal_premium)}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -1260,6 +1267,9 @@ function AnalysisTab({
             onFilterChange={onFilterChange}
           />
         </div>
+      )}
+      {heatmap && heatmap.insurance_count > 0 && (
+        <PremiumSplitSection summary={heatmap.summary} insurances={heatmap.insurances} />
       )}
     </div>
   );
@@ -1530,6 +1540,9 @@ function SwitchTab({ customerId }: { customerId: number }) {
           </div>
         </div>
       </div>
+
+      {/* 갱신/비갱신 보험료 요약·증감 표 */}
+      <ComparePremiumSplit current={data.current} proposed={data.proposed} />
 
       {/* 기존 vs 제안 보장 그룹 막대(006) — 담보별 2줄(기존·제안). 정확 수치 같이 표시 + 아래 비교표 */}
       {data.rows.length >= 2 && (
