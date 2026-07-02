@@ -39,7 +39,7 @@ def free_tier_unlimited() -> bool:
         from .models import RuntimeConfig
         return RuntimeConfig.solo().free_tier_unlimited
     except Exception:
-        return bool(getattr(settings, 'FREE_TIER_UNLIMITED', False))
+        return bool(getattr(settings, 'FREE_TIER_UNLIMITED', True))
 
 
 # 허용된 kind 목록 (정본 4종 — dev/02 §16)

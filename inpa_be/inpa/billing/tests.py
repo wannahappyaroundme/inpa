@@ -468,7 +468,6 @@ class RuntimeConfigSoloTests(TestCase):
     def test_solo_seeds_from_settings_on_first_call(self):
         """DB 행 없을 때 solo()가 settings.FREE_TIER_UNLIMITED 로 행을 생성한다."""
         from .models import RuntimeConfig
-        from django.test import override_settings
         with override_settings(FREE_TIER_UNLIMITED=True):
             cfg = RuntimeConfig.solo()
         self.assertEqual(cfg.pk, 1)
