@@ -33,7 +33,7 @@ import {
 import { BookingModal } from "@/components/booking-modal";
 import { ContactLogModal } from "@/components/contact-log-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
-import { PremiumSplitSection } from "@/components/premium-split";
+import { PremiumSplitSection, ComparePremiumSplit } from "@/components/premium-split";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 import { ShareLinkButton } from "@/components/share-link-button";
 import { CompareBarChart } from "@/components/charts";
@@ -1534,6 +1534,9 @@ function SwitchTab({ customerId }: { customerId: number }) {
           </div>
         </div>
       </div>
+
+      {/* 갱신/비갱신 보험료 요약·증감 표 */}
+      <ComparePremiumSplit current={data.current} proposed={data.proposed} />
 
       {/* 기존 vs 제안 보장 그룹 막대(006) — 담보별 2줄(기존·제안). 정확 수치 같이 표시 + 아래 비교표 */}
       {data.rows.length >= 2 && (

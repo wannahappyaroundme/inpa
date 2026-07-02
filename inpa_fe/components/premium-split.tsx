@@ -2,7 +2,7 @@
 
 // 보험료 갱신/비갱신/적립 분리 — 표·절대수치만(판정·색·등급 없음). 사실 정리.
 import { fmtWon } from "@/components/heatmap";
-import type { HeatmapSummary, InsuranceFee } from "@/lib/api";
+import type { CompareSide, HeatmapSummary, InsuranceFee } from "@/lib/api";
 
 function Row({ label, value }: { label: string; value: number | null | undefined }) {
   return (
@@ -101,6 +101,47 @@ export function PremiumSplitSection({ summary, insurances }: { summary: HeatmapS
       <DataCheckNotice summary={summary} />
       <h4 className="text-[14px] font-bold text-ink pt-1">담보별 요금</h4>
       <CoverageFeeList insurances={insurances} />
+    </section>
+  );
+}
+
+// ── 비교분석용 갱신/비갱신 요약·증감 표 — 절대금액만, 판정 없음 ────────────────
+
+function DeltaCell({ cur, prop }: { cur: number | null; prop: number | null }) {
+  if (cur == null || prop == null) return <span className="text-ink3">-</span>;
+  const d = prop - cur;
+  const sign = d > 0 ? "+" : d < 0 ? "-" : "";
+  return <span className="tnum text-ink2">{sign}{fmtWon(Math.abs(d))}</span>;
+}
+
+function CompareRow({ label, cur, prop }: { label: string; cur: number | null; prop: number | null }) {
+  return (
+    <div className="grid grid-cols-4 items-center text-[13px] py-1.5 border-b border-line last:border-0">
+      <span className="text-ink2">{label}</span>
+      <span className="text-right font-semibold text-ink tnum">{cur == null ? "-" : fmtWon(cur)}</span>
+      <span className="text-right font-semibold text-ink tnum">{prop == null ? "-" : fmtWon(prop)}</span>
+      <span className="text-right"><DeltaCell cur={cur} prop={prop} /></span>
+    </div>
+  );
+}
+
+export function ComparePremiumSplit({ current, proposed }: { current: CompareSide; proposed: CompareSide }) {
+  return (
+    <section className="mt-5 rounded-xl border border-line bg-surface px-4 py-3">
+      <h4 className="text-[14px] font-bold text-ink mb-2">보험료 비교 (갱신/비갱신)</h4>
+      <div className="grid grid-cols-4 text-[11px] text-ink3 pb-1 border-b border-line">
+        <span></span><span className="text-right">현재</span><span className="text-right">제안</span><span className="text-right">증감</span>
+      </div>
+      <div className="text-[12px] font-bold text-ink3 pt-2">월 보험료</div>
+      <CompareRow label="갱신형" cur={current.monthly_renewal_premium} prop={proposed.monthly_renewal_premium} />
+      <CompareRow label="비갱신형" cur={current.monthly_non_renewal_premium} prop={proposed.monthly_non_renewal_premium} />
+      <CompareRow label="적립" cur={current.monthly_earned_premium} prop={proposed.monthly_earned_premium} />
+      <CompareRow label="합계" cur={current.monthly_premiums} prop={proposed.monthly_premiums} />
+      <div className="text-[12px] font-bold text-ink3 pt-3">총 보험료</div>
+      <CompareRow label="갱신형" cur={current.total_renewal_premium} prop={proposed.total_renewal_premium} />
+      <CompareRow label="비갱신형" cur={current.total_non_renewal_premium} prop={proposed.total_non_renewal_premium} />
+      <CompareRow label="적립" cur={current.total_earned_premium} prop={proposed.total_earned_premium} />
+      <CompareRow label="합계" cur={current.total_premiums} prop={proposed.total_premiums} />
     </section>
   );
 }
