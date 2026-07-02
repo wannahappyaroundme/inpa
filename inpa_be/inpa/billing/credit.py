@@ -33,6 +33,15 @@ class LimitExceeded(Exception):
         )
 
 
+def free_tier_unlimited() -> bool:
+    """DB RuntimeConfig 행 우선, 실패 시 settings fallback."""
+    try:
+        from .models import RuntimeConfig
+        return RuntimeConfig.solo().free_tier_unlimited
+    except Exception:
+        return bool(getattr(settings, 'FREE_TIER_UNLIMITED', False))
+
+
 # 허용된 kind 목록 (정본 4종 — dev/02 §16)
 _ALLOWED_KINDS = frozenset({'ocr', 'ai_compare', 'analysis', 'promotion'})
 
@@ -59,8 +68,8 @@ def check_and_consume(user, kind: str) -> dict:
             f'kind는 {sorted(_ALLOWED_KINDS)} 중 하나여야 합니다. 받은 값: {kind!r}'
         )
 
-    # 베타 무차감 스위치 — 환경변수 FREE_TIER_UNLIMITED=True (dev/23 §3 §G4)
-    if getattr(settings, 'FREE_TIER_UNLIMITED', False):
+    # 베타 무차감 스위치 — DB RuntimeConfig 우선, env fallback (dev/23 §3 §G4)
+    if free_tier_unlimited():
         return {'action': kind, 'count': 0, 'limit': None, 'remaining': None}
 
     from .models import Plan, UsageMeter, Subscription  # 순환 import 방지

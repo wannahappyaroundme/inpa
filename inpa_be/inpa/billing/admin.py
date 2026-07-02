@@ -7,7 +7,21 @@
 """
 from django.contrib import admin
 
-from .models import ClaudeApiLog, Coupon, CouponRedemption, Plan, Subscription, UsageMeter
+from .models import ClaudeApiLog, Coupon, CouponRedemption, Plan, RuntimeConfig, Subscription, UsageMeter
+
+
+@admin.register(RuntimeConfig)
+class RuntimeConfigAdmin(admin.ModelAdmin):
+    """유료화 모드 런타임 토글 — 재배포 없이 전환."""
+    list_display = ['free_tier_unlimited', 'updated_at']
+    readonly_fields = ['updated_at']
+
+    def has_add_permission(self, request):
+        # 단일 행 전용 — Admin에서 추가 버튼 숨김
+        return not RuntimeConfig.objects.filter(pk=1).exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Plan)

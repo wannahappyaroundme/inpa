@@ -459,6 +459,105 @@ class SeedBillingCommandTests(TestCase):
         self.assertEqual(Subscription.objects.filter(user=user).count(), 1)
 
 
+# ─── RuntimeConfig / 유료화 모드 토글 ───────────────────────────
+
+
+class RuntimeConfigSoloTests(TestCase):
+    """RuntimeConfig.solo() 시드 동작 + DB 우선 로직."""
+
+    def test_solo_seeds_from_settings_on_first_call(self):
+        """DB 행 없을 때 solo()가 settings.FREE_TIER_UNLIMITED 로 행을 생성한다."""
+        from .models import RuntimeConfig
+        from django.test import override_settings
+        with override_settings(FREE_TIER_UNLIMITED=True):
+            cfg = RuntimeConfig.solo()
+        self.assertEqual(cfg.pk, 1)
+        self.assertTrue(cfg.free_tier_unlimited)
+
+    def test_solo_returns_existing_row_without_overwrite(self):
+        """행이 이미 있으면 settings 값을 무시하고 기존 행 반환."""
+        from .models import RuntimeConfig
+        RuntimeConfig.objects.create(pk=1, free_tier_unlimited=False)
+        with override_settings(FREE_TIER_UNLIMITED=True):
+            cfg = RuntimeConfig.solo()
+        self.assertFalse(cfg.free_tier_unlimited)  # DB 값(False) 유지
+
+
+@override_settings(FREE_TIER_UNLIMITED=True)  # settings = True
+class RuntimeConfigDbWinsTests(TestCase):
+    """DB RuntimeConfig.free_tier_unlimited=False가 settings=True를 이긴다."""
+
+    def setUp(self):
+        from .models import RuntimeConfig
+        self.free_plan, _ = _get_or_create_plans()
+        self.user, _ = _make_user('dbwins@test.com')
+        _subscribe(self.user, self.free_plan)
+        # DB 행을 False로 강제 세팅
+        RuntimeConfig.objects.update_or_create(pk=1, defaults={'free_tier_unlimited': False})
+
+    def test_db_false_enforces_limit_even_when_settings_true(self):
+        """DB=False, settings=True → 한도 집계 발동 (DB 우선)."""
+        _consume_n(self.user, 'ocr', 10)
+        with self.assertRaises(LimitExceeded):
+            check_and_consume(self.user, 'ocr')
+
+    def test_db_true_bypasses_limit(self):
+        """DB=True → 무차감 통과."""
+        from .models import RuntimeConfig
+        RuntimeConfig.objects.update_or_create(pk=1, defaults={'free_tier_unlimited': True})
+        _consume_n(self.user, 'ocr', 10)
+        result = check_and_consume(self.user, 'ocr')
+        self.assertIsNone(result['limit'])
+
+
+class AdminBillingModeViewTests(TestCase):
+    """GET/PATCH /api/v1/admin/billing/mode/ — 관리자 토글 엔드포인트."""
+
+    def setUp(self):
+        from .models import RuntimeConfig
+        _get_or_create_plans()
+        self.admin, self.admin_client = _make_user('admin_mode@test.com', is_admin=True)
+        self.agent, self.agent_client = _make_user('agent_mode@test.com')
+        # 초기 행 생성
+        RuntimeConfig.objects.update_or_create(pk=1, defaults={'free_tier_unlimited': True})
+
+    def test_admin_get_returns_current_value(self):
+        r = self.admin_client.get('/api/v1/admin/billing/mode/')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('free_tier_unlimited', r.json())
+
+    def test_admin_patch_sets_false(self):
+        r = self.admin_client.patch(
+            '/api/v1/admin/billing/mode/',
+            {'free_tier_unlimited': False},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.json()['free_tier_unlimited'])
+        from .models import RuntimeConfig
+        self.assertFalse(RuntimeConfig.objects.get(pk=1).free_tier_unlimited)
+
+    def test_admin_patch_invalid_value_400(self):
+        r = self.admin_client.patch(
+            '/api/v1/admin/billing/mode/',
+            {'free_tier_unlimited': 'yes'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 400)
+
+    def test_non_admin_get_403(self):
+        r = self.agent_client.get('/api/v1/admin/billing/mode/')
+        self.assertEqual(r.status_code, 403)
+
+    def test_non_admin_patch_403(self):
+        r = self.agent_client.patch(
+            '/api/v1/admin/billing/mode/',
+            {'free_tier_unlimited': False},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 403)
+
+
 class CouponRedeemTests(TestCase):
     """무료 쿠폰 — 발급/사용/제한/만료 반영 (item 8, 관리자 발급 코드)."""
 
