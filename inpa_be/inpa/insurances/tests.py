@@ -1069,3 +1069,138 @@ class FeeSerializerTests(TestCase):
         self.assertIn('monthly_non_renewal_premium', data)
         self.assertIn('payment_period_type', data)
         self.assertIn('monthly_earned_premium', data)
+
+
+class CoverageExpansionRegressionTests(TestCase):
+    """2026-07-02 확장: 특수수술·특수입원·표적항암 담보 매핑 회귀 테스트.
+
+    검증 항목:
+    1. _match_coverage: 새 키워드가 올바른 path 반환, 잘못된 path 미반환.
+    2. seed_normalization: 새 표준 leaf 생성 + alias 0 skip 확인.
+    3. coverage_bridge: resolve_std_detail이 표준 AnalysisDetail에 연결.
+    4. 중환자실입원일당 vs 질병중환자실입원일당 충돌 없음.
+    """
+
+    def test_match_coverage_special_surgery_routes_correctly(self):
+        """특수수술 키워드가 수술->특수->* 경로로 매핑되는가."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        self.assertEqual(_match_coverage('골절수술비'), '수술->특수->골절수술비')
+        self.assertEqual(_match_coverage('화상수술비'), '수술->특수->화상수술비')
+        self.assertEqual(_match_coverage('조혈모세포이식수술비'), '수술->특수->조혈모세포이식수술비')
+        self.assertEqual(_match_coverage('장기이식수술비'), '수술->특수->장기이식수술비')
+        self.assertEqual(_match_coverage('각막이식수술비'), '수술->특수->각막이식수술비')
+        self.assertEqual(_match_coverage('흉터복원수술비'), '수술->특수->흉터복원수술비')
+        self.assertEqual(_match_coverage('인공관절수술비'), '수술->특수->인공관절수술비')
+        self.assertEqual(_match_coverage('호흡기수술비'), '수술->특수->호흡기수술비')
+
+    def test_match_coverage_special_surgery_not_under_diagnosis(self):
+        """특수수술 키워드가 진단비->* 경로로 흘러가지 않는가."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        path = _match_coverage('골절수술비')
+        self.assertIsNotNone(path)
+        self.assertFalse(path.startswith('진단비->'),
+                         f'골절수술비가 진단비 경로로 잘못 라우팅됨: {path}')
+        path2 = _match_coverage('조혈모세포이식수술비')
+        self.assertFalse(path2.startswith('진단비->'),
+                         f'조혈모세포이식수술비가 진단비 경로로 잘못 라우팅됨: {path2}')
+
+    def test_match_coverage_special_inpatient_routes_correctly(self):
+        """특수입원 키워드가 입원->특수->* 경로로 매핑되는가."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        self.assertEqual(_match_coverage('중환자실입원일당'), '입원->특수->중환자실입원일당')
+        self.assertEqual(_match_coverage('환경성질환입원일당'), '입원->특수->환경성질환입원일당')
+        self.assertEqual(_match_coverage('14대질병입원일당'), '입원->특수->14대질병입원일당')
+        self.assertEqual(_match_coverage('여성특정질병입원일당'), '입원->특수->여성특정질병입원일당')
+        self.assertEqual(_match_coverage('희귀난치성질환입원일당'), '입원->특수->희귀난치성질환입원일당')
+
+    def test_match_coverage_special_inpatient_not_under_silsohn(self):
+        """특수입원 키워드가 실손 의료비 경로로 오염되지 않는가."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        path = _match_coverage('중환자실입원일당')
+        self.assertIsNotNone(path)
+        self.assertFalse(path.startswith('실손 의료비->'),
+                         f'중환자실입원일당이 실손 경로로 잘못 라우팅됨: {path}')
+
+    def test_icu_daily_distinct_from_disease_icu_daily(self):
+        """중환자실입원일당(특수입원)은 질병중환자실입원일당(기존 leaf)과 별개로 매핑."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        # 특수 leaf
+        self.assertEqual(_match_coverage('중환자실입원일당'), '입원->특수->중환자실입원일당')
+        # 기존 질병 leaf — regex fallback에서 잡히지 않아야 함(질병중환자실입원일당은
+        # COVERAGE_KEYWORDS에 없어 None 반환 → Claude pipeline으로만 처리됨)
+        result = _match_coverage('질병중환자실입원일당')
+        # None이어도 OK(Claude pipeline 처리), 단 실손 경로로 흘러가선 안 됨
+        if result is not None:
+            self.assertFalse(result.startswith('실손 의료비->'))
+
+    def test_match_coverage_targeted_chemo_routes_correctly(self):
+        """표적항암 키워드가 처치->표적항암->* 경로로 매핑되는가."""
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        self.assertEqual(_match_coverage('표적항암약물치료비'),
+                         '처치->표적항암->표적항암약물치료')
+        self.assertEqual(_match_coverage('표적항암방사선치료비'),
+                         '처치->표적항암->표적항암방사선치료')
+
+    def test_seed_normalization_creates_new_leaves_no_skip(self):
+        """seed_normalization이 새 특수수술·특수입원·표적항암 leaf를 생성하고 skip=0인가."""
+        from django.core.management import call_command
+        from io import StringIO
+        from inpa.analysis.models import AnalysisDetail
+
+        out = StringIO()
+        call_command('seed_normalization', stdout=out)
+        output = out.getvalue()
+
+        # skip=0 확인
+        self.assertIn('skip=0', output)
+
+        # 새 leaf 존재 확인 (STANDARD_TREE에서 생성됨)
+        new_leaves = [
+            '골절수술비', '화상수술비', '조혈모세포이식수술비', '장기이식수술비',
+            '각막이식수술비', '흉터복원수술비', '인공관절수술비', '호흡기수술비',
+            '중환자실입원일당', '환경성질환입원일당', '14대질병입원일당',
+            '여성특정질병입원일당', '희귀난치성질환입원일당',
+            '표적항암약물치료비', '표적항암방사선치료비',
+        ]
+        for leaf in new_leaves:
+            exists = AnalysisDetail.objects.filter(
+                name=leaf,
+                sub_category__category__name__startswith='[표준]',
+            ).exists()
+            self.assertTrue(exists, f'표준 leaf 미생성: {leaf}')
+
+    def test_bridge_resolve_new_special_leaves(self):
+        """coverage_bridge가 새 특수 담보를 표준 AnalysisDetail에 연결하는가."""
+        from django.core.management import call_command
+        from inpa.insurances.coverage_bridge import resolve_std_detail
+
+        call_command('seed_normalization')
+
+        # 특수수술
+        det = resolve_std_detail('수술', '특수', '골절수술비')
+        self.assertIsNotNone(det)
+        self.assertEqual(det.name, '골절수술비')
+
+        det2 = resolve_std_detail('수술', '특수', '조혈모세포이식수술비')
+        self.assertIsNotNone(det2)
+        self.assertEqual(det2.name, '조혈모세포이식수술비')
+
+        # 특수입원
+        det3 = resolve_std_detail('입원', '특수', '중환자실입원일당')
+        self.assertIsNotNone(det3)
+        self.assertEqual(det3.name, '중환자실입원일당')
+
+        # 표적항암
+        det4 = resolve_std_detail('처치', '표적항암', '표적항암약물치료')
+        self.assertIsNotNone(det4)
+        self.assertEqual(det4.name, '표적항암약물치료비')
+
+        det5 = resolve_std_detail('처치', '표적항암', '표적항암방사선치료')
+        self.assertIsNotNone(det5)
+        self.assertEqual(det5.name, '표적항암방사선치료비')
