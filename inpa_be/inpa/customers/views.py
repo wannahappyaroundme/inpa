@@ -369,6 +369,13 @@ class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
 
         응답: {created:int, preset_origin:'v0_starter', note:str}
         """
+        # ★ PRESET_DISABLED — 인파 제공 기준은 §97/무등록중개 레드라인으로 비활성.
+        #    설계사 직접 입력(source='planner')만 허용. 아래 로직은 삭제하지 않고 보존.
+        return Response(
+            {'code': 'PRESET_DISABLED',
+             'detail': '기준은 설계사님이 직접 입력해 주세요. (인파는 적정 금액을 제공하지 않습니다.)'},
+            status=status.HTTP_400_BAD_REQUEST)
+
         # ── product_group 검증 ──────────────────────────────────────────
         raw = request.data.get('product_group')
         if raw is None:

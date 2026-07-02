@@ -33,6 +33,7 @@ import {
 import { BookingModal } from "@/components/booking-modal";
 import { ContactLogModal } from "@/components/contact-log-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { BaselineRequiredModal } from "@/components/baseline-required-modal";
 import { PremiumSplitSection, ComparePremiumSplit } from "@/components/premium-split";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 import { ShareLinkButton } from "@/components/share-link-button";
@@ -1107,6 +1108,7 @@ function AnalysisTab({
   const [bookingOpen, setBookingOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [insRefresh, setInsRefresh] = useState(0);
+  const [baselineModalDismissed, setBaselineModalDismissed] = useState(false);
   useEffect(() => { if (ocr.phase === "success") setInsRefresh((k) => k + 1); }, [ocr.phase]);
   return (
     <div>
@@ -1254,6 +1256,12 @@ function AnalysisTab({
             </button>
           </div>
         </div>
+      )}
+
+      {/* 기준 미설정 안내 모달 — neutral 이고 보험 있을 때 한 번만 표시(닫으면 해제) */}
+      {!loading && !error && heatmap && heatmap.mode === "neutral" &&
+        heatmap.insurance_count > 0 && !baselineModalDismissed && (
+        <BaselineRequiredModal onDismiss={() => setBaselineModalDismissed(true)} />
       )}
 
       {/* 히트맵 그리드 */}

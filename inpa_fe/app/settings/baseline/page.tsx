@@ -22,7 +22,6 @@ import {
   createBaseline,
   updateBaseline,
   deleteBaseline,
-  applyBaselinePreset,
   type PlannerBaseline,
   type PlannerBaselineWritePayload,
   type ProductGroup,
@@ -117,11 +116,6 @@ export default function BaselineSettingsPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  // 프리셋 불러오기 모달 — 출처 미확정(v0_starter) 경고 확인 후 적용
-  const [presetModalOpen, setPresetModalOpen] = useState(false);
-  const [presetApplying, setPresetApplying] = useState(false);
-  const [presetResult, setPresetResult] = useState<string | null>(null);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -235,26 +229,6 @@ export default function BaselineSettingsPage() {
     }
   }
 
-  // ★ 프리셋 적용 — 모달에서 '확인' 클릭 후에만 실행
-  async function handleApplyPreset() {
-    setPresetApplying(true);
-    setPresetResult(null);
-    try {
-      const res = await applyBaselinePreset(tab);
-      setPresetResult(
-        `${res.created}개 기준이 추가됐어요. (출처: ${res.preset_origin}${res.note ? " · " + res.note : ""})`
-      );
-      await fetchItems();
-    } catch (e: unknown) {
-      setPresetResult(
-        "적용 실패: " + (e instanceof Error ? e.message : "알 수 없는 오류")
-      );
-    } finally {
-      setPresetApplying(false);
-      setPresetModalOpen(false);
-    }
-  }
-
   return (
     <div className="min-h-dvh">
       <AppNav active="settings" />
@@ -274,13 +248,6 @@ export default function BaselineSettingsPage() {
             <h1 className="text-[22px] font-extrabold text-ink">보장 기준 설정</h1>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              disabled
-              title="출처·권위 확정 전까지 비활성이에요. 현재는 직접 입력만 가능해요"
-              className="rounded-xl border border-line bg-surface2 text-[13px] font-semibold text-ink3 px-4 py-2.5 opacity-50 cursor-not-allowed"
-            >
-              프리셋 불러오기
-            </button>
             <button
               onClick={openCreate}
               className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2.5"
@@ -406,25 +373,6 @@ export default function BaselineSettingsPage() {
           </div>
         )}
 
-        {/* 프리셋 적용 결과 배너 */}
-        {presetResult && (
-          <div
-            className={`mt-4 rounded-xl border px-4 py-3 text-[13px] ${
-              presetResult.startsWith("적용 실패")
-                ? "bg-danger-tint border-line text-danger"
-                : "bg-brand-soft border-line text-brand"
-            }`}
-          >
-            {presetResult}
-            <button
-              onClick={() => setPresetResult(null)}
-              className="ml-3 text-[12px] font-semibold underline opacity-70"
-            >
-              닫기
-            </button>
-          </div>
-        )}
-
         {/* ── 추가/수정 모달 ── */}
         {formOpen && (
           <BaselineForm
@@ -438,66 +386,6 @@ export default function BaselineSettingsPage() {
           />
         )}
 
-        {/* ── 프리셋 경고 모달 ── 출처 미확정(v0_starter) 동의 후 적용 */}
-        {presetModalOpen && (
-          <div
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="preset-modal-title"
-          >
-            <div className="w-full sm:max-w-md bg-surface rounded-t-3xl sm:rounded-2xl px-6 pt-6 pb-8 shadow-xl">
-              <h2
-                id="preset-modal-title"
-                className="text-[18px] font-extrabold text-ink"
-              >
-                프리셋 불러오기 주의 사항
-              </h2>
-
-              {/* ★ v0_starter 출처 미확정 경고 */}
-              <div className="mt-4 rounded-xl border border-line bg-warning-tint px-4 py-3">
-                <p className="text-[13px] font-semibold text-warning">
-                  v0 스타터 (출처 미확정)
-                </p>
-                <p className="mt-1.5 text-[12px] text-warning leading-5">
-                  이 프리셋({" "}
-                  <b className="font-semibold">v0_starter</b>)은 출처·권위가 아직
-                  확정되지 않은 초기 시드값이에요. 금감원·보험연구원 등 공식 기관
-                  기준이 아닙니다.
-                </p>
-                <ul className="mt-2 space-y-1 text-[12px] text-warning leading-5 list-disc list-inside">
-                  <li>적용 후 각 기준의 수치를 직접 검토·수정해야 합니다.</li>
-                  <li>인파는 이 시드값의 적정성을 보증하지 않습니다.</li>
-                </ul>
-              </div>
-
-              <p className="mt-3 text-[13px] text-ink2 leading-5">
-                위 내용을 확인했습니다. 현재 상품군(
-                <b className="font-semibold">
-                  {PRODUCT_GROUPS.find((p) => p.value === tab)?.label}
-                </b>
-                )에 v0 스타터 프리셋을 적용하겠습니다.
-              </p>
-
-              <div className="mt-5 flex flex-col gap-2.5">
-                <button
-                  onClick={handleApplyPreset}
-                  disabled={presetApplying}
-                  className="w-full rounded-2xl bg-amber-500 text-white text-[15px] font-bold py-3.5 disabled:opacity-60 transition"
-                >
-                  {presetApplying ? "적용 중…" : "출처 미확정 확인 후 적용"}
-                </button>
-                <button
-                  onClick={() => setPresetModalOpen(false)}
-                  disabled={presetApplying}
-                  className="w-full rounded-2xl border border-line bg-surface text-[14px] font-semibold text-ink2 py-3 disabled:opacity-60 transition"
-                >
-                  취소
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );
