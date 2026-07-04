@@ -189,6 +189,7 @@ function AnalysisPageInner() {
             onCopy={ocr.copyConsentUrl}
             onDismiss={ocr.dismissConsent}
             loading={ocr.consentLoading}
+            reason={ocr.consentReason}
           />
         )}
 

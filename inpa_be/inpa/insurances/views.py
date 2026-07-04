@@ -39,6 +39,7 @@ from inpa.analysis.models import (
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
 from inpa.core.ocr.claude_parser import claude_parse
 from inpa.core.permissions import IsEmailVerified
+from inpa.customers.consent_texts import has_current_overseas_consent
 from inpa.customers.models import Customer
 
 from .coverage_bridge import resolve_std_detail
@@ -332,9 +333,11 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
         customer = self.get_customer()
 
         # ── 1) ★ 국외이전 동의 물리 게이트 (Claude 호출 이전에 차단) ──
-        if customer.consent_overseas_at is None:
+        #    현재 문구 버전으로 받은 고객 본인 동의만 게이트를 연다(구버전=재동의 필요).
+        if not has_current_overseas_consent(customer):
+            reason = 'reconsent' if customer.consent_overseas_at is not None else 'missing'
             return Response(
-                {'code': 'CONSENT_OVERSEAS_REQUIRED',
+                {'code': 'CONSENT_OVERSEAS_REQUIRED', 'reason': reason,
                  'detail': '증권 OCR 분석 전 고객의 병력·보험정보 국외이전(Claude API, 미국) '
                            '동의가 필요합니다.'},
                 status=status.HTTP_412_PRECONDITION_FAILED)

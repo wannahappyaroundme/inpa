@@ -20,7 +20,8 @@ from inpa.analysis.models import (
     AnalysisCategory, AnalysisDetail, AnalysisSubCategory, NormalizationDict,
 )
 from inpa.core.ocr.ocrdata import Ocr_Data
-from inpa.customers.models import Customer
+from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
+from inpa.customers.models import ConsentLog, Customer
 
 from .models import (
     CustomerInsurance, CustomerInsuranceDetail, InsuranceDetail,
@@ -47,6 +48,18 @@ def _dummy_pdf():
 
 def _ocr_url(customer_pk):
     return f'/api/v1/customers/{customer_pk}/insurances/ocr/'
+
+
+def _grant_overseas(customer, version=CONSENT_TEXTS_VERSION):
+    """현재 문구 버전 고객 본인 국외이전 동의 = OCR 게이트 통과 조건.
+
+    version=''로 부르면 구버전 동의(재동의 필요) 상황 재현.
+    """
+    customer.consent_overseas_at = timezone.now()
+    customer.save(update_fields=['consent_overseas_at'])
+    return ConsentLog.objects.create(
+        customer=customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+        subject=ConsentLog.SUBJECT_CUSTOMER_SELF, doc_version=version)
 
 
 def _fake_ocr_data():
@@ -90,14 +103,39 @@ class ConsentGateTests(TestCase):
                 _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
         self.assertEqual(r.status_code, 412)
         self.assertEqual(r.json()['code'], 'CONSENT_OVERSEAS_REQUIRED')
+        self.assertEqual(r.json()['reason'], 'missing')
         # ★ Claude 호출이 물리적으로 일어나지 않았는지 확인
         m_parse.assert_not_called()
         self.assertEqual(CustomerInsurance.objects.count(), 0)
 
-    def test_ocr_upload_passes_gate_after_consent(self):
-        """동의 시각이 채워지면 게이트 통과 → 파싱 단계 진입(여기선 mock)."""
+    def test_ocr_upload_old_version_consent_requires_reconsent(self):
+        """구버전 문구 동의만 있으면 재동의 필요 → 412 reason=reconsent, Claude 호출 0."""
+        _grant_overseas(self.customer, version='')
+        with mock.patch('inpa.insurances.views.claude_parse') as m_parse:
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+        self.assertEqual(r.status_code, 412)
+        self.assertEqual(r.json()['code'], 'CONSENT_OVERSEAS_REQUIRED')
+        self.assertEqual(r.json()['reason'], 'reconsent')
+        m_parse.assert_not_called()
+
+    def test_planner_attested_consent_does_not_open_gate(self):
+        """★ 카나리아: 설계사 대리 동의(현재 버전이어도)는 게이트를 열지 못한다 → 412."""
         self.customer.consent_overseas_at = timezone.now()
         self.customer.save(update_fields=['consent_overseas_at'])
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+            subject=ConsentLog.SUBJECT_PLANNER_ATTESTED, doc_version=CONSENT_TEXTS_VERSION)
+        with mock.patch('inpa.insurances.views.claude_parse') as m_parse:
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+        self.assertEqual(r.status_code, 412)
+        self.assertEqual(r.json()['reason'], 'reconsent')
+        m_parse.assert_not_called()
+
+    def test_ocr_upload_passes_gate_after_consent(self):
+        """현재 버전 고객 본인 동의가 있으면 게이트 통과 → 파싱 단계 진입(여기선 mock)."""
+        _grant_overseas(self.customer)
         with mock.patch('inpa.insurances.views.claude_parse', return_value=_fake_ocr_data()) as m_parse, \
                 mock.patch('inpa.insurances.views._extract_pdf_lines',
                            return_value=(['삼성화재 종합보험 암진단 5천만원'], None)), \
@@ -115,8 +153,8 @@ class OcrParsePersistTests(TestCase):
     def setUp(self):
         self.user, self.client = _make_planner('parse@test.com')
         self.customer = Customer.objects.create(
-            owner=self.user, name='동의고객', birth_day='1985.03.10', gender=1,
-            consent_overseas_at=timezone.now())
+            owner=self.user, name='동의고객', birth_day='1985.03.10', gender=1)
+        _grant_overseas(self.customer)
 
     def _upload(self):
         """_extract_pdf_lines 와 claude_parse 를 mock 하여 실제 _persist_ocr 변환을 탄다."""
@@ -207,8 +245,8 @@ class AnthropicClientMockTests(TestCase):
     def setUp(self):
         self.user, self.client = _make_planner('sdk@test.com')
         self.customer = Customer.objects.create(
-            owner=self.user, name='SDK고객', birth_day='1990.06.01',
-            consent_overseas_at=timezone.now())
+            owner=self.user, name='SDK고객', birth_day='1990.06.01')
+        _grant_overseas(self.customer)
 
     def test_real_parser_with_mocked_sdk_creates_insurance(self):
         import importlib.util
@@ -285,7 +323,8 @@ class NormalizationHookTests(TestCase):
     def setUp(self):
         self.user, self.client = _make_planner('norm@test.com')
         self.customer = Customer.objects.create(
-            owner=self.user, name='정규화고객', consent_overseas_at=timezone.now())
+            owner=self.user, name='정규화고객')
+        _grant_overseas(self.customer)
         # 표준 담보 트리: 진단비 > 암 > 일반암
         cat = AnalysisCategory.objects.create(insurance_type=2, name='진단비', order=1)
         sub = AnalysisSubCategory.objects.create(insurance_type=2, category=cat, name='암', order=1)
@@ -488,7 +527,8 @@ class SelfDiagnosisGateTests(TestCase):
         self.assertEqual(c.gender, 1)
         # 전송 없음 → 국외이전 게이트 비개방, 개인정보 동의는 기록.
         self.assertIsNone(c.consent_overseas_at)
-        self.assertTrue(c.consent_logs.filter(scope=ConsentLog.SCOPE_PERSONAL_INFO).exists())
+        pi_log = c.consent_logs.get(scope=ConsentLog.SCOPE_PERSONAL_INFO)
+        self.assertEqual(pi_log.doc_version, CONSENT_TEXTS_VERSION)  # 버전 스탬프
         self.assertFalse(c.consent_logs.filter(scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL).exists())
 
     def test_third_party_consent_recorded(self):
@@ -535,8 +575,8 @@ class BridgeLinkTests(TestCase):
         call_command('seed_normalization')
         self.user, self.client = _make_planner('bridge@test.com')
         self.customer = Customer.objects.create(
-            owner=self.user, name='브리지고객', birth_day='1985.03.10', gender=1,
-            consent_overseas_at=timezone.now())
+            owner=self.user, name='브리지고객', birth_day='1985.03.10', gender=1)
+        _grant_overseas(self.customer)
 
     def _upload(self):
         """_fake_ocr_data(진단비>암>일반암 5천만) → 실제 _persist_ocr 변환."""
@@ -626,8 +666,8 @@ class SurgeryTreatmentSectionTests(TestCase):
         call_command('seed_normalization')  # [표준]수술비·처치 트리 적재(멱등)
         self.user, self.client = _make_planner('surgery@test.com')
         self.customer = Customer.objects.create(
-            owner=self.user, name='수술처치고객', birth_day='1985.03.10', gender=1,
-            consent_overseas_at=timezone.now())
+            owner=self.user, name='수술처치고객', birth_day='1985.03.10', gender=1)
+        _grant_overseas(self.customer)
 
     def _upload(self, ocr):
         with mock.patch('inpa.insurances.views.claude_parse', return_value=ocr), \
@@ -742,8 +782,8 @@ class InpatientSectionTests(TestCase):
         call_command('seed_normalization')  # [표준]입원일당(재사용) + [표준]입원비(신규)
         self.user, self.client = _make_planner('inpatient@test.com')
         self.customer = Customer.objects.create(
-            owner=self.user, name='입원고객', birth_day='1985.03.10', gender=1,
-            consent_overseas_at=timezone.now())
+            owner=self.user, name='입원고객', birth_day='1985.03.10', gender=1)
+        _grant_overseas(self.customer)
 
     def _upload(self, ocr):
         with mock.patch('inpa.insurances.views.claude_parse', return_value=ocr), \

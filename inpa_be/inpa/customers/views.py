@@ -21,6 +21,7 @@ from rest_framework.views import APIView
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 
+from .consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
 from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
     CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
@@ -218,9 +219,10 @@ class CustomerMedicalHistoryViewSet(_CustomerScopedViewSet):
                            '민감정보 처리는 법무 검토 완료 후 활성화됩니다.'},
                 status=status.HTTP_403_FORBIDDEN)
         customer = self.get_customer()
-        if customer.consent_overseas_at is None:
+        if not has_current_overseas_consent(customer):
+            reason = 'reconsent' if customer.consent_overseas_at is not None else 'missing'
             return Response(
-                {'code': 'CONSENT_OVERSEAS_REQUIRED',
+                {'code': 'CONSENT_OVERSEAS_REQUIRED', 'reason': reason,
                  'detail': '병력 등록 전 고객의 국외이전 동의가 필요합니다.'},
                 status=status.HTTP_412_PRECONDITION_FAILED)
         serializer = self.get_serializer(data=request.data)
@@ -246,7 +248,8 @@ class ConsentLogViewSet(_CustomerScopedViewSet):
         ip = self.request.META.get('REMOTE_ADDR')
         # 설계사 기록 = planner_attested. 스냅샷(consent_overseas_at)은 건드리지 않는다(대리동의 강등).
         serializer.save(customer=customer, ip=ip,
-                        subject=ConsentLog.SUBJECT_PLANNER_ATTESTED)
+                        subject=ConsentLog.SUBJECT_PLANNER_ATTESTED,
+                        doc_version=CONSENT_TEXTS_VERSION)
 
 
 class ContractChecklistViewSet(_CustomerScopedViewSet):

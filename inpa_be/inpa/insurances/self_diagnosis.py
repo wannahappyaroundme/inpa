@@ -35,6 +35,7 @@ from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
 from inpa.analytics.views import _NoIndexMixin, _build_share_payload
 from inpa.core.ocr.claude_parser import claude_parse
+from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
 from inpa.customers.models import ConsentLog, Customer
 from inpa.notifications.models import NotifType, Notification
 
@@ -178,24 +179,28 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                 ConsentLog.objects.create(
                     customer=customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
                     subject=ConsentLog.SUBJECT_CUSTOMER_SELF,  # 잠재고객 본인 동의(P3c)
-                    purpose='셀프진단 증권 OCR 국외이전(Claude, 미국)', ip=ip)
+                    purpose='셀프진단 증권 OCR 국외이전(Claude, 미국)',
+                    doc_version=CONSENT_TEXTS_VERSION, ip=ip)
             # ✦ DB 자산화: 본인이 직접 제출 + 설계사 전달 동의 = 개인정보 수집·이용 동의로 명시 기록.
             ConsentLog.objects.create(
                 customer=customer, scope=ConsentLog.SCOPE_PERSONAL_INFO,
                 subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
-                purpose='셀프진단 본인 제출·담당 설계사 전달', ip=ip)
+                purpose='셀프진단 본인 제출·담당 설계사 전달',
+                doc_version=CONSENT_TEXTS_VERSION, ip=ip)
             # ✦ 마케팅 수신(선택) — 체크 시에만.
             if _truthy(request.data.get('consent_marketing')):
                 ConsentLog.objects.create(
                     customer=customer, scope=ConsentLog.SCOPE_MARKETING,
                     subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
-                    purpose='셀프진단 마케팅 수신 동의', ip=ip)
+                    purpose='셀프진단 마케팅 수신 동의',
+                    doc_version=CONSENT_TEXTS_VERSION, ip=ip)
             # ✦ 제3자 제공·인파 플랫폼 활용(선택) — 체크 시에만. ★법상 강제 금지(필수 아님).
             if _truthy(request.data.get('consent_thirdparty')):
                 ConsentLog.objects.create(
                     customer=customer, scope=ConsentLog.SCOPE_THIRD_PARTY,
                     subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
-                    purpose='셀프진단 제3자 제공·인파 플랫폼 활용 동의', ip=ip)
+                    purpose='셀프진단 제3자 제공·인파 플랫폼 활용 동의',
+                    doc_version=CONSENT_TEXTS_VERSION, ip=ip)
             if ocr_data is not None:
                 _persist_ocr(customer, ocr_data)
 

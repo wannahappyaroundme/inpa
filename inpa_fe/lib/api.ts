@@ -32,12 +32,15 @@ export class ApiError extends Error {
   status: number;
   /** 402 credit_exhausted 일 때 BE가 반환하는 추가 필드. 그 외는 undefined. */
   creditBody?: CreditExhaustedBody;
-  constructor(status: number, code: string, message: string, creditBody?: CreditExhaustedBody) {
+  /** 412 CONSENT_OVERSEAS_REQUIRED 일 때 BE가 주는 사유: "missing"(동의 없음) | "reconsent"(구버전 동의). */
+  reason?: string;
+  constructor(status: number, code: string, message: string, creditBody?: CreditExhaustedBody, reason?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.creditBody = creditBody;
+    this.reason = reason;
   }
 }
 
@@ -1797,10 +1800,30 @@ export async function uploadInsuranceOcr(
       (data["detail"] as string) ??
       (data["message"] as string) ??
       res.statusText;
-    throw new ApiError(res.status, code, detail);
+    throw new ApiError(res.status, code, detail, undefined, data["reason"] as string | undefined);
   }
 
   return data as unknown as OcrUploadResponse;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 동의 고지문 단일 소스 — GET /api/v1/consent-texts/ (공개, 화면 렌더용)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface ConsentText {
+  title: string;
+  body: string[];
+  retention: string;
+}
+
+export interface ConsentTextsResponse {
+  version: string;
+  texts: Record<string, ConsentText>;
+}
+
+/** 최신 동의 고지문. 실패 시 화면은 로컬 v2 폴백으로 렌더한다(옛 문구는 절대 안 씀). */
+export async function getConsentTexts(): Promise<ConsentTextsResponse> {
+  return request<ConsentTextsResponse>("GET", "/consent-texts/");
 }
 
 // ════════════════════════════════════════════════════════════════════════════

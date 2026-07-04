@@ -18,44 +18,33 @@ from rest_framework.views import APIView
 
 from inpa.analytics.views import _NoIndexMixin, _mask_name
 
+from .consent_texts import (
+    CONSENT_TEXTS,
+    CONSENT_TEXTS_VERSION,
+    consent_lines,
+    has_current_overseas_consent,
+)
 from .models import ConsentLog, Customer
 from .tokens import read_consent_token
 
 _DISCLAIMER = ('AI 분석 결과는 보조 자료이며, 최종 판단과 책임은 담당 설계사에게 있습니다. '
                '인파는 보험을 중개·권유하지 않습니다.')
 
-# scope별 고지 메타 — 보수적 베타 표준문구(유료 전 법무 확정).
+# scope별 고지 메타 — 필수 여부/목적/안내만 여기서, 고지문(title·lines)은 consent_texts 단일 소스.
 _SCOPE_META = {
     ConsentLog.SCOPE_PERSONAL_INFO: {
-        'title': '개인정보 수집·이용 (필수)',
         'required': True,
         'purpose': '개인정보 수집·이용 동의(고객 본인)',
-        'lines': [
-            '수집 항목: 이름·연락처·생년월일 등 상담에 필요한 정보',
-            '이용 목적: 보험 상담·계약 관리·고객 응대',
-            '보유 기간: 거래 종료 후 관계 법령이 정한 기간',
-        ],
         'notice': '동의를 거부하실 수 있으며, 거부 시 상담 진행이 제한될 수 있어요.',
     },
     ConsentLog.SCOPE_MARKETING: {
-        'title': '마케팅·광고 정보 수신 (선택)',
         'required': False,
         'purpose': '마케팅·광고 정보 수신 동의(고객 본인)',
-        'lines': [
-            '이용 목적: 상품·이벤트 안내(문자·카카오톡 등)',
-            '보유 기간: 동의를 철회하실 때까지',
-        ],
         'notice': '거부하셔도 상담·계약에는 영향이 없어요. 언제든 수신을 거부할 수 있어요.',
     },
     ConsentLog.SCOPE_OVERSEAS_MEDICAL: {
-        'title': '보험 정보 국외이전 (Claude API, 미국)',
         'required': True,
         'purpose': '고객 본인 국외이전 동의(Claude API, 미국)',
-        'lines': [
-            '이전 국가·수탁자: 미국 Anthropic(Claude API)',
-            '이전 항목: 증권의 보험정보(담보·보험료 등)',
-            '보유 기간: 처리 후 즉시 삭제',
-        ],
         'notice': '증권 분석을 위한 국외이전에 한합니다.',
     },
 }
@@ -90,8 +79,9 @@ class PublicConsentView(_NoIndexMixin, APIView):
 
     def _already(self, customer, scope):
         # 이미 동의 = unrevoked 로그 존재. serializers._consent_state는 latest만 쓰므로 동의→철회→재요청 후 불일치 가능(beta YAGNI).
+        # 국외이전은 '현재 버전 문구로 받은 본인 동의'만 완료로 본다 → 구버전 동의 고객은 재동의(재-agree)가 가능해야 게이트가 열림.
         if scope == ConsentLog.SCOPE_OVERSEAS_MEDICAL:
-            return customer.consent_overseas_at is not None
+            return has_current_overseas_consent(customer)
         return ConsentLog.objects.filter(
             customer=customer, scope=scope, revoked_at__isnull=True).exists()
 
@@ -103,10 +93,10 @@ class PublicConsentView(_NoIndexMixin, APIView):
         affiliation = getattr(profile, 'affiliation', '') or ''
         items = [{
             'scope': sc,
-            'title': _SCOPE_META[sc]['title'],
+            'title': CONSENT_TEXTS[sc]['title'],
             'required': _SCOPE_META[sc]['required'],
             'already': self._already(customer, sc),
-            'lines': _SCOPE_META[sc]['lines'],
+            'lines': consent_lines(sc),
             'notice': _SCOPE_META[sc]['notice'],
         } for sc in scopes]
         all_required_done = bool(items) and all(
@@ -145,7 +135,8 @@ class PublicConsentView(_NoIndexMixin, APIView):
                 log = ConsentLog.objects.create(
                     customer=customer, scope=sc,
                     subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
-                    purpose=_SCOPE_META[sc]['purpose'], ip=ip)
+                    purpose=_SCOPE_META[sc]['purpose'],
+                    doc_version=CONSENT_TEXTS_VERSION, ip=ip)
                 if (sc == ConsentLog.SCOPE_OVERSEAS_MEDICAL
                         and customer.consent_overseas_at is None):
                     customer.consent_overseas_at = log.agreed_at
@@ -153,3 +144,18 @@ class PublicConsentView(_NoIndexMixin, APIView):
                 results.append({'scope': sc, 'consented': True, 'agreed_at': log.agreed_at})
         return Response({'results': results, 'all_required_done': True},
                         status=status.HTTP_201_CREATED)
+
+
+class ConsentTextsView(_NoIndexMixin, APIView):
+    """공개 동의 고지문 단일 소스 — GET /api/v1/consent-texts/.
+
+    화면(설계사 /c, 셀프진단 /d, OCR 업로드 모달)이 최신 문구를 서버에서 받아 렌더한다.
+    FE는 실패 시 v2 문구로 로컬 폴백(옛 문구는 절대 쓰지 않음).
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'share_public'
+
+    def get(self, request):
+        return Response({'version': CONSENT_TEXTS_VERSION, 'texts': CONSENT_TEXTS})

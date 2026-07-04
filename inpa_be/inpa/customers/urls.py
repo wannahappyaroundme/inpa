@@ -14,7 +14,7 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from . import views
-from .public_consent import PublicConsentView
+from .public_consent import ConsentTextsView, PublicConsentView
 
 app_name = 'customers'
 
@@ -58,6 +58,8 @@ urlpatterns = router.urls + [
     path('customers/<int:customer_pk>/consent-requests/',
          views.ConsentRequestCreateView.as_view(), name='consent-request-create'),
     path('c/<str:token>/', PublicConsentView.as_view(), name='public-consent'),
+    # 동의 고지문 단일 소스(공개 읽기) — 화면 렌더용
+    path('consent-texts/', ConsentTextsView.as_view(), name='consent-texts'),
     # 직업급수 검색(전역 마스터). customers/<pk> 라우터 충돌 회피 위해 최상위 jobs/ 로 둠.
     path('jobs/search/', views.JobSearchView.as_view(), name='job-search'),
 ]

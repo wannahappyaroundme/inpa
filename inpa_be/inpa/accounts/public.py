@@ -20,6 +20,7 @@ from inpa.accounts.models import Profile
 from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
 from inpa.analytics.views import _NoIndexMixin
+from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
 from inpa.customers.models import ConsentLog, Customer
 from inpa.notifications.models import NotifType, Notification
 
@@ -84,7 +85,8 @@ class IntroductionCardView(_NoIndexMixin, APIView):
             ConsentLog.objects.create(
                 customer=customer, scope=ConsentLog.SCOPE_PERSONAL_INFO,
                 subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
-                purpose='소개 카드 상담 신청·연락 동의', ip=ip)
+                purpose='소개 카드 상담 신청·연락 동의',
+                doc_version=CONSENT_TEXTS_VERSION, ip=ip)
         log_event(NorthStarEvent.REFERRAL_ATTRIBUTED, customer=customer, sender=planner,
                   ref_code=refcode, channel='intro_card', payload={'lead': True})
         try:
