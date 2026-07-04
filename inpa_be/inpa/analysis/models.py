@@ -150,6 +150,27 @@ class NormalizationDict(models.Model):
         return f'[{self.company}] {self.raw_name} → {self.std_detail.name}'
 
 
+class SeedMarker(models.Model):
+    """시드 데이터 버전 마커 (✦ 2026-07-04, LB-1 시드 안전화).
+
+    seed_normalization / seed_jobs 같은 무겁거나 파괴적 이력이 있는 시드 커맨드가
+    "데이터 버전이 이미 최신이면 no-op"으로 부팅 경로를 무해화하기 위한 마커.
+    커맨드마다 key 1행 (예: 'seed_normalization'), version은 코드의 데이터 버전 상수
+    (데이터 변경 시 수동 bump). --force 로 우회 가능.
+    """
+    key = models.CharField('시드 키', max_length=50, unique=True)
+    version = models.CharField('데이터 버전', max_length=20)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'seed_marker'
+        verbose_name = '시드 마커'
+        verbose_name_plural = '시드 마커'
+
+    def __str__(self):
+        return f'{self.key}={self.version}'
+
+
 class UnmatchedLog(models.Model):
     """미매칭 담보명 학습 플라이휠 (✦ 신규, dev/02 §5.3).
 

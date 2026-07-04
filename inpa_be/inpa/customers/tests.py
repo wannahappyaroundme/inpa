@@ -837,3 +837,44 @@ class ConsentTextsEndpointTests(TestCase):
         self.assertIn('Anthropic', overseas)
         # 전체 응답에도 옛 문구가 없어야 함
         self.assertNotIn('즉시 삭제', r.content.decode())
+
+
+class SeedJobsMarkerTests(TestCase):
+    """LB-1 시드 안전화: seed_jobs 버전 마커 — 2회차 no-op, --force 우회."""
+
+    def _tiny_file(self):
+        import json
+        import tempfile
+        rows = [{'sctg_cd': 'S01', 'name': '테스트직업', 'risk_grade': 1}]
+        f = tempfile.NamedTemporaryFile(
+            'w', suffix='.json', delete=False, encoding='utf-8')
+        json.dump(rows, f)
+        f.close()
+        return f.name
+
+    def test_marker_skips_second_run_force_bypasses(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        from inpa.analysis.models import SeedMarker
+        from inpa.customers.management.commands import seed_jobs as seed_jobs_mod
+        from inpa.customers.models import JobRiskCode
+
+        path = self._tiny_file()
+        call_command('seed_jobs', '--file', path, stdout=StringIO())
+        self.assertEqual(JobRiskCode.objects.count(), 1)
+        self.assertEqual(
+            SeedMarker.objects.get(key=seed_jobs_mod.MARKER_KEY).version,
+            seed_jobs_mod.SEED_VERSION)
+
+        # 2회차: 마커 최신 → no-op (파일 SSOT prune 로직도 실행 안 됨)
+        out = StringIO()
+        call_command('seed_jobs', '--file', path, stdout=out)
+        self.assertIn('이미 최신', out.getvalue())
+
+        # --force: 실제 실행 (upsert + 파일 SSOT 동기화 의미 유지)
+        out2 = StringIO()
+        call_command('seed_jobs', '--file', path, '--force', stdout=out2)
+        self.assertIn('직업급수 시드 완료', out2.getvalue())
+        self.assertEqual(JobRiskCode.objects.count(), 1)

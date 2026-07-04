@@ -12,9 +12,15 @@
 chart_based_amount 단위: 만원 (표준 보장 기준선 물리 저장; 판정 권위는 PlannerBaseline).
 company 코드: ocrdata.py LossInsurance·LifeInsurance index 기반 (데모 대역 900-909 외).
 
-멱등 실행:
+멱등 실행 (2026-07-04 LB-1 시드 안전화 — identity-true upsert):
   PYTHONPATH=<inpa_be> python3 manage.py seed_normalization
-  → 재실행 시 '표준' 마커 기준 정리 후 재생성 (카운트 불변).
+  → 자연키(부모 FK + name) get_or_create 업서트. 기존 행 PK 보존 →
+    InsuranceDetail.analysis_detail M2M 링크·NormalizationDict FK 생존.
+  → SeedMarker(key='seed_normalization') 버전이 SEED_VERSION과 같으면 no-op
+    (부팅 경로 무해화). --force 로 우회, 데이터 변경 시 SEED_VERSION 수동 bump.
+  → 삭제 없음: 코드에서 사라진 행은 고아(orphan)로 로그만. --prune(기본 OFF,
+    배포에서 미사용)일 때만 seed 출처 행 한정 삭제(admin_verified/ocr_learned 및
+    M2M 링크가 걸린 leaf는 보호 — 절대 삭제하지 않음).
 """
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -24,7 +30,12 @@ from inpa.analysis.models import (
     AnalysisDetail,
     AnalysisSubCategory,
     NormalizationDict,
+    SeedMarker,
 )
+
+# ── 시드 데이터 버전 (STANDARD_TREE/NORMALIZATION_V0 데이터 변경 시 수동 bump) ──
+SEED_VERSION = 'v1'
+MARKER_KEY = 'seed_normalization'
 
 # ── 멱등 마커 (seed_demo의 '[DEMO]' 와 충돌 없는 별도 prefix) ─────────────
 STD_MARKER = '[표준]'
@@ -520,21 +531,45 @@ NORMALIZATION_V0 = [
 
 class Command(BaseCommand):
     help = (
-        '표준 담보 트리 + 정규화 사전 v0 시드 (멱등).\n'
+        '표준 담보 트리 + 정규화 사전 v0 시드 (identity-true upsert, 멱등).\n'
+        '기존 행 PK 보존 — M2M 링크·NormalizationDict FK 생존. 삭제 없음(--prune 별도).\n'
         '★ V0 스타터 데이터 — 약관 원문 대조 검증 전. 프로덕션 전 도메인 전문가 검토 필요.'
     )
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--force', action='store_true',
+            help='SeedMarker 버전이 최신이어도 강제 재실행')
+        parser.add_argument(
+            '--prune', action='store_true',
+            help='코드에 없는 seed 출처 고아 행 삭제 (기본 OFF — 배포에서 미사용). '
+                 'admin_verified/ocr_learned 및 M2M 링크 걸린 leaf 는 보호')
+
     @transaction.atomic
     def handle(self, *args, **options):
-        self.stdout.write('=== seed_normalization v0 시작 ===')
+        force = options['force']
+        prune = options['prune']
+
+        # ── 0) 버전 마커 가드: 부팅 경로(no-op) 무해화 ──
+        marker = SeedMarker.objects.filter(key=MARKER_KEY).first()
+        if marker and marker.version == SEED_VERSION and not force and not prune:
+            self.stdout.write(
+                f'=== seed_normalization: 이미 최신({SEED_VERSION}) — 건너뜀 '
+                '(강제 실행: --force) ===')
+            return
+
+        self.stdout.write('=== seed_normalization v0 시작 (upsert) ===')
         self.stdout.write(
             '★ 경고: V0 스타터 데이터. 약관 원문 대조 미완료. '
             '프로덕션 전 도메인 검증 필수 (게이트: 보장 기준선 출처 정의).'
         )
 
-        self._cleanup()
         detail_by_name = self._seed_tree()
-        norm_count, norm_skip = self._seed_normalization(detail_by_name)
+        norm_stats = self._seed_normalization(detail_by_name)
+        orphan_stats = self._handle_orphans(prune=prune)
+
+        SeedMarker.objects.update_or_create(
+            key=MARKER_KEY, defaults={'version': SEED_VERSION})
 
         cat_count = AnalysisCategory.objects.filter(
             name__startswith=STD_MARKER).count()
@@ -543,79 +578,86 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('=== seed_normalization 완료 ==='))
         self.stdout.write(f'  표준 카테고리   : {cat_count}개')
         self.stdout.write(f'  표준 담보(leaf) : {detail_count}개')
-        self.stdout.write(f'  정규화 사전 행수: {norm_count}행 (skip={norm_skip})')
         self.stdout.write(
-            '  ※ 재실행 시 카운트 동일 (멱등). '
-            '비프로덕션 — 약관 원문 대조 검증 후 사용 권장.'
+            f'  정규화 사전     : 생성 {norm_stats["created"]} / 갱신 {norm_stats["updated"]} / '
+            f'보호 {norm_stats["protected"]} (skip={norm_stats["skipped"]})'
+        )
+        self.stdout.write(
+            f'  고아(orphan)    : 트리 {orphan_stats["tree"]}건 / 사전 {orphan_stats["dict"]}건 '
+            f'{"→ prune 삭제 " + str(orphan_stats["pruned"]) + "건" if prune else "(로그만 — 삭제 없음)"}'
+        )
+        self.stdout.write(
+            f'  마커            : {MARKER_KEY}={SEED_VERSION} (재부팅 시 no-op)'
         )
 
-    # ── 멱등 정리 ────────────────────────────────────────────────────────
-    def _cleanup(self):
-        """'[표준]' 마커 기준 기존 표준 시드 데이터 삭제.
-
-        seed_demo의 '[DEMO]' 마커와 독립 — 데모 데이터 훼손 없음.
-        보험사 코드가 표준 대역(데모 900~909 외)이므로 NormalizationDict도 마커로 정리.
-        """
-        # 표준 담보 트리(카테고리 CASCADE → sub/detail 연쇄 삭제)
-        deleted_cats = AnalysisCategory.objects.filter(
-            name__startswith=STD_MARKER).count()
-        AnalysisCategory.objects.filter(name__startswith=STD_MARKER).delete()
-
-        # 정규화 사전: 표준 시드 보험사 코드 + source=seed 기준
-        STD_COMPANY_CODES = [
-            MERITZ, SAMSUNG_LOSS, HANHWA_LOSS, HYUNDAI, DB_LOSS, KB_LOSS,
-            NH_LOSS, 흥국, SAMSUNG_LIFE, HANHWA_LIFE, KYOBO_LIFE, NH_LIFE,
-            DONGYANG,
-        ]
-        deleted_norms = NormalizationDict.objects.filter(
-            company__in=STD_COMPANY_CODES,
-            source=NormalizationDict.SOURCE_SEED,
-        ).count()
-        NormalizationDict.objects.filter(
-            company__in=STD_COMPANY_CODES,
-            source=NormalizationDict.SOURCE_SEED,
-        ).delete()
-
-        self.stdout.write(
-            f'  [정리] 기존 표준 카테고리 {deleted_cats}개 + '
-            f'정규화 {deleted_norms}행 삭제'
-        )
-
-    # ── 1) 표준 담보 트리 ────────────────────────────────────────────────
+    # ── 1) 표준 담보 트리 — 자연키(부모 FK + name) upsert. PK 보존 ─────────
     def _seed_tree(self):
-        """AnalysisCategory→Sub→Detail. 반환: {담보명: AnalysisDetail}."""
+        """AnalysisCategory→Sub→Detail get_or_create 업서트. 반환: {담보명: AnalysisDetail}.
+
+        기존 행은 PK를 유지한 채 비-키 속성(order/insurance_type/chart_based_amount)만
+        갱신 → InsuranceDetail.analysis_detail M2M·NormalizationDict FK 생존.
+        ★ [표준] leaf 이름 변경 금지(PlannerBaseline coverage_key가 이름에 묶임).
+        """
         detail_by_name = {}
+        created = updated = 0
         for c_order, (cat_name, ins_type, subs) in enumerate(STANDARD_TREE, start=1):
-            cat = AnalysisCategory.objects.create(
-                insurance_type=ins_type,
+            cat, c_new = AnalysisCategory.objects.get_or_create(
                 name=f'{STD_MARKER}{cat_name}',
-                order=c_order,
+                defaults={'insurance_type': ins_type, 'order': c_order},
             )
+            created += c_new
+            updated += self._sync_fields(
+                cat, insurance_type=ins_type, order=c_order)
             for s_order, (sub_name, details) in enumerate(subs, start=1):
-                sub = AnalysisSubCategory.objects.create(
-                    insurance_type=ins_type,
+                sub, s_new = AnalysisSubCategory.objects.get_or_create(
                     category=cat,
                     name=sub_name,
-                    order=s_order,
+                    defaults={'insurance_type': ins_type, 'order': s_order},
                 )
+                created += s_new
+                updated += self._sync_fields(
+                    sub, insurance_type=ins_type, order=s_order)
                 for d_order, (det_name, based_amount) in enumerate(details, start=1):
-                    det = AnalysisDetail.objects.create(
+                    det, d_new = AnalysisDetail.objects.get_or_create(
                         sub_category=sub,
                         name=det_name,
-                        order=d_order,
-                        chart_based_amount=based_amount,
+                        defaults={'order': d_order,
+                                  'chart_based_amount': based_amount},
                     )
+                    created += d_new
+                    updated += self._sync_fields(
+                        det, order=d_order, chart_based_amount=based_amount)
                     detail_by_name[det_name] = det
 
         total = len(detail_by_name)
-        self.stdout.write(f'  [1] 표준 담보 트리: 카테고리 {len(STANDARD_TREE)}개, 담보 {total}개')
+        self.stdout.write(
+            f'  [1] 표준 담보 트리: 카테고리 {len(STANDARD_TREE)}개, 담보 {total}개 '
+            f'(신규 {created} / 갱신 {updated} — 기존 PK 보존)'
+        )
         return detail_by_name
 
-    # ── 2) 정규화 사전 ───────────────────────────────────────────────────
+    @staticmethod
+    def _sync_fields(obj, **fields):
+        """비-키 필드만 비교 후 변경 시 저장. 반환: 1(갱신) / 0(무변경)."""
+        changed = []
+        for k, v in fields.items():
+            if getattr(obj, k) != v:
+                setattr(obj, k, v)
+                changed.append(k)
+        if changed:
+            obj.save(update_fields=changed)
+            return 1
+        return 0
+
+    # ── 2) 정규화 사전 — (company, raw_name) 자연키 upsert. seed 출처만 ────
     def _seed_normalization(self, detail_by_name):
-        """NormalizationDict 행 생성. 반환: (created, skipped)."""
-        created = 0
-        skipped = 0
+        """NormalizationDict upsert. 반환: dict(created/updated/protected/skipped).
+
+        ★ 자연키 (company, raw_name)에 admin_verified/ocr_learned 행이 이미 있으면
+          절대 건드리지 않음(protected). seed 출처 행만 std_detail/confidence 갱신
+          (hit_count는 보존 — 데이터 복리 자산).
+        """
+        created = updated = protected = skipped = 0
         skipped_names = []
 
         for company, raw_name, std_name in NORMALIZATION_V0:
@@ -624,20 +666,136 @@ class Command(BaseCommand):
                 skipped += 1
                 skipped_names.append(f'[{company}] {raw_name} → {std_name}(없음)')
                 continue
-            NormalizationDict.objects.create(
-                std_detail=std_detail,
-                company=company,
-                raw_name=raw_name,
-                source=NormalizationDict.SOURCE_SEED,
-                confidence=80,   # v0 스타터: 약관 미검증 → 신뢰도 80 (admin_verified=100)
-                hit_count=0,
-            )
-            created += 1
+            row = NormalizationDict.objects.filter(
+                company=company, raw_name=raw_name).first()
+            if row is None:
+                NormalizationDict.objects.create(
+                    std_detail=std_detail,
+                    company=company,
+                    raw_name=raw_name,
+                    source=NormalizationDict.SOURCE_SEED,
+                    confidence=80,   # v0 스타터: 약관 미검증 → 신뢰도 80 (admin_verified=100)
+                    hit_count=0,
+                )
+                created += 1
+            elif row.source != NormalizationDict.SOURCE_SEED:
+                # admin_verified / ocr_learned — 어떤 코드 경로에서도 불변
+                protected += 1
+            else:
+                if row.std_detail_id != std_detail.id or row.confidence != 80:
+                    row.std_detail = std_detail
+                    row.confidence = 80
+                    row.save(update_fields=['std_detail', 'confidence'])
+                    updated += 1
 
         if skipped_names:
             self.stdout.write(
                 f'  [경고] 표준 담보명 미매칭 skip {skipped}건:\n'
                 + '\n'.join(f'    {s}' for s in skipped_names)
             )
-        self.stdout.write(f'  [2] 정규화 사전: {created}행 생성 (skip={skipped})')
-        return created, skipped
+        self.stdout.write(
+            f'  [2] 정규화 사전: 생성 {created} / 갱신 {updated} / 보호 {protected} '
+            f'(skip={skipped})'
+        )
+        return {'created': created, 'updated': updated,
+                'protected': protected, 'skipped': skipped}
+
+    # ── 3) 고아 처리 — 로그만(기본) / --prune 시 seed 출처 한정 삭제 ────────
+    def _handle_orphans(self, prune):
+        """코드(STANDARD_TREE/NORMALIZATION_V0)에서 사라진 DB 행을 탐지.
+
+        기본: 로그만 남기고 절대 삭제하지 않음(배포 경로 무해).
+        --prune: seed 출처 행만 삭제하되, 아래는 보호(삭제 스킵 + 로그):
+          - admin_verified/ocr_learned alias가 걸린 leaf (CASCADE 로 검수 자산이
+            지워지는 것 방지)
+          - InsuranceDetail.analysis_detail M2M 링크가 걸린 leaf (고객 스캔 데이터
+            집계가 끊기는 것 방지)
+        """
+        # 코드 기준 자연키 집합
+        code_cats = {f'{STD_MARKER}{c}' for c, _t, _s in STANDARD_TREE}
+        code_subs = set()
+        code_dets = set()
+        for cat_name, _t, subs in STANDARD_TREE:
+            for sub_name, details in subs:
+                code_subs.add((f'{STD_MARKER}{cat_name}', sub_name))
+                for det_name, _amt in details:
+                    code_dets.add((f'{STD_MARKER}{cat_name}', sub_name, det_name))
+        code_aliases = {(c, r) for c, r, _s in NORMALIZATION_V0}
+
+        # 트리 고아 (leaf → sub → cat 순으로 수집)
+        orphan_dets = [
+            d for d in AnalysisDetail.objects.filter(
+                sub_category__category__name__startswith=STD_MARKER
+            ).select_related('sub_category__category')
+            if (d.sub_category.category.name, d.sub_category.name, d.name)
+            not in code_dets
+        ]
+        orphan_subs = [
+            s for s in AnalysisSubCategory.objects.filter(
+                category__name__startswith=STD_MARKER).select_related('category')
+            if (s.category.name, s.name) not in code_subs
+        ]
+        orphan_cats = [
+            c for c in AnalysisCategory.objects.filter(
+                name__startswith=STD_MARKER)
+            if c.name not in code_cats
+        ]
+
+        # 사전 고아 — [표준] 트리를 가리키는 seed 출처 행 중 코드에 없는 alias
+        orphan_dict_rows = [
+            n for n in NormalizationDict.objects.filter(
+                source=NormalizationDict.SOURCE_SEED,
+                std_detail__sub_category__category__name__startswith=STD_MARKER,
+            )
+            if (n.company, n.raw_name) not in code_aliases
+        ]
+
+        tree_orphans = len(orphan_dets) + len(orphan_subs) + len(orphan_cats)
+        for d in orphan_dets:
+            self.stdout.write(f'  [고아] leaf: {d.sub_category.category.name}/'
+                              f'{d.sub_category.name}/{d.name} (pk={d.pk})')
+        for s in orphan_subs:
+            self.stdout.write(f'  [고아] sub: {s.category.name}/{s.name} (pk={s.pk})')
+        for c in orphan_cats:
+            self.stdout.write(f'  [고아] cat: {c.name} (pk={c.pk})')
+        for n in orphan_dict_rows:
+            self.stdout.write(f'  [고아] 사전: [{n.company}] {n.raw_name} (pk={n.pk})')
+
+        pruned = 0
+        if prune:
+            # 사전 고아: seed 출처만 — 안전 삭제
+            for n in orphan_dict_rows:
+                n.delete()
+                pruned += 1
+            # leaf 고아: 검수 자산·고객 링크 보호 가드
+            for d in orphan_dets:
+                if d.aliases.exclude(
+                        source=NormalizationDict.SOURCE_SEED).exists():
+                    self.stdout.write(
+                        f'  [보호] leaf {d.name}: admin_verified/ocr_learned alias '
+                        '존재 — 삭제 스킵')
+                    continue
+                if d.insurancedetail_set.exists():
+                    self.stdout.write(
+                        f'  [보호] leaf {d.name}: 고객 스캔 M2M 링크 존재 — 삭제 스킵')
+                    continue
+                d.aliases.all().delete()  # 남은 seed alias 정리 후 leaf 삭제
+                d.delete()
+                pruned += 1
+            # sub/cat 고아: 자식이 완전히 비었을 때만
+            for s in orphan_subs:
+                if not s.details.exists():
+                    s.delete()
+                    pruned += 1
+            for c in orphan_cats:
+                if not c.sub_categories.exists():
+                    c.delete()
+                    pruned += 1
+            self.stdout.write(f'  [3] prune: 고아 {pruned}건 삭제 (seed 출처 한정)')
+        elif tree_orphans or orphan_dict_rows:
+            self.stdout.write(
+                f'  [3] 고아 {tree_orphans + len(orphan_dict_rows)}건 — 삭제하지 않음 '
+                '(정리하려면 --prune)')
+
+        return {'tree': tree_orphans, 'dict': len(orphan_dict_rows),
+                'pruned': pruned}
