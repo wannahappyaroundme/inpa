@@ -10,6 +10,7 @@
 """
 from django.core import signing
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -85,6 +86,33 @@ class PublicConsentView(_NoIndexMixin, APIView):
         return ConsentLog.objects.filter(
             customer=customer, scope=scope, revoked_at__isnull=True).exists()
 
+    def _revocable(self, customer, scope):
+        """철회 가능 = 살아있는(unrevoked) 로그가 하나라도 있는가 — subject·버전 불문.
+
+        already(국외이전은 현재 버전 본인 동의만 True)와 기준이 다르다: 구버전 동의나
+        설계사 대리(planner_attested) 기록도 정보주체가 철회할 수 있어야 한다(PIPA 철회권).
+        """
+        return ConsentLog.objects.filter(
+            customer=customer, scope=scope, revoked_at__isnull=True).exists()
+
+    def _apply_revocations(self, customer, scopes_to_revoke, ip):
+        """철회 실행 — 해당 scope의 모든 unrevoked ConsentLog(subject 불문)에
+        revoked_at/revoke_ip 스탬프. 재철회는 0건 갱신(멱등). 국외이전 철회 시
+        Customer.consent_overseas_at 스냅샷도 함께 비워 표시(동의 완료 배지)·게이트가
+        일관되게 '미동의' 상태로 돌아간다(이미 저장된 분석 자료는 그대로 유지).
+        """
+        now = timezone.now()
+        results = []
+        for sc in scopes_to_revoke:
+            updated = ConsentLog.objects.filter(
+                customer=customer, scope=sc, revoked_at__isnull=True,
+            ).update(revoked_at=now, revoke_ip=ip)
+            if sc == ConsentLog.SCOPE_OVERSEAS_MEDICAL and customer.consent_overseas_at is not None:
+                customer.consent_overseas_at = None
+                customer.save(update_fields=['consent_overseas_at'])
+            results.append({'scope': sc, 'revoked': True, 'updated_logs': updated})
+        return results
+
     def get(self, request, token):
         customer, scopes, err = self._resolve(token)
         if err is not None:
@@ -96,6 +124,8 @@ class PublicConsentView(_NoIndexMixin, APIView):
             'title': CONSENT_TEXTS[sc]['title'],
             'required': _SCOPE_META[sc]['required'],
             'already': self._already(customer, sc),
+            # 철회 가능 여부(살아있는 동의 존재) — FE가 '동의 철회' 버튼 노출 판단에 사용.
+            'revocable': self._revocable(customer, sc),
             'lines': consent_lines(sc),
             'notice': _SCOPE_META[sc]['notice'],
         } for sc in scopes]
@@ -118,16 +148,30 @@ class PublicConsentView(_NoIndexMixin, APIView):
             agreed = []
         agreed = [s for s in agreed if s in scopes]  # 토큰 밖 scope 무시(위조 방지)
 
-        required = [s for s in scopes if _SCOPE_META[s]['required']]
-        missing = [s for s in required if s not in agreed and not self._already(customer, s)]
-        if missing:
-            return Response(
-                {'code': 'CONSENT_REQUIRED', 'detail': '필수 동의 항목에 동의가 필요합니다.'},
-                status=status.HTTP_412_PRECONDITION_FAILED)
+        # 철회(revoked) — agreed와 동일 원칙: 토큰 밖 scope 무시(위조 가드).
+        # agreed에도 함께 온 scope는 철회 목록에서 제외(철회→재동의를 한 요청에서 하려는
+        # 의도가 아니라 충돌 입력으로 보고, 동의 유지가 안전한 해석).
+        revoked = request.data.get('revoked') or []
+        if not isinstance(revoked, list):
+            revoked = []
+        revoked = [s for s in revoked if s in scopes and s not in agreed]
+
+        # 필수 미동의 412는 '동의 제출'에만 적용. 철회 전용 요청(agreed 없음)은
+        # 통과시켜야 정보주체가 필수 항목도 철회할 수 있다(PIPA 철회권).
+        pure_revoke = bool(revoked) and not agreed
+        if not pure_revoke:
+            required = [s for s in scopes if _SCOPE_META[s]['required']]
+            missing = [s for s in required
+                       if s not in agreed and not self._already(customer, s)]
+            if missing:
+                return Response(
+                    {'code': 'CONSENT_REQUIRED', 'detail': '필수 동의 항목에 동의가 필요합니다.'},
+                    status=status.HTTP_412_PRECONDITION_FAILED)
 
         ip = request.META.get('REMOTE_ADDR')
         results = []
         with transaction.atomic():
+            revoked_results = self._apply_revocations(customer, revoked, ip)
             for sc in agreed:
                 if self._already(customer, sc):
                     results.append({'scope': sc, 'consented': True, 'agreed_at': None})
@@ -142,8 +186,13 @@ class PublicConsentView(_NoIndexMixin, APIView):
                     customer.consent_overseas_at = log.agreed_at
                     customer.save(update_fields=['consent_overseas_at'])
                 results.append({'scope': sc, 'consented': True, 'agreed_at': log.agreed_at})
-        return Response({'results': results, 'all_required_done': True},
-                        status=status.HTTP_201_CREATED)
+        all_required_done = all(
+            self._already(customer, s)
+            for s in scopes if _SCOPE_META[s]['required'])
+        return Response(
+            {'results': results, 'revoked': revoked_results,
+             'all_required_done': all_required_done},
+            status=status.HTTP_200_OK if pure_revoke else status.HTTP_201_CREATED)
 
 
 class ConsentTextsView(_NoIndexMixin, APIView):

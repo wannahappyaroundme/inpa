@@ -1887,6 +1887,7 @@ export interface ConsentItem {
   title: string;
   required: boolean;
   already: boolean;
+  revocable: boolean; // 살아있는 동의가 있어 철회 가능한 항목
   lines: string[];
   notice: string;
 }
@@ -1910,15 +1911,16 @@ export async function getConsentDisclosure(token: string): Promise<ConsentDisclo
   return data as ConsentDisclosure;
 }
 
-/** POST /api/v1/c/<token>/ — 동의 scope 배열 제출(공개, 비인증) */
+/** POST /api/v1/c/<token>/ — 동의 scope 배열 제출 + 철회 scope 배열(공개, 비인증) */
 export async function submitConsent(
   token: string,
-  agreed: string[]
+  agreed: string[],
+  revoked: string[] = []
 ): Promise<{ results: { scope: string; consented: boolean }[]; all_required_done: boolean }> {
   const res = await fetch(`${API_BASE}/c/${encodeURIComponent(token)}/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agreed }),
+    body: JSON.stringify(revoked.length ? { agreed, revoked } : { agreed }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -2265,6 +2267,7 @@ export interface ShareViewResponse {
   tree: ShareCategory[];
   disclaimer: string;
   booking_url?: string; // 예약 가능할 때만(설계사 영업시간 존재) — '바로 상담 예약' CTA
+  planner_contact?: string | null; // 담당 설계사 전화번호(없으면 null) — 연락 레이어용
 }
 
 /**
@@ -2551,7 +2554,11 @@ export async function applyBaselinePreset(
 }
 
 /** 공유뷰 이벤트 종류 */
-export type ShareEventType = "clipboard_copy" | "cta_click" | "share_view";
+export type ShareEventType =
+  | "clipboard_copy"
+  | "cta_click"
+  | "share_view"
+  | "callback_request";
 
 /**
  * POST /api/v1/s/<token>/event/

@@ -667,3 +667,134 @@ class DailyJobsIdempotencyTests(TestCase):
         run_daily_jobs()
         marker = SeedMarker.objects.get(key=HEARTBEAT_KEY)
         self.assertEqual(marker.version, tz.localdate().isoformat())
+
+
+# ─── 10. 인바운드 리드 보유기간 자동 파기 (spec 2026-07-04 Part1 §5) ──
+
+from inpa.customers.models import ConsentLog, ContactLog  # noqa: E402
+
+from .jobs import cleanup_expired_leads  # noqa: E402
+
+
+class LeadRetentionTests(TestCase):
+    """LEAD_RETENTION_DAYS(기본 180) 초과·미전환 인바운드 리드만 파기. 직접 등록은 절대 보존."""
+
+    def setUp(self):
+        self.user, _ = _make_planner('retention@test.com')
+        self.today = tz.localdate()
+
+    def _lead(self, age_days, source=Customer.LEAD_SELF_DIAGNOSIS, **kwargs):
+        """실제 인바운드 리드 시뮬레이션 — /d·/p 유입 경로처럼 lead_created_at 기록."""
+        cust = Customer.objects.create(owner=self.user, name='김리드',
+                                       lead_source=source, **kwargs)
+        Customer.objects.filter(pk=cust.pk).update(
+            created_at=tz.now() - timedelta(days=age_days),
+            lead_created_at=tz.now() - timedelta(days=age_days))
+        return cust
+
+    def test_expired_inbound_lead_deleted_with_summary_notification(self):
+        """181일 무활동 셀프진단 리드 → 삭제 + 설계사 요약 알림 1건 + 동의로그 잔존."""
+        cust = self._lead(181)
+        log = ConsentLog.objects.create(customer=cust,
+                                        scope=ConsentLog.SCOPE_PERSONAL_INFO,
+                                        subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        # 동의도 유입 당시(181일 전) 기록 — 신선 동의는 활동으로 간주돼 보존됨
+        ConsentLog.objects.filter(pk=log.pk).update(
+            agreed_at=tz.now() - timedelta(days=181))
+        deleted = cleanup_expired_leads(self.today)
+        self.assertEqual(deleted, 1)
+        self.assertFalse(Customer.objects.filter(pk=cust.pk).exists())
+        # 동의 감사 로그는 SET_NULL로 잔존
+        log = ConsentLog.objects.get(scope=ConsentLog.SCOPE_PERSONAL_INFO)
+        self.assertIsNone(log.customer_id)
+        notifs = Notification.objects.filter(owner=self.user,
+                                             title='잠재고객 정보 자동 정리')
+        self.assertEqual(notifs.count(), 1)
+        self.assertIn('1명', notifs.first().body)
+
+    def test_boundary_179_days_kept(self):
+        """179일 리드는 보존(경계 하한)."""
+        cust = self._lead(179)
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertTrue(Customer.objects.filter(pk=cust.pk).exists())
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_conversion_traces_protect_lead(self):
+        """전환 흔적(보험/접촉기록/미팅/단계 이동/최근 연락)이 있으면 보존."""
+        with_ins = self._lead(200)
+        CustomerInsurance.objects.create(customer=with_ins, portfolio_type=1, name='보험')
+        with_contact = self._lead(200)
+        ContactLog.objects.create(owner=self.user, customer=with_contact,
+                                  result=ContactLog.RESULT_CONNECTED)
+        with_meeting = self._lead(200)
+        Meeting.objects.create(owner=self.user, customer=with_meeting,
+                               start_at=tz.now(), method=Meeting.METHOD_PHONE,
+                               status=Meeting.STATUS_PENDING)
+        staged = self._lead(200)
+        Customer.objects.filter(pk=staged.pk).update(sales_stage=Customer.STAGE_CONTACT)
+        recent_touch = self._lead(200)
+        Customer.objects.filter(pk=recent_touch.pk).update(
+            last_contacted_at=tz.now() - timedelta(days=10))
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertEqual(Customer.objects.count(), 5)
+
+    def test_direct_registered_customer_never_deleted(self):
+        """설계사 직접 등록(lead_source direct/null) 고객은 아무리 오래돼도 대상 아님."""
+        direct = self._lead(400, source=Customer.LEAD_DIRECT)
+        no_source = Customer.objects.create(owner=self.user, name='김직접')
+        Customer.objects.filter(pk=no_source.pk).update(
+            created_at=tz.now() - timedelta(days=400))
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertTrue(Customer.objects.filter(pk=direct.pk).exists())
+        self.assertTrue(Customer.objects.filter(pk=no_source.pk).exists())
+
+    def test_manual_customer_with_introduction_source_never_deleted(self):
+        """수기 등록 + 유입경로 '소개'(introduction) 선택 고객은 절대 대상 아님.
+
+        lead_source='introduction'은 등록 모달·일괄 등록에서 설계사가 직접 고를 수
+        있는 유입경로 → source 만으로 거르면 오삭제(2026-07-04 리뷰 blocker).
+        판별자 = lead_created_at(인바운드 유입 경로만 기록, 수기/일괄은 null).
+        """
+        manual = Customer.objects.create(owner=self.user, name='김소개',
+                                         lead_source=Customer.LEAD_INTRODUCTION)
+        Customer.objects.filter(pk=manual.pk).update(
+            created_at=tz.now() - timedelta(days=400))  # lead_created_at=None 유지
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertTrue(Customer.objects.filter(pk=manual.pk).exists())
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_fresh_consent_protects_old_lead(self):
+        """200일 된 인바운드 리드가 오늘 재신청(새 ConsentLog) → 보존.
+
+        /d·/p 재신청은 전화번호 dedupe로 기존 고객을 재사용하며 새 ConsentLog 만
+        남김 → 신선한 동의 = 활동(새 동의 직후 파기 역설 방지, 2026-07-04 리뷰 major).
+        """
+        cust = self._lead(200, source=Customer.LEAD_INTRODUCTION)
+        ConsentLog.objects.create(customer=cust,
+                                  scope=ConsentLog.SCOPE_PERSONAL_INFO,
+                                  subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertTrue(Customer.objects.filter(pk=cust.pk).exists())
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_idempotent_rerun_no_duplicate_notification(self):
+        """같은 날 재실행 — 2회차 삭제 0·알림 중복 0."""
+        self._lead(181, source=Customer.LEAD_INTRODUCTION)
+        self.assertEqual(cleanup_expired_leads(self.today), 1)
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertEqual(
+            Notification.objects.filter(title='잠재고객 정보 자동 정리').count(), 1)
+
+    @override_settings(LEAD_RETENTION_DAYS=0)
+    def test_zero_or_unset_days_skips(self):
+        """LEAD_RETENTION_DAYS ≤ 0 → 파기 스킵(안전 스위치)."""
+        cust = self._lead(400)
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertTrue(Customer.objects.filter(pk=cust.pk).exists())
+
+    def test_run_daily_jobs_includes_cleanup_step(self):
+        """daily runner에 정리 단계 탑재 — counts에 삭제 수, 알림 생산 합계와 분리."""
+        self._lead(181)
+        result = run_daily_jobs()
+        self.assertEqual(result['counts']['lead_retention_deleted'], 1)
+        self.assertEqual(result['errors'], {})

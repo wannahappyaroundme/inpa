@@ -878,3 +878,125 @@ class SeedJobsMarkerTests(TestCase):
         call_command('seed_jobs', '--file', path, '--force', stdout=out2)
         self.assertIn('직업급수 시드 완료', out2.getvalue())
         self.assertEqual(JobRiskCode.objects.count(), 1)
+
+
+class ConsentRevokeTests(TestCase):
+    """공개 /c 동의 철회(LB#10) — revocable 노출, revoked[] 스탬프, 게이트·스냅샷 정합."""
+
+    def setUp(self):
+        cache.clear()  # throttle 격리
+        self.user, _ = _make_planner('rv@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='김철회')
+        self.anon = APIClient()
+
+    def _token(self, scopes):
+        return make_consent_token(self.customer, scopes=scopes)
+
+    def test_get_marks_agreed_scope_revocable(self):
+        """동의된 scope는 revocable=true, 기록 없는 scope는 false."""
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF, doc_version=CONSENT_TEXTS_VERSION)
+        tok = self._token(['marketing', 'personal_info'])
+        r = self.anon.get(f'/api/v1/c/{tok}/')
+        self.assertEqual(r.status_code, 200)
+        items = {it['scope']: it for it in r.json()['items']}
+        self.assertTrue(items['marketing']['revocable'])
+        self.assertFalse(items['personal_info']['revocable'])
+
+    def test_post_revoked_stamps_all_unrevoked_logs_incl_planner_attested(self):
+        """철회 = 해당 scope의 모든 unrevoked 로그(subject 불문) revoked_at 스탬프."""
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_PLANNER_ATTESTED)
+        tok = self._token(['marketing'])
+        r = self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['marketing']}, format='json')
+        self.assertEqual(r.status_code, 200)
+        logs = ConsentLog.objects.filter(customer=self.customer,
+                                         scope=ConsentLog.SCOPE_MARKETING)
+        self.assertEqual(logs.count(), 2)
+        self.assertTrue(all(l.revoked_at is not None for l in logs))
+        # 재철회 멱등 — 추가 스탬프 없음, 응답 정상
+        r2 = self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['marketing']}, format='json')
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r2.json()['revoked'][0]['updated_logs'], 0)
+
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_overseas_revoke_closes_ocr_gate_with_missing_reason(self):
+        """국외이전 철회 → 스냅샷(consent_overseas_at)도 비워져 OCR 게이트 412 reason=missing."""
+        _grant_overseas(self.customer)
+        self.assertTrue(has_current_overseas_consent(self.customer))
+        tok = self._token(['overseas_medical'])
+        r = self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['overseas_medical']},
+                           format='json')
+        self.assertEqual(r.status_code, 200)
+        self.customer.refresh_from_db()
+        self.assertIsNone(self.customer.consent_overseas_at)
+        self.assertFalse(has_current_overseas_consent(self.customer))
+        # OCR 업로드 게이트 — 철회 후 새 분석은 412(스냅샷까지 비웠으니 reason=missing)
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        ocr = client.post(f'/api/v1/customers/{self.customer.id}/insurances/ocr/', {})
+        self.assertEqual(ocr.status_code, 412)
+        self.assertEqual(ocr.json()['code'], 'CONSENT_OVERSEAS_REQUIRED')
+        self.assertEqual(ocr.json()['reason'], 'missing')
+
+    def test_revoke_outside_token_scope_ignored(self):
+        """토큰 밖 scope 철회는 무시(위조 가드) — 로그 불변."""
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        tok = self._token(['personal_info'])  # marketing 미포함 토큰
+        r = self.anon.post(f'/api/v1/c/{tok}/',
+                           {'agreed': ['personal_info'], 'revoked': ['marketing']},
+                           format='json')
+        self.assertEqual(r.status_code, 201)
+        log = ConsentLog.objects.get(customer=self.customer,
+                                     scope=ConsentLog.SCOPE_MARKETING)
+        self.assertIsNone(log.revoked_at)
+
+    def test_pure_revoke_of_required_scope_passes_412_check(self):
+        """철회 전용 요청은 필수 미동의 412를 타지 않는다(철회권 보장)."""
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_PERSONAL_INFO,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        tok = self._token(['personal_info'])
+        r = self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['personal_info']},
+                           format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.json()['all_required_done'])
+
+    def test_revoke_then_reagree_reopens_gate(self):
+        """왕복 — 철회 후 재동의(v2) → 새 로그 생성 + 게이트 다시 열림."""
+        _grant_overseas(self.customer)
+        tok = self._token(['overseas_medical'])
+        self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['overseas_medical']},
+                       format='json')
+        self.assertFalse(has_current_overseas_consent(self.customer))
+        r = self.anon.post(f'/api/v1/c/{tok}/', {'agreed': ['overseas_medical']},
+                           format='json')
+        self.assertEqual(r.status_code, 201)
+        self.customer.refresh_from_db()
+        self.assertIsNotNone(self.customer.consent_overseas_at)
+        self.assertTrue(has_current_overseas_consent(self.customer))
+        # 로그: 철회된 1건 + 살아있는 새 1건
+        logs = ConsentLog.objects.filter(customer=self.customer,
+                                         scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL)
+        self.assertEqual(logs.count(), 2)
+        self.assertEqual(logs.filter(revoked_at__isnull=True).count(), 1)
+
+    def test_revoke_updates_detail_serializer_state(self):
+        """철회 후 고객 상세 consents 상태가 'revoked'로 일관 반영(표시 정합)."""
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        tok = self._token(['marketing'])
+        self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['marketing']}, format='json')
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        r = client.get(f'/api/v1/customers/{self.customer.id}/')
+        self.assertEqual(r.json()['consents']['marketing']['status'], 'revoked')
+        self.assertEqual(r.json()['marketing_consent'], 'revoked')

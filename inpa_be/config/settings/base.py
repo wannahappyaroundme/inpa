@@ -222,6 +222,12 @@ LOGGING = {
 # 환경변수 FREE_TIER_UNLIMITED=true/false 로 런타임 제어.
 FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
 
+# ── 인바운드 리드 보유기간 자동 파기 (PIPA 보유기간, PM 확정 180일) ─────────
+# 셀프진단(/d)·소개카드(/p)로 유입된 잠재고객 중 상담으로 이어지지 않은 리드를
+# 마지막 활동일(last_contacted_at, 없으면 created_at)부터 N일 경과 시 daily job에서 파기.
+# 0 이하로 설정하면 파기 스킵(안전 스위치). 설계사 직접 등록 고객은 절대 대상 아님.
+LEAD_RETENTION_DAYS = env.int('LEAD_RETENTION_DAYS', default=180)
+
 # ── 갈아타기(승환) 비교 게이트 (dev/09 중개금지 · dev/02 §16 · §97) ──────
 # ★ 컴플라이언스 게이트 — 우회 금지. 둘 다 기본 False (보수적 기본값).
 #   COMPARE_AI_ENABLED=True 여야만 AI 비교안내서 초안 생성(check_and_consume+Claude).

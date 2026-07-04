@@ -20,8 +20,10 @@
 import datetime as dt
 import logging
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import F, Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from inpa.analysis.models import SeedMarker
@@ -319,6 +321,62 @@ def produce_share_unread(today):
     return created
 
 
+# ─── 정리 단계 — 인바운드 리드 보유기간 자동 파기 (spec 2026-07-04 Part1 §5) ──
+
+def cleanup_expired_leads(today):
+    """상담으로 이어지지 않은 인바운드 리드를 보유기간(LEAD_RETENTION_DAYS, 기본 180일)
+    경과 시 하드 삭제(파기)하고 설계사에게 요약 알림 1건을 남긴다.
+
+    대상(전부 AND — 하나라도 어긋나면 보존):
+      - lead_source ∈ {셀프진단(self_diagnosis), 소개카드(introduction)} 인바운드만.
+        설계사가 직접 등록한 고객(lead_source null/direct/명함/행사)은 절대 대상 아님.
+      - ★ lead_created_at 이 있어야 함(실제 인바운드 유입의 구조적 판별자).
+        lead_created_at 은 셀프진단(/d)·소개카드(/p) 유입 경로에서만 기록되고
+        수기/일괄 등록은 절대 기록하지 않는다 — lead_source='introduction'(소개)은
+        설계사가 등록 모달에서 직접 고를 수 있는 유입경로라, source 만으로 거르면
+        직접 등록 고객이 오삭제된다(2026-07-04 리뷰 blocker).
+      - 활동 앵커(last_contacted_at 있으면 그것, 없으면 created_at)가 보유기간 초과.
+      - sales_stage='db'(미전환) AND 보유 보험 0 AND 접촉기록(ContactLog) 0 AND 미팅 0.
+      - ★ 보유기간 내 새 ConsentLog 0 — /d·/p 재신청은 기존 고객을 재사용하며
+        새 ConsentLog 만 남기므로(전화번호 dedupe), 신선한 동의 = 활동으로 간주해
+        재신청 당일 밤 파기되는 역설(새 동의 직후 파기)을 막는다(2026-07-04 리뷰 major).
+    ConsentLog는 SET_NULL이라 동의 감사 로그는 잔존(기존 문서화된 설계 그대로).
+    LEAD_RETENTION_DAYS ≤ 0 이면 스킵(안전 스위치). 재실행 멱등(대상 0 → 알림 0).
+    """
+    days = int(getattr(settings, 'LEAD_RETENTION_DAYS', 180) or 0)
+    if days <= 0:
+        return 0
+    cutoff = _kst_day_start(today - dt.timedelta(days=days))
+    qs = (Customer.objects
+          .filter(lead_source__in=[Customer.LEAD_SELF_DIAGNOSIS,
+                                   Customer.LEAD_INTRODUCTION],
+                  sales_stage=Customer.STAGE_DB,
+                  lead_created_at__isnull=False)
+          .annotate(_activity_anchor=Coalesce('last_contacted_at', 'created_at'))
+          .filter(_activity_anchor__lt=cutoff)
+          .filter(customer_insurance_list__isnull=True,
+                  contact_logs__isnull=True,
+                  meetings__isnull=True)
+          .exclude(consent_logs__agreed_at__gte=cutoff))
+    rows = list(qs.values_list('id', 'owner_id'))
+    if not rows:
+        return 0
+    ids = [cid for cid, _ in rows]
+    per_owner = {}
+    for _, owner_id in rows:
+        per_owner[owner_id] = per_owner.get(owner_id, 0) + 1
+    Customer.objects.filter(id__in=ids).delete()
+    for owner_id, n in per_owner.items():
+        _create_once(
+            owner_id=owner_id, notif_type=NotifType.SELF_DIAGNOSIS_LEAD,
+            title='잠재고객 정보 자동 정리',
+            body=f'오래 연락이 닿지 않은 잠재고객 {n}명의 개인정보를 정리했어요. '
+                 f'개인정보 보호를 위한 자동 정리예요.',
+            target_date=today,
+        )
+    return len(ids)
+
+
 # ─── 레지스트리 + 실행기 ──────────────────────────────────────────
 
 PRODUCERS = (
@@ -346,6 +404,14 @@ def run_daily_jobs(today=None):
             logger.exception('daily job producer failed: %s', name)
             counts[name] = 0
             errors[name] = f'{type(exc).__name__}: {exc}'
+    total_created = sum(counts.values())  # 알림 생산 수(정리 단계 삭제 수와 분리)
+    # 정리 단계 — 알림 생산자와 별개(인바운드 리드 보유기간 파기). 실패 격리 동일.
+    try:
+        counts['lead_retention_deleted'] = cleanup_expired_leads(today)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('daily cleanup failed: lead_retention')
+        counts['lead_retention_deleted'] = 0
+        errors['lead_retention'] = f'{type(exc).__name__}: {exc}'
     if not errors:
         SeedMarker.objects.update_or_create(
             key=HEARTBEAT_KEY, defaults={'version': today.isoformat()})
@@ -353,5 +419,5 @@ def run_daily_jobs(today=None):
         'date': today.isoformat(),
         'counts': counts,
         'errors': errors,
-        'total_created': sum(counts.values()),
+        'total_created': total_created,
     }

@@ -424,3 +424,74 @@ class CustomerHistoryTests(TestCase):
         c = APIClient()
         r = c.get(self._url())
         self.assertEqual(r.status_code, 401)
+
+
+# ─── /s 상담 연결(콜백) — spec 2026-07-04 Part2 (LB#8) ──────────────
+
+from unittest import mock  # noqa: E402
+
+from inpa.notifications.models import Notification, NotifType  # noqa: E402
+
+
+class ShareContactLayerTests(TestCase):
+    """planner_contact 페이로드 + callback_request 이벤트 → 설계사 알림(하루 1회)."""
+
+    def setUp(self):
+        self.user, _ = _make_planner('contact-layer@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='콜백고객', birth_day='1990.01.01')
+        self.public = APIClient()
+
+    def _view_url(self):
+        return f'/api/v1/s/{self.customer.share_token}/'
+
+    def _event_url(self):
+        return f'/api/v1/s/{self.customer.share_token}/event/'
+
+    def test_payload_planner_contact_null_when_no_phone_field(self):
+        """Profile/User에 전화번호 실필드가 없으면 planner_contact=null(키는 존재)."""
+        r = self.public.get(self._view_url())
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn('planner_contact', body)
+        self.assertIsNone(body['planner_contact'])
+
+    def test_payload_planner_contact_present_when_phone_exists(self):
+        """전화번호 필드가 생기면 페이로드에 그대로 실린다(배선 검증)."""
+        with mock.patch('inpa.analytics.views._planner_phone',
+                        return_value='010-1234-5678'):
+            r = self.public.get(self._view_url())
+        self.assertEqual(r.json()['planner_contact'], '010-1234-5678')
+
+    def test_callback_request_creates_notification_to_owner(self):
+        """callback_request → 이벤트 적재 + 소유 설계사에게 알림 1건(기존 타입 재사용)."""
+        r = self.public.post(self._event_url(),
+                             {'event_type': 'callback_request'}, format='json')
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CALLBACK_REQUEST,
+            share_token=self.customer.share_token).count(), 1)
+        notif = Notification.objects.get(owner=self.user)
+        self.assertEqual(notif.notif_type, NotifType.SELF_DIAGNOSIS_LEAD)
+        self.assertEqual(notif.title, '고객 연락 요청')
+        self.assertEqual(notif.customer_id, self.customer.id)
+        self.assertIn('콜백고객님이 보장 안내 화면에서 연락을 요청했어요', notif.body)
+
+    def test_callback_request_same_day_dedupes_notification_but_logs_event(self):
+        """같은 공유건 같은 날 재요청 → 알림은 1건 유지, 이벤트 로그는 2건."""
+        self.public.post(self._event_url(),
+                         {'event_type': 'callback_request'}, format='json')
+        r2 = self.public.post(self._event_url(),
+                              {'event_type': 'callback_request'}, format='json')
+        self.assertEqual(r2.status_code, 201)
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CALLBACK_REQUEST).count(), 2)
+        self.assertEqual(Notification.objects.filter(owner=self.user).count(), 1)
+
+    def test_callback_on_expired_token_404_no_notification(self):
+        self.customer.share_expires_at = timezone.now() - timezone.timedelta(days=1)
+        self.customer.save(update_fields=['share_expires_at'])
+        r = self.public.post(self._event_url(),
+                             {'event_type': 'callback_request'}, format='json')
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(Notification.objects.count(), 0)
