@@ -7,9 +7,15 @@
 - 성능: 전체를 한 번에 읽어 bulk_create/bulk_update (배포당 쿼리 수 최소화).
 
 사용법:
-    python manage.py seed_jobs            # 멱등 upsert
+    python manage.py seed_jobs            # 멱등 upsert (마커 최신이면 no-op)
+    python manage.py seed_jobs --force    # 마커 무시 강제 재실행
     python manage.py seed_jobs --clear    # 전부 삭제 후 재적재
     python manage.py seed_jobs --dry-run  # DB 변경 없이 파싱 검증
+
+2026-07-04 (LB-1 시드 안전화): SeedMarker(key='seed_jobs') 버전 가드 추가 —
+데이터 버전(SEED_VERSION)이 마커와 같으면 no-op으로 부팅 경로 무해화.
+파일-SSOT prune(파일에 없는 행 삭제) 의미는 그대로 유지 — 버전이 바뀌었을 때만 실행됨.
+데이터 파일 교체 시 SEED_VERSION 수동 bump.
 """
 from __future__ import annotations
 
@@ -19,9 +25,14 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from inpa.analysis.models import SeedMarker
 from inpa.customers.models import JobRiskCode
 
 DATA_PATH = Path(__file__).resolve().parents[2] / 'data' / 'job_risk_codes.json'
+
+# ── 시드 데이터 버전 (job_risk_codes.json 교체 시 수동 bump) ──
+SEED_VERSION = 'v1'
+MARKER_KEY = 'seed_jobs'
 
 # bulk_update 대상 필드(고유키 sctg_cd·name 제외)
 _UPDATE_FIELDS = [
@@ -40,8 +51,19 @@ class Command(BaseCommand):
                             help='적재 전 기존 JobRiskCode 전부 삭제')
         parser.add_argument('--dry-run', action='store_true',
                             help='DB 변경 없이 파싱만 검증')
+        parser.add_argument('--force', action='store_true',
+                            help='SeedMarker 버전이 최신이어도 강제 재실행')
 
     def handle(self, *args, **options):
+        # ── 버전 마커 가드: 부팅 경로 no-op (dry-run/clear/force 는 우회) ──
+        if not options['force'] and not options['clear'] and not options['dry_run']:
+            marker = SeedMarker.objects.filter(key=MARKER_KEY).first()
+            if marker and marker.version == SEED_VERSION:
+                self.stdout.write(
+                    f'직업급수 시드: 이미 최신({SEED_VERSION}) — 건너뜀 '
+                    '(강제 실행: --force)')
+                return
+
         path = Path(options['file'])
         if not path.exists():
             raise CommandError(f'데이터 파일이 없습니다: {path}')
@@ -116,6 +138,11 @@ class Command(BaseCommand):
                 if stale:
                     pruned = len(stale)
                     JobRiskCode.objects.filter(pk__in=stale).delete()
+
+            # ── 버전 마커 갱신 (dry-run 은 rollback 이라 마커도 남지 않음) ──
+            if not dry:
+                SeedMarker.objects.update_or_create(
+                    key=MARKER_KEY, defaults={'version': SEED_VERSION})
 
         self.stdout.write(self.style.SUCCESS('✅ 직업급수 시드 완료'))
         self.stdout.write(f'   - 신규: {len(to_create)} / 갱신: {len(to_update)} / 삭제(정리): {pruned} / 스킵: {skipped}')

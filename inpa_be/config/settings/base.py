@@ -116,6 +116,7 @@ REST_FRAMEWORK = {
         'share_public': '60/hour',    # 공유뷰 /s/ — DB write/연산 증폭 DoS 방어
         'auth_email': '5/hour',       # 가입/인증재발송/비번재설정 — 이메일 폭탄 방어
         'admin_login': '5/min',       # 관리자 로그인 무차별 대입 방어(IP 기준)
+        'job_runner': '10/hour',      # 일일 배치 트리거 /jobs/run-daily/ — 토큰 대입/재실행 폭탄 방어
     },
 }
 
@@ -133,6 +134,9 @@ PASSWORD_RESET_TIMEOUT = env.int('PASSWORD_RESET_TIMEOUT', default=3600)
 EMAIL_VERIFY_TOKEN_TTL_HOURS = env.int('EMAIL_VERIFY_TOKEN_TTL_HOURS', default=24)
 # 고객 동의 요청 링크(P3c): TimestampSigner max_age (72h)
 CONSENT_TOKEN_TTL_HOURS = env.int('CONSENT_TOKEN_TTL_HOURS', default=72)
+# 일일 배치 트리거 토큰 (spec 2026-07-04) — 미설정('')이면 /jobs/run-daily/ 404 (fail-closed).
+# GitHub Secrets 의 JOB_RUNNER_TOKEN 과 동일 값으로 Render env 에 설정.
+JOB_RUNNER_TOKEN = env('JOB_RUNNER_TOKEN', default='')
 # 로그인 5회 실패 → 10분 잠금 (423)
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 600
@@ -188,10 +192,41 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# ── 로깅 (LB#9 PII 로그 정리) ────────────────────────────────────────
+# console 핸들러 단일 — prod 에선 gunicorn stdout 으로 흐르는 현행 동작 유지(단순·표준형).
+# ★ 포매터는 levelname/시각/로거명/메시지만 — 요청 본문·PII 를 자동으로 찍는 항목 없음.
+#   메시지에 PII 를 넣지 않는 책임은 각 호출부(claude_parser/insurances.views 레드라인 주석 참고).
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'simple': {
+            'format': '{levelname} {asctime} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'root': {'handlers': ['console'], 'level': 'INFO'},
+    'loggers': {
+        'inpa': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+    },
+}
+
 # ── 요금제 베타 스위치 (dev/23 §3, G4) ──────────────────────────────
 # True(베타) = 한도 체크 전부 우회(무차감). 정식 출시 시 False 로 flip.
 # 환경변수 FREE_TIER_UNLIMITED=true/false 로 런타임 제어.
 FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
+
+# ── 인바운드 리드 보유기간 자동 파기 (PIPA 보유기간, PM 확정 180일) ─────────
+# 셀프진단(/d)·소개카드(/p)로 유입된 잠재고객 중 상담으로 이어지지 않은 리드를
+# 마지막 활동일(last_contacted_at, 없으면 created_at)부터 N일 경과 시 daily job에서 파기.
+# 0 이하로 설정하면 파기 스킵(안전 스위치). 설계사 직접 등록 고객은 절대 대상 아님.
+LEAD_RETENTION_DAYS = env.int('LEAD_RETENTION_DAYS', default=180)
 
 # ── 갈아타기(승환) 비교 게이트 (dev/09 중개금지 · dev/02 §16 · §97) ──────
 # ★ 컴플라이언스 게이트 — 우회 금지. 둘 다 기본 False (보수적 기본값).

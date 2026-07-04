@@ -32,12 +32,15 @@ export class ApiError extends Error {
   status: number;
   /** 402 credit_exhausted 일 때 BE가 반환하는 추가 필드. 그 외는 undefined. */
   creditBody?: CreditExhaustedBody;
-  constructor(status: number, code: string, message: string, creditBody?: CreditExhaustedBody) {
+  /** 412 CONSENT_OVERSEAS_REQUIRED 일 때 BE가 주는 사유: "missing"(동의 없음) | "reconsent"(구버전 동의). */
+  reason?: string;
+  constructor(status: number, code: string, message: string, creditBody?: CreditExhaustedBody, reason?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.creditBody = creditBody;
+    this.reason = reason;
   }
 }
 
@@ -1797,10 +1800,30 @@ export async function uploadInsuranceOcr(
       (data["detail"] as string) ??
       (data["message"] as string) ??
       res.statusText;
-    throw new ApiError(res.status, code, detail);
+    throw new ApiError(res.status, code, detail, undefined, data["reason"] as string | undefined);
   }
 
   return data as unknown as OcrUploadResponse;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 동의 고지문 단일 소스 — GET /api/v1/consent-texts/ (공개, 화면 렌더용)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface ConsentText {
+  title: string;
+  body: string[];
+  retention: string;
+}
+
+export interface ConsentTextsResponse {
+  version: string;
+  texts: Record<string, ConsentText>;
+}
+
+/** 최신 동의 고지문. 실패 시 화면은 로컬 v2 폴백으로 렌더한다(옛 문구는 절대 안 씀). */
+export async function getConsentTexts(): Promise<ConsentTextsResponse> {
+  return request<ConsentTextsResponse>("GET", "/consent-texts/");
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1864,6 +1887,7 @@ export interface ConsentItem {
   title: string;
   required: boolean;
   already: boolean;
+  revocable: boolean; // 살아있는 동의가 있어 철회 가능한 항목
   lines: string[];
   notice: string;
 }
@@ -1887,15 +1911,16 @@ export async function getConsentDisclosure(token: string): Promise<ConsentDisclo
   return data as ConsentDisclosure;
 }
 
-/** POST /api/v1/c/<token>/ — 동의 scope 배열 제출(공개, 비인증) */
+/** POST /api/v1/c/<token>/ — 동의 scope 배열 제출 + 철회 scope 배열(공개, 비인증) */
 export async function submitConsent(
   token: string,
-  agreed: string[]
+  agreed: string[],
+  revoked: string[] = []
 ): Promise<{ results: { scope: string; consented: boolean }[]; all_required_done: boolean }> {
   const res = await fetch(`${API_BASE}/c/${encodeURIComponent(token)}/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agreed }),
+    body: JSON.stringify(revoked.length ? { agreed, revoked } : { agreed }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -2242,6 +2267,7 @@ export interface ShareViewResponse {
   tree: ShareCategory[];
   disclaimer: string;
   booking_url?: string; // 예약 가능할 때만(설계사 영업시간 존재) — '바로 상담 예약' CTA
+  planner_contact?: string | null; // 담당 설계사 전화번호(없으면 null) — 연락 레이어용
 }
 
 /**
@@ -2528,7 +2554,11 @@ export async function applyBaselinePreset(
 }
 
 /** 공유뷰 이벤트 종류 */
-export type ShareEventType = "clipboard_copy" | "cta_click" | "share_view";
+export type ShareEventType =
+  | "clipboard_copy"
+  | "cta_click"
+  | "share_view"
+  | "callback_request";
 
 /**
  * POST /api/v1/s/<token>/event/

@@ -91,11 +91,24 @@ export default function SharePage() {
     if (token) postShareEvent(token, "clipboard_copy");
   }, [token]);
 
+  // ── 상담 연결 레이어 (예약 링크가 없을 때도 버튼이 항상 다음 행동으로 이어지게) ──
+  const [contactOpen, setContactOpen] = useState(false);
+  const [callbackSent, setCallbackSent] = useState(false);
+
   const handleCta = useCallback(() => {
     if (token) postShareEvent(token, "cta_click");
-    // 예약 가능하면(설계사 영업시간 존재) 예약 페이지로 이동. 아니면 기존처럼 행동 로깅만.
-    if (data?.booking_url) window.location.href = data.booking_url;
+    // 예약 가능하면(설계사 영업시간 존재) 예약 페이지로 이동. 아니면 연락 레이어 열기.
+    if (data?.booking_url) {
+      window.location.href = data.booking_url;
+      return;
+    }
+    setContactOpen((v) => !v); // 다시 누르면 접기
   }, [token, data?.booking_url]);
+
+  const handleCallback = useCallback(() => {
+    if (token) postShareEvent(token, "callback_request");
+    setCallbackSent(true);
+  }, [token]);
 
   if (loading) return <ShareSkeleton />;
   if (notFound || !data) return <ShareNotFound />;
@@ -186,6 +199,48 @@ export default function SharePage() {
         className="sticky bottom-0 z-20 bg-surface/95 backdrop-blur border-t border-line px-4 pt-3"
         style={{ paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}
       >
+        {contactOpen && !data.booking_url && (
+          <div className="mb-3 rounded-2xl border border-line bg-surface px-4 py-4">
+            {callbackSent ? (
+              <p className="text-[14px] font-semibold text-ink text-center leading-6">
+                요청을 전달했어요. 곧 연락드릴 거예요.
+              </p>
+            ) : (
+              <>
+                <p className="text-[13px] font-semibold text-ink2">
+                  담당 설계사에게 바로 연결해 드릴게요.
+                </p>
+                <div className="mt-2.5 space-y-2">
+                  {data.planner_contact && (
+                    <div className="flex gap-2">
+                      <a
+                        href={`tel:${data.planner_contact}`}
+                        className="flex-1 rounded-xl border border-line bg-surface2 px-3 py-2.5 text-center text-[14px] font-bold text-ink"
+                      >
+                        전화하기
+                      </a>
+                      <a
+                        href={`sms:${data.planner_contact}`}
+                        className="flex-1 rounded-xl border border-line bg-surface2 px-3 py-2.5 text-center text-[14px] font-bold text-ink"
+                      >
+                        문자하기
+                      </a>
+                    </div>
+                  )}
+                  <button
+                    onClick={handleCallback}
+                    className="w-full rounded-xl bg-brand text-white px-3 py-2.5 text-[14px] font-bold active:scale-[0.99] transition"
+                  >
+                    연락 요청 남기기
+                  </button>
+                </div>
+                <p className="mt-2 text-[11px] text-ink3 leading-4 text-center">
+                  요청을 남기면 담당 설계사가 확인하고 연락드려요.
+                </p>
+              </>
+            )}
+          </div>
+        )}
         <button
           onClick={handleCta}
           className="w-full rounded-2xl bg-brand text-white text-[16px] font-bold py-4 active:scale-[0.99] transition"

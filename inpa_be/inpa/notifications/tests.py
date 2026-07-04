@@ -359,3 +359,442 @@ class UniquenessTests(TestCase):
         Notification.objects.create(**kwargs)
         with self.assertRaises(IntegrityError):
             Notification.objects.create(**kwargs)
+
+
+# ─── 9. 일일 배치(run_daily_jobs) — 생산자·멱등·엔드포인트·하트비트 ──
+# spec 2026-07-04 §Tests: 엔드포인트 인증 / 생산자별 정확성·룰 OFF / 멱등 / KST / 하트비트.
+
+from datetime import datetime, time, timedelta  # noqa: E402
+
+from django.test import override_settings  # noqa: E402
+from django.utils import timezone as tz  # noqa: E402
+
+from inpa.analysis.models import SeedMarker  # noqa: E402
+from inpa.booking.models import Meeting  # noqa: E402
+from inpa.insurances.models import CustomerInsurance  # noqa: E402
+from inpa.schedule.models import ScheduleItem  # noqa: E402
+
+from .jobs import HEARTBEAT_KEY, run_daily_jobs  # noqa: E402
+from .jobs import (  # noqa: E402
+    produce_birthday_soon, produce_consult_reminder, produce_expiry_soon,
+    produce_share_unread, produce_task_due,
+)
+
+
+def _kst_dt(day, hour, minute=0):
+    """KST 벽시계 → aware datetime (TIME_ZONE=Asia/Seoul)."""
+    return tz.make_aware(datetime.combine(day, time(hour, minute)))
+
+
+class DailyJobsEndpointTests(TestCase):
+    """POST /api/v1/jobs/run-daily/ — X-JOB-TOKEN 인증 (fail-closed)."""
+
+    URL = '/api/v1/jobs/run-daily/'
+
+    @override_settings(JOB_RUNNER_TOKEN='')
+    def test_env_unset_returns_404(self):
+        r = APIClient().post(self.URL, HTTP_X_JOB_TOKEN='anything')
+        self.assertEqual(r.status_code, 404)
+
+    @override_settings(JOB_RUNNER_TOKEN='sekrit-token')
+    def test_wrong_token_returns_403(self):
+        r = APIClient().post(self.URL, HTTP_X_JOB_TOKEN='wrong')
+        self.assertEqual(r.status_code, 403)
+
+    @override_settings(JOB_RUNNER_TOKEN='sekrit-token')
+    def test_missing_token_returns_403(self):
+        r = APIClient().post(self.URL)
+        self.assertEqual(r.status_code, 403)
+
+    @override_settings(JOB_RUNNER_TOKEN='sekrit-token')
+    def test_correct_token_returns_counts(self):
+        r = APIClient().post(self.URL, HTTP_X_JOB_TOKEN='sekrit-token')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn('counts', body)
+        self.assertIn('birthday_soon', body['counts'])
+        self.assertEqual(body['errors'], {})
+        # 성공 실행 → 하트비트 마커 기록
+        marker = SeedMarker.objects.get(key=HEARTBEAT_KEY)
+        self.assertEqual(marker.version, tz.localdate().isoformat())
+
+
+class DailyJobProducerTests(TestCase):
+    """생산자 5종 — 정확한 알림 생성 + ReminderRule OFF 존중 + KST 날짜 산정."""
+
+    def setUp(self):
+        self.user, _ = _make_planner('jobs@test.com')
+        create_reminder_rules_for_user(self.user)
+        self.today = tz.localdate()
+
+    def _rule(self, rule_type):
+        return ReminderRule.objects.get(owner=self.user, rule_type=rule_type)
+
+    # ── birthday_soon ──────────────────────────────────────────
+
+    def _birthday_customer(self, offset_days, name='김생일', status='active'):
+        bd = self.today + timedelta(days=offset_days)
+        # 1992 = 윤년(2/29 안전). 생일 CharField 'YYYY-MM-DD'.
+        return Customer.objects.create(
+            owner=self.user, name=name, status=status,
+            birth_day=f'1992-{bd.month:02d}-{bd.day:02d}')
+
+    def test_birthday_soon_created(self):
+        c = self._birthday_customer(3)
+        self.assertEqual(produce_birthday_soon(self.today), 1)
+        n = Notification.objects.get(notif_type=NotifType.BIRTHDAY_SOON)
+        self.assertEqual(n.owner, self.user)
+        self.assertEqual(n.customer, c)
+        self.assertIn('김생일', n.body)
+        self.assertEqual(n.target_date, self.today + timedelta(days=3))
+
+    def test_birthday_outside_lead_not_created(self):
+        self._birthday_customer(10)  # 기본 리드 7일 밖
+        self.assertEqual(produce_birthday_soon(self.today), 0)
+
+    def test_birthday_rule_off_produces_nothing(self):
+        self._birthday_customer(3)
+        rule = self._rule(NotifType.BIRTHDAY_SOON)
+        rule.enabled = False
+        rule.save(update_fields=['enabled'])
+        self.assertEqual(produce_birthday_soon(self.today), 0)
+
+    def test_birthday_inactive_customer_skipped(self):
+        self._birthday_customer(3, status='closed')
+        self.assertEqual(produce_birthday_soon(self.today), 0)
+
+    # ── expiry_soon ────────────────────────────────────────────
+
+    def _expiring_insurance(self, offset_days, name='건강보험'):
+        customer = Customer.objects.create(owner=self.user, name='김만기')
+        exp = self.today + timedelta(days=offset_days)
+        return CustomerInsurance.objects.create(
+            customer=customer, portfolio_type=1, name=name,
+            expiry_date=exp.strftime('%Y.%m.%d'))
+
+    def test_expiry_soon_created(self):
+        ci = self._expiring_insurance(20)  # 기본 리드 30일 내
+        self.assertEqual(produce_expiry_soon(self.today), 1)
+        n = Notification.objects.get(notif_type=NotifType.EXPIRY_SOON)
+        self.assertEqual(n.owner, self.user)
+        self.assertEqual(n.customer, ci.customer)
+        self.assertIn('김만기', n.body)
+        self.assertIn('건강보험', n.body)
+
+    def test_expiry_outside_lead_not_created(self):
+        self._expiring_insurance(60)
+        self.assertEqual(produce_expiry_soon(self.today), 0)
+
+    def test_expiry_rule_off_produces_nothing(self):
+        self._expiring_insurance(20)
+        rule = self._rule(NotifType.EXPIRY_SOON)
+        rule.enabled = False
+        rule.save(update_fields=['enabled'])
+        self.assertEqual(produce_expiry_soon(self.today), 0)
+
+    # ── consult_reminder ───────────────────────────────────────
+
+    def test_consult_reminder_for_tomorrow_meeting(self):
+        customer = Customer.objects.create(owner=self.user, name='김상담')
+        Meeting.objects.create(
+            owner=self.user, customer=customer,
+            start_at=_kst_dt(self.today + timedelta(days=1), 14),
+            method=Meeting.METHOD_PHONE, status=Meeting.STATUS_CONFIRMED)
+        self.assertEqual(produce_consult_reminder(self.today), 1)
+        n = Notification.objects.get(notif_type=NotifType.CONSULT_REMINDER)
+        self.assertIn('김상담', n.body)
+        self.assertIn('14:00', n.body)
+        self.assertEqual(n.target_date, self.today + timedelta(days=1))
+
+    def test_consult_reminder_pending_meeting_skipped(self):
+        customer = Customer.objects.create(owner=self.user, name='김대기')
+        Meeting.objects.create(
+            owner=self.user, customer=customer,
+            start_at=_kst_dt(self.today + timedelta(days=1), 14),
+            method=Meeting.METHOD_PHONE, status=Meeting.STATUS_PENDING)
+        self.assertEqual(produce_consult_reminder(self.today), 0)
+
+    def test_consult_reminder_for_meeting_schedule_item(self):
+        ScheduleItem.objects.create(
+            owner=self.user, kind=ScheduleItem.KIND_EVENT,
+            category=ScheduleItem.CAT_MEETING, title='보장 점검 미팅',
+            start_at=_kst_dt(self.today + timedelta(days=1), 10))
+        self.assertEqual(produce_consult_reminder(self.today), 1)
+        n = Notification.objects.get(notif_type=NotifType.CONSULT_REMINDER)
+        self.assertIn('보장 점검 미팅', n.body)
+        self.assertEqual(n.calendar_event_id, ScheduleItem.objects.get().id)
+
+    def test_consult_reminder_rule_off(self):
+        customer = Customer.objects.create(owner=self.user, name='김끔')
+        Meeting.objects.create(
+            owner=self.user, customer=customer,
+            start_at=_kst_dt(self.today + timedelta(days=1), 14),
+            method=Meeting.METHOD_PHONE, status=Meeting.STATUS_CONFIRMED)
+        rule = self._rule(NotifType.CONSULT_REMINDER)
+        rule.enabled = False
+        rule.save(update_fields=['enabled'])
+        self.assertEqual(produce_consult_reminder(self.today), 0)
+
+    # ── task_due ───────────────────────────────────────────────
+
+    def test_task_due_today_created(self):
+        customer = Customer.objects.create(owner=self.user, name='김할일')
+        ScheduleItem.objects.create(
+            owner=self.user, kind=ScheduleItem.KIND_TODO, customer=customer,
+            title='서류 전달', start_at=_kst_dt(self.today, 12))  # 시각 없는 todo = KST 정오 규약
+        self.assertEqual(produce_task_due(self.today), 1)
+        n = Notification.objects.get(notif_type=NotifType.TASK_DUE)
+        self.assertIn('서류 전달', n.body)
+        self.assertIn('김할일', n.body)
+        self.assertEqual(n.target_date, self.today)
+
+    def test_task_due_lead_window_respects_days_before(self):
+        # 기본 days_before=1: 내일 마감은 D-1 미리 알림, 리드 밖(5일 뒤)은 미발화
+        ScheduleItem.objects.create(
+            owner=self.user, kind=ScheduleItem.KIND_TODO, title='내일 마감 일',
+            start_at=_kst_dt(self.today + timedelta(days=1), 12))
+        ScheduleItem.objects.create(
+            owner=self.user, kind=ScheduleItem.KIND_TODO, title='다음주 일',
+            start_at=_kst_dt(self.today + timedelta(days=5), 12))
+        self.assertEqual(produce_task_due(self.today), 1)
+        n = Notification.objects.get(notif_type=NotifType.TASK_DUE)
+        self.assertIn('내일 마감 일', n.body)
+        self.assertIn('D-1', n.body)
+        self.assertEqual(n.target_date, self.today + timedelta(days=1))
+        # 마감 당일 재실행: 같은 할 일은 target_date=마감일 dedupe 로 중복 생성 없음
+        self.assertEqual(produce_task_due(self.today + timedelta(days=1)), 0)
+        self.assertEqual(
+            Notification.objects.filter(notif_type=NotifType.TASK_DUE).count(), 1)
+
+    def test_task_due_done_skipped(self):
+        ScheduleItem.objects.create(
+            owner=self.user, kind=ScheduleItem.KIND_TODO, title='끝난 일',
+            start_at=_kst_dt(self.today, 12), is_done=True)
+        self.assertEqual(produce_task_due(self.today), 0)
+
+    def test_task_due_rule_off(self):
+        ScheduleItem.objects.create(
+            owner=self.user, kind=ScheduleItem.KIND_TODO, title='오늘 일',
+            start_at=_kst_dt(self.today, 12))
+        rule = self._rule(NotifType.TASK_DUE)
+        rule.enabled = False
+        rule.save(update_fields=['enabled'])
+        self.assertEqual(produce_task_due(self.today), 0)
+
+    # ── share_unread ───────────────────────────────────────────
+
+    def test_share_unread_created_after_24h(self):
+        Customer.objects.create(
+            owner=self.user, name='김공유',
+            share_sent_at=tz.now() - timedelta(days=2))
+        self.assertEqual(produce_share_unread(self.today), 1)
+        n = Notification.objects.get(notif_type=NotifType.SHARE_UNREAD)
+        self.assertIn('김공유', n.body)
+
+    def test_share_unread_recent_send_skipped(self):
+        Customer.objects.create(
+            owner=self.user, name='김최근',
+            share_sent_at=tz.now() - timedelta(hours=2))  # 24h 미경과
+        self.assertEqual(produce_share_unread(self.today), 0)
+
+    def test_share_unread_viewed_skipped(self):
+        Customer.objects.create(
+            owner=self.user, name='김열람',
+            share_sent_at=tz.now() - timedelta(days=2),
+            user_view_at=tz.now() - timedelta(days=1))
+        self.assertEqual(produce_share_unread(self.today), 0)
+
+    def test_share_unread_rule_off(self):
+        Customer.objects.create(
+            owner=self.user, name='김끔공유',
+            share_sent_at=tz.now() - timedelta(days=2))
+        rule = self._rule(NotifType.SHARE_UNREAD)
+        rule.enabled = False
+        rule.save(update_fields=['enabled'])
+        self.assertEqual(produce_share_unread(self.today), 0)
+
+    # ── 소유자 격리 ─────────────────────────────────────────────
+
+    def test_producer_owner_scoped(self):
+        """B 설계사 고객의 생일 알림은 B에게만 — A에게 절대 누출 금지."""
+        user_b, _ = _make_planner('jobs-b@test.com')
+        bd = self.today + timedelta(days=2)
+        Customer.objects.create(
+            owner=user_b, name='김비고객',
+            birth_day=f'1992-{bd.month:02d}-{bd.day:02d}')
+        produce_birthday_soon(self.today)
+        self.assertFalse(Notification.objects.filter(owner=self.user).exists())
+        self.assertTrue(Notification.objects.filter(owner=user_b).exists())
+
+
+class DailyJobsIdempotencyTests(TestCase):
+    """같은 KST 날 재실행 → 신규 0건, 중복 행 없음 + 하트비트."""
+
+    def setUp(self):
+        self.user, _ = _make_planner('idem@test.com')
+        create_reminder_rules_for_user(self.user)
+        today = tz.localdate()
+        bd = today + timedelta(days=3)
+        Customer.objects.create(
+            owner=self.user, name='김생일',
+            birth_day=f'1992-{bd.month:02d}-{bd.day:02d}')
+        cust = Customer.objects.create(owner=self.user, name='김만기')
+        CustomerInsurance.objects.create(
+            customer=cust, portfolio_type=1, name='암보험',
+            expiry_date=(today + timedelta(days=10)).strftime('%Y.%m.%d'))
+        Meeting.objects.create(
+            owner=self.user, customer=cust,
+            start_at=_kst_dt(today + timedelta(days=1), 15),
+            method=Meeting.METHOD_IN_PERSON, status=Meeting.STATUS_CONFIRMED)
+        ScheduleItem.objects.create(
+            owner=self.user, kind=ScheduleItem.KIND_TODO, title='오늘 마감 일',
+            start_at=_kst_dt(today, 12))
+        Customer.objects.create(
+            owner=self.user, name='김공유',
+            share_sent_at=tz.now() - timedelta(days=2))
+
+    def test_second_run_creates_nothing(self):
+        first = run_daily_jobs()
+        self.assertEqual(first['total_created'], 5)
+        self.assertEqual(first['errors'], {})
+        count_after_first = Notification.objects.count()
+
+        second = run_daily_jobs()
+        self.assertEqual(second['total_created'], 0)
+        self.assertEqual(Notification.objects.count(), count_after_first)
+
+    def test_heartbeat_written_on_success(self):
+        run_daily_jobs()
+        marker = SeedMarker.objects.get(key=HEARTBEAT_KEY)
+        self.assertEqual(marker.version, tz.localdate().isoformat())
+
+
+# ─── 10. 인바운드 리드 보유기간 자동 파기 (spec 2026-07-04 Part1 §5) ──
+
+from inpa.customers.models import ConsentLog, ContactLog  # noqa: E402
+
+from .jobs import cleanup_expired_leads  # noqa: E402
+
+
+class LeadRetentionTests(TestCase):
+    """LEAD_RETENTION_DAYS(기본 180) 초과·미전환 인바운드 리드만 파기. 직접 등록은 절대 보존."""
+
+    def setUp(self):
+        self.user, _ = _make_planner('retention@test.com')
+        self.today = tz.localdate()
+
+    def _lead(self, age_days, source=Customer.LEAD_SELF_DIAGNOSIS, **kwargs):
+        """실제 인바운드 리드 시뮬레이션 — /d·/p 유입 경로처럼 lead_created_at 기록."""
+        cust = Customer.objects.create(owner=self.user, name='김리드',
+                                       lead_source=source, **kwargs)
+        Customer.objects.filter(pk=cust.pk).update(
+            created_at=tz.now() - timedelta(days=age_days),
+            lead_created_at=tz.now() - timedelta(days=age_days))
+        return cust
+
+    def test_expired_inbound_lead_deleted_with_summary_notification(self):
+        """181일 무활동 셀프진단 리드 → 삭제 + 설계사 요약 알림 1건 + 동의로그 잔존."""
+        cust = self._lead(181)
+        log = ConsentLog.objects.create(customer=cust,
+                                        scope=ConsentLog.SCOPE_PERSONAL_INFO,
+                                        subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        # 동의도 유입 당시(181일 전) 기록 — 신선 동의는 활동으로 간주돼 보존됨
+        ConsentLog.objects.filter(pk=log.pk).update(
+            agreed_at=tz.now() - timedelta(days=181))
+        deleted = cleanup_expired_leads(self.today)
+        self.assertEqual(deleted, 1)
+        self.assertFalse(Customer.objects.filter(pk=cust.pk).exists())
+        # 동의 감사 로그는 SET_NULL로 잔존
+        log = ConsentLog.objects.get(scope=ConsentLog.SCOPE_PERSONAL_INFO)
+        self.assertIsNone(log.customer_id)
+        notifs = Notification.objects.filter(owner=self.user,
+                                             title='잠재고객 정보 자동 정리')
+        self.assertEqual(notifs.count(), 1)
+        self.assertIn('1명', notifs.first().body)
+
+    def test_boundary_179_days_kept(self):
+        """179일 리드는 보존(경계 하한)."""
+        cust = self._lead(179)
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertTrue(Customer.objects.filter(pk=cust.pk).exists())
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_conversion_traces_protect_lead(self):
+        """전환 흔적(보험/접촉기록/미팅/단계 이동/최근 연락)이 있으면 보존."""
+        with_ins = self._lead(200)
+        CustomerInsurance.objects.create(customer=with_ins, portfolio_type=1, name='보험')
+        with_contact = self._lead(200)
+        ContactLog.objects.create(owner=self.user, customer=with_contact,
+                                  result=ContactLog.RESULT_CONNECTED)
+        with_meeting = self._lead(200)
+        Meeting.objects.create(owner=self.user, customer=with_meeting,
+                               start_at=tz.now(), method=Meeting.METHOD_PHONE,
+                               status=Meeting.STATUS_PENDING)
+        staged = self._lead(200)
+        Customer.objects.filter(pk=staged.pk).update(sales_stage=Customer.STAGE_CONTACT)
+        recent_touch = self._lead(200)
+        Customer.objects.filter(pk=recent_touch.pk).update(
+            last_contacted_at=tz.now() - timedelta(days=10))
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertEqual(Customer.objects.count(), 5)
+
+    def test_direct_registered_customer_never_deleted(self):
+        """설계사 직접 등록(lead_source direct/null) 고객은 아무리 오래돼도 대상 아님."""
+        direct = self._lead(400, source=Customer.LEAD_DIRECT)
+        no_source = Customer.objects.create(owner=self.user, name='김직접')
+        Customer.objects.filter(pk=no_source.pk).update(
+            created_at=tz.now() - timedelta(days=400))
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertTrue(Customer.objects.filter(pk=direct.pk).exists())
+        self.assertTrue(Customer.objects.filter(pk=no_source.pk).exists())
+
+    def test_manual_customer_with_introduction_source_never_deleted(self):
+        """수기 등록 + 유입경로 '소개'(introduction) 선택 고객은 절대 대상 아님.
+
+        lead_source='introduction'은 등록 모달·일괄 등록에서 설계사가 직접 고를 수
+        있는 유입경로 → source 만으로 거르면 오삭제(2026-07-04 리뷰 blocker).
+        판별자 = lead_created_at(인바운드 유입 경로만 기록, 수기/일괄은 null).
+        """
+        manual = Customer.objects.create(owner=self.user, name='김소개',
+                                         lead_source=Customer.LEAD_INTRODUCTION)
+        Customer.objects.filter(pk=manual.pk).update(
+            created_at=tz.now() - timedelta(days=400))  # lead_created_at=None 유지
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertTrue(Customer.objects.filter(pk=manual.pk).exists())
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_fresh_consent_protects_old_lead(self):
+        """200일 된 인바운드 리드가 오늘 재신청(새 ConsentLog) → 보존.
+
+        /d·/p 재신청은 전화번호 dedupe로 기존 고객을 재사용하며 새 ConsentLog 만
+        남김 → 신선한 동의 = 활동(새 동의 직후 파기 역설 방지, 2026-07-04 리뷰 major).
+        """
+        cust = self._lead(200, source=Customer.LEAD_INTRODUCTION)
+        ConsentLog.objects.create(customer=cust,
+                                  scope=ConsentLog.SCOPE_PERSONAL_INFO,
+                                  subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertTrue(Customer.objects.filter(pk=cust.pk).exists())
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_idempotent_rerun_no_duplicate_notification(self):
+        """같은 날 재실행 — 2회차 삭제 0·알림 중복 0."""
+        self._lead(181, source=Customer.LEAD_INTRODUCTION)
+        self.assertEqual(cleanup_expired_leads(self.today), 1)
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertEqual(
+            Notification.objects.filter(title='잠재고객 정보 자동 정리').count(), 1)
+
+    @override_settings(LEAD_RETENTION_DAYS=0)
+    def test_zero_or_unset_days_skips(self):
+        """LEAD_RETENTION_DAYS ≤ 0 → 파기 스킵(안전 스위치)."""
+        cust = self._lead(400)
+        self.assertEqual(cleanup_expired_leads(self.today), 0)
+        self.assertTrue(Customer.objects.filter(pk=cust.pk).exists())
+
+    def test_run_daily_jobs_includes_cleanup_step(self):
+        """daily runner에 정리 단계 탑재 — counts에 삭제 수, 알림 생산 합계와 분리."""
+        self._lead(181)
+        result = run_daily_jobs()
+        self.assertEqual(result['counts']['lead_retention_deleted'], 1)
+        self.assertEqual(result['errors'], {})

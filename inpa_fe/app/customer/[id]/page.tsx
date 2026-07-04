@@ -878,7 +878,7 @@ function InfoTab({
       {/* 하단: 명함 */}
       <Card className="p-4">
         <h3 className="text-[15px] font-bold text-ink">명함</h3>
-        <p className="mt-1 text-[12px] text-ink3">명함·방명록 사진을 올려두면 보관돼요. (자동 인식은 준비 중이에요. 정보는 위에서 직접 입력해 주세요.)</p>
+        <p className="mt-1 text-[12px] text-ink3">명함·방명록 사진을 올려두면 보관돼요. 명함 정보는 위 칸에 직접 입력해 주세요.</p>
         <div className="mt-3 flex items-center gap-4 flex-wrap">
           {customer.business_card ? (
             <a href={customer.business_card} target="_blank" rel="noreferrer">
@@ -1176,6 +1176,7 @@ function AnalysisTab({
           onCopy={ocr.copyConsentUrl}
           onDismiss={ocr.dismissConsent}
           loading={ocr.consentLoading}
+          reason={ocr.consentReason}
         />
       )}
 

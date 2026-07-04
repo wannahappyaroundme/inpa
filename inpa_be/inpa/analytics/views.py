@@ -152,6 +152,23 @@ def _booking_url(customer):
     return f'{base}/b/{make_booking_token(customer)}'
 
 
+def _planner_phone(customer):
+    """설계사 연락처(전화번호) — 공유뷰 '전화하기/문자하기' 버튼용. 없으면 None.
+
+    2026-07-04 실필드 추적 결과: Profile/User에 전화번호 필드가 아직 없다 → 항상 None.
+    필드가 생기면 아래 후보 목록에 이름만 추가하면 페이로드에 자동 반영된다
+    (호출부·FE는 null 처리 완비 — 키는 항상 존재, 값만 채워짐).
+    """
+    profile = getattr(customer.owner, 'profile', None)
+    if profile is None:
+        return None
+    for attr in ('phone', 'phone_number', 'mobile_phone_number', 'contact_phone'):
+        value = (getattr(profile, attr, '') or '').strip()
+        if value:
+            return value
+    return None
+
+
 def _build_share_payload(customer):
     """공유뷰 페이로드 — '사실'만(neutral 강제, baseline 부재).
 
@@ -222,6 +239,8 @@ def _build_share_payload(customer):
         'summary': summary,
         'tree': tree,
         'disclaimer': SHARE_DISCLAIMER,
+        # 담당 설계사 전화번호(없으면 null) — '전화하기/문자하기' 연락 레이어용(LB#8).
+        'planner_contact': _planner_phone(customer),
     }
     # ★ '바로 상담 예약' CTA — 예약 가능할 때만 booking_url 포함(없으면 키 부재 → FE 폴백).
     booking_url = _booking_url(customer)
@@ -245,7 +264,32 @@ class ShareEventView(_NoIndexMixin, APIView):
     throttle_scope = 'share_public'  # 무제한 NorthStarEvent 적재(KPI 오염·디스크 소모) 방어
 
     # 비인증 공유뷰에서 적재 허용하는 이벤트(화이트리스트) — 임의 이벤트 위조 차단
-    _PUBLIC_ALLOWED = frozenset({NorthStarEvent.CLIPBOARD_COPY})
+    _PUBLIC_ALLOWED = frozenset({NorthStarEvent.CLIPBOARD_COPY,
+                                 NorthStarEvent.CALLBACK_REQUEST})
+
+    def _notify_callback(self, customer):
+        """콜백(연락 요청) → 설계사 알림 1건. 같은 공유건은 하루(KST) 1회만(중복 방지).
+
+        ★ 새 NotifType 추가 금지(메뉴 배지 파티션 유지) — SELF_DIAGNOSIS_LEAD 재사용
+          (고객 메뉴 배지로 귀속). dedupe 1차 = 같은 share_token의 오늘(KST) 선행
+          callback_request 이벤트 존재 검사(호출부에서 log_event 이전에 판정), 2차 =
+          Notification 부분 유니크 제약(owner+type+target_date+customer) IntegrityError 흡수.
+        """
+        from django.db import IntegrityError, transaction
+
+        from inpa.notifications.models import NotifType, Notification
+        try:
+            with transaction.atomic():
+                Notification.objects.create(
+                    owner=customer.owner, notif_type=NotifType.SELF_DIAGNOSIS_LEAD,
+                    title='고객 연락 요청',
+                    body=f'{customer.name}님이 보장 안내 화면에서 연락을 요청했어요. '
+                         f'전화 한 통으로 이어가 보세요.',
+                    customer=customer, target_date=timezone.localdate())
+        except IntegrityError:
+            pass  # 같은 고객·같은 날 알림이 이미 있음 — 1건으로 수렴
+        except Exception:
+            pass  # 알림 실패가 공개 응답을 깨지 않게 격리(이벤트 로그는 이미 적재)
 
     def post(self, request, token):
         try:
@@ -265,6 +309,26 @@ class ShareEventView(_NoIndexMixin, APIView):
 
         fp = viewer_fingerprint(request)
         ref_code = request.query_params.get('ref') or None
+
+        if event_type == NorthStarEvent.CALLBACK_REQUEST:
+            # 알림 dedupe 판정은 이벤트 적재 '이전'의 오늘(KST) 선행 이벤트 기준 —
+            # 이벤트 로그는 매번 기록하되 알림은 같은 공유건당 하루 1회.
+            day_start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+            already_today = NorthStarEvent.objects.filter(
+                event_type=NorthStarEvent.CALLBACK_REQUEST,
+                share_token=customer.share_token,
+                created_at__gte=day_start).exists()
+            log_event(
+                event_type, customer=customer, sender=customer.owner,
+                share_token=customer.share_token, ref_code=ref_code,
+                viewer_fp=fp, channel='web',
+                payload={'source': 'share_view'},
+            )
+            if not already_today:
+                self._notify_callback(customer)
+            return Response({'status': 'logged', 'event_type': event_type},
+                            status=status.HTTP_201_CREATED)
+
         # ★ clipboard_copy 는 channel='clipboard' 고정(자동발송 사칭 금지).
         log_event(
             event_type, customer=customer, sender=customer.owner,

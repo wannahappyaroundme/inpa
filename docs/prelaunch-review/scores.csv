@@ -1,0 +1,661 @@
+feature_id,feature,panel_tier,persona,role,agent_value,revenue,legal_safety,feasibility,differentiation
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Park Ji-won,Investor,2,4,10,7,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Park Ji-won,Investor,8,6,9,6,1
+3,Always-on backend for customer-facing links,launch-blocking,Park Ji-won,Investor,7,5,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Park Ji-won,Investor,4,3,7,7,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Park Ji-won,Investor,4,3,9,8,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Park Ji-won,Investor,9,7,9,7,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Park Ji-won,Investor,4,5,9,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Park Ji-won,Investor,7,5,8,8,3
+9,PII log scrub + legal identity fill,launch-blocking,Park Ji-won,Investor,2,4,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Park Ji-won,Investor,2,3,10,7,1
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Park Ji-won,Investor,3,3,9,9,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Park Ji-won,Investor,3,9,8,8,1
+13,Meritz data provenance purge (phased),launch-blocking,Park Ji-won,Investor,2,2,10,4,1
+14,Residual loading skeletons on token pages,mvp-candidate,Park Ji-won,Investor,3,2,10,9,1
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Park Ji-won,Investor,6,9,8,9,3
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Park Ji-won,Investor,1,5,9,8,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Park Ji-won,Investor,1,6,9,8,1
+18,Golden-set normalization eval harness,mvp-candidate,Park Ji-won,Investor,4,4,9,5,3
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Park Ji-won,Investor,9,7,9,8,6
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Park Ji-won,Investor,6,5,7,8,4
+21,Truthful state matrix pass,mvp-candidate,Park Ji-won,Investor,5,2,10,7,1
+22,SEO and crawl baseline,mvp-candidate,Park Ji-won,Investor,1,2,9,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Park Ji-won,Investor,4,4,10,8,5
+24,Team invite onboarding link (consent-clean),mvp-candidate,Park Ji-won,Investor,5,6,9,8,4
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Park Ji-won,Investor,3,8,9,8,2
+26,Community dictionary feedback loop,post-launch,Park Ji-won,Investor,5,3,9,8,6
+27,Immutable comparison snapshot archive,post-launch,Park Ji-won,Investor,5,5,8,7,7
+28,Agent referral coupon loop,post-launch,Park Ji-won,Investor,3,4,8,7,2
+29,Persistency module (13/25회차),post-launch,Park Ji-won,Investor,7,6,9,8,5
+30,판촉물 real imagery + manager-facing page,post-launch,Park Ji-won,Investor,4,4,7,8,4
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Daniel Cho,Investor,3,4,10,7,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Daniel Cho,Investor,8,7,10,6,1
+3,Always-on backend for customer-facing links,launch-blocking,Daniel Cho,Investor,6,5,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Daniel Cho,Investor,2,2,8,7,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Daniel Cho,Investor,3,3,10,8,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Daniel Cho,Investor,9,7,9,7,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Daniel Cho,Investor,4,4,10,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Daniel Cho,Investor,6,5,8,8,6
+9,PII log scrub + legal identity fill,launch-blocking,Daniel Cho,Investor,2,3,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Daniel Cho,Investor,2,2,10,7,1
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Daniel Cho,Investor,3,3,9,9,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Daniel Cho,Investor,3,10,8,8,2
+13,Meritz data provenance purge (phased),launch-blocking,Daniel Cho,Investor,1,1,9,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Daniel Cho,Investor,3,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Daniel Cho,Investor,7,9,8,9,3
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Daniel Cho,Investor,2,5,9,8,2
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Daniel Cho,Investor,1,5,9,8,2
+18,Golden-set normalization eval harness,mvp-candidate,Daniel Cho,Investor,3,3,9,5,6
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Daniel Cho,Investor,9,7,10,9,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Daniel Cho,Investor,7,4,7,8,6
+21,Truthful state matrix pass,mvp-candidate,Daniel Cho,Investor,4,2,10,7,2
+22,SEO and crawl baseline,mvp-candidate,Daniel Cho,Investor,1,2,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Daniel Cho,Investor,2,2,10,8,2
+24,Team invite onboarding link (consent-clean),mvp-candidate,Daniel Cho,Investor,4,6,9,8,5
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Daniel Cho,Investor,2,9,8,8,4
+26,Community dictionary feedback loop,post-launch,Daniel Cho,Investor,4,2,10,8,7
+27,Immutable comparison snapshot archive,post-launch,Daniel Cho,Investor,3,3,10,6,5
+28,Agent referral coupon loop,post-launch,Daniel Cho,Investor,3,5,9,7,4
+29,Persistency module (13/25회차),post-launch,Daniel Cho,Investor,6,6,9,8,3
+30,판촉물 real imagery + manager-facing page,post-launch,Daniel Cho,Investor,3,3,7,6,3
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Seo Yeon-ju,Investor,3,2,9,7,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Seo Yeon-ju,Investor,7,5,10,6,1
+3,Always-on backend for customer-facing links,launch-blocking,Seo Yeon-ju,Investor,8,4,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Seo Yeon-ju,Investor,3,3,8,7,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Seo Yeon-ju,Investor,5,3,10,8,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Seo Yeon-ju,Investor,9,7,9,7,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Seo Yeon-ju,Investor,5,4,10,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Seo Yeon-ju,Investor,7,5,8,8,5
+9,PII log scrub + legal identity fill,launch-blocking,Seo Yeon-ju,Investor,2,3,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Seo Yeon-ju,Investor,2,2,10,7,3
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Seo Yeon-ju,Investor,3,2,9,9,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Seo Yeon-ju,Investor,3,9,7,8,2
+13,Meritz data provenance purge (phased),launch-blocking,Seo Yeon-ju,Investor,2,2,10,4,2
+14,Residual loading skeletons on token pages,mvp-candidate,Seo Yeon-ju,Investor,3,2,10,9,1
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Seo Yeon-ju,Investor,6,8,7,9,4
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Seo Yeon-ju,Investor,2,4,9,8,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Seo Yeon-ju,Investor,2,5,10,8,2
+18,Golden-set normalization eval harness,mvp-candidate,Seo Yeon-ju,Investor,4,4,9,5,6
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Seo Yeon-ju,Investor,9,7,10,9,6
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Seo Yeon-ju,Investor,7,4,8,8,5
+21,Truthful state matrix pass,mvp-candidate,Seo Yeon-ju,Investor,5,2,10,7,1
+22,SEO and crawl baseline,mvp-candidate,Seo Yeon-ju,Investor,1,2,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Seo Yeon-ju,Investor,4,4,10,7,7
+24,Team invite onboarding link (consent-clean),mvp-candidate,Seo Yeon-ju,Investor,5,6,9,8,4
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Seo Yeon-ju,Investor,3,8,9,8,4
+26,Community dictionary feedback loop,post-launch,Seo Yeon-ju,Investor,3,2,9,8,6
+27,Immutable comparison snapshot archive,post-launch,Seo Yeon-ju,Investor,4,4,9,7,6
+28,Agent referral coupon loop,post-launch,Seo Yeon-ju,Investor,3,5,7,7,2
+29,Persistency module (13/25회차),post-launch,Seo Yeon-ju,Investor,7,7,9,8,5
+30,판촉물 real imagery + manager-facing page,post-launch,Seo Yeon-ju,Investor,4,4,7,8,4
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Kang Min-ho,CEO,3,3,10,6,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Kang Min-ho,CEO,9,7,10,6,2
+3,Always-on backend for customer-facing links,launch-blocking,Kang Min-ho,CEO,8,7,10,10,3
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Kang Min-ho,CEO,2,3,8,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Kang Min-ho,CEO,2,3,9,8,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Kang Min-ho,CEO,8,6,9,7,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Kang Min-ho,CEO,4,5,8,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Kang Min-ho,CEO,6,4,8,8,5
+9,PII log scrub + legal identity fill,launch-blocking,Kang Min-ho,CEO,1,5,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Kang Min-ho,CEO,1,2,10,6,1
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Kang Min-ho,CEO,2,3,8,9,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Kang Min-ho,CEO,2,10,7,8,1
+13,Meritz data provenance purge (phased),launch-blocking,Kang Min-ho,CEO,1,1,9,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Kang Min-ho,CEO,4,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Kang Min-ho,CEO,6,9,8,9,4
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Kang Min-ho,CEO,1,5,9,8,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Kang Min-ho,CEO,2,6,9,8,1
+18,Golden-set normalization eval harness,mvp-candidate,Kang Min-ho,CEO,4,3,9,5,6
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Kang Min-ho,CEO,9,7,9,8,6
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Kang Min-ho,CEO,6,4,8,8,6
+21,Truthful state matrix pass,mvp-candidate,Kang Min-ho,CEO,5,2,9,8,2
+22,SEO and crawl baseline,mvp-candidate,Kang Min-ho,CEO,1,2,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Kang Min-ho,CEO,3,2,10,7,4
+24,Team invite onboarding link (consent-clean),mvp-candidate,Kang Min-ho,CEO,3,6,9,8,5
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Kang Min-ho,CEO,2,9,7,8,4
+26,Community dictionary feedback loop,post-launch,Kang Min-ho,CEO,3,2,9,8,5
+27,Immutable comparison snapshot archive,post-launch,Kang Min-ho,CEO,4,4,9,6,7
+28,Agent referral coupon loop,post-launch,Kang Min-ho,CEO,3,4,7,7,2
+29,Persistency module (13/25회차),post-launch,Kang Min-ho,CEO,5,5,9,8,5
+30,판촉물 real imagery + manager-facing page,post-launch,Kang Min-ho,CEO,3,3,7,7,3
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Lee Ha-eun,CEO,3,3,10,7,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Lee Ha-eun,CEO,8,5,10,6,1
+3,Always-on backend for customer-facing links,launch-blocking,Lee Ha-eun,CEO,8,5,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Lee Ha-eun,CEO,4,3,8,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Lee Ha-eun,CEO,3,3,9,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Lee Ha-eun,CEO,9,6,9,7,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Lee Ha-eun,CEO,3,5,9,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Lee Ha-eun,CEO,7,4,9,8,4
+9,PII log scrub + legal identity fill,launch-blocking,Lee Ha-eun,CEO,2,3,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Lee Ha-eun,CEO,2,2,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Lee Ha-eun,CEO,3,2,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Lee Ha-eun,CEO,2,10,8,8,3
+13,Meritz data provenance purge (phased),launch-blocking,Lee Ha-eun,CEO,2,1,9,4,1
+14,Residual loading skeletons on token pages,mvp-candidate,Lee Ha-eun,CEO,4,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Lee Ha-eun,CEO,8,9,8,9,8
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Lee Ha-eun,CEO,2,5,9,7,2
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Lee Ha-eun,CEO,2,5,9,7,2
+18,Golden-set normalization eval harness,mvp-candidate,Lee Ha-eun,CEO,5,3,9,5,6
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Lee Ha-eun,CEO,9,7,9,8,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Lee Ha-eun,CEO,7,4,8,8,5
+21,Truthful state matrix pass,mvp-candidate,Lee Ha-eun,CEO,5,2,10,7,2
+22,SEO and crawl baseline,mvp-candidate,Lee Ha-eun,CEO,1,2,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Lee Ha-eun,CEO,5,3,10,7,6
+24,Team invite onboarding link (consent-clean),mvp-candidate,Lee Ha-eun,CEO,4,6,9,8,5
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Lee Ha-eun,CEO,3,9,8,7,4
+26,Community dictionary feedback loop,post-launch,Lee Ha-eun,CEO,6,3,9,8,8
+27,Immutable comparison snapshot archive,post-launch,Lee Ha-eun,CEO,4,5,8,6,7
+28,Agent referral coupon loop,post-launch,Lee Ha-eun,CEO,3,6,8,7,4
+29,Persistency module (13/25회차),post-launch,Lee Ha-eun,CEO,7,6,9,8,5
+30,판촉물 real imagery + manager-facing page,post-launch,Lee Ha-eun,CEO,3,4,7,6,3
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Tommy Yoon,CEO,2,3,10,6,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Tommy Yoon,CEO,8,8,10,6,1
+3,Always-on backend for customer-facing links,launch-blocking,Tommy Yoon,CEO,8,7,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Tommy Yoon,CEO,5,6,9,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Tommy Yoon,CEO,4,4,9,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Tommy Yoon,CEO,9,8,9,7,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Tommy Yoon,CEO,5,6,8,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Tommy Yoon,CEO,7,5,9,8,4
+9,PII log scrub + legal identity fill,launch-blocking,Tommy Yoon,CEO,1,5,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Tommy Yoon,CEO,2,3,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Tommy Yoon,CEO,4,5,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Tommy Yoon,CEO,3,10,8,8,3
+13,Meritz data provenance purge (phased),launch-blocking,Tommy Yoon,CEO,2,2,9,4,1
+14,Residual loading skeletons on token pages,mvp-candidate,Tommy Yoon,CEO,3,2,10,9,1
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Tommy Yoon,CEO,8,10,9,9,6
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Tommy Yoon,CEO,1,4,9,7,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Tommy Yoon,CEO,1,6,9,8,1
+18,Golden-set normalization eval harness,mvp-candidate,Tommy Yoon,CEO,3,3,8,5,4
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Tommy Yoon,CEO,9,8,9,8,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Tommy Yoon,CEO,6,4,8,8,6
+21,Truthful state matrix pass,mvp-candidate,Tommy Yoon,CEO,5,3,9,7,2
+22,SEO and crawl baseline,mvp-candidate,Tommy Yoon,CEO,1,2,9,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Tommy Yoon,CEO,4,3,10,8,4
+24,Team invite onboarding link (consent-clean),mvp-candidate,Tommy Yoon,CEO,4,7,9,7,5
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Tommy Yoon,CEO,3,9,8,7,4
+26,Community dictionary feedback loop,post-launch,Tommy Yoon,CEO,4,2,9,8,5
+27,Immutable comparison snapshot archive,post-launch,Tommy Yoon,CEO,5,4,9,6,6
+28,Agent referral coupon loop,post-launch,Tommy Yoon,CEO,3,3,8,6,3
+29,Persistency module (13/25회차),post-launch,Tommy Yoon,CEO,7,7,9,7,7
+30,판촉물 real imagery + manager-facing page,post-launch,Tommy Yoon,CEO,4,3,7,4,4
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Oh Se-ra,PM,2,4,10,7,1
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Oh Se-ra,PM,7,5,9,6,1
+3,Always-on backend for customer-facing links,launch-blocking,Oh Se-ra,PM,8,6,9,10,2
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Oh Se-ra,PM,3,2,8,7,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Oh Se-ra,PM,3,3,9,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Oh Se-ra,PM,9,7,9,7,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Oh Se-ra,PM,4,4,9,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Oh Se-ra,PM,6,4,8,8,4
+9,PII log scrub + legal identity fill,launch-blocking,Oh Se-ra,PM,1,2,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Oh Se-ra,PM,2,2,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Oh Se-ra,PM,3,3,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Oh Se-ra,PM,3,9,8,7,2
+13,Meritz data provenance purge (phased),launch-blocking,Oh Se-ra,PM,1,1,8,4,1
+14,Residual loading skeletons on token pages,mvp-candidate,Oh Se-ra,PM,4,3,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Oh Se-ra,PM,6,9,8,8,3
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Oh Se-ra,PM,2,6,10,7,3
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Oh Se-ra,PM,1,5,9,7,2
+18,Golden-set normalization eval harness,mvp-candidate,Oh Se-ra,PM,4,4,9,5,6
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Oh Se-ra,PM,9,7,9,8,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Oh Se-ra,PM,6,4,8,8,7
+21,Truthful state matrix pass,mvp-candidate,Oh Se-ra,PM,4,3,9,7,2
+22,SEO and crawl baseline,mvp-candidate,Oh Se-ra,PM,1,2,9,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Oh Se-ra,PM,4,3,10,8,6
+24,Team invite onboarding link (consent-clean),mvp-candidate,Oh Se-ra,PM,5,6,9,8,5
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Oh Se-ra,PM,3,8,8,7,5
+26,Community dictionary feedback loop,post-launch,Oh Se-ra,PM,4,2,9,8,5
+27,Immutable comparison snapshot archive,post-launch,Oh Se-ra,PM,2,2,9,6,4
+28,Agent referral coupon loop,post-launch,Oh Se-ra,PM,3,6,8,6,5
+29,Persistency module (13/25회차),post-launch,Oh Se-ra,PM,6,7,8,7,6
+30,판촉물 real imagery + manager-facing page,post-launch,Oh Se-ra,PM,3,3,9,4,2
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Baek Jun-seo,PM,4,3,10,7,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Baek Jun-seo,PM,9,5,10,6,1
+3,Always-on backend for customer-facing links,launch-blocking,Baek Jun-seo,PM,8,4,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Baek Jun-seo,PM,7,3,7,7,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Baek Jun-seo,PM,7,5,9,8,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Baek Jun-seo,PM,9,7,9,8,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Baek Jun-seo,PM,5,4,9,9,2
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Baek Jun-seo,PM,7,5,9,8,4
+9,PII log scrub + legal identity fill,launch-blocking,Baek Jun-seo,PM,3,3,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Baek Jun-seo,PM,3,3,10,7,1
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Baek Jun-seo,PM,6,3,9,9,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Baek Jun-seo,PM,3,10,8,8,2
+13,Meritz data provenance purge (phased),launch-blocking,Baek Jun-seo,PM,2,1,9,4,1
+14,Residual loading skeletons on token pages,mvp-candidate,Baek Jun-seo,PM,4,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Baek Jun-seo,PM,6,8,8,9,3
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Baek Jun-seo,PM,2,4,9,7,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Baek Jun-seo,PM,3,4,9,8,2
+18,Golden-set normalization eval harness,mvp-candidate,Baek Jun-seo,PM,4,3,8,5,5
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Baek Jun-seo,PM,9,7,9,8,6
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Baek Jun-seo,PM,5,4,7,8,6
+21,Truthful state matrix pass,mvp-candidate,Baek Jun-seo,PM,6,2,10,7,2
+22,SEO and crawl baseline,mvp-candidate,Baek Jun-seo,PM,2,2,9,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Baek Jun-seo,PM,4,2,10,8,4
+24,Team invite onboarding link (consent-clean),mvp-candidate,Baek Jun-seo,PM,5,5,9,8,3
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Baek Jun-seo,PM,3,9,8,8,3
+26,Community dictionary feedback loop,post-launch,Baek Jun-seo,PM,4,2,9,8,5
+27,Immutable comparison snapshot archive,post-launch,Baek Jun-seo,PM,4,4,9,7,5
+28,Agent referral coupon loop,post-launch,Baek Jun-seo,PM,3,5,8,7,2
+29,Persistency module (13/25회차),post-launch,Baek Jun-seo,PM,7,6,9,7,5
+30,판촉물 real imagery + manager-facing page,post-launch,Baek Jun-seo,PM,4,3,7,7,3
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Nina Kwon,PM,2,2,10,7,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Nina Kwon,PM,8,5,8,6,2
+3,Always-on backend for customer-facing links,launch-blocking,Nina Kwon,PM,9,5,10,9,3
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Nina Kwon,PM,4,3,9,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Nina Kwon,PM,5,4,9,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Nina Kwon,PM,8,7,9,8,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Nina Kwon,PM,6,6,8,9,2
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Nina Kwon,PM,8,6,9,8,6
+9,PII log scrub + legal identity fill,launch-blocking,Nina Kwon,PM,2,3,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Nina Kwon,PM,2,2,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Nina Kwon,PM,4,3,8,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Nina Kwon,PM,3,9,7,8,3
+13,Meritz data provenance purge (phased),launch-blocking,Nina Kwon,PM,1,1,9,4,1
+14,Residual loading skeletons on token pages,mvp-candidate,Nina Kwon,PM,6,3,10,9,3
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Nina Kwon,PM,7,8,6,8,6
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Nina Kwon,PM,1,4,9,7,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Nina Kwon,PM,1,5,9,7,1
+18,Golden-set normalization eval harness,mvp-candidate,Nina Kwon,PM,5,4,9,5,5
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Nina Kwon,PM,10,7,9,9,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Nina Kwon,PM,8,5,7,8,6
+21,Truthful state matrix pass,mvp-candidate,Nina Kwon,PM,6,3,9,7,2
+22,SEO and crawl baseline,mvp-candidate,Nina Kwon,PM,1,2,9,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Nina Kwon,PM,4,3,10,7,4
+24,Team invite onboarding link (consent-clean),mvp-candidate,Nina Kwon,PM,5,7,9,7,4
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Nina Kwon,PM,3,9,7,8,4
+26,Community dictionary feedback loop,post-launch,Nina Kwon,PM,5,3,9,8,6
+27,Immutable comparison snapshot archive,post-launch,Nina Kwon,PM,4,3,9,6,6
+28,Agent referral coupon loop,post-launch,Nina Kwon,PM,3,6,7,7,4
+29,Persistency module (13/25회차),post-launch,Nina Kwon,PM,7,6,9,8,6
+30,판촉물 real imagery + manager-facing page,post-launch,Nina Kwon,PM,4,4,6,5,3
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Han Do-yun,Designer,3,2,10,7,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Han Do-yun,Designer,8,5,9,6,1
+3,Always-on backend for customer-facing links,launch-blocking,Han Do-yun,Designer,9,7,10,10,2
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Han Do-yun,Designer,3,2,7,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Han Do-yun,Designer,4,2,9,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Han Do-yun,Designer,9,7,9,7,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Han Do-yun,Designer,6,8,9,9,3
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Han Do-yun,Designer,7,5,8,8,6
+9,PII log scrub + legal identity fill,launch-blocking,Han Do-yun,Designer,2,4,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Han Do-yun,Designer,2,2,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Han Do-yun,Designer,3,3,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Han Do-yun,Designer,3,10,8,7,2
+13,Meritz data provenance purge (phased),launch-blocking,Han Do-yun,Designer,1,1,9,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Han Do-yun,Designer,6,3,10,9,4
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Han Do-yun,Designer,7,8,9,8,5
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Han Do-yun,Designer,1,5,9,8,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Han Do-yun,Designer,2,3,9,7,2
+18,Golden-set normalization eval harness,mvp-candidate,Han Do-yun,Designer,4,4,9,5,4
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Han Do-yun,Designer,9,7,9,8,6
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Han Do-yun,Designer,7,6,8,8,7
+21,Truthful state matrix pass,mvp-candidate,Han Do-yun,Designer,6,3,9,8,3
+22,SEO and crawl baseline,mvp-candidate,Han Do-yun,Designer,1,3,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Han Do-yun,Designer,3,4,10,7,6
+24,Team invite onboarding link (consent-clean),mvp-candidate,Han Do-yun,Designer,4,6,9,8,4
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Han Do-yun,Designer,3,9,9,8,3
+26,Community dictionary feedback loop,post-launch,Han Do-yun,Designer,4,2,9,8,5
+27,Immutable comparison snapshot archive,post-launch,Han Do-yun,Designer,4,4,7,7,6
+28,Agent referral coupon loop,post-launch,Han Do-yun,Designer,3,6,6,7,4
+29,Persistency module (13/25회차),post-launch,Han Do-yun,Designer,6,6,9,7,3
+30,판촉물 real imagery + manager-facing page,post-launch,Han Do-yun,Designer,4,5,9,5,4
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Choi Ara,Designer,5,3,10,7,4
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Choi Ara,Designer,9,5,10,6,2
+3,Always-on backend for customer-facing links,launch-blocking,Choi Ara,Designer,8,4,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Choi Ara,Designer,4,2,9,7,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Choi Ara,Designer,5,3,9,8,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Choi Ara,Designer,9,6,9,7,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Choi Ara,Designer,7,4,10,9,2
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Choi Ara,Designer,7,4,8,8,4
+9,PII log scrub + legal identity fill,launch-blocking,Choi Ara,Designer,2,2,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Choi Ara,Designer,3,2,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Choi Ara,Designer,4,2,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Choi Ara,Designer,4,9,9,8,2
+13,Meritz data provenance purge (phased),launch-blocking,Choi Ara,Designer,2,1,9,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Choi Ara,Designer,6,2,10,9,5
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Choi Ara,Designer,6,8,9,8,5
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Choi Ara,Designer,2,4,9,8,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Choi Ara,Designer,2,4,9,8,2
+18,Golden-set normalization eval harness,mvp-candidate,Choi Ara,Designer,5,3,9,5,4
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Choi Ara,Designer,9,7,9,9,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Choi Ara,Designer,8,4,8,8,7
+21,Truthful state matrix pass,mvp-candidate,Choi Ara,Designer,8,3,10,7,5
+22,SEO and crawl baseline,mvp-candidate,Choi Ara,Designer,1,2,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Choi Ara,Designer,4,3,10,7,6
+24,Team invite onboarding link (consent-clean),mvp-candidate,Choi Ara,Designer,4,6,9,8,4
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Choi Ara,Designer,3,9,9,8,3
+26,Community dictionary feedback loop,post-launch,Choi Ara,Designer,6,2,10,8,6
+27,Immutable comparison snapshot archive,post-launch,Choi Ara,Designer,4,3,9,6,6
+28,Agent referral coupon loop,post-launch,Choi Ara,Designer,2,5,8,7,3
+29,Persistency module (13/25회차),post-launch,Choi Ara,Designer,7,6,9,8,4
+30,판촉물 real imagery + manager-facing page,post-launch,Choi Ara,Designer,4,4,8,5,4
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Moon Jae-hyun,Designer,4,2,10,7,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Moon Jae-hyun,Designer,8,3,10,6,1
+3,Always-on backend for customer-facing links,launch-blocking,Moon Jae-hyun,Designer,9,4,10,10,3
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Moon Jae-hyun,Designer,4,1,8,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Moon Jae-hyun,Designer,6,3,9,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Moon Jae-hyun,Designer,7,6,9,7,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Moon Jae-hyun,Designer,6,4,9,9,2
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Moon Jae-hyun,Designer,8,4,9,8,6
+9,PII log scrub + legal identity fill,launch-blocking,Moon Jae-hyun,Designer,2,2,10,8,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Moon Jae-hyun,Designer,3,1,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Moon Jae-hyun,Designer,4,2,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Moon Jae-hyun,Designer,3,9,8,8,2
+13,Meritz data provenance purge (phased),launch-blocking,Moon Jae-hyun,Designer,2,1,10,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Moon Jae-hyun,Designer,7,3,10,9,5
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Moon Jae-hyun,Designer,5,8,9,9,3
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Moon Jae-hyun,Designer,2,4,9,7,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Moon Jae-hyun,Designer,2,3,10,7,1
+18,Golden-set normalization eval harness,mvp-candidate,Moon Jae-hyun,Designer,5,3,8,5,4
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Moon Jae-hyun,Designer,9,7,9,8,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Moon Jae-hyun,Designer,8,5,8,9,8
+21,Truthful state matrix pass,mvp-candidate,Moon Jae-hyun,Designer,6,2,10,8,3
+22,SEO and crawl baseline,mvp-candidate,Moon Jae-hyun,Designer,2,2,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Moon Jae-hyun,Designer,4,2,10,7,3
+24,Team invite onboarding link (consent-clean),mvp-candidate,Moon Jae-hyun,Designer,4,6,9,8,4
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Moon Jae-hyun,Designer,3,8,8,8,3
+26,Community dictionary feedback loop,post-launch,Moon Jae-hyun,Designer,4,2,9,8,5
+27,Immutable comparison snapshot archive,post-launch,Moon Jae-hyun,Designer,4,4,9,6,6
+28,Agent referral coupon loop,post-launch,Moon Jae-hyun,Designer,3,5,7,7,2
+29,Persistency module (13/25회차),post-launch,Moon Jae-hyun,Designer,6,6,9,7,4
+30,판촉물 real imagery + manager-facing page,post-launch,Moon Jae-hyun,Designer,4,4,8,6,3
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Ryu Chan-mi,Marketer,2,2,10,6,1
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Ryu Chan-mi,Marketer,8,5,9,5,1
+3,Always-on backend for customer-facing links,launch-blocking,Ryu Chan-mi,Marketer,7,5,10,10,2
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Ryu Chan-mi,Marketer,2,2,9,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Ryu Chan-mi,Marketer,3,2,9,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Ryu Chan-mi,Marketer,9,6,9,7,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Ryu Chan-mi,Marketer,3,5,9,9,2
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Ryu Chan-mi,Marketer,6,4,8,8,4
+9,PII log scrub + legal identity fill,launch-blocking,Ryu Chan-mi,Marketer,1,2,10,8,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Ryu Chan-mi,Marketer,2,2,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Ryu Chan-mi,Marketer,2,3,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Ryu Chan-mi,Marketer,3,10,8,8,2
+13,Meritz data provenance purge (phased),launch-blocking,Ryu Chan-mi,Marketer,1,1,9,4,1
+14,Residual loading skeletons on token pages,mvp-candidate,Ryu Chan-mi,Marketer,3,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Ryu Chan-mi,Marketer,5,8,8,8,5
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Ryu Chan-mi,Marketer,1,5,9,7,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Ryu Chan-mi,Marketer,1,4,9,7,1
+18,Golden-set normalization eval harness,mvp-candidate,Ryu Chan-mi,Marketer,3,2,8,5,3
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Ryu Chan-mi,Marketer,9,7,9,8,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Ryu Chan-mi,Marketer,7,5,8,9,6
+21,Truthful state matrix pass,mvp-candidate,Ryu Chan-mi,Marketer,4,2,10,7,2
+22,SEO and crawl baseline,mvp-candidate,Ryu Chan-mi,Marketer,1,2,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Ryu Chan-mi,Marketer,2,2,10,7,3
+24,Team invite onboarding link (consent-clean),mvp-candidate,Ryu Chan-mi,Marketer,4,5,9,7,6
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Ryu Chan-mi,Marketer,3,8,8,8,4
+26,Community dictionary feedback loop,post-launch,Ryu Chan-mi,Marketer,4,2,8,8,4
+27,Immutable comparison snapshot archive,post-launch,Ryu Chan-mi,Marketer,4,4,9,6,6
+28,Agent referral coupon loop,post-launch,Ryu Chan-mi,Marketer,3,5,8,7,2
+29,Persistency module (13/25회차),post-launch,Ryu Chan-mi,Marketer,7,6,8,8,5
+30,판촉물 real imagery + manager-facing page,post-launch,Ryu Chan-mi,Marketer,4,3,7,5,2
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Kim Tae-woo,Marketer,2,2,10,6,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Kim Tae-woo,Marketer,6,3,10,5,1
+3,Always-on backend for customer-facing links,launch-blocking,Kim Tae-woo,Marketer,8,6,10,10,2
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Kim Tae-woo,Marketer,2,2,9,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Kim Tae-woo,Marketer,3,3,10,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Kim Tae-woo,Marketer,9,7,9,7,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Kim Tae-woo,Marketer,4,4,10,9,3
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Kim Tae-woo,Marketer,6,5,9,8,6
+9,PII log scrub + legal identity fill,launch-blocking,Kim Tae-woo,Marketer,1,2,10,8,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Kim Tae-woo,Marketer,2,1,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Kim Tae-woo,Marketer,2,2,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Kim Tae-woo,Marketer,3,10,8,7,2
+13,Meritz data provenance purge (phased),launch-blocking,Kim Tae-woo,Marketer,1,1,10,3,1
+14,Residual loading skeletons on token pages,mvp-candidate,Kim Tae-woo,Marketer,4,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Kim Tae-woo,Marketer,6,9,7,8,6
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Kim Tae-woo,Marketer,2,5,9,7,2
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Kim Tae-woo,Marketer,1,4,9,7,3
+18,Golden-set normalization eval harness,mvp-candidate,Kim Tae-woo,Marketer,3,3,9,4,6
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Kim Tae-woo,Marketer,9,7,10,8,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Kim Tae-woo,Marketer,7,6,8,8,9
+21,Truthful state matrix pass,mvp-candidate,Kim Tae-woo,Marketer,4,2,10,6,2
+22,SEO and crawl baseline,mvp-candidate,Kim Tae-woo,Marketer,1,1,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Kim Tae-woo,Marketer,3,3,10,7,5
+24,Team invite onboarding link (consent-clean),mvp-candidate,Kim Tae-woo,Marketer,5,6,9,7,7
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Kim Tae-woo,Marketer,3,8,9,7,6
+26,Community dictionary feedback loop,post-launch,Kim Tae-woo,Marketer,4,2,9,7,8
+27,Immutable comparison snapshot archive,post-launch,Kim Tae-woo,Marketer,4,3,9,6,7
+28,Agent referral coupon loop,post-launch,Kim Tae-woo,Marketer,5,7,7,6,7
+29,Persistency module (13/25회차),post-launch,Kim Tae-woo,Marketer,6,5,9,7,5
+30,판촉물 real imagery + manager-facing page,post-launch,Kim Tae-woo,Marketer,5,5,7,5,6
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Sophia Jang,Marketer,3,3,10,7,3
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Sophia Jang,Marketer,8,5,10,6,2
+3,Always-on backend for customer-facing links,launch-blocking,Sophia Jang,Marketer,8,7,10,10,2
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Sophia Jang,Marketer,4,3,8,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Sophia Jang,Marketer,5,3,9,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Sophia Jang,Marketer,9,7,9,7,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Sophia Jang,Marketer,5,7,9,9,2
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Sophia Jang,Marketer,7,5,8,8,5
+9,PII log scrub + legal identity fill,launch-blocking,Sophia Jang,Marketer,2,4,10,8,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Sophia Jang,Marketer,3,3,10,6,3
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Sophia Jang,Marketer,4,3,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Sophia Jang,Marketer,3,9,8,8,3
+13,Meritz data provenance purge (phased),launch-blocking,Sophia Jang,Marketer,2,3,10,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Sophia Jang,Marketer,4,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Sophia Jang,Marketer,6,9,9,8,4
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Sophia Jang,Marketer,2,6,9,7,2
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Sophia Jang,Marketer,2,5,9,7,1
+18,Golden-set normalization eval harness,mvp-candidate,Sophia Jang,Marketer,4,3,9,5,4
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Sophia Jang,Marketer,9,7,9,8,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Sophia Jang,Marketer,8,5,8,8,7
+21,Truthful state matrix pass,mvp-candidate,Sophia Jang,Marketer,5,2,10,7,2
+22,SEO and crawl baseline,mvp-candidate,Sophia Jang,Marketer,1,3,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Sophia Jang,Marketer,5,5,10,7,7
+24,Team invite onboarding link (consent-clean),mvp-candidate,Sophia Jang,Marketer,4,9,9,8,6
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Sophia Jang,Marketer,3,10,9,8,5
+26,Community dictionary feedback loop,post-launch,Sophia Jang,Marketer,4,2,9,8,5
+27,Immutable comparison snapshot archive,post-launch,Sophia Jang,Marketer,4,4,9,6,6
+28,Agent referral coupon loop,post-launch,Sophia Jang,Marketer,3,6,8,7,4
+29,Persistency module (13/25회차),post-launch,Sophia Jang,Marketer,7,7,8,8,5
+30,판촉물 real imagery + manager-facing page,post-launch,Sophia Jang,Marketer,5,7,7,7,6
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Jeong Woo-jin,Developer,3,2,10,8,2
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Jeong Woo-jin,Developer,8,5,9,7,1
+3,Always-on backend for customer-facing links,launch-blocking,Jeong Woo-jin,Developer,8,4,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Jeong Woo-jin,Developer,4,2,8,7,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Jeong Woo-jin,Developer,6,3,9,8,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Jeong Woo-jin,Developer,9,7,9,7,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Jeong Woo-jin,Developer,5,4,9,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Jeong Woo-jin,Developer,7,4,9,8,3
+9,PII log scrub + legal identity fill,launch-blocking,Jeong Woo-jin,Developer,2,3,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Jeong Woo-jin,Developer,2,2,10,7,1
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Jeong Woo-jin,Developer,4,2,9,9,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Jeong Woo-jin,Developer,3,9,8,8,2
+13,Meritz data provenance purge (phased),launch-blocking,Jeong Woo-jin,Developer,2,1,9,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Jeong Woo-jin,Developer,4,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Jeong Woo-jin,Developer,6,8,8,9,3
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Jeong Woo-jin,Developer,2,5,9,8,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Jeong Woo-jin,Developer,3,4,9,8,2
+18,Golden-set normalization eval harness,mvp-candidate,Jeong Woo-jin,Developer,5,3,9,6,3
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Jeong Woo-jin,Developer,9,7,9,8,6
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Jeong Woo-jin,Developer,7,4,8,8,6
+21,Truthful state matrix pass,mvp-candidate,Jeong Woo-jin,Developer,6,2,9,7,2
+22,SEO and crawl baseline,mvp-candidate,Jeong Woo-jin,Developer,2,3,9,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Jeong Woo-jin,Developer,4,2,10,8,4
+24,Team invite onboarding link (consent-clean),mvp-candidate,Jeong Woo-jin,Developer,5,6,9,8,4
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Jeong Woo-jin,Developer,3,8,8,8,3
+26,Community dictionary feedback loop,post-launch,Jeong Woo-jin,Developer,5,3,9,8,6
+27,Immutable comparison snapshot archive,post-launch,Jeong Woo-jin,Developer,5,4,8,7,7
+28,Agent referral coupon loop,post-launch,Jeong Woo-jin,Developer,3,5,8,7,3
+29,Persistency module (13/25회차),post-launch,Jeong Woo-jin,Developer,6,6,9,8,4
+30,판촉물 real imagery + manager-facing page,post-launch,Jeong Woo-jin,Developer,4,4,7,6,4
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Amelia Son,Developer,4,2,10,7,3
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Amelia Son,Developer,10,6,10,6,2
+3,Always-on backend for customer-facing links,launch-blocking,Amelia Son,Developer,9,6,10,10,3
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Amelia Son,Developer,8,4,8,8,2
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Amelia Son,Developer,7,4,9,8,2
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Amelia Son,Developer,9,6,9,7,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Amelia Son,Developer,6,4,10,9,2
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Amelia Son,Developer,7,4,8,8,5
+9,PII log scrub + legal identity fill,launch-blocking,Amelia Son,Developer,2,4,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Amelia Son,Developer,3,2,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Amelia Son,Developer,7,3,8,9,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Amelia Son,Developer,3,10,7,8,2
+13,Meritz data provenance purge (phased),launch-blocking,Amelia Son,Developer,2,1,9,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Amelia Son,Developer,4,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Amelia Son,Developer,5,8,7,9,3
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Amelia Son,Developer,3,4,9,7,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Amelia Son,Developer,3,4,9,8,2
+18,Golden-set normalization eval harness,mvp-candidate,Amelia Son,Developer,5,3,9,5,4
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Amelia Son,Developer,9,7,9,8,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Amelia Son,Developer,7,4,8,8,6
+21,Truthful state matrix pass,mvp-candidate,Amelia Son,Developer,6,2,10,7,2
+22,SEO and crawl baseline,mvp-candidate,Amelia Son,Developer,2,3,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Amelia Son,Developer,4,2,10,8,4
+24,Team invite onboarding link (consent-clean),mvp-candidate,Amelia Son,Developer,4,6,9,7,4
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Amelia Son,Developer,3,9,7,7,3
+26,Community dictionary feedback loop,post-launch,Amelia Son,Developer,5,2,9,8,5
+27,Immutable comparison snapshot archive,post-launch,Amelia Son,Developer,4,3,8,7,6
+28,Agent referral coupon loop,post-launch,Amelia Son,Developer,3,5,7,7,3
+29,Persistency module (13/25회차),post-launch,Amelia Son,Developer,7,6,8,8,5
+30,판촉물 real imagery + manager-facing page,post-launch,Amelia Son,Developer,4,3,7,6,4
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Gu Bon-cheol,Developer,4,3,10,7,4
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Gu Bon-cheol,Developer,9,6,9,6,7
+3,Always-on backend for customer-facing links,launch-blocking,Gu Bon-cheol,Developer,8,5,10,10,2
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Gu Bon-cheol,Developer,4,3,9,6,2
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Gu Bon-cheol,Developer,5,4,9,8,2
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Gu Bon-cheol,Developer,9,7,9,8,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Gu Bon-cheol,Developer,5,4,9,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Gu Bon-cheol,Developer,6,4,8,8,5
+9,PII log scrub + legal identity fill,launch-blocking,Gu Bon-cheol,Developer,2,2,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Gu Bon-cheol,Developer,2,2,10,7,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Gu Bon-cheol,Developer,4,3,8,9,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Gu Bon-cheol,Developer,3,9,7,8,1
+13,Meritz data provenance purge (phased),launch-blocking,Gu Bon-cheol,Developer,1,1,9,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Gu Bon-cheol,Developer,4,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Gu Bon-cheol,Developer,6,8,8,8,5
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Gu Bon-cheol,Developer,2,5,9,8,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Gu Bon-cheol,Developer,4,5,9,8,6
+18,Golden-set normalization eval harness,mvp-candidate,Gu Bon-cheol,Developer,5,4,8,6,8
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Gu Bon-cheol,Developer,9,6,9,9,6
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Gu Bon-cheol,Developer,6,3,8,8,4
+21,Truthful state matrix pass,mvp-candidate,Gu Bon-cheol,Developer,6,3,9,7,3
+22,SEO and crawl baseline,mvp-candidate,Gu Bon-cheol,Developer,1,2,9,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Gu Bon-cheol,Developer,4,3,10,7,6
+24,Team invite onboarding link (consent-clean),mvp-candidate,Gu Bon-cheol,Developer,4,5,9,8,4
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Gu Bon-cheol,Developer,3,8,7,8,3
+26,Community dictionary feedback loop,post-launch,Gu Bon-cheol,Developer,5,3,9,8,8
+27,Immutable comparison snapshot archive,post-launch,Gu Bon-cheol,Developer,4,3,9,8,7
+28,Agent referral coupon loop,post-launch,Gu Bon-cheol,Developer,3,5,6,7,3
+29,Persistency module (13/25회차),post-launch,Gu Bon-cheol,Developer,7,7,9,8,5
+30,판촉물 real imagery + manager-facing page,post-launch,Gu Bon-cheol,Developer,4,4,8,6,3
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Yang Mi-sook,Agent,4,2,10,7,3
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Yang Mi-sook,Agent,9,3,10,6,2
+3,Always-on backend for customer-facing links,launch-blocking,Yang Mi-sook,Agent,10,6,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Yang Mi-sook,Agent,8,3,8,8,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Yang Mi-sook,Agent,6,3,10,8,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Yang Mi-sook,Agent,10,8,9,8,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Yang Mi-sook,Agent,6,4,9,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Yang Mi-sook,Agent,8,4,9,8,4
+9,PII log scrub + legal identity fill,launch-blocking,Yang Mi-sook,Agent,4,2,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Yang Mi-sook,Agent,5,2,10,7,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Yang Mi-sook,Agent,6,2,9,9,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Yang Mi-sook,Agent,3,10,8,8,2
+13,Meritz data provenance purge (phased),launch-blocking,Yang Mi-sook,Agent,2,1,10,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Yang Mi-sook,Agent,6,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Yang Mi-sook,Agent,3,8,8,9,3
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Yang Mi-sook,Agent,1,4,9,8,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Yang Mi-sook,Agent,2,3,9,8,1
+18,Golden-set normalization eval harness,mvp-candidate,Yang Mi-sook,Agent,5,3,9,6,5
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Yang Mi-sook,Agent,8,7,8,8,6
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Yang Mi-sook,Agent,9,6,8,7,7
+21,Truthful state matrix pass,mvp-candidate,Yang Mi-sook,Agent,7,2,9,7,2
+22,SEO and crawl baseline,mvp-candidate,Yang Mi-sook,Agent,2,2,9,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Yang Mi-sook,Agent,6,5,10,8,6
+24,Team invite onboarding link (consent-clean),mvp-candidate,Yang Mi-sook,Agent,2,4,9,8,3
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Yang Mi-sook,Agent,1,8,8,8,3
+26,Community dictionary feedback loop,post-launch,Yang Mi-sook,Agent,4,2,9,8,5
+27,Immutable comparison snapshot archive,post-launch,Yang Mi-sook,Agent,6,5,9,7,7
+28,Agent referral coupon loop,post-launch,Yang Mi-sook,Agent,3,5,8,7,2
+29,Persistency module (13/25회차),post-launch,Yang Mi-sook,Agent,7,6,9,8,4
+30,판촉물 real imagery + manager-facing page,post-launch,Yang Mi-sook,Agent,6,5,7,8,4
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Kwak Dong-hyun,Agent,2,2,10,7,1
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Kwak Dong-hyun,Agent,8,6,10,6,1
+3,Always-on backend for customer-facing links,launch-blocking,Kwak Dong-hyun,Agent,9,6,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Kwak Dong-hyun,Agent,4,3,9,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Kwak Dong-hyun,Agent,3,2,9,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Kwak Dong-hyun,Agent,8,7,9,7,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Kwak Dong-hyun,Agent,4,5,10,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Kwak Dong-hyun,Agent,8,6,8,8,6
+9,PII log scrub + legal identity fill,launch-blocking,Kwak Dong-hyun,Agent,1,2,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Kwak Dong-hyun,Agent,2,2,10,6,1
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Kwak Dong-hyun,Agent,4,2,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Kwak Dong-hyun,Agent,2,9,8,8,1
+13,Meritz data provenance purge (phased),launch-blocking,Kwak Dong-hyun,Agent,1,1,10,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Kwak Dong-hyun,Agent,5,3,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Kwak Dong-hyun,Agent,6,8,9,9,5
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Kwak Dong-hyun,Agent,1,4,9,8,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Kwak Dong-hyun,Agent,1,4,10,8,1
+18,Golden-set normalization eval harness,mvp-candidate,Kwak Dong-hyun,Agent,3,3,9,6,3
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Kwak Dong-hyun,Agent,10,8,9,9,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Kwak Dong-hyun,Agent,9,7,8,8,8
+21,Truthful state matrix pass,mvp-candidate,Kwak Dong-hyun,Agent,4,2,10,8,2
+22,SEO and crawl baseline,mvp-candidate,Kwak Dong-hyun,Agent,1,2,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Kwak Dong-hyun,Agent,4,3,10,8,4
+24,Team invite onboarding link (consent-clean),mvp-candidate,Kwak Dong-hyun,Agent,3,5,9,8,3
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Kwak Dong-hyun,Agent,4,9,9,8,3
+26,Community dictionary feedback loop,post-launch,Kwak Dong-hyun,Agent,5,2,9,8,5
+27,Immutable comparison snapshot archive,post-launch,Kwak Dong-hyun,Agent,3,3,8,6,6
+28,Agent referral coupon loop,post-launch,Kwak Dong-hyun,Agent,6,6,7,7,4
+29,Persistency module (13/25회차),post-launch,Kwak Dong-hyun,Agent,6,6,9,8,5
+30,판촉물 real imagery + manager-facing page,post-launch,Kwak Dong-hyun,Agent,4,4,7,7,3
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Cha Eun-bi,Agent,6,3,10,7,5
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Cha Eun-bi,Agent,9,4,10,6,2
+3,Always-on backend for customer-facing links,launch-blocking,Cha Eun-bi,Agent,9,5,10,10,1
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Cha Eun-bi,Agent,5,2,8,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Cha Eun-bi,Agent,4,2,10,7,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Cha Eun-bi,Agent,9,6,10,7,5
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Cha Eun-bi,Agent,6,4,10,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Cha Eun-bi,Agent,7,4,9,8,5
+9,PII log scrub + legal identity fill,launch-blocking,Cha Eun-bi,Agent,3,2,10,8,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Cha Eun-bi,Agent,5,2,10,6,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Cha Eun-bi,Agent,4,2,9,8,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Cha Eun-bi,Agent,5,9,8,7,2
+13,Meritz data provenance purge (phased),launch-blocking,Cha Eun-bi,Agent,2,1,9,5,1
+14,Residual loading skeletons on token pages,mvp-candidate,Cha Eun-bi,Agent,5,2,10,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Cha Eun-bi,Agent,7,8,9,8,4
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Cha Eun-bi,Agent,2,4,9,7,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Cha Eun-bi,Agent,2,4,10,7,1
+18,Golden-set normalization eval harness,mvp-candidate,Cha Eun-bi,Agent,5,3,10,5,6
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Cha Eun-bi,Agent,10,7,10,8,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Cha Eun-bi,Agent,8,4,9,8,6
+21,Truthful state matrix pass,mvp-candidate,Cha Eun-bi,Agent,5,2,10,7,2
+22,SEO and crawl baseline,mvp-candidate,Cha Eun-bi,Agent,1,2,10,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Cha Eun-bi,Agent,9,6,10,7,8
+24,Team invite onboarding link (consent-clean),mvp-candidate,Cha Eun-bi,Agent,9,7,10,8,7
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Cha Eun-bi,Agent,7,9,9,8,6
+26,Community dictionary feedback loop,post-launch,Cha Eun-bi,Agent,5,2,10,8,5
+27,Immutable comparison snapshot archive,post-launch,Cha Eun-bi,Agent,8,7,9,7,9
+28,Agent referral coupon loop,post-launch,Cha Eun-bi,Agent,4,6,7,7,3
+29,Persistency module (13/25회차),post-launch,Cha Eun-bi,Agent,8,7,9,8,5
+30,판촉물 real imagery + manager-facing page,post-launch,Cha Eun-bi,Agent,5,4,8,7,4
+1,Single-source consent copy + versioned re-consent sweep,launch-blocking,Dr. Im Kyu-tae,Compliance,3,3,10,7,4
+2,"Identity-true seed upsert, seeds off the boot path",launch-blocking,Dr. Im Kyu-tae,Compliance,7,5,8,6,2
+3,Always-on backend for customer-facing links,launch-blocking,Dr. Im Kyu-tae,Compliance,7,4,9,10,2
+4,Nightly encrypted pg_dump + rehearsed restore + retention cycle,launch-blocking,Dr. Im Kyu-tae,Compliance,4,3,7,6,1
+5,Single scheduled job runner with dead-man heartbeat,launch-blocking,Dr. Im Kyu-tae,Compliance,5,3,9,8,1
+6,Reminder producer + 8am in-app morning digest,launch-blocking,Dr. Im Kyu-tae,Compliance,8,6,8,7,4
+7,"Launch trust sweep: purge demo data, fix placeholders, hide ghost surfaces",launch-blocking,Dr. Im Kyu-tae,Compliance,4,4,9,9,1
+8,/s never-dead CTA (tel: layer + tracked callback lead),launch-blocking,Dr. Im Kyu-tae,Compliance,6,4,8,8,5
+9,PII log scrub + legal identity fill,launch-blocking,Dr. Im Kyu-tae,Compliance,2,4,10,9,1
+10,Consent withdrawal endpoint + retention automation,launch-blocking,Dr. Im Kyu-tae,Compliance,3,2,10,7,2
+11,Sentry + PII-safe error monitoring + synthetic probes,launch-blocking,Dr. Im Kyu-tae,Compliance,3,3,8,9,1
+12,계좌이체 billing desk + credible pricing surface,launch-blocking,Dr. Im Kyu-tae,Compliance,3,9,7,8,2
+13,Meritz data provenance purge (phased),launch-blocking,Dr. Im Kyu-tae,Compliance,2,1,9,4,1
+14,Residual loading skeletons on token pages,mvp-candidate,Dr. Im Kyu-tae,Compliance,4,2,9,9,2
+15,Invited 계좌이체 paid pilot + founder concierge (Founding 20),mvp-candidate,Dr. Im Kyu-tae,Compliance,6,8,7,8,5
+16,Activation funnel instrumentation + UTM capture + dead-man funnel alarm,mvp-candidate,Dr. Im Kyu-tae,Compliance,2,5,9,7,1
+17,Claude per-call cost + parse-outcome telemetry,mvp-candidate,Dr. Im Kyu-tae,Compliance,3,5,9,8,2
+18,Golden-set normalization eval harness,mvp-candidate,Dr. Im Kyu-tae,Compliance,5,3,8,5,4
+19,Daily call list (오늘 전화 리스트),mvp-candidate,Dr. Im Kyu-tae,Compliance,9,7,8,8,7
+20,"KakaoTalk link preview cards (static first, per-token after warmth)",mvp-candidate,Dr. Im Kyu-tae,Compliance,7,4,6,7,6
+21,Truthful state matrix pass,mvp-candidate,Dr. Im Kyu-tae,Compliance,5,3,8,7,2
+22,SEO and crawl baseline,mvp-candidate,Dr. Im Kyu-tae,Compliance,2,2,9,10,1
+23,Recommendation-word blacklist (CI + server-side share check),mvp-candidate,Dr. Im Kyu-tae,Compliance,4,3,10,8,7
+24,Team invite onboarding link (consent-clean),mvp-candidate,Dr. Im Kyu-tae,Compliance,5,6,9,8,4
+25,"Multi-seat org code billing (지점 invoice, not a tier)",mvp-candidate,Dr. Im Kyu-tae,Compliance,4,8,8,7,4
+26,Community dictionary feedback loop,post-launch,Dr. Im Kyu-tae,Compliance,5,2,8,8,5
+27,Immutable comparison snapshot archive,post-launch,Dr. Im Kyu-tae,Compliance,5,4,9,7,7
+28,Agent referral coupon loop,post-launch,Dr. Im Kyu-tae,Compliance,3,5,6,7,3
+29,Persistency module (13/25회차),post-launch,Dr. Im Kyu-tae,Compliance,6,5,8,7,3
+30,판촉물 real imagery + manager-facing page,post-launch,Dr. Im Kyu-tae,Compliance,4,4,5,6,5

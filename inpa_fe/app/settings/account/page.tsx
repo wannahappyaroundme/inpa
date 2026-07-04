@@ -302,7 +302,7 @@ export default function AccountSettingsPage() {
           </p>
         </Card>
 
-        {/* 소셜 계정 연동 — 항상 노출(구글 연동/준비중 + 카카오·네이버 추후 예정) */}
+        {/* 소셜 계정 연동 — 구글만 노출(없는 연동은 광고하지 않는다, §6c) */}
         <Card className="px-5 py-4">
           <div className="text-[15px] font-bold text-ink">소셜 계정 연동</div>
           <p className="mt-1 text-[12px] text-ink3 leading-5">
@@ -318,7 +318,7 @@ export default function AccountSettingsPage() {
                 <div className="text-[12px] text-ink3 truncate">
                   {GOOGLE_CLIENT_ID
                     ? (p.google_calendar_connected ? "연동됨 · 캘린더 동기화 중" : "로그인 + 캘린더 연동")
-                    : "준비 중 (관리자 설정 후 사용 가능)"}
+                    : "관리자 설정 후 연결할 수 있어요"}
                 </div>
               </div>
             </div>
@@ -331,9 +331,7 @@ export default function AccountSettingsPage() {
               ) : (
                 <button onClick={connectGoogleCalendar} className="rounded-lg bg-brand text-white text-[13px] font-bold px-3 py-1.5 shrink-0">연동하기</button>
               )
-            ) : (
-              <span className="text-[12px] text-ink3 bg-surface2 rounded-full px-2.5 py-1 shrink-0">준비 중</span>
-            )}
+            ) : null}
           </div>
 
           {/* 구글 캘린더 고객 이름 마스킹 (연동된 경우만) */}
@@ -350,23 +348,6 @@ export default function AccountSettingsPage() {
               </button>
             </label>
           )}
-
-          {/* 카카오 · 네이버 — 추후 도입 예정 */}
-          {[
-            { label: "카카오", mark: "K", color: "bg-[#FEE500] text-[#3C1E1E]" },
-            { label: "네이버", mark: "N", color: "bg-[#03C75A] text-white" },
-          ].map((s) => (
-            <div key={s.label} className="flex items-center justify-between gap-3 py-2.5 border-t border-line">
-              <div className="flex items-center gap-2.5">
-                <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-[15px] font-bold ${s.color}`}>{s.mark}</span>
-                <div>
-                  <div className="text-[14px] font-semibold text-ink2">{s.label}</div>
-                  <div className="text-[12px] text-ink3">추후 도입 예정</div>
-                </div>
-              </div>
-              <span className="text-[12px] text-ink3 bg-surface2 rounded-full px-2.5 py-1">예정</span>
-            </div>
-          ))}
 
           <p className="mt-3 text-[12px] text-ink3 leading-5">
             구글 캘린더 연동 시 미팅 확정 시점에 <b>고객 이름·시간·방식</b>만 Google(미국 서버) 캘린더에 기록돼요. 병력·보험 정보는 전송되지 않습니다.

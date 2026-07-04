@@ -18,7 +18,9 @@ const SCAN_STAGES = ["증권 스캔 중…", "내용 인식 중…", "담보 분
 import {
   uploadInsuranceOcr,
   createConsentRequest,
+  getConsentTexts,
   ApiError,
+  type ConsentText,
 } from "@/lib/api";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 
@@ -43,6 +45,8 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void, portfoli
   const [consentLoading, setConsentLoading] = useState(false);
   const [consentUrl, setConsentUrl] = useState<string | null>(null);
   const [consentCopied, setConsentCopied] = useState(false);
+  // 412 사유: "reconsent"(구버전 동의 → 재동의) | "missing"(동의 없음). 모달 안내 문구 분기.
+  const [consentReason, setConsentReason] = useState<string | undefined>(undefined);
   const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
 
   const runUpload = useCallback(
@@ -56,7 +60,8 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void, portfoli
         setTimeout(() => setPhase("idle"), 2000);
       } catch (e: unknown) {
         if (e instanceof ApiError && e.status === 412) {
-          // 국외이전 동의 필요 → 동의 모달 노출
+          // 국외이전 동의 필요 → 동의 모달 노출. reason으로 안내 문구 분기.
+          setConsentReason(e.reason ?? "missing");
           setPhase("consent_required");
         } else if (e instanceof ApiError && e.status === 402) {
           // 한도 초과 → 소프트 업그레이드 안내 모달
@@ -107,6 +112,7 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void, portfoli
   const openConsent = useCallback(() => {
     setConsentUrl(null);
     setConsentCopied(false);
+    setConsentReason("missing");
     setError(null);
     setPhase("consent_required");
   }, []);
@@ -128,6 +134,7 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void, portfoli
     setPendingFile(null);
     setConsentUrl(null);
     setConsentCopied(false);
+    setConsentReason(undefined);
     setError(null);
   }, []);
 
@@ -148,6 +155,7 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void, portfoli
     consentLoading,
     consentUrl,
     consentCopied,
+    consentReason,
     onFileChange,
     generateConsentLink,
     openConsent,
@@ -301,6 +309,17 @@ export function OcrStatusBanner({
 // ⚠️ 설계사 대리동의 불가. 고객이 본인 기기에서 /c/<token> 으로 직접 동의해야 분석 가능.
 //    설계사는 '동의 요청 링크'를 만들어 전달(클립보드 복사/카톡)만 한다 — 자동발송 없음.
 
+// 서버 미응답 시 로컬 폴백 — 반드시 v2 문구(옛 '즉시 삭제'는 절대 쓰지 않는다).
+const OVERSEAS_FALLBACK: ConsentText = {
+  title: "보험 정보 국외이전 (Claude API, 미국)",
+  body: [
+    "이전 국가·수탁자: 미국 Anthropic(Claude API)",
+    "이전 항목: 증권의 보험정보(담보·보험료 등)",
+  ],
+  retention:
+    "보유 기간: Anthropic의 데이터 처리·보관 정책에 따릅니다(입력 정보는 AI 학습에 사용되지 않아요).",
+};
+
 export function ConsentModal({
   onGenerate,
   consentUrl,
@@ -308,6 +327,7 @@ export function ConsentModal({
   onCopy,
   onDismiss,
   loading,
+  reason,
 }: {
   onGenerate: () => void;
   consentUrl: string | null;
@@ -315,7 +335,25 @@ export function ConsentModal({
   onCopy: () => void;
   onDismiss: () => void;
   loading: boolean;
+  /** "reconsent" 면 '안내문이 새로워졌어요' 긍정 안내로 분기. */
+  reason?: string;
 }) {
+  // 최신 국외이전 고지문을 서버에서 받아 렌더(실패 시 v2 로컬 폴백).
+  const [overseas, setOverseas] = useState<ConsentText>(OVERSEAS_FALLBACK);
+  useEffect(() => {
+    let alive = true;
+    getConsentTexts()
+      .then((res) => {
+        const t = res.texts?.overseas_medical;
+        if (alive && t) setOverseas(t);
+      })
+      .catch(() => {
+        /* 폴백 유지 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
@@ -328,21 +366,32 @@ export function ConsentModal({
           id="consent-modal-title"
           className="text-[18px] font-extrabold text-ink"
         >
-          고객 본인 동의가 필요해요
+          {reason === "reconsent" ? "동의 안내문이 새로워졌어요" : "고객 본인 동의가 필요해요"}
         </h2>
         <p className="mt-3 text-[14px] text-ink2 leading-6">
-          증권 분석을 위해 보험 정보가{" "}
-          <b className="font-semibold text-ink">Claude AI(미국 소재)</b>로
-          국외이전됩니다. 법적으로 <b className="font-semibold text-ink">고객 본인</b>이 직접
-          동의해야 분석을 시작할 수 있어요. 아래 동의 요청 링크를 만들어 고객에게 보내세요.
+          {reason === "reconsent" ? (
+            <>
+              동의 안내문이 새로워졌어요. 고객에게{" "}
+              <b className="font-semibold text-ink">동의 링크를 다시 보내면</b> 바로 분석할 수
+              있어요. 아래 링크를 만들어 고객에게 보내세요.
+            </>
+          ) : (
+            <>
+              증권 분석을 위해 보험 정보가{" "}
+              <b className="font-semibold text-ink">Claude AI(미국 소재)</b>로
+              국외이전됩니다. 법적으로 <b className="font-semibold text-ink">고객 본인</b>이 직접
+              동의해야 분석을 시작할 수 있어요. 아래 동의 요청 링크를 만들어 고객에게 보내세요.
+            </>
+          )}
         </p>
 
-        {/* 동의 범위 요약 */}
+        {/* 동의 범위 요약 — 고지문 단일 소스(consent-texts)에서 렌더 */}
         <ul className="mt-4 space-y-1.5 text-[13px] text-ink3 leading-5">
-          <li>수집·이전 항목: 증권의 보험정보(담보·보험료 등)</li>
-          <li>이전 국가·수탁자: 미국 Anthropic(Claude API)</li>
+          {overseas.body.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
           <li>이전 목적: AI 기반 증권 파싱 및 담보 정규화</li>
-          <li>보유 기간: 처리 후 즉시 삭제</li>
+          <li>{overseas.retention}</li>
         </ul>
 
         {/* AI 면책 — 정직성 레드라인 */}

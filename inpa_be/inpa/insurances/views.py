@@ -22,6 +22,8 @@
     보험사별 담보 원문명을 표준 담보(AnalysisDetail) 로 고정(데이터 복리 해자).
   - ANTHROPIC_API_KEY 는 settings(env) 에서만 — 하드코딩 금지.
 """
+import logging
+
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F
@@ -39,6 +41,7 @@ from inpa.analysis.models import (
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
 from inpa.core.ocr.claude_parser import claude_parse
 from inpa.core.permissions import IsEmailVerified
+from inpa.customers.consent_texts import has_current_overseas_consent
 from inpa.customers.models import Customer
 
 from .coverage_bridge import resolve_std_detail
@@ -49,6 +52,9 @@ from .models import (
 from .serializers import (
     CustomerInsuranceManualSerializer, CustomerInsuranceSerializerForDetail,
 )
+
+# ★ PII 로그 레드라인(LB#9): 업로드 파일 내용·추출 텍스트를 절대 로그에 찍지 않는다.
+logger = logging.getLogger(__name__)
 
 # 최대 업로드 크기 (foliio 동일 정책)
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -135,7 +141,8 @@ def _extract_pdf_lines(uploaded_file):
                     if ln:
                         lines.append(ln)
     except Exception as e:  # 손상/암호 PDF 등
-        print(f'[ocr-upload] pdf extract error: {e}')
+        # 예외 타입·메시지만 — 파일 내용/추출 텍스트는 로그 금지 (PII 로그 레드라인).
+        logger.warning('[ocr-upload] pdf extract error: %s: %s', type(e).__name__, e)
         return [], 'PROCESSING_ERROR'
     if not lines:
         # 텍스트 0줄 = 스캔/이미지 PDF → 거부 (Claude 호출 의미 없음)
@@ -332,9 +339,11 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
         customer = self.get_customer()
 
         # ── 1) ★ 국외이전 동의 물리 게이트 (Claude 호출 이전에 차단) ──
-        if customer.consent_overseas_at is None:
+        #    현재 문구 버전으로 받은 고객 본인 동의만 게이트를 연다(구버전=재동의 필요).
+        if not has_current_overseas_consent(customer):
+            reason = 'reconsent' if customer.consent_overseas_at is not None else 'missing'
             return Response(
-                {'code': 'CONSENT_OVERSEAS_REQUIRED',
+                {'code': 'CONSENT_OVERSEAS_REQUIRED', 'reason': reason,
                  'detail': '증권 OCR 분석 전 고객의 병력·보험정보 국외이전(Claude API, 미국) '
                            '동의가 필요합니다.'},
                 status=status.HTTP_412_PRECONDITION_FAILED)

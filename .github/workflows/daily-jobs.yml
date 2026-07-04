@@ -1,0 +1,44 @@
+# 일일 배치 트리거 — 매일 08:00 KST (= 23:00 UTC 전날) 에 BE 의 리마인더 생성 잡을 깨운다.
+# BE 는 POST /api/v1/jobs/run-daily/ (X-JOB-TOKEN 인증, KST 당일 멱등 — 재실행 시 중복 알림 0).
+#
+# ★ 필수 설정 (PM 런북):
+#   1) GitHub 저장소 Settings → Secrets and variables → Actions → New repository secret
+#      이름: JOB_RUNNER_TOKEN / 값: 강한 랜덤 문자열 (예: `openssl rand -hex 32` 출력)
+#   2) Render(inpa-be) → Environment → JOB_RUNNER_TOKEN 에 **같은 값** 입력 (render.yaml sync:false)
+#   → 둘 중 하나라도 없으면: BE env 미설정 = 404(fail-closed) / GH secret 미설정 = 403.
+name: Daily jobs (08:00 KST)
+
+on:
+  schedule:
+    - cron: '0 23 * * *'   # 23:00 UTC = 다음날 08:00 KST
+  workflow_dispatch: {}     # 수동 실행(테스트/재실행 — 멱등이라 안전)
+
+jobs:
+  trigger:
+    name: Trigger daily reminder jobs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/v1/jobs/run-daily/ (retry once on non-200)
+        env:
+          JOB_RUNNER_TOKEN: ${{ secrets.JOB_RUNNER_TOKEN }}
+          ENDPOINT: https://inpa-be.onrender.com/api/v1/jobs/run-daily/
+        run: |
+          set -u
+          call() {
+            curl -s -o body.json -w '%{http_code}' -X POST \
+              -H "X-JOB-TOKEN: ${JOB_RUNNER_TOKEN}" \
+              --max-time 110 \
+              "${ENDPOINT}" || echo 000
+          }
+          code=$(call)
+          echo "attempt 1: HTTP ${code}"
+          cat body.json 2>/dev/null || true
+          if [ "${code}" != "200" ]; then
+            # Render 무료 티어 콜드스타트(슬립) 허용 — 90초 뒤 1회 재시도(멱등이라 안전)
+            echo "retrying in 90s (cold start tolerance)..."
+            sleep 90
+            code=$(call)
+            echo "attempt 2: HTTP ${code}"
+            cat body.json 2>/dev/null || true
+          fi
+          [ "${code}" = "200" ]

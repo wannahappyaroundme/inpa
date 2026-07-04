@@ -89,7 +89,7 @@ export default function IntroCardPage() {
         >
           내 보험 무료로 점검받기
         </a>
-        <p className="mt-1.5 text-center text-[12px] text-ink3">증권 사진만 올리면 1분 만에 한눈에 정리해 드려요.</p>
+        <p className="mt-1.5 text-center text-[12px] text-ink3">지금 내 상황에 맞는 보장인지 1분 만에 확인해보세요. 증권 파일(PDF)만 있으면 돼요.</p>
 
         {/* CTA 2 — 상담 신청(리드 생성) */}
         {submitted ? (

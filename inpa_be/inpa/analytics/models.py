@@ -42,6 +42,11 @@ class NorthStarEvent(models.Model):
     CLIPBOARD_COPY = 'clipboard_copy'        # ④ 공유뷰 복사 클릭 (발송 프록시·보조)
     SHARE_VIEW = 'share_view'                # ⑤ 공유뷰 200 (열람 — 곱셈 2항·신뢰 KPI)
     REFERRAL_ATTRIBUTED = 'referral_attributed'  # ⑥ ?ref= 보유 view→신규 가입 (귀속 — 곱셈 3항)
+    # ⑦ 공유뷰 '연락 요청 남기기'(콜백) — 설계사 알림 트리거(LB#8).
+    #    ⚠️ EVENT_TYPE_CHOICES에 넣지 않음 — choices 변경은 AlterField 마이그레이션을
+    #    만드는데 이번 라운드는 마이그레이션 0 고정. choices는 표시용일 뿐 저장은 자유
+    #    (create()는 choices 검증을 하지 않음). 다음 스키마 라운드에서 choices에 흡수.
+    CALLBACK_REQUEST = 'callback_request'
 
     EVENT_TYPE_CHOICES = (
         (OCR_UPLOAD, '증권 OCR 업로드'),

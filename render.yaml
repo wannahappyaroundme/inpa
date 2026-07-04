@@ -23,10 +23,15 @@ services:
       SECRET_KEY=build-only-not-a-secret
       python manage.py collectstatic --noinput
     # 시작: 마이그레이션 → 표준담보/정규화 시드(멱등) → gunicorn. $PORT 는 Render 주입.
-    #   seed_normalization 은 멱등(재실행해도 카운트 불변)이라 매 배포·재기동마다 안전하게
-    #   재적재된다. 표준 담보 트리([표준]*)·정규화 사전이 prod DB 에 항상 존재하도록 보장
-    #   (예: '처치' 카테고리 신규분이 수동 개입 없이 배포 즉시 반영). @transaction.atomic
-    #   이라 실패 시 이전 트리로 롤백 → 부분 적재 없음.
+    #   ★ 2026-07-04 시드 안전화(LB-1): seed_normalization/seed_jobs 는 SeedMarker 버전
+    #   가드로 보호 — 마커가 최신이면 no-op(배포·콜드스타트마다 실행돼도 무해).
+    #   seed_normalization 은 identity-true upsert(자연키 get_or_create, PK 보존)라
+    #   기존 M2M 링크·admin_verified 정규화 행이 끊기지 않는다. 삭제 없음(--prune 은
+    #   수동 전용 — 배포 체인에서 사용 금지). 시드 데이터 변경 시 각 커맨드의
+    #   SEED_VERSION 을 bump 하면 다음 배포에서 1회 재적재된다.
+    #   @transaction.atomic 이라 실패 시 롤백 → 부분 적재 없음.
+    #   ★ 이 변경 배포 직후 1회, Render Shell 에서 과거 끊긴 링크 복구(PM 런북):
+    #       python manage.py repair_analysis_links --apply
     startCommand: >-
       python manage.py migrate --noinput &&
       python manage.py createcachetable &&
@@ -51,6 +56,11 @@ services:
         sync: false                  # Claude 키(비우면 OCR/AI만 비활성)
       - key: FRONTEND_BASE_URL
         sync: false                  # https://<vercel-fe-도메인> (이메일 링크용)
+      # ── 일일 배치(리마인더 알림) — GitHub Actions cron(daily-jobs.yml)이 08:00 KST 에
+      #    POST /api/v1/jobs/run-daily/ 를 호출. GitHub 저장소 Secret JOB_RUNNER_TOKEN 과
+      #    "같은 값"을 여기에 입력해야 동작(미설정 시 엔드포인트 404 = 잡 꺼짐, fail-closed).
+      - key: JOB_RUNNER_TOKEN
+        sync: false                  # `openssl rand -hex 32` 등 강한 랜덤값. GH Secret 과 동일하게.
       # ── 미디어(명함·전자자료) 저장 — AWS 불필요. 아래 셋 중 하나만 ──
       # [A] S3 "호환" 오브젝트 스토리지(권장·무료): Cloudflare R2 / Supabase / Backblaze B2 등.
       #     → 아래 5개 채우기(R2면 REGION=auto, ENDPOINT_URL=R2 주소).

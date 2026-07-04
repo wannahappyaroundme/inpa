@@ -26,7 +26,7 @@ export function SelfDiagnosisShare({
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const link = refCode ? `${origin}/d/${refCode}` : "";
-  const shareText = `보장 셀프진단 받아보세요 (1분·무료)\n${link}`;
+  const shareText = `내 보험이 지금 상황에 맞는지 1분 만에 확인해보세요 (무료)\n${link}`;
 
   const copy = useCallback(async () => {
     if (!link) return;

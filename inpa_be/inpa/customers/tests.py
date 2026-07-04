@@ -13,12 +13,25 @@ from django.test import TestCase, override_settings
 
 from inpa.accounts.models import Profile, User
 
+from .consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
 from .models import (
     ConsentLog, Customer, CustomerMedicalHistory, CustomerTag, JobRiskCode,
     PlannerBaseline,
 )
 from .presets import PRESET_ORIGIN_V0, PRESET_V0, iter_preset_rows
 from .tokens import make_consent_token, read_consent_token
+
+
+def _grant_overseas(customer, version=CONSENT_TEXTS_VERSION):
+    """현재 문구 버전으로 받은 고객 본인 국외이전 동의 = Claude 게이트 통과 조건.
+
+    version=''로 부르면 구버전 동의(재동의 필요) 상황을 재현한다.
+    """
+    customer.consent_overseas_at = timezone.now()
+    customer.save(update_fields=['consent_overseas_at'])
+    return ConsentLog.objects.create(
+        customer=customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+        subject=ConsentLog.SUBJECT_CUSTOMER_SELF, doc_version=version)
 
 
 def _make_planner(email):
@@ -111,15 +124,24 @@ class MedicalConsentGateTests(TestCase):
         r = self._post_medical()
         self.assertEqual(r.status_code, 412)
         self.assertEqual(r.json()['code'], 'CONSENT_OVERSEAS_REQUIRED')
+        self.assertEqual(r.json()['reason'], 'missing')
         self.assertEqual(CustomerMedicalHistory.objects.count(), 0)
 
     def test_medical_allowed_after_consent(self):
-        """동의 후 → 201 등록 성공."""
-        self.customer.consent_overseas_at = timezone.now()
-        self.customer.save(update_fields=['consent_overseas_at'])
+        """현재 버전 고객 본인 동의 후 → 201 등록 성공."""
+        _grant_overseas(self.customer)
         r = self._post_medical()
         self.assertEqual(r.status_code, 201)
         self.assertEqual(CustomerMedicalHistory.objects.count(), 1)
+
+    def test_medical_old_version_consent_requires_reconsent(self):
+        """구버전 문구로 받은 동의만 있으면 재동의 필요 → 412 reason=reconsent."""
+        _grant_overseas(self.customer, version='')
+        r = self._post_medical()
+        self.assertEqual(r.status_code, 412)
+        self.assertEqual(r.json()['code'], 'CONSENT_OVERSEAS_REQUIRED')
+        self.assertEqual(r.json()['reason'], 'reconsent')
+        self.assertEqual(CustomerMedicalHistory.objects.count(), 0)
 
     def test_planner_consent_does_not_unlock_gate(self):
         """★ P3c 카나리아: 설계사 동의 기록은 planner_attested(대리)로 남고 국외이전 게이트를
@@ -136,6 +158,16 @@ class MedicalConsentGateTests(TestCase):
         r2 = self._post_medical()
         self.assertEqual(r2.status_code, 412)
         self.assertEqual(r2.json()['code'], 'CONSENT_OVERSEAS_REQUIRED')
+
+    def test_planner_attested_stamps_current_version(self):
+        """설계사 대리 동의도 현재 문구 버전으로 스탬프된다(서버 강제)."""
+        r = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/consents/',
+            {'scope': ConsentLog.SCOPE_MARKETING, 'doc_version': 'legacy-v1'},
+            format='json')
+        self.assertEqual(r.status_code, 201)
+        log = ConsentLog.objects.get(id=r.json()['id'])
+        self.assertEqual(log.doc_version, CONSENT_TEXTS_VERSION)
 
     def test_planner_cannot_forge_customer_self_subject(self):
         """설계사가 subject=customer_self로 위조해도 서버가 planner_attested로 강제(read_only)."""
@@ -277,6 +309,7 @@ class CustomerSelfConsentTests(TestCase):
         self.assertIsNotNone(self.customer.consent_overseas_at)  # OCR 게이트 해제
         log = ConsentLog.objects.filter(customer=self.customer).latest('agreed_at')
         self.assertEqual(log.subject, ConsentLog.SUBJECT_CUSTOMER_SELF)
+        self.assertEqual(log.doc_version, CONSENT_TEXTS_VERSION)  # 버전 스탬프
 
     def test_public_post_without_consent_412(self):
         token = make_consent_token(self.customer)
@@ -296,6 +329,36 @@ class CustomerSelfConsentTests(TestCase):
                          {'agreed': ['overseas_medical']}, format='json')
         self.customer.refresh_from_db()
         self.assertEqual(self.customer.consent_overseas_at, first)
+
+    def test_old_version_consent_is_reagreeable_via_c(self):
+        """구버전 문구로 동의한 고객(consent_overseas_at 세팅됨)이 /c 로 재동의해 게이트를 다시 연다.
+
+        LB-2 회복 경로: GET에서 overseas already=False(체크박스 재활성) → POST가 새 v2 로그 생성
+        → has_current_overseas_consent 통과. 구버전 로그만 있으면 게이트가 막혀 있어야 한다.
+        """
+        # 구버전 동의 재현: consent_overseas_at 세팅 + doc_version='' 로그
+        _grant_overseas(self.customer, version='')
+        self.assertFalse(has_current_overseas_consent(self.customer))  # 게이트 아직 닫힘
+
+        token = make_consent_token(self.customer)
+        # GET: 구버전 고객도 overseas 항목이 재동의 가능(already=False)해야 함
+        g = self.public.get(f'/api/v1/c/{token}/')
+        self.assertEqual(g.status_code, 200)
+        overseas_item = next(it for it in g.json()['items']
+                             if it['scope'] == 'overseas_medical')
+        self.assertFalse(overseas_item['already'])
+
+        # POST: 새 v2 로그가 생성되어 게이트가 열림
+        r = self.public.post(f'/api/v1/c/{token}/',
+                             {'agreed': ['overseas_medical']}, format='json')
+        self.assertEqual(r.status_code, 201)
+        self.customer.refresh_from_db()
+        self.assertTrue(has_current_overseas_consent(self.customer))
+        # 새 로그는 현재 버전으로 스탬프됨
+        latest = ConsentLog.objects.filter(
+            customer=self.customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+        ).latest('agreed_at')
+        self.assertEqual(latest.doc_version, CONSENT_TEXTS_VERSION)
 
     @override_settings(REQUIRE_CUSTOMER_SELF_CONSENT=True)
     def test_customer_self_unlocks_in_strict_mode(self):
@@ -745,3 +808,195 @@ class CustomerBulkCreateTests(TestCase):
         self.assertEqual(b.gender, 2)
         self.assertIsNone(b.job_code_id)          # 없는 id → None
         self.assertEqual(b.lead_source, 'direct')  # 잘못된 값 → 폴백
+
+
+class ConsentTextsEndpointTests(TestCase):
+    """★ LB-2: 공개 동의 고지문 단일 소스 GET /consent-texts/."""
+
+    def setUp(self):
+        cache.clear()  # share_public ScopedRateThrottle 카운터 격리
+        self.public = APIClient()
+
+    def test_returns_version_and_all_scopes(self):
+        r = self.public.get('/api/v1/consent-texts/')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body['version'], CONSENT_TEXTS_VERSION)
+        texts = body['texts']
+        for scope in ('overseas_medical', 'personal_info', 'third_party', 'marketing'):
+            self.assertIn(scope, texts)
+            self.assertIn('title', texts[scope])
+            self.assertIn('body', texts[scope])
+            self.assertIn('retention', texts[scope])
+
+    def test_overseas_retention_wording_corrected(self):
+        """옛 '즉시 삭제' 문구는 사라지고 Anthropic 정책 문구가 들어간다."""
+        r = self.public.get('/api/v1/consent-texts/')
+        overseas = r.json()['texts']['overseas_medical']['retention']
+        self.assertNotIn('즉시 삭제', overseas)
+        self.assertIn('Anthropic', overseas)
+        # 전체 응답에도 옛 문구가 없어야 함
+        self.assertNotIn('즉시 삭제', r.content.decode())
+
+
+class SeedJobsMarkerTests(TestCase):
+    """LB-1 시드 안전화: seed_jobs 버전 마커 — 2회차 no-op, --force 우회."""
+
+    def _tiny_file(self):
+        import json
+        import tempfile
+        rows = [{'sctg_cd': 'S01', 'name': '테스트직업', 'risk_grade': 1}]
+        f = tempfile.NamedTemporaryFile(
+            'w', suffix='.json', delete=False, encoding='utf-8')
+        json.dump(rows, f)
+        f.close()
+        return f.name
+
+    def test_marker_skips_second_run_force_bypasses(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        from inpa.analysis.models import SeedMarker
+        from inpa.customers.management.commands import seed_jobs as seed_jobs_mod
+        from inpa.customers.models import JobRiskCode
+
+        path = self._tiny_file()
+        call_command('seed_jobs', '--file', path, stdout=StringIO())
+        self.assertEqual(JobRiskCode.objects.count(), 1)
+        self.assertEqual(
+            SeedMarker.objects.get(key=seed_jobs_mod.MARKER_KEY).version,
+            seed_jobs_mod.SEED_VERSION)
+
+        # 2회차: 마커 최신 → no-op (파일 SSOT prune 로직도 실행 안 됨)
+        out = StringIO()
+        call_command('seed_jobs', '--file', path, stdout=out)
+        self.assertIn('이미 최신', out.getvalue())
+
+        # --force: 실제 실행 (upsert + 파일 SSOT 동기화 의미 유지)
+        out2 = StringIO()
+        call_command('seed_jobs', '--file', path, '--force', stdout=out2)
+        self.assertIn('직업급수 시드 완료', out2.getvalue())
+        self.assertEqual(JobRiskCode.objects.count(), 1)
+
+
+class ConsentRevokeTests(TestCase):
+    """공개 /c 동의 철회(LB#10) — revocable 노출, revoked[] 스탬프, 게이트·스냅샷 정합."""
+
+    def setUp(self):
+        cache.clear()  # throttle 격리
+        self.user, _ = _make_planner('rv@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='김철회')
+        self.anon = APIClient()
+
+    def _token(self, scopes):
+        return make_consent_token(self.customer, scopes=scopes)
+
+    def test_get_marks_agreed_scope_revocable(self):
+        """동의된 scope는 revocable=true, 기록 없는 scope는 false."""
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF, doc_version=CONSENT_TEXTS_VERSION)
+        tok = self._token(['marketing', 'personal_info'])
+        r = self.anon.get(f'/api/v1/c/{tok}/')
+        self.assertEqual(r.status_code, 200)
+        items = {it['scope']: it for it in r.json()['items']}
+        self.assertTrue(items['marketing']['revocable'])
+        self.assertFalse(items['personal_info']['revocable'])
+
+    def test_post_revoked_stamps_all_unrevoked_logs_incl_planner_attested(self):
+        """철회 = 해당 scope의 모든 unrevoked 로그(subject 불문) revoked_at 스탬프."""
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_PLANNER_ATTESTED)
+        tok = self._token(['marketing'])
+        r = self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['marketing']}, format='json')
+        self.assertEqual(r.status_code, 200)
+        logs = ConsentLog.objects.filter(customer=self.customer,
+                                         scope=ConsentLog.SCOPE_MARKETING)
+        self.assertEqual(logs.count(), 2)
+        self.assertTrue(all(l.revoked_at is not None for l in logs))
+        # 재철회 멱등 — 추가 스탬프 없음, 응답 정상
+        r2 = self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['marketing']}, format='json')
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r2.json()['revoked'][0]['updated_logs'], 0)
+
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_overseas_revoke_closes_ocr_gate_with_missing_reason(self):
+        """국외이전 철회 → 스냅샷(consent_overseas_at)도 비워져 OCR 게이트 412 reason=missing."""
+        _grant_overseas(self.customer)
+        self.assertTrue(has_current_overseas_consent(self.customer))
+        tok = self._token(['overseas_medical'])
+        r = self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['overseas_medical']},
+                           format='json')
+        self.assertEqual(r.status_code, 200)
+        self.customer.refresh_from_db()
+        self.assertIsNone(self.customer.consent_overseas_at)
+        self.assertFalse(has_current_overseas_consent(self.customer))
+        # OCR 업로드 게이트 — 철회 후 새 분석은 412(스냅샷까지 비웠으니 reason=missing)
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        ocr = client.post(f'/api/v1/customers/{self.customer.id}/insurances/ocr/', {})
+        self.assertEqual(ocr.status_code, 412)
+        self.assertEqual(ocr.json()['code'], 'CONSENT_OVERSEAS_REQUIRED')
+        self.assertEqual(ocr.json()['reason'], 'missing')
+
+    def test_revoke_outside_token_scope_ignored(self):
+        """토큰 밖 scope 철회는 무시(위조 가드) — 로그 불변."""
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        tok = self._token(['personal_info'])  # marketing 미포함 토큰
+        r = self.anon.post(f'/api/v1/c/{tok}/',
+                           {'agreed': ['personal_info'], 'revoked': ['marketing']},
+                           format='json')
+        self.assertEqual(r.status_code, 201)
+        log = ConsentLog.objects.get(customer=self.customer,
+                                     scope=ConsentLog.SCOPE_MARKETING)
+        self.assertIsNone(log.revoked_at)
+
+    def test_pure_revoke_of_required_scope_passes_412_check(self):
+        """철회 전용 요청은 필수 미동의 412를 타지 않는다(철회권 보장)."""
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_PERSONAL_INFO,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        tok = self._token(['personal_info'])
+        r = self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['personal_info']},
+                           format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.json()['all_required_done'])
+
+    def test_revoke_then_reagree_reopens_gate(self):
+        """왕복 — 철회 후 재동의(v2) → 새 로그 생성 + 게이트 다시 열림."""
+        _grant_overseas(self.customer)
+        tok = self._token(['overseas_medical'])
+        self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['overseas_medical']},
+                       format='json')
+        self.assertFalse(has_current_overseas_consent(self.customer))
+        r = self.anon.post(f'/api/v1/c/{tok}/', {'agreed': ['overseas_medical']},
+                           format='json')
+        self.assertEqual(r.status_code, 201)
+        self.customer.refresh_from_db()
+        self.assertIsNotNone(self.customer.consent_overseas_at)
+        self.assertTrue(has_current_overseas_consent(self.customer))
+        # 로그: 철회된 1건 + 살아있는 새 1건
+        logs = ConsentLog.objects.filter(customer=self.customer,
+                                         scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL)
+        self.assertEqual(logs.count(), 2)
+        self.assertEqual(logs.filter(revoked_at__isnull=True).count(), 1)
+
+    def test_revoke_updates_detail_serializer_state(self):
+        """철회 후 고객 상세 consents 상태가 'revoked'로 일관 반영(표시 정합)."""
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        tok = self._token(['marketing'])
+        self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['marketing']}, format='json')
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        r = client.get(f'/api/v1/customers/{self.customer.id}/')
+        self.assertEqual(r.json()['consents']['marketing']['status'], 'revoked')
+        self.assertEqual(r.json()['marketing_consent'], 'revoked')

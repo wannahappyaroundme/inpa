@@ -9,7 +9,11 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { Card } from "@/components/ui";
 import { InpaMark } from "@/components/inpa-logo";
-import { postSelfDiagnosis, ApiError, type SelfDiagnosisResult } from "@/lib/api";
+import { postSelfDiagnosis, getConsentTexts, ApiError, type SelfDiagnosisResult } from "@/lib/api";
+
+// 국외이전 보유 기간 문구 — 서버 미응답 시 v2 로컬 폴백(옛 '즉시 삭제'는 절대 안 씀).
+const OVERSEAS_RETENTION_FALLBACK =
+  "보유 기간: Anthropic의 데이터 처리·보관 정책에 따릅니다(입력 정보는 AI 학습에 사용되지 않아요).";
 
 const krw = new Intl.NumberFormat("ko-KR");
 function fmtWon(v: number | null | undefined): string {
@@ -54,6 +58,21 @@ export default function SelfDiagnosisPage() {
   const [result, setResult] = useState<SelfDiagnosisResult | null>(null);
   const [showNoPdfModal, setShowNoPdfModal] = useState(false);
   const [msgIdx, setMsgIdx] = useState(0);
+  const [overseasRetention, setOverseasRetention] = useState(OVERSEAS_RETENTION_FALLBACK);
+
+  // 최신 국외이전 보유 기간 문구를 서버에서 받아옴(실패 시 v2 폴백 유지).
+  useEffect(() => {
+    let alive = true;
+    getConsentTexts()
+      .then((res) => {
+        const r = res.texts?.overseas_medical?.retention;
+        if (alive && r) setOverseasRetention(r);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // 로딩 문구 순환
   useEffect(() => {
@@ -194,10 +213,10 @@ export default function SelfDiagnosisPage() {
       </header>
       <main className="px-5 pb-10">
         <h1 className="pt-6 text-[22px] font-extrabold text-ink leading-8">
-          내 보험, 1분 무료 점검
+          내 보험, 지금 상황에 맞을까요?
         </h1>
         <p className="mt-2 text-[14px] text-ink3 leading-6">
-          간단한 정보만 남기면 담당 설계사가 보장을 살펴드려요. 증권(PDF)을 올리면 보유 담보까지 바로 정리해 드립니다.
+          1분이면 무료로 확인할 수 있어요. 간단한 정보만 남기면 담당 설계사가 보장을 살펴드리고, 증권(PDF)을 올리면 보유 담보까지 바로 정리해 드립니다.
         </p>
 
         {/* 본인 정보 (필수) */}
@@ -268,6 +287,7 @@ export default function SelfDiagnosisPage() {
               <input type="checkbox" checked={consentOverseas} onChange={(e) => setConsentOverseas(e.target.checked)} className="mt-0.5" />
               <span className="text-[13px] text-ink2 leading-5">
                 <b>(필수)</b> 증권 분석을 위해 보험정보가 Claude API(미국, Anthropic)로 <b>국외이전</b>되는 데 동의합니다.
+                <span className="block mt-1 text-[12px] text-ink3">{overseasRetention}</span>
               </span>
             </label>
             <label className="flex items-start gap-2.5 cursor-pointer">

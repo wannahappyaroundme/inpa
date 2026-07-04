@@ -46,3 +46,6 @@ Thumbs.db
 
 # 로컬 UI 스크린샷(커밋 금지)
 screenshots/
+
+# PM 원천 데이터(제3자 라이선스 자료) — 로컬 전용, 커밋 금지 (운영 사본은 inpa_be/inpa/customers/data/)
+/data/

@@ -146,7 +146,7 @@ export default function PublicBookingPage() {
         <h2 className="mt-5 text-[13px] font-semibold text-ink3 mb-2">비어 있는 시간</h2>
         {info.slots.length === 0 ? (
           <Card className="px-4 py-6 text-center text-[14px] text-ink3">
-            지금 고를 수 있는 시간이 없어요. 담당 설계사에게 문의해 주세요.
+            지금은 고를 수 있는 시간이 없어요. 담당 설계사에게 연락하시면 맞는 시간을 잡아드려요.
           </Card>
         ) : (
           <div className="space-y-2 max-h-[44vh] overflow-y-auto pr-0.5">

@@ -4,6 +4,7 @@ import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
+import { SamplePlaceholder } from "@/components/sample-placeholder";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
@@ -215,6 +216,7 @@ export default function SampleDetailPage({
   const [pageError, setPageError] = useState<string | null>(null);
 
   const [selectedImageIdx, setSelectedImageIdx] = useState(0);
+  const [failedUrls, setFailedUrls] = useState<Set<string>>(new Set()); // 죽은 이미지 URL → 플레이스홀더
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -344,6 +346,7 @@ export default function SampleDetailPage({
       : [];
 
   const currentImage = orderedImages[selectedImageIdx];
+  const mainImgBroken = !!currentImage && failedUrls.has(currentImage.url);
   const valid = isFormValid();
 
   return (
@@ -372,17 +375,18 @@ export default function SampleDetailPage({
           <div className="w-full md:w-[45%] shrink-0 space-y-3">
             {/* 대표 이미지 */}
             <Card className="overflow-hidden aspect-square">
-              {currentImage ? (
+              {currentImage && !mainImgBroken ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={currentImage.url}
                   alt={sample.name}
                   className="w-full h-full object-contain"
+                  onError={() =>
+                    setFailedUrls((prev) => new Set(prev).add(currentImage.url))
+                  }
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center bg-surface2 text-muted text-[13px]">
-                  이미지 없음
-                </div>
+                <SamplePlaceholder name={sample.name} category={sample.category} />
               )}
             </Card>
 
