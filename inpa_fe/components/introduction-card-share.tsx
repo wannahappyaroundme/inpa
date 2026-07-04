@@ -17,7 +17,7 @@ export function IntroductionCardShare() {
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const link = refCode ? `${origin}/p/${refCode}` : "";
-  const shareText = `제 소개 카드예요. 무료 보장점검·상담 신청을 한 번에 하실 수 있어요.\n${link}`;
+  const shareText = `제 소개 카드예요. 내 보험이 지금 상황에 맞는지 무료로 먼저 확인해보세요.\n${link}`;
 
   const copy = useCallback(async () => {
     if (!link) return;

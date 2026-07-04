@@ -194,10 +194,10 @@ export default function SelfDiagnosisPage() {
       </header>
       <main className="px-5 pb-10">
         <h1 className="pt-6 text-[22px] font-extrabold text-ink leading-8">
-          내 보험, 1분 무료 점검
+          내 보험, 지금 상황에 맞을까요?
         </h1>
         <p className="mt-2 text-[14px] text-ink3 leading-6">
-          간단한 정보만 남기면 담당 설계사가 보장을 살펴드려요. 증권(PDF)을 올리면 보유 담보까지 바로 정리해 드립니다.
+          1분이면 무료로 확인할 수 있어요. 간단한 정보만 남기면 담당 설계사가 보장을 살펴드리고, 증권(PDF)을 올리면 보유 담보까지 바로 정리해 드립니다.
         </p>
 
         {/* 본인 정보 (필수) */}

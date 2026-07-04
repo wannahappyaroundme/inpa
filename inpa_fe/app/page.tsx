@@ -332,7 +332,7 @@ function HowItWorksSection() {
 }
 
 function PricingSection() {
-  const free = ["증권 분석 월 N건 (베타 확정)", "비교안내서 월 1건 체험", "보장 히트맵 조회 무제한"];
+  const free = ["증권 분석·비교 분석 핵심 기능 포함", "베타 기간에는 월 한도 없이", "보장 한눈표 조회 무제한"];
   const plus = ["증권 분석 더 많이", "비교안내서 복수 발행", "AI 분석·메시지 제한 완화", "판촉물 주문 제한 완화"];
   return (
     <section className="py-20 md:py-28 bg-[var(--surface)]">
@@ -345,6 +345,7 @@ function PricingSection() {
           <Reveal className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 flex flex-col gap-3">
             <div className="text-[13px] font-semibold text-[var(--ink-3)] uppercase tracking-wide">무료</div>
             <div className="text-[34px] font-extrabold text-[var(--ink)]">0원</div>
+            <p className="text-[13px] text-[var(--ink-3)]">이제 고객 명단을 만들기 시작한 설계사님에게 딱 맞아요.</p>
             <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
               {free.map((f) => (<li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>))}
             </ul>
@@ -356,6 +357,7 @@ function PricingSection() {
               <span className="px-2 py-0.5 rounded-full bg-[var(--accent-tint)] text-[var(--brand)] text-[11px] font-bold">추천</span>
             </div>
             <div className="text-[24px] font-extrabold text-[var(--ink)]">추후 공개</div>
+            <p className="text-[13px] text-[var(--ink-3)]">증권 분석이 일상이 된 설계사님에게 딱 맞아요.</p>
             <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
               {plus.map((f) => (<li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>))}
             </ul>
@@ -437,19 +439,19 @@ function AudienceSection() {
     {
       tag: "개인 설계사",
       title: "잡일은 88% 줄이고,\n그 시간으로 첫 고객을 만드세요",
-      body: "증권 분석 30분 → 3분, 제안서 40분 → 5분. 번 시간은 발굴에. 셀프진단 링크 하나면 잠재고객이 알아서 내 리드가 됩니다.",
+      body: "증권 분석 30분 → 3분, 제안서 40분 → 5분. 번 시간은 발굴에. 셀프진단 링크 하나면 잠재고객이 알아서 내 고객 명단에 들어옵니다.",
     },
     {
       tag: "관리직(팀장·지점장)",
       title: "팀원이 편해지면\n팀장님 숫자가 좋아집니다",
-      body: "월말 취합 엑셀은 그만. 팀 퍼널·유지율·환수위험을 실시간으로 봅니다. 보고 받지 마세요, 인파에서 바로 보세요. (성과 수치는 추정)",
+      body: "월말 취합 엑셀은 그만. 팀 퍼널·유지율·이번 달 실적을 실시간으로 봅니다. 보고 받지 마세요, 인파에서 바로 보세요. (성과 수치는 추정)",
     },
   ];
   return (
     <section className="py-20 md:py-28 bg-[var(--surface)]">
       <div className="mx-auto max-w-5xl px-4 sm:px-6">
         <Reveal>
-          <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">누구에게 좋은가요?</h2>
+          <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">어떤 분에게 딱 맞나요?</h2>
         </Reveal>
         <div className="mt-10 grid gap-5 md:grid-cols-2">
           {cards.map((c) => (
