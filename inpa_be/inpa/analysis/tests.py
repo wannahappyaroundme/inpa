@@ -865,3 +865,154 @@ class RepairAnalysisLinksTests(TestCase):
         call_command('repair_analysis_links', '--apply', stdout=out)
         self.assertIn('미해석 1건', out.getvalue())
         self.assertEqual(orphan_det.analysis_detail.count(), 0)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# cleanup_demo — 프로드 [DEMO] 잔재 정리 명령 (LB#7)
+#   가드 검증: @inpa.local 도메인 + demo_ 코드 프리픽스 밖 데이터는 절대 무손상,
+#   is_admin 프로필은 이메일이 @inpa.local 이어도 보호.
+# ════════════════════════════════════════════════════════════════════════
+from inpa.billing.models import Plan, Subscription  # noqa: E402
+
+
+class CleanupDemoCommandTests(TestCase):
+    def setUp(self):
+        # ★ 사용자 먼저 생성 — free Plan 이 없을 때 billing 시그널이 구독 자동생성을
+        #   건너뛰므로(경고만), 구독 상태를 테스트가 직접 통제할 수 있다.
+        self.demo_user = User.objects.create_user(
+            email='demo@inpa.local', password='demoPass123!')
+        Profile.objects.create(user=self.demo_user, email_verified_at=timezone.now())
+        self.demo_admin = User.objects.create_user(
+            email='demo-admin@inpa.local', password='demoPass123!')
+        Profile.objects.create(user=self.demo_admin,
+                               email_verified_at=timezone.now(), is_admin=True)
+        self.real_user = User.objects.create_user(
+            email='real@example.com', password='realPass123!')
+        Profile.objects.create(user=self.real_user, email_verified_at=timezone.now())
+
+        # 소유 데이터(CASCADE 확인용)
+        self.demo_customer = Customer.objects.create(
+            owner=self.demo_user, name='데모고객', mobile_phone_number='010-0000-0000',
+            is_agree_term=True)
+        self.real_customer = Customer.objects.create(
+            owner=self.real_user, name='실고객', mobile_phone_number='010-1111-2222',
+            is_agree_term=True)
+
+        # 요금제: 실서비스 free + 데모 2종
+        self.free_plan = Plan.objects.create(code='free', display_name='Free')
+        self.demo_plan_orphan = Plan.objects.create(
+            code='demo_free', display_name='[DEMO] Free')
+        self.demo_plan_referenced = Plan.objects.create(
+            code='demo_plus', display_name='[DEMO] Plus')
+        # demo_free ← 데모 사용자 구독(사용자 삭제 시 CASCADE → 참조 0 → 플랜 삭제 가능)
+        Subscription.objects.create(user=self.demo_user, plan=self.demo_plan_orphan)
+        # demo_plus ← 실사용자 구독(참조 잔존 → 삭제 대신 비활성)
+        Subscription.objects.create(user=self.real_user, plan=self.demo_plan_referenced)
+
+    def _run(self):
+        out = StringIO()
+        call_command('cleanup_demo', stdout=out)
+        return out.getvalue()
+
+    def test_deletes_demo_users_and_cascade_keeps_real_data(self):
+        self._run()
+        self.assertFalse(User.objects.filter(email='demo@inpa.local').exists())
+        self.assertFalse(Customer.objects.filter(pk=self.demo_customer.pk).exists())
+        # 데모 패턴 밖 데이터 무손상
+        self.assertTrue(User.objects.filter(email='real@example.com').exists())
+        self.assertTrue(Customer.objects.filter(pk=self.real_customer.pk).exists())
+
+    def test_admin_inpa_local_user_is_protected(self):
+        out = self._run()
+        self.assertTrue(User.objects.filter(email='demo-admin@inpa.local').exists())
+        self.assertIn('demo-admin@inpa.local', out)
+        self.assertIn('보호', out)
+
+    def test_demo_plans_deleted_or_deactivated_free_intact(self):
+        self._run()
+        # 참조 0 → 삭제
+        self.assertFalse(Plan.objects.filter(code='demo_free').exists())
+        # 실사용자 구독 참조 잔존 → 비활성 (공개 /billing/plans/ 노출 차단)
+        plus = Plan.objects.get(code='demo_plus')
+        self.assertFalse(plus.is_active)
+        self.assertTrue(Subscription.objects.filter(
+            user=self.real_user, plan=plus).exists())
+        # 실서비스 free 플랜 무손상
+        free = Plan.objects.get(code='free')
+        self.assertTrue(free.is_active)
+
+    def test_rerun_is_idempotent(self):
+        self._run()
+        out = self._run()  # 재실행 — 예외 없이 0건 처리
+        self.assertIn('삭제 사용자      : 0명', out)
+        self.assertTrue(User.objects.filter(email='real@example.com').exists())
+        self.assertTrue(User.objects.filter(email='demo-admin@inpa.local').exists())
+
+    def test_shared_demo_marker_rows_cleaned_real_kept(self):
+        # 프로드가 과거 seed_demo 를 돌린 흔적(공유 테이블 [DEMO] 행) 정리 + 실데이터 보존
+        from inpa.boards.models import Faq, Notice
+        from inpa.promotion.models import PromotionSample
+        demo_notice = Notice.objects.create(
+            author=self.real_user, title='[DEMO] 데모 공지', body='x')
+        real_notice = Notice.objects.create(
+            author=self.real_user, title='정식 공지', body='y')
+        demo_faq = Faq.objects.create(question='[DEMO] 데모 질문', answer='a')
+        real_faq = Faq.objects.create(question='정식 질문', answer='b')
+        demo_sample = PromotionSample.objects.create(
+            name='[DEMO] 명함 A', category='명함')
+        real_sample = PromotionSample.objects.create(name='고급 명함', category='명함')
+        out = self._run()
+        self.assertFalse(Notice.objects.filter(pk=demo_notice.pk).exists())
+        self.assertFalse(Faq.objects.filter(pk=demo_faq.pk).exists())
+        self.assertFalse(PromotionSample.objects.filter(pk=demo_sample.pk).exists())
+        self.assertTrue(Notice.objects.filter(pk=real_notice.pk).exists())
+        self.assertTrue(Faq.objects.filter(pk=real_faq.pk).exists())
+        self.assertTrue(PromotionSample.objects.filter(pk=real_sample.pk).exists())
+        self.assertIn('공유 [DEMO] 정리', out)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# claude_parser 로깅 — PII 로그 레드라인(LB#9): 로그 문자열에 증권/담보 내용 미포함
+# ════════════════════════════════════════════════════════════════════════
+from inpa.core.ocr.claude_parser import _add_coverage  # noqa: E402
+from inpa.core.ocr.ocrdata import Ocr_Data  # noqa: E402
+
+
+class ClaudeParserLogRedactionTests(TestCase):
+    def test_normalizer_error_log_excludes_coverage_content(self):
+        """normalizer 훅 예외 로그에 담보 원문명·예외 메시지 내용이 새지 않는다."""
+        ocr = Ocr_Data()
+
+        def bad_normalizer(original_name, company_idx):
+            raise RuntimeError('민감담보원문-유출금지-XYZ')
+
+        cov = {'category': '', 'subcategory': '', 'detail_name': '',
+               'name': '질병입원일당(비밀상품)', 'amount': 1000000}
+        with self.assertLogs('inpa.core.ocr.claude_parser', level='WARNING') as cm:
+            _add_coverage(ocr, cov, 20, 100,
+                          normalizer=bad_normalizer, company_idx=1)
+        joined = '\n'.join(cm.output)
+        self.assertIn('normalizer hook error', joined)
+        self.assertIn('RuntimeError', joined)          # 예외 타입은 허용
+        self.assertNotIn('민감담보원문-유출금지-XYZ', joined)  # 메시지 내용 미포함
+        self.assertNotIn('비밀상품', joined)             # 담보 원문명 미포함
+
+    @override_settings(CLAUDE_API_KEY='test-key')
+    def test_json_failure_log_excludes_response_text(self):
+        """JSON 파싱 실패 로그에 Claude 응답 본문(증권 내용 파생)이 새지 않는다."""
+        from inpa.core.ocr.claude_parser import claude_parse
+
+        fake_msg = mock.MagicMock()
+        fake_msg.content = [mock.MagicMock(text='JSON아님: 고객이름 홍길동 / 증권원문내용')]
+        fake_client = mock.MagicMock()
+        fake_client.messages.create.return_value = fake_msg
+
+        with mock.patch('anthropic.Anthropic', return_value=fake_client):
+            with self.assertLogs('inpa.core.ocr.claude_parser', level='WARNING') as cm:
+                result = claude_parse(['텍스트 줄'])
+        self.assertIsNone(result)
+        joined = '\n'.join(cm.output)
+        self.assertIn('failed to parse JSON', joined)
+        self.assertIn('length=', joined)               # 길이 수준만 기록
+        self.assertNotIn('홍길동', joined)              # 응답 본문 미포함
+        self.assertNotIn('증권원문내용', joined)

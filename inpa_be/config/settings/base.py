@@ -192,6 +192,31 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# ── 로깅 (LB#9 PII 로그 정리) ────────────────────────────────────────
+# console 핸들러 단일 — prod 에선 gunicorn stdout 으로 흐르는 현행 동작 유지(단순·표준형).
+# ★ 포매터는 levelname/시각/로거명/메시지만 — 요청 본문·PII 를 자동으로 찍는 항목 없음.
+#   메시지에 PII 를 넣지 않는 책임은 각 호출부(claude_parser/insurances.views 레드라인 주석 참고).
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'simple': {
+            'format': '{levelname} {asctime} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'root': {'handlers': ['console'], 'level': 'INFO'},
+    'loggers': {
+        'inpa': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+    },
+}
+
 # ── 요금제 베타 스위치 (dev/23 §3, G4) ──────────────────────────────
 # True(베타) = 한도 체크 전부 우회(무차감). 정식 출시 시 False 로 flip.
 # 환경변수 FREE_TIER_UNLIMITED=true/false 로 런타임 제어.

@@ -9,7 +9,11 @@
   - 실패(키 없음/패키지 없음/API 오류)는 격리 — 파싱 결과를 절대 깨뜨리지 않는다(None 반환).
   - 결정·판정이 아니라 '검토 플래그' 제공. 최종 확인·수정은 설계사.
 """
+import logging
+
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _serialize_coverages(ci):
@@ -78,7 +82,8 @@ def verify_extraction(text_lines, ci):
             'model': model_id,
         }
     except Exception as e:  # 검증 실패는 파싱 결과에 영향 주지 않는다
-        print(f'[verify] extraction verify error: {e}')
+        # 내용 미포함 로깅(LB#9) — 예외 타입만, 증권/응답 데이터 금지
+        logger.warning('증권 교차검증 실패(파싱 결과 영향 없음): %s', type(e).__name__)
         return None
 
 

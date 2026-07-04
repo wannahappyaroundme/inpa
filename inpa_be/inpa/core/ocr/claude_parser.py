@@ -15,8 +15,8 @@ pdfplumber로 추출한 텍스트를 Claude(모델 정본=settings.CLAUDE_MODEL_
     billing.credit.log_claude_usage 로 ClaudeApiLog 기록.
 """
 import json
+import logging
 import re
-import traceback
 
 from django.conf import settings
 
@@ -25,6 +25,10 @@ from inpa.core.ocr.ocrparsing import (
     COVERAGE_KEYWORDS, _is_fixed_benefit_inpatient, is_keyword_excluded,
     strip_exclusion_parens,
 )
+
+# ★ PII 로그 레드라인(LB#9): 이 로거로 증권 원문·응답 본문·고객/상품명을 절대 찍지 않는다.
+#   허용 수준 = 회사 코드(정수)·건수·문자열 길이·예외 타입. print() 사용 금지(로깅으로만).
+logger = logging.getLogger(__name__)
 
 # ---------- 보험사 매칭용 키워드 ----------
 
@@ -559,13 +563,13 @@ def claude_parse(text_lines, is_proposal=False, normalizer=None):
     """
     api_key = getattr(settings, 'CLAUDE_API_KEY', '')
     if not api_key:
-        print('[claude_parser] CLAUDE_API_KEY not configured')
+        logger.warning('[claude_parser] CLAUDE_API_KEY not configured')
         return None
 
     try:
         import anthropic
     except ImportError:
-        print('[claude_parser] anthropic package not installed')
+        logger.warning('[claude_parser] anthropic package not installed')
         return None
 
     # 텍스트 합치기 (최대 30000자 - 보험증권 20-30페이지 대응)
@@ -613,7 +617,9 @@ def claude_parse(text_lines, is_proposal=False, normalizer=None):
         response_text = message.content[0].text.strip()
         parsed = _extract_json(response_text)
         if not parsed:
-            print(f'[claude_parser] Failed to parse JSON from response: {response_text[:200]}')
+            # ★ 응답 본문(증권 내용 파생) 미포함 — 길이만 기록 (PII 로그 레드라인).
+            logger.warning('[claude_parser] failed to parse JSON from response '
+                           '(response length=%d chars)', len(response_text))
             return None
 
         # JSON → Ocr_Data 변환
@@ -628,17 +634,20 @@ def claude_parse(text_lines, is_proposal=False, normalizer=None):
             ocr_data._unmatched_coverages = parsed.get('unmatched_coverages', [])
             cov_count = len(parsed.get('coverages', []))
             unmatched_count = len(parsed.get('unmatched_coverages', []))
-            print(f'[claude_parser] Success: {parsed.get("company_name", "?")} / '
-                  f'{parsed.get("product_name", "?")} / '
-                  f'{cov_count} coverages, {unmatched_count} unmatched')
+            # ★ 회사 코드(정수)·건수만 — 회사/상품명 등 증권 파생 텍스트 미포함.
+            company_code = ocr_data.dict_loss_head_data.get('손해보험', -1)
+            if company_code < 0:
+                company_code = ocr_data.dict_life_head_data.get('생명보험', -1)
+            logger.info('[claude_parser] parse success: company_code=%s, '
+                        '%d coverages, %d unmatched', company_code, cov_count, unmatched_count)
         return ocr_data
 
     except (anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
-        print(f'[claude_parser] API timeout/connection error (after SDK retries): {e}')
+        logger.warning('[claude_parser] API timeout/connection error (after SDK retries): %s',
+                       type(e).__name__)
         return None
-    except Exception as e:
-        print(f'[claude_parser] API error: {e}')
-        traceback.print_exc()
+    except Exception:
+        logger.exception('[claude_parser] API error')
         return None
 
 
@@ -828,9 +837,9 @@ def _convert_to_ocr_data(parsed, normalizer=None):
 
         return ocr
 
-    except Exception as e:
-        print(f'[claude_parser] _convert_to_ocr_data error: {e}')
-        traceback.print_exc()
+    except Exception:
+        # logger.exception = 예외 타입·트레이스만 — 파싱된 증권 내용은 메시지에 넣지 않는다.
+        logger.exception('[claude_parser] _convert_to_ocr_data error')
         return None
 
 
@@ -860,7 +869,8 @@ def _add_coverage(ocr, cov, default_payment, default_warranty,
         try:
             mapped = normalizer(original_name, company_idx)
         except Exception as norm_err:  # 사전 룩업 실패가 OCR 전체를 깨뜨리지 않도록 격리
-            print(f'[claude_parser] normalizer hook error: {norm_err}')
+            # 예외 타입만 — norm_err 메시지에 담보 원문명이 섞일 수 있어 내용 미포함.
+            logger.warning('[claude_parser] normalizer hook error: %s', type(norm_err).__name__)
             mapped = None
 
     # 1순위: 정확한 _CATEGORY_MAP 매칭

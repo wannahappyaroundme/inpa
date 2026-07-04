@@ -4,27 +4,24 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { IntroductionCardShare } from "@/components/introduction-card-share";
+import { SamplePlaceholder } from "@/components/sample-placeholder";
 import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import { listSamples, type PromotionSampleListItem } from "@/lib/api";
 
 const CATEGORIES = ["전체", "명함", "달력", "리플렛", "팜플렛", "파일보관함", "다이어리", "생활용품", "기타"] as const;
 
-/** 대표 이미지 — 죽은 URL(404 등)이면 깨진 ? 박스 대신 '이미지 없음' 폴백. */
-function SampleThumb({ src, alt }: { src: string | null; alt: string }) {
+/** 대표 이미지 — 없으면 브랜드 플레이스홀더(SamplePlaceholder) 폴백. */
+function SampleThumb({ src, name, category }: { src: string | null; name: string; category: string }) {
   const [failed, setFailed] = useState(false);
   if (!src || failed) {
-    return (
-      <div className="w-full h-full flex items-center justify-center text-muted text-[12px]">
-        이미지 없음
-      </div>
-    );
+    return <SamplePlaceholder name={name} category={category} />;
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={src}
-      alt={alt}
+      alt={name}
       onError={() => setFailed(true)}
       className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
     />
@@ -133,7 +130,7 @@ export default function PromotionPage() {
               <Card className="overflow-hidden transition hover:shadow-card">
                 {/* 대표 이미지 */}
                 <div className="aspect-square bg-surface2 relative overflow-hidden">
-                  <SampleThumb src={s.primary_image} alt={s.name} />
+                  <SampleThumb src={s.primary_image} name={s.name} category={s.category} />
                   {/* 주문 불가 배지 */}
                   {!s.is_available && (
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
