@@ -766,6 +766,26 @@ export async function createContactLog(customerId: number, payload: { result: Co
   return request<ContactLog>("POST", `/customers/${customerId}/contact-logs/`, payload, true);
 }
 
+// ─── 오늘 전화할 고객 (call-list) — pull 방식, 화면 열 때 계산 ────────────────
+/** call-list 1행 — reasons 는 그대로 칩으로 렌더 가능한 한글 라벨(연락 우선순위, 판정 아님). */
+export interface CallListRow {
+  id: number;
+  name: string;
+  mobile_phone_number: string;
+  sales_stage: SalesStage;
+  score: number;
+  reasons: string[];               // 예: ["생일 D-3", "만기 D-12", "무접촉 21일"]
+  last_contacted_at: string | null;
+}
+export interface CallListResponse {
+  results: CallListRow[];          // 점수순 최대 10명
+  total_candidates: number;        // 사유 있는 전체 후보 수
+}
+/** GET /api/v1/customers/call-list/ — 본인 소유 + 진행중(active)만, 점수순 최대 10명 */
+export async function getCallList(): Promise<CallListResponse> {
+  return request<CallListResponse>("GET", "/customers/call-list/", undefined, true);
+}
+
 /** DELETE /api/v1/customers/{id}/ — 204 No Content → void */
 export async function deleteCustomer(id: number): Promise<void> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
