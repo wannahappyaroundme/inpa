@@ -11,9 +11,13 @@ base는 config/urls.py에서 /api/v1/로 마운트.
 
   GET    /api/v1/reminder-rules/                 내 설정 5종 조회
   PATCH  /api/v1/reminder-rules/bulk/            설정 일괄 업데이트
+
+  POST   /api/v1/jobs/run-daily/                 일일 배치 트리거 (X-JOB-TOKEN, GH Actions cron)
 """
+from django.urls import path
 from rest_framework.routers import SimpleRouter
 
+from .runner import RunDailyJobsView
 from .views import NotificationViewSet, ReminderRuleViewSet
 
 app_name = 'notifications'
@@ -30,4 +34,6 @@ router.register('reminder-rules', ReminderRuleViewSet, basename='reminder-rule')
 #   /notifications/read-all/     → read_all
 #   /reminder-rules/             → list
 #   /reminder-rules/bulk/        → bulk_update
-urlpatterns = router.urls
+urlpatterns = [
+    path('jobs/run-daily/', RunDailyJobsView.as_view(), name='run-daily-jobs'),
+] + router.urls

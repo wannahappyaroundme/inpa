@@ -56,6 +56,11 @@ services:
         sync: false                  # Claude 키(비우면 OCR/AI만 비활성)
       - key: FRONTEND_BASE_URL
         sync: false                  # https://<vercel-fe-도메인> (이메일 링크용)
+      # ── 일일 배치(리마인더 알림) — GitHub Actions cron(daily-jobs.yml)이 08:00 KST 에
+      #    POST /api/v1/jobs/run-daily/ 를 호출. GitHub 저장소 Secret JOB_RUNNER_TOKEN 과
+      #    "같은 값"을 여기에 입력해야 동작(미설정 시 엔드포인트 404 = 잡 꺼짐, fail-closed).
+      - key: JOB_RUNNER_TOKEN
+        sync: false                  # `openssl rand -hex 32` 등 강한 랜덤값. GH Secret 과 동일하게.
       # ── 미디어(명함·전자자료) 저장 — AWS 불필요. 아래 셋 중 하나만 ──
       # [A] S3 "호환" 오브젝트 스토리지(권장·무료): Cloudflare R2 / Supabase / Backblaze B2 등.
       #     → 아래 5개 채우기(R2면 REGION=auto, ENDPOINT_URL=R2 주소).
