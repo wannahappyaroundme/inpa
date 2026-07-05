@@ -150,6 +150,13 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 ## 11. Changelog (newest first — condensed; the durable detail lives in the sections above)
 
+- **2026-07-04~05 (MVP 스프린트 — 리뷰 티어 'MVP' 5건, 3 commits, PR PENDING):**
+  - *오늘 전화할 고객 (#19, 채점 1위):* `customers/views.py` call-list @action(생일 D≤7 > 만기 D≤30 > 무접촉≤60점 + TA/FA +10, 사유 0 제외, top10+total) + 홈 좌측 파이프라인 아래 카드(사유 칩 + tel/sms/화법 원탭, 화법 프리필=이름 기반 기존 리더). KST 앵커, 날짜 파싱은 notifications.jobs 헬퍼 재사용.
+  - *카톡/OG 미리보기 + SEO (#20·22):* 공개 5종 라우트별 정적 OG(`lib/public-og.ts` 공용 빌더 — §7 Next16 함정 참조), /p noindex 보강, `app/robots.ts`(토큰 경로 트레일링 슬래시로 /schedule 오차단 방지)+`app/sitemap.ts`, in-pa.vercel.app 잔재 0.
+  - *화면 상태 정리 (#21):* 홈 무음 실패→앰버 배너 1개+다시 시도(reloadKey 전 로더 재실행), 히트맵 '보험 있는데 담보 0' 중립 안내, 401 처리 `handleUnauthorized()` 통일(수제 fetch 4곳), 바텀내비 시트 배지 렌더.
+  - *권유 단어 차단 (#23):* check-copy.js 경로 한정(s/b/c/d/p) 규칙 6종(추천(?!인) 등, 추천인·내부화면 오탐 0 실증) + `core/copyguard.py` 서버측 관측 가드(공유/자가진단 고정 카피).
+  - *팀 초대 링크 (#24):* `accounts/invite.py`(TimestampSigner, `TEAM_INVITE_TTL_DAYS` 기본 7, 응답에 ttl_days) + `POST /manager/invite-link/` + 공개 `GET /manager/invite-info/`(throttle invite_info) + RegisterSerializer `invite_token`(manager FK+빈 소속 프리셋만, **share level 절대 미변경** 회귀테스트, 무효 토큰≠가입 차단). FE /manager 카드 + /register 초대 칩.
+  - Verified: BE **546 tests**(524→546), FE build + lint:copy(권유 단어 규칙 활성 상태 104파일 0). 마이그레이션 0. 잔여 MVP: #15 유료 파일럿·#25 지점 코드(최후순위 결제 데스크에 종속), #16 활성화 계측·잔여 Backlog은 후속.
 - **2026-07-03~04 (프리런치 리뷰 + 출시 차단 스프린트 — 9 commits on `feat/design-refactor`, PR #59 PENDING MERGE):**
   - *리뷰(2026-07-03):* 코드 전수 감사(6영역 병렬+검증) → 22-persona 3라운드 토론(제안 88건→33) → 정량 채점(660표) → `docs/prelaunch-review/` 5종(project_audit·debate·features·scores.csv·summary_ko). LB 13종 실행 순서 합의, 법적 거부권 0건. **카피 철학(우월감·적합성, §6 신설)** 12개 문구 반영(랜딩 '월 N건' 제거 포함).
   - *동의 v2 (LB-2):* `customers/consent_texts.py` 단일 소스(`v2-2026-07-04`) + 공개 `GET /consent-texts/` + 전 ConsentLog 생성경로 `doc_version` 스탬프. OCR·병력 게이트가 '현재 버전 customer_self 동의' 요구(412 `reason=missing|reconsent`), 구버전 동의는 /c·/d 재동의로 회복(리뷰 blocker: /c `_already` 버전 인지 픽스). '즉시 삭제' 허위 보유기간 문구 전면 제거.
