@@ -165,7 +165,9 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         """오늘 전화 리스트 — GET /api/v1/customers/call-list/ (spec 2026-07-05).
 
         pull 방식 큐: 화면을 열 때 계산(배치와 무관하게 항상 동작). 대상 = 본인 소유
-        (OwnedQuerySetMixin 큐리셋 기반) + 진행중(active)만. 최대 10명 + total_candidates.
+        (OwnedQuerySetMixin 큐리셋 기반) + 진행중(active)만.
+        `?limit=` 지원(기본 10, 최대 50, 비정상 값은 기본값) + total_candidates.
+        기본 10(상한 50). 유일한 FE 호출부는 전용 화면(/call-list, limit=50).
 
         score(결정적·투명) =
           생일 임박(D-day ≤ 7):            100 - dday*10
@@ -177,6 +179,15 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         동점은 무접촉일수 내림차순(같으면 id 오름차순 — 결정성).
         reasons 는 그대로 칩으로 렌더 가능한 한글 라벨(판정어 없음 — 연락 우선순위일 뿐).
         """
+        # limit 파싱 — 비정상(숫자 아님·0 이하)은 기본 10, 상한 50 클램프.
+        try:
+            limit = int(request.query_params.get('limit', 10))
+        except (TypeError, ValueError):
+            limit = 10
+        if limit < 1:
+            limit = 10
+        limit = min(limit, 50)
+
         today = timezone.localdate()
         # 고객 1쿼리 — values_list 라 mixin 의 prefetch 는 실행되지 않는다.
         rows = list(
@@ -243,7 +254,7 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             })
         candidates.sort(key=lambda c: (-c['score'], -c['_idle'], c['id']))
         results = [{k: v for k, v in c.items() if k != '_idle'}
-                   for c in candidates[:10]]
+                   for c in candidates[:limit]]
         return Response({'results': results, 'total_candidates': len(candidates)})
 
 

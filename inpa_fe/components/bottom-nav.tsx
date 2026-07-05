@@ -90,6 +90,7 @@ export function BottomNav({
   const moreActive = !!active && !PRIMARY_KEYS.includes(active);
 
   const moreLinks: { href: string; label: string; badge?: number }[] = [
+    { href: "/call-list", label: "오늘 전화" }, // 인바운드 알림 없는 메뉴 — 배지 없음
     { href: "/scripts", label: "화법" },
     { href: "/settings/baseline", label: "기준" },
     { href: "/boards", label: "게시판", badge: boardUnread },

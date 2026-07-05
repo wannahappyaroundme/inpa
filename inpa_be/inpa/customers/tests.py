@@ -1110,6 +1110,30 @@ class DailyCallListTests(TestCase):
         self.assertEqual([row['id'] for row in r.json()['results']],
                          [ta_cust.id, db_cust.id])
 
+    def test_limit_param_default_cap_and_invalid(self):
+        """?limit= 동작 — 기본 10 · 상한 50 클램프 · 비정상 값은 기본값."""
+        for i in range(55):
+            self._customer(
+                f'무접촉{i}',
+                last_contacted_at=timezone.now() - datetime.timedelta(days=3 + i))
+        # 기본(파라미터 없음) = 10
+        body = self.client.get(self.URL).json()
+        self.assertEqual(len(body['results']), 10)
+        self.assertEqual(body['total_candidates'], 55)
+        # 명시 limit 반영
+        body = self.client.get(self.URL, {'limit': '5'}).json()
+        self.assertEqual(len(body['results']), 5)
+        self.assertEqual(body['total_candidates'], 55)
+        # 전용 화면 요청값(50) + 상한 초과는 50으로 클램프
+        body = self.client.get(self.URL, {'limit': '50'}).json()
+        self.assertEqual(len(body['results']), 50)
+        body = self.client.get(self.URL, {'limit': '999'}).json()
+        self.assertEqual(len(body['results']), 50)
+        # 비정상 값(숫자 아님·0 이하)은 기본 10
+        for bad in ('abc', '0', '-3'):
+            body = self.client.get(self.URL, {'limit': bad}).json()
+            self.assertEqual(len(body['results']), 10, msg=f'limit={bad}')
+
     def test_malformed_dates_are_safe(self):
         """생일·만기 문자열이 깨져도 200 + 그 사유만 조용히 무시."""
         self._customer('깨진생일', birth_day='19-XX')  # 파싱 불가 + 무접촉 0 → 제외
