@@ -267,3 +267,108 @@ class IntroCardTests(TestCase):
 
     def test_invalid_ref_404(self):
         self.assertEqual(self.public.get('/api/v1/p/NOPENOPE/').status_code, 404)
+
+
+class TeamInviteTests(TestCase):
+    """팀 초대 링크(#24) — 토큰 왕복 + PIPA-clean 레드라인(share_level 무접촉) 게이트."""
+
+    def setUp(self):
+        self.manager, self.mclient = _verified_planner('team-mgr@test.com')
+        mp = self.manager.profile
+        mp.name = '박팀장'
+        mp.affiliation = '인파금융 강남지점'
+        mp.save(update_fields=['name', 'affiliation'])
+        self.public = APIClient()
+        self.reg = {
+            'email': 'newbie@test.com', 'password': 'inpaPass123!',
+            'password_confirm': 'inpaPass123!', 'tos_agreed': True, 'pp_agreed': True,
+        }
+
+    def _invite_url(self):
+        r = self.mclient.post('/api/v1/manager/invite-link/')
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()['url']
+
+    def _token_from(self, url):
+        return url.split('invite=')[1]
+
+    def test_invite_link_issued(self):
+        url = self._invite_url()
+        self.assertIn('/register?invite=', url)
+        self.assertTrue(self._token_from(url))
+
+    def test_invite_link_requires_auth(self):
+        self.assertEqual(self.public.post('/api/v1/manager/invite-link/').status_code, 401)
+
+    def test_invite_info_valid(self):
+        token = self._token_from(self._invite_url())
+        r = self.public.get('/api/v1/manager/invite-info/', {'token': token})
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(body['manager_name'], '박팀장')
+        self.assertEqual(body['affiliation'], '인파금융 강남지점')
+
+    def test_invite_info_invalid_404(self):
+        r = self.public.get('/api/v1/manager/invite-info/', {'token': 'garbage-token'})
+        self.assertEqual(r.status_code, 404)
+
+    @override_settings(TEAM_INVITE_TTL_DAYS=0)
+    def test_invite_info_expired_404(self):
+        token = self._token_from(self._invite_url())
+        r = self.public.get('/api/v1/manager/invite-info/', {'token': token})
+        self.assertEqual(r.status_code, 404)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_register_with_invite_links_manager_and_presets_affiliation(self):
+        """토큰 왕복: 링크 생성 → 가입 → manager FK 연결 + 빈 affiliation 프리셋."""
+        token = self._token_from(self._invite_url())
+        r = self.public.post('/api/v1/auth/register/',
+                             {**self.reg, 'invite_token': token}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        p = Profile.objects.get(user__email='newbie@test.com')
+        self.assertEqual(p.manager_id, self.manager.pk)
+        self.assertEqual(p.affiliation, '인파금융 강남지점')  # 비어 있었으므로 프리셋
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_invite_never_presets_share_level(self):
+        """★ 회귀(레드라인): 초대 가입이어도 manager_share_level=none 유지(동의 프리셋 금지)."""
+        token = self._token_from(self._invite_url())
+        r = self.public.post('/api/v1/auth/register/',
+                             {**self.reg, 'invite_token': token}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        p = Profile.objects.get(user__email='newbie@test.com')
+        self.assertEqual(p.manager_share_level, Profile.SHARE_NONE)
+        self.assertFalse(p.manager_share_opt_in)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_invite_keeps_own_affiliation(self):
+        """가입자가 소속을 직접 입력하면 초대 프리셋이 덮어쓰지 않는다."""
+        token = self._token_from(self._invite_url())
+        r = self.public.post(
+            '/api/v1/auth/register/',
+            {**self.reg, 'invite_token': token, 'affiliation': '내가 쓴 소속'}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        p = Profile.objects.get(user__email='newbie@test.com')
+        self.assertEqual(p.affiliation, '내가 쓴 소속')
+        self.assertEqual(p.manager_id, self.manager.pk)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_register_with_invalid_invite_still_succeeds(self):
+        """무효 토큰은 무시(+로그) — 가입은 성공하고 manager 미연결."""
+        r = self.public.post('/api/v1/auth/register/',
+                             {**self.reg, 'invite_token': 'broken-token'}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        p = Profile.objects.get(user__email='newbie@test.com')
+        self.assertIsNone(p.manager_id)
+        self.assertEqual(p.manager_share_level, Profile.SHARE_NONE)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_register_with_expired_invite_still_succeeds(self):
+        """만료 토큰도 가입을 막지 않는다(토큰만 무시)."""
+        token = self._token_from(self._invite_url())
+        with override_settings(TEAM_INVITE_TTL_DAYS=0):
+            r = self.public.post('/api/v1/auth/register/',
+                                 {**self.reg, 'invite_token': token}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        p = Profile.objects.get(user__email='newbie@test.com')
+        self.assertIsNone(p.manager_id)

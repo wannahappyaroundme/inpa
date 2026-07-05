@@ -30,6 +30,7 @@ from inpa.analysis.calculate import calculate_total_analysis
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, ChartDetail
 from inpa.booking.models import WorkHour
 from inpa.booking.tokens import make_booking_token
+from inpa.core.copyguard import warn_if_advice_words
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer
 
@@ -246,6 +247,10 @@ def _build_share_payload(customer):
     booking_url = _booking_url(customer)
     if booking_url:
         payload['booking_url'] = booking_url
+    # ★ 권유 단어 서버측 가드(#23, §97·금소법) — 고정 카피 필드만 검사(로그 관측, 화면은 유지).
+    #   공유뷰(/s)와 셀프진단(/d, self_diagnosis.py 가 이 함수를 재사용)의 고정 카피를 함께 커버.
+    #   데이터 필드(고객명·담보명·금액)는 검사하지 않는다(오탐 방지).
+    warn_if_advice_words({'disclaimer': payload['disclaimer']}, where='share_payload')
     return payload
 
 

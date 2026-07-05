@@ -144,6 +144,7 @@ export interface RegisterPayload {
   affiliation?: string;   // 소속(선택)
   title?: string;         // 직책(선택)
   license_no?: string;    // 설계사 번호(선택, 숫자 14자리)
+  invite_token?: string;  // 팀 초대 토큰(선택) — 무효여도 가입은 성공(BE가 토큰만 무시)
 }
 
 export interface RegisterResponse {
@@ -423,6 +424,25 @@ export interface ManagerDashboardResponse {
 }
 export async function getManagerDashboard(): Promise<ManagerDashboardResponse> {
   return request<ManagerDashboardResponse>("GET", "/manager/dashboard/", undefined, true);
+}
+
+// ─── 팀 초대 링크(#24) — 가입 시 manager 연결만, 성과 공유는 본인이 설정에서 선택 ───
+export interface TeamInviteLinkResponse {
+  url: string; // FRONTEND_BASE_URL/register?invite=<token>
+  ttl_days: number; // 링크 유효일수(서버 TEAM_INVITE_TTL_DAYS)
+}
+/** POST /api/v1/manager/invite-link/ — 내 팀 초대 링크 생성(인증) */
+export async function createTeamInviteLink(): Promise<TeamInviteLinkResponse> {
+  return request<TeamInviteLinkResponse>("POST", "/manager/invite-link/", {}, true);
+}
+
+export interface InviteInfo {
+  manager_name: string;
+  affiliation: string | null;
+}
+/** GET /api/v1/manager/invite-info/?token= — 초대 칩용(무효/만료면 404 → 칩 없이 일반 가입) */
+export async function getInviteInfo(token: string): Promise<InviteInfo> {
+  return request<InviteInfo>("GET", `/manager/invite-info/?token=${encodeURIComponent(token)}`);
 }
 
 // ─── 환수 위험 → 인앱 알림 동기화 (cron 아님, 홈 진입 시 호출) ───────────────────

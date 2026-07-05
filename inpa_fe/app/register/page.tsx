@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { register, tokenStore, ApiError } from "@/lib/api";
+import { register, getInviteInfo, tokenStore, ApiError, type InviteInfo } from "@/lib/api";
 import { GoogleSignInButton } from "@/components/google-signin-button";
 
 function Logo() {
@@ -30,10 +30,23 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // 팀 초대(#24) — ?invite= 토큰. 무효/만료면 칩 없이 일반 가입(가입을 막지 않는다).
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
 
   useEffect(() => {
     if (tokenStore.get()) router.replace("/home");
   }, [router]);
+
+  // ?invite= 읽기 — useSearchParams Suspense 회피(클라이언트 전용 읽기, /customers 패턴).
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("invite");
+    if (!token) return;
+    setInviteToken(token);
+    getInviteInfo(token)
+      .then(setInviteInfo)
+      .catch(() => setInviteInfo(null)); // 무효/만료 → 칩 미표시, 정상 가입
+  }, []);
 
   function validate(): string | null {
     if (password.length < 8) return "비밀번호는 8자 이상이어야 합니다.";
@@ -63,6 +76,7 @@ export default function RegisterPage() {
         affiliation: affiliation.trim() || undefined,
         title: title.trim() || undefined,
         license_no: licenseNo || undefined,
+        invite_token: inviteToken || undefined,
       });
       setSuccess(true);
     } catch (err) {
@@ -128,6 +142,20 @@ export default function RegisterPage() {
           className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-card p-6 flex flex-col gap-4"
         >
           <h1 className="text-[18px] font-extrabold text-[var(--ink)]">회원가입</h1>
+
+          {/* 팀 초대 칩 — 유효한 초대일 때만. 팀 연결만 되고 성과 공유는 본인이 설정에서 선택. */}
+          {inviteInfo && (
+            <div className="flex items-center gap-2 rounded-xl bg-accent-tint border border-brand/30 px-3 py-2.5">
+              <span className="w-6 h-6 rounded-full bg-brand text-white grid place-items-center text-[12px] font-bold shrink-0">
+                {inviteInfo.manager_name[0]}
+              </span>
+              <span className="text-[13px] text-[var(--ink-2)]">
+                <b className="text-[var(--ink)]">
+                  {inviteInfo.affiliation ? `${inviteInfo.affiliation} ` : ""}{inviteInfo.manager_name}님
+                </b>의 팀 초대로 가입 중
+              </span>
+            </div>
+          )}
 
           {error && (
             <div className="p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">

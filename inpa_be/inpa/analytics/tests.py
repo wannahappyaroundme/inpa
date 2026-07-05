@@ -495,3 +495,52 @@ class ShareContactLayerTests(TestCase):
                              {'event_type': 'callback_request'}, format='json')
         self.assertEqual(r.status_code, 404)
         self.assertEqual(Notification.objects.count(), 0)
+
+
+class AdviceCopyGuardTests(TestCase):
+    """권유 단어 서버측 가드(#23, §97·금소법) — 유틸 + 현행 고정 카피 클린 단언."""
+
+    def test_contains_advice_words_matches(self):
+        from inpa.core.copyguard import contains_advice_words
+        self.assertEqual(contains_advice_words('이 상품을 추천 드립니다'), '추천')
+        self.assertEqual(contains_advice_words('지금 갈아타면 좋아요'), '갈아타')
+        self.assertEqual(contains_advice_words('기존 보험은 해지하세요'), '해지하세요')
+        self.assertEqual(contains_advice_words('이쪽이 더 유리해요'), '더 유리')
+        self.assertEqual(contains_advice_words('오늘 가입하세요'), '가입하세요')
+        self.assertEqual(contains_advice_words('이 상품으로 전환하세요'), '전환하세요')
+
+    def test_referrer_word_not_flagged(self):
+        """'추천인'(referrer)은 정당한 단어 — 부정형 전방탐색으로 제외."""
+        from inpa.core.copyguard import contains_advice_words
+        self.assertIsNone(contains_advice_words('추천인 코드를 입력하세요'))
+
+    def test_clean_text_passes(self):
+        from inpa.core.copyguard import contains_advice_words
+        self.assertIsNone(contains_advice_words(''))
+        self.assertIsNone(contains_advice_words(None))
+        self.assertIsNone(contains_advice_words('등록된 보장 정보를 정리한 참고 자료입니다.'))
+
+    def test_warn_logs_error_but_returns_hits(self):
+        from inpa.core.copyguard import warn_if_advice_words
+        with self.assertLogs('inpa.core.copyguard', level='ERROR') as cm:
+            hits = warn_if_advice_words({'disclaimer': '갈아타 보세요'}, where='unit-test')
+        self.assertEqual(hits, [('disclaimer', '갈아타')])
+        self.assertIn('권유 단어 가드', cm.output[0])
+
+    def test_current_share_disclaimer_clean(self):
+        """현행 공유뷰 고정 카피(SHARE_DISCLAIMER)는 클린해야 한다."""
+        from inpa.analytics.views import SHARE_DISCLAIMER
+        from inpa.core.copyguard import contains_advice_words
+        self.assertIsNone(contains_advice_words(SHARE_DISCLAIMER))
+
+    def test_share_payload_fixed_copy_clean(self):
+        """공유 페이로드 생성 시 가드 로그(ERROR)가 발생하지 않는다(고객 화면 무영향)."""
+        from inpa.analytics.views import _build_share_payload
+        user, _ = _make_planner('advice-guard@test.com')
+        det = _build_std_tree()
+        idet = _catalog_detail_linked_to(det)
+        customer = Customer.objects.create(owner=user, name='홍길동', birth_day='1990.01.01')
+        _make_portfolio(customer, idet, 10000000)
+        with self.assertNoLogs('inpa.core.copyguard', level='ERROR'):
+            payload = _build_share_payload(customer)
+        self.assertIn('disclaimer', payload)

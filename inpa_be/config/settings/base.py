@@ -117,6 +117,7 @@ REST_FRAMEWORK = {
         'auth_email': '5/hour',       # 가입/인증재발송/비번재설정 — 이메일 폭탄 방어
         'admin_login': '5/min',       # 관리자 로그인 무차별 대입 방어(IP 기준)
         'job_runner': '10/hour',      # 일일 배치 트리거 /jobs/run-daily/ — 토큰 대입/재실행 폭탄 방어
+        'invite_info': '30/hour',     # 팀 초대 정보 공개 조회(/manager/invite-info/) — 토큰 대입 방어
     },
 }
 
@@ -134,6 +135,8 @@ PASSWORD_RESET_TIMEOUT = env.int('PASSWORD_RESET_TIMEOUT', default=3600)
 EMAIL_VERIFY_TOKEN_TTL_HOURS = env.int('EMAIL_VERIFY_TOKEN_TTL_HOURS', default=24)
 # 고객 동의 요청 링크(P3c): TimestampSigner max_age (72h)
 CONSENT_TOKEN_TTL_HOURS = env.int('CONSENT_TOKEN_TTL_HOURS', default=72)
+# 팀 초대 링크(#24): TimestampSigner max_age (7일)
+TEAM_INVITE_TTL_DAYS = env.int('TEAM_INVITE_TTL_DAYS', default=7)
 # 일일 배치 트리거 토큰 (spec 2026-07-04) — 미설정('')이면 /jobs/run-daily/ 404 (fail-closed).
 # GitHub Secrets 의 JOB_RUNNER_TOKEN 과 동일 값으로 Render env 에 설정.
 JOB_RUNNER_TOKEN = env('JOB_RUNNER_TOKEN', default='')

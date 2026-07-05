@@ -5,6 +5,7 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
 
+from inpa.accounts.invite import TeamInviteInfoView, TeamInviteLinkView
 from inpa.accounts.manager import ManagerDashboardView
 from inpa.accounts.public import IntroductionCardView
 
@@ -17,6 +18,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('healthz/', health),
     path('api/v1/manager/dashboard/', ManagerDashboardView.as_view(), name='manager-dashboard'),
+    path('api/v1/manager/invite-link/', TeamInviteLinkView.as_view(), name='manager-invite-link'),
+    path('api/v1/manager/invite-info/', TeamInviteInfoView.as_view(), name='manager-invite-info'),
     path('api/v1/p/<str:refcode>/', IntroductionCardView.as_view(), name='public-intro-card'),
     path('api/v1/auth/', include('inpa.accounts.urls')),
     path('api/v1/', include('inpa.customers.urls')),
