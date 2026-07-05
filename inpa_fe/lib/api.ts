@@ -801,12 +801,14 @@ export interface CallListRow {
   last_contacted_at: string | null;
 }
 export interface CallListResponse {
-  results: CallListRow[];          // 점수순 최대 10명
+  results: CallListRow[];          // 점수순, 기본 10명 (limit로 최대 50명)
   total_candidates: number;        // 사유 있는 전체 후보 수
 }
-/** GET /api/v1/customers/call-list/ — 본인 소유 + 진행중(active)만, 점수순 최대 10명 */
-export async function getCallList(): Promise<CallListResponse> {
-  return request<CallListResponse>("GET", "/customers/call-list/", undefined, true);
+/** GET /api/v1/customers/call-list/ — 본인 소유 + 진행중(active)만, 점수순.
+ *  limit: 기본 10 · 최대 50(BE 클램프). 전용 화면(/call-list)은 50으로 요청. */
+export async function getCallList(limit?: number): Promise<CallListResponse> {
+  const qs = limit != null ? `?limit=${limit}` : "";
+  return request<CallListResponse>("GET", `/customers/call-list/${qs}`, undefined, true);
 }
 
 /** DELETE /api/v1/customers/{id}/ — 204 No Content → void */

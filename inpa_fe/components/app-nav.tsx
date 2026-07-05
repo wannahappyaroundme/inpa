@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
-  LayoutDashboard, Users, Calendar, BarChart3, MessageSquareText,
+  LayoutDashboard, Users, Phone, Calendar, BarChart3, MessageSquareText,
   SlidersHorizontal, ClipboardList, Gift, LineChart, Shield, Bell,
   ChevronRight, type LucideIcon,
 } from "lucide-react";
@@ -22,6 +22,7 @@ function Logo({ size = 26 }: { size?: number }) {
 export type NavKey =
   | "home"
   | "customers"
+  | "call-list"
   | "analysis"
   | "schedule"
   | "scripts"
@@ -113,6 +114,7 @@ export function AppNav({ active }: { active?: NavKey }) {
   const items: Item[] = [
     { key: "home", href: "/home", label: "대시보드", icon: LayoutDashboard },
     { key: "customers", href: "/customers", label: "고객", icon: Users },
+    { key: "call-list", href: "/call-list", label: "오늘 전화", icon: Phone },
     { key: "schedule", href: "/schedule", label: "일정", icon: Calendar },
     { key: "analysis", href: "/analysis", label: "분석", icon: BarChart3 },
     { key: "scripts", href: "/scripts", label: "화법", icon: MessageSquareText },
