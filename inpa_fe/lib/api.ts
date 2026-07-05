@@ -63,6 +63,20 @@ export const tokenStore = {
 
 // ─── Internal fetch ─────────────────────────────────────────────────────────
 
+/**
+ * 401 공통 처리 — 저장된 토큰이 무효/만료된 상태(서버가 인증 거부).
+ * 죽은 토큰을 비우고 로그인 화면으로 보낸다(이미 로그인 화면이면 재이동 안 함 → 루프 방지).
+ * request()와 멀티파트/DELETE 등 수제 fetch 헬퍼가 전부 이 한 곳을 태운다(우회 금지).
+ * 인증 요청에서만 호출할 것 — 로그인/회원가입 등 비인증 요청의 401은 그대로 에러로 전달.
+ */
+function handleUnauthorized(status: number): void {
+  if (status !== 401) return;
+  tokenStore.remove();
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.href = "/login?session=expired";
+  }
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -110,15 +124,8 @@ async function request<T>(
             used: data["used"] as number | undefined,
           }
         : undefined;
-    // 401: 저장된 토큰이 무효/만료된 상태(서버가 인증 거부).
-    // 인증 요청(auth=true)에서만 처리 — 로그인/회원가입 등 비인증 요청의 401은 그대로 에러로 전달.
-    // 죽은 토큰을 비우고 로그인 화면으로 보낸다(이미 로그인 화면이면 재이동 안 함 → 루프 방지).
-    if (res.status === 401 && auth) {
-      tokenStore.remove();
-      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-        window.location.href = "/login?session=expired";
-      }
-    }
+    // 401(인증 요청만): 공통 처리 — 토큰 제거 + 로그인 화면 이동.
+    if (auth) handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail, creditBody);
   }
 
@@ -352,12 +359,7 @@ export async function uploadProfileImage(file: File): Promise<ProfileResponse> {
   if (!res.ok) {
     const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
     const detail = (data["detail"] as string) ?? (data["message"] as string) ?? res.statusText;
-    if (res.status === 401) {
-      tokenStore.remove();
-      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-        window.location.href = "/login?session=expired";
-      }
-    }
+    handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
   return data as unknown as ProfileResponse;
@@ -704,6 +706,7 @@ export async function uploadBusinessCard(id: number, file: File): Promise<Custom
   if (!res.ok) {
     const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
     const detail = (data["detail"] as string) ?? (data["message"] as string) ?? res.statusText;
+    handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
   return data as unknown as CustomerDetail;
@@ -797,6 +800,7 @@ export async function deleteCustomer(id: number): Promise<void> {
     try { data = await res.json(); } catch { /* empty */ }
     const code = (data["error"] as string) ?? String(res.status);
     const detail = (data["detail"] as string) ?? res.statusText;
+    handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
 }
@@ -998,6 +1002,7 @@ async function requestVoid(method: string, path: string, auth = true): Promise<v
     try { data = await res.json(); } catch { /* empty */ }
     const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
     const detail = (data["detail"] as string) ?? res.statusText;
+    if (auth) handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
 }
@@ -1820,6 +1825,7 @@ export async function uploadInsuranceOcr(
       (data["detail"] as string) ??
       (data["message"] as string) ??
       res.statusText;
+    handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail, undefined, data["reason"] as string | undefined);
   }
 

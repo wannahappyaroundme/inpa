@@ -221,6 +221,10 @@ export function HeatmapGrid({
       for (const d of sub.details) if ((d.held_amount ?? 0) > 0) n++;
     heldByCat.set(cat.category_id, n);
   }
+  // 제로 상태 구분 — 보험은 등록됐는데 읽힌 담보가 0개(스캔이 담보를 못 읽었거나 매칭 0).
+  // '보험 0건' 빈 상태(호출부에서 처리)와 다른 케이스라 별도 안내를 띄운다. 판정어 없음.
+  const totalHeld = Array.from(heldByCat.values()).reduce((s, n) => s + n, 0);
+  const noHeldCoverage = heatmap.insurance_count > 0 && totalHeld === 0;
 
   return (
     <div>
@@ -242,6 +246,13 @@ export function HeatmapGrid({
           </Link>
         )}
       </div>
+
+      {/* 담보 0개 안내 — 보험은 있는데 읽힌 담보가 없을 때(보험 0건 빈 상태와 구분) */}
+      {noHeldCoverage && (
+        <div className="mb-3 rounded-xl border border-line bg-surface2 px-3.5 py-2.5 text-[12px] text-ink2">
+          등록된 보험에서 담보를 아직 읽지 못했어요. 증권을 다시 올리거나 직접 입력으로 채울 수 있어요.
+        </div>
+      )}
 
       {/* 뷰 세그먼트 + 보유 토글 + 상태 필터 칩 — 모바일 1줄(가로스크롤), 데스크탑 2단 */}
       <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">

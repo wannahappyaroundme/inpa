@@ -23,7 +23,7 @@ function fillPreview(tpl: string, name: string, label: string): string {
     .replace(/\{고객명\}/g, "김보장")
     .replace(/\{소속직책\}/g, label || "")
     .replace(/\{설계사명\}/g, name || "담당 설계사")
-    .replace(/\{링크\}/g, "https://in-pa.vercel.app/b/…");
+    .replace(/\{링크\}/g, "https://www.inpa.kr/b/…");
 }
 
 export function BookingSettings() {

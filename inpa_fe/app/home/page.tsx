@@ -155,6 +155,16 @@ export default function HomePage() {
   const [callError, setCallError] = useState(false);
   const [callRefresh, setCallRefresh] = useState(0);
 
+  // 로더 무음 실패 방지 — 어느 로더든 하나라도 실패하면 상단 배너 1개(카드별 배너 금지, §6 소음 방지).
+  // '다시 시도' = reloadKey 증가 → 아래 로더 이펙트 전부 재실행(+콜리스트도 함께).
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  function retryAll() {
+    setLoadFailed(false);
+    setReloadKey((k) => k + 1);
+    setCallRefresh((n) => n + 1);
+  }
+
   useEffect(() => {
     if (!ready) return;
     let alive = true;
@@ -174,42 +184,44 @@ export default function HomePage() {
         if (!p.onboarding_completed_at) { router.replace("/onboarding"); return; }
         setProfile(p);
       })
-      .catch(() => { /* 토큰 만료 시 useAuthGuard가 처리 */ });
+      .catch(() => setLoadFailed(true)); // 401(토큰 만료)은 api.ts가 로그인으로 이동 → 배너는 그 외 실패용
     listCustomers({ page: 1 })
       .then((res) => setCustomerCount(res.count))
-      .catch(() => setCustomerCount(null));
+      .catch(() => { setCustomerCount(null); setLoadFailed(true); });
     listMeetings(true)
       .then((res) => setMeetings(res.results))
-      .catch(() => setMeetings([]));
+      .catch(() => { setMeetings([]); setLoadFailed(true); });
     getDashboard()
       .then((d) => {
         setDash(d);
         setGMeet(d.target_meetings); setGPrem(d.target_premium); setGMult(d.income_multiplier);
       })
-      .catch(() => setDash(null));
-  }, [ready, router]);
+      .catch(() => { setDash(null); setLoadFailed(true); });
+  }, [ready, router, reloadKey]);
 
   // 기간 필터 변경 시 insights 재조회 (기간 버튼 포함)
   useEffect(() => {
     if (!ready) return;
-    getDashboardInsights({ months: trendMonths }).then(setInsights).catch(() => setInsights(null));
-  }, [ready, trendMonths]);
+    getDashboardInsights({ months: trendMonths })
+      .then(setInsights)
+      .catch(() => { setInsights(null); setLoadFailed(true); });
+  }, [ready, trendMonths, reloadKey]);
 
   // 보고 있는 달의 내 일정/할일/차단 로드(월 이동 시 갱신) — 캘린더용
   useEffect(() => {
     if (!ready) return;
     listScheduleItems({ month: `${viewY}-${pad(viewM)}` })
       .then((r) => setScheduleItems(r.results))
-      .catch(() => setScheduleItems([]));
-  }, [ready, viewY, viewM]);
+      .catch(() => { setScheduleItems([]); setLoadFailed(true); });
+  }, [ready, viewY, viewM, reloadKey]);
 
   // 이번 달 일정(오늘 카드용) — 캘린더를 다른 달로 넘겨도 '오늘 일정'은 항상 보이게 별도 로드.
   useEffect(() => {
     if (!ready) return;
     listScheduleItems({ month: `${todayY}-${pad(todayM)}` })
       .then((r) => setTodayScheduleItems(r.results))
-      .catch(() => setTodayScheduleItems([]));
-  }, [ready, todayY, todayM]);
+      .catch(() => { setTodayScheduleItems([]); setLoadFailed(true); });
+  }, [ready, todayY, todayM, reloadKey]);
 
   // 날짜별 일정 맵 — 캘린더(보는 달) / 오늘 카드(이번 달) 각각. (알림은 우측 상단 종에서만)
   const agenda = useMemo(() => buildAgenda(scheduleItems, meetings), [scheduleItems, meetings]);
@@ -309,6 +321,23 @@ export default function HomePage() {
             {todayY}.{pad(todayM)}.{pad(todayD)}
           </span>
         </div>
+
+        {/* 로더 실패 통합 배너 — 하나라도 실패하면 여기 1개만(카드별 배너 없음). 다시 시도 = 전체 재로드 */}
+        {loadFailed && (
+          <div
+            role="alert"
+            className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[13px]"
+          >
+            <span className="text-amber-800">일부 정보를 못 불러왔어요.</span>
+            <button
+              type="button"
+              onClick={retryAll}
+              className="shrink-0 rounded-lg bg-surface px-3 py-1.5 text-[12px] font-semibold text-brand border border-line hover:border-brand transition"
+            >
+              다시 시도
+            </button>
+          </div>
+        )}
 
         {/* ── 1행: 이번 달 목표(8) + 오늘의 일정(4) — 같은 높이(items-stretch) ── */}
         <div className="mt-4 grid grid-cols-12 gap-4 items-stretch">

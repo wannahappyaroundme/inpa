@@ -1,11 +1,13 @@
 // 셀프진단 레이아웃 — Server Component.
-// robots noindex: 잠재고객 개인 보험정보가 오갈 수 있는 공개 진단 링크는 검색엔진 수집 차단.
+// robots noindex + 라우트 공통 정적 OG(고객 대면 문구) — lib/public-og.ts 공통 빌더 사용.
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { publicTokenMetadata } from "@/lib/public-og";
 
-export const metadata: Metadata = {
-  robots: { index: false, follow: false },
-};
+export const metadata: Metadata = publicTokenMetadata(
+  "내 보험, 지금 상황에 맞을까요?",
+  "1분이면 무료로 확인할 수 있어요.",
+);
 
 export default function SelfDiagnosisLayout({ children }: { children: ReactNode }) {
   return <>{children}</>;

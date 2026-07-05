@@ -160,9 +160,15 @@ export function BottomNav({
                   key={l.href}
                   href={l.href}
                   onClick={() => setMoreOpen(false)}
-                  className="rounded-xl border border-line bg-surface2 py-3 text-center text-[13px] font-semibold text-ink2 active:scale-[0.98] transition"
+                  className="relative rounded-xl border border-line bg-surface2 py-3 text-center text-[13px] font-semibold text-ink2 active:scale-[0.98] transition"
                 >
                   {l.label}
+                  {/* 미확인 배지 — 더보기 탭 롤업 배지(moreBadge)의 출처를 항목별로 표시 */}
+                  {(l.badge ?? 0) > 0 && (
+                    <span className="absolute top-1.5 right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-danger text-white text-[9px] font-bold flex items-center justify-center tnum">
+                      {(l.badge ?? 0) > 99 ? "99+" : l.badge}
+                    </span>
+                  )}
                 </Link>
               ))}
             </div>
