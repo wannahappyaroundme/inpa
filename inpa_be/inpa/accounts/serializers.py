@@ -1,9 +1,13 @@
 """계정 도메인 시리얼라이저 (dev/11 정본)."""
+import logging
+
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
 
 from .models import Profile, User
+
+logger = logging.getLogger(__name__)
 
 
 class RegisterSerializer(serializers.Serializer):
@@ -17,6 +21,8 @@ class RegisterSerializer(serializers.Serializer):
     title = serializers.CharField(required=False, allow_blank=True)
     license_no = serializers.CharField(required=False, allow_blank=True)
     agent_type = serializers.IntegerField(required=False, allow_null=True)
+    # 팀 초대 토큰(#24, 선택) — 무효/만료여도 가입은 성공(토큰만 무시). 검증에서 절대 실패시키지 않는다.
+    invite_token = serializers.CharField(required=False, allow_blank=True)
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
@@ -43,15 +49,33 @@ class RegisterSerializer(serializers.Serializer):
     def create(self, data):
         user = User.objects.create_user(email=data['email'], password=data['password'])
         now = timezone.now()
+        affiliation = data.get('affiliation') or None
+        # ── 팀 초대 토큰(#24) — manager FK + (비어 있으면) affiliation 프리셋만.
+        # ★ PIPA-clean 레드라인: manager_share_level 은 절대 프리셋하지 않는다(기본 none 유지,
+        #   성과 공유 여부는 신입 본인이 설정에서 직접 선택).
+        # ★ 무효/만료 토큰은 무시(+로그)하고 가입은 그대로 성공 — 초대가 만료됐다고 가입을 막지 않는다.
+        manager = None
+        invite_token = (data.get('invite_token') or '').strip()
+        if invite_token:
+            from .invite import resolve_invite_manager
+            manager = resolve_invite_manager(invite_token)
+            if manager is None:
+                logger.warning('가입 초대 토큰 무효/만료 → 무시하고 일반 가입 진행 (email=%s)',
+                               data['email'])
+            elif not affiliation:
+                manager_profile = getattr(manager, 'profile', None)
+                if manager_profile and manager_profile.affiliation:
+                    affiliation = manager_profile.affiliation
         Profile.objects.create(
             user=user,
             tos_agreed_at=now, tos_doc_version='v1',
             pp_agreed_at=now, pp_doc_version='v1',
             marketing_agreed_at=now if data.get('marketing_agreed') else None,
-            affiliation=(data.get('affiliation') or None),
+            affiliation=affiliation,
             agent_type=data.get('agent_type'),
             title=(data.get('title') or ''),
             license_no=(data.get('license_no') or None),
+            manager=manager,
         )
         return user
 

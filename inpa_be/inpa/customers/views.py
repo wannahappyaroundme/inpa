@@ -20,6 +20,9 @@ from rest_framework.views import APIView
 
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
+from inpa.insurances.models import CustomerInsurance
+# 날짜 파싱·다음 생일 계산은 알림 생산자와 동일 로직 재사용(단방향 import — 순환 없음).
+from inpa.notifications.jobs import _next_birthday, _parse_date
 
 from .consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
 from .models import (
@@ -156,6 +159,92 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             Customer.objects.bulk_create(to_create)
         return Response({'created': len(to_create), 'skipped': skipped},
                         status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='call-list')
+    def call_list(self, request):
+        """오늘 전화 리스트 — GET /api/v1/customers/call-list/ (spec 2026-07-05).
+
+        pull 방식 큐: 화면을 열 때 계산(배치와 무관하게 항상 동작). 대상 = 본인 소유
+        (OwnedQuerySetMixin 큐리셋 기반) + 진행중(active)만. 최대 10명 + total_candidates.
+
+        score(결정적·투명) =
+          생일 임박(D-day ≤ 7):            100 - dday*10
+          만기 임박(보유계약 최근접 0~30): 80 - dday*2  (알림 생산자와 동일 필터)
+          무접촉:                          min(무접촉일수, 60)  (앵커 = last_contacted_at
+                                           없으면 created_at, KST 날짜 기준)
+          단계 보정: TA(contact)/FA(meeting)면 +10 — 단, 위 사유가 하나라도 있을 때만
+          (사유 없는 고객은 score 0으로 제외한다는 원칙과 일치시키기 위함).
+        동점은 무접촉일수 내림차순(같으면 id 오름차순 — 결정성).
+        reasons 는 그대로 칩으로 렌더 가능한 한글 라벨(판정어 없음 — 연락 우선순위일 뿐).
+        """
+        today = timezone.localdate()
+        # 고객 1쿼리 — values_list 라 mixin 의 prefetch 는 실행되지 않는다.
+        rows = list(
+            self.get_queryset()
+            .filter(status=Customer.STATUS_ACTIVE)
+            .values_list('id', 'name', 'mobile_phone_number', 'sales_stage',
+                         'birth_day', 'last_contacted_at', 'created_at'))
+        ids = [r[0] for r in rows]
+
+        # 보험 1쿼리 — 만기 후보는 알림 생산자(produce_expiry_soon)와 동일 필터.
+        # 고객별 최근접 만기 D-day(0~30)만 유지. owner 격리는 ids 경유로 보장.
+        nearest_expiry = {}
+        if ids:
+            ins = (CustomerInsurance.objects
+                   .filter(customer_id__in=ids, portfolio_type=1, is_cancelled=False)
+                   .exclude(expiry_date__isnull=True)
+                   .exclude(expiry_date='')
+                   .values_list('customer_id', 'expiry_date'))
+            for cid, raw in ins:
+                exp = _parse_date(raw)
+                if exp is None:
+                    continue
+                dday = (exp - today).days
+                if dday < 0 or dday > 30:
+                    continue
+                if cid not in nearest_expiry or dday < nearest_expiry[cid]:
+                    nearest_expiry[cid] = dday
+
+        candidates = []
+        for cid, name, phone, stage, birth_raw, last_contacted, created in rows:
+            score = 0
+            reasons = []
+            birth = _parse_date(birth_raw)
+            if birth is not None:
+                bday = _next_birthday(birth, today)
+                if bday is not None:
+                    d = (bday - today).days
+                    if d <= 7:
+                        score += 100 - d * 10
+                        reasons.append('오늘 생일' if d == 0 else f'생일 D-{d}')
+            if cid in nearest_expiry:
+                d = nearest_expiry[cid]
+                score += 80 - d * 2
+                reasons.append('오늘 만기' if d == 0 else f'만기 D-{d}')
+            anchor = last_contacted or created
+            idle_days = max(0, (today - timezone.localtime(anchor).date()).days)
+            if idle_days > 0:
+                score += min(idle_days, 60)
+                reasons.append(f'무접촉 {idle_days}일')
+            if score <= 0:
+                continue  # 사유 없음 → 제외(단계 보정 단독으로는 오르지 않음)
+            if stage in (Customer.STAGE_CONTACT, Customer.STAGE_MEETING):
+                score += 10  # 진행 모멘텀 보정
+            candidates.append({
+                'id': cid,
+                'name': name,
+                'mobile_phone_number': phone,
+                'sales_stage': stage,
+                'score': score,
+                'reasons': reasons,
+                'last_contacted_at': (timezone.localtime(last_contacted).isoformat()
+                                      if last_contacted else None),
+                '_idle': idle_days,
+            })
+        candidates.sort(key=lambda c: (-c['score'], -c['_idle'], c['id']))
+        results = [{k: v for k, v in c.items() if k != '_idle'}
+                   for c in candidates[:10]]
+        return Response({'results': results, 'total_candidates': len(candidates)})
 
 
 class CustomerTagViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):

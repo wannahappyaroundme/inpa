@@ -63,6 +63,20 @@ export const tokenStore = {
 
 // ─── Internal fetch ─────────────────────────────────────────────────────────
 
+/**
+ * 401 공통 처리 — 저장된 토큰이 무효/만료된 상태(서버가 인증 거부).
+ * 죽은 토큰을 비우고 로그인 화면으로 보낸다(이미 로그인 화면이면 재이동 안 함 → 루프 방지).
+ * request()와 멀티파트/DELETE 등 수제 fetch 헬퍼가 전부 이 한 곳을 태운다(우회 금지).
+ * 인증 요청에서만 호출할 것 — 로그인/회원가입 등 비인증 요청의 401은 그대로 에러로 전달.
+ */
+function handleUnauthorized(status: number): void {
+  if (status !== 401) return;
+  tokenStore.remove();
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.href = "/login?session=expired";
+  }
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -110,15 +124,8 @@ async function request<T>(
             used: data["used"] as number | undefined,
           }
         : undefined;
-    // 401: 저장된 토큰이 무효/만료된 상태(서버가 인증 거부).
-    // 인증 요청(auth=true)에서만 처리 — 로그인/회원가입 등 비인증 요청의 401은 그대로 에러로 전달.
-    // 죽은 토큰을 비우고 로그인 화면으로 보낸다(이미 로그인 화면이면 재이동 안 함 → 루프 방지).
-    if (res.status === 401 && auth) {
-      tokenStore.remove();
-      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-        window.location.href = "/login?session=expired";
-      }
-    }
+    // 401(인증 요청만): 공통 처리 — 토큰 제거 + 로그인 화면 이동.
+    if (auth) handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail, creditBody);
   }
 
@@ -137,6 +144,7 @@ export interface RegisterPayload {
   affiliation?: string;   // 소속(선택)
   title?: string;         // 직책(선택)
   license_no?: string;    // 설계사 번호(선택, 숫자 14자리)
+  invite_token?: string;  // 팀 초대 토큰(선택) — 무효여도 가입은 성공(BE가 토큰만 무시)
 }
 
 export interface RegisterResponse {
@@ -352,12 +360,7 @@ export async function uploadProfileImage(file: File): Promise<ProfileResponse> {
   if (!res.ok) {
     const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
     const detail = (data["detail"] as string) ?? (data["message"] as string) ?? res.statusText;
-    if (res.status === 401) {
-      tokenStore.remove();
-      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-        window.location.href = "/login?session=expired";
-      }
-    }
+    handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
   return data as unknown as ProfileResponse;
@@ -421,6 +424,25 @@ export interface ManagerDashboardResponse {
 }
 export async function getManagerDashboard(): Promise<ManagerDashboardResponse> {
   return request<ManagerDashboardResponse>("GET", "/manager/dashboard/", undefined, true);
+}
+
+// ─── 팀 초대 링크(#24) — 가입 시 manager 연결만, 성과 공유는 본인이 설정에서 선택 ───
+export interface TeamInviteLinkResponse {
+  url: string; // FRONTEND_BASE_URL/register?invite=<token>
+  ttl_days: number; // 링크 유효일수(서버 TEAM_INVITE_TTL_DAYS)
+}
+/** POST /api/v1/manager/invite-link/ — 내 팀 초대 링크 생성(인증) */
+export async function createTeamInviteLink(): Promise<TeamInviteLinkResponse> {
+  return request<TeamInviteLinkResponse>("POST", "/manager/invite-link/", {}, true);
+}
+
+export interface InviteInfo {
+  manager_name: string;
+  affiliation: string | null;
+}
+/** GET /api/v1/manager/invite-info/?token= — 초대 칩용(무효/만료면 404 → 칩 없이 일반 가입) */
+export async function getInviteInfo(token: string): Promise<InviteInfo> {
+  return request<InviteInfo>("GET", `/manager/invite-info/?token=${encodeURIComponent(token)}`);
 }
 
 // ─── 환수 위험 → 인앱 알림 동기화 (cron 아님, 홈 진입 시 호출) ───────────────────
@@ -704,6 +726,7 @@ export async function uploadBusinessCard(id: number, file: File): Promise<Custom
   if (!res.ok) {
     const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
     const detail = (data["detail"] as string) ?? (data["message"] as string) ?? res.statusText;
+    handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
   return data as unknown as CustomerDetail;
@@ -766,6 +789,26 @@ export async function createContactLog(customerId: number, payload: { result: Co
   return request<ContactLog>("POST", `/customers/${customerId}/contact-logs/`, payload, true);
 }
 
+// ─── 오늘 전화할 고객 (call-list) — pull 방식, 화면 열 때 계산 ────────────────
+/** call-list 1행 — reasons 는 그대로 칩으로 렌더 가능한 한글 라벨(연락 우선순위, 판정 아님). */
+export interface CallListRow {
+  id: number;
+  name: string;
+  mobile_phone_number: string;
+  sales_stage: SalesStage;
+  score: number;
+  reasons: string[];               // 예: ["생일 D-3", "만기 D-12", "무접촉 21일"]
+  last_contacted_at: string | null;
+}
+export interface CallListResponse {
+  results: CallListRow[];          // 점수순 최대 10명
+  total_candidates: number;        // 사유 있는 전체 후보 수
+}
+/** GET /api/v1/customers/call-list/ — 본인 소유 + 진행중(active)만, 점수순 최대 10명 */
+export async function getCallList(): Promise<CallListResponse> {
+  return request<CallListResponse>("GET", "/customers/call-list/", undefined, true);
+}
+
 /** DELETE /api/v1/customers/{id}/ — 204 No Content → void */
 export async function deleteCustomer(id: number): Promise<void> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -777,6 +820,7 @@ export async function deleteCustomer(id: number): Promise<void> {
     try { data = await res.json(); } catch { /* empty */ }
     const code = (data["error"] as string) ?? String(res.status);
     const detail = (data["detail"] as string) ?? res.statusText;
+    handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
 }
@@ -978,6 +1022,7 @@ async function requestVoid(method: string, path: string, auth = true): Promise<v
     try { data = await res.json(); } catch { /* empty */ }
     const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
     const detail = (data["detail"] as string) ?? res.statusText;
+    if (auth) handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
 }
@@ -1800,6 +1845,7 @@ export async function uploadInsuranceOcr(
       (data["detail"] as string) ??
       (data["message"] as string) ??
       res.statusText;
+    handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail, undefined, data["reason"] as string | undefined);
   }
 

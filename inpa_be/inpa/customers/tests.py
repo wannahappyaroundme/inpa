@@ -5,6 +5,8 @@
   2) 병력 동의 게이트 — consent_overseas_at 없으면 병력 등록 412 차단, 동의 후 201.
 + 하위 라우트 owner 격리, ConsentLog append-only, 동의 생성 시 스냅샷 동기화 보강.
 """
+import datetime
+
 from django.core import signing
 from django.core.cache import cache
 from django.utils import timezone
@@ -12,6 +14,7 @@ from rest_framework.test import APIClient
 from django.test import TestCase, override_settings
 
 from inpa.accounts.models import Profile, User
+from inpa.insurances.models import CustomerInsurance
 
 from .consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
 from .models import (
@@ -1000,3 +1003,124 @@ class ConsentRevokeTests(TestCase):
         r = client.get(f'/api/v1/customers/{self.customer.id}/')
         self.assertEqual(r.json()['consents']['marketing']['status'], 'revoked')
         self.assertEqual(r.json()['marketing_consent'], 'revoked')
+
+
+class DailyCallListTests(TestCase):
+    """오늘 전화 리스트(call-list) — 랭킹·격리·캡·안전성 (spec 2026-07-05)."""
+
+    URL = '/api/v1/customers/call-list/'
+
+    def setUp(self):
+        self.user, self.client = _make_planner('caller@test.com')
+        self.other, self.other_client = _make_planner('other@test.com')
+        self.today = timezone.localdate()
+
+    def _customer(self, name, owner=None, **kw):
+        return Customer.objects.create(owner=owner or self.user, name=name, **kw)
+
+    def _birth_str(self, days_ahead):
+        """오늘+N일의 월·일을 가진 생일 문자열(1992 = 윤년이라 2/29도 유효)."""
+        d = self.today + datetime.timedelta(days=days_ahead)
+        return f'1992-{d.month:02d}-{d.day:02d}'
+
+    def _expiry(self, customer, days_ahead, **kw):
+        exp = self.today + datetime.timedelta(days=days_ahead)
+        return CustomerInsurance.objects.create(
+            customer=customer, name='테스트보험', portfolio_type=1,
+            expiry_date=exp.strftime('%Y-%m-%d'), **kw)
+
+    def test_ranking_birthday_over_expiry_over_idle(self):
+        """생일 D-1(90) > 만기 D-5(70) > 무접촉 30일(30) 순서 + reasons 칩."""
+        c_birth = self._customer('생일고객', birth_day=self._birth_str(1))
+        c_exp = self._customer('만기고객')
+        self._expiry(c_exp, 5)
+        c_idle = self._customer(
+            '무접촉고객',
+            last_contacted_at=timezone.now() - datetime.timedelta(days=30))
+        r = self.client.get(self.URL)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        names = [row['name'] for row in body['results']]
+        self.assertEqual(names, ['생일고객', '만기고객', '무접촉고객'])
+        self.assertEqual(body['total_candidates'], 3)
+        by_name = {row['name']: row for row in body['results']}
+        self.assertEqual(by_name['생일고객']['score'], 90)
+        self.assertIn('생일 D-1', by_name['생일고객']['reasons'])
+        self.assertEqual(by_name['만기고객']['score'], 70)
+        self.assertIn('만기 D-5', by_name['만기고객']['reasons'])
+        self.assertIn('무접촉', by_name['무접촉고객']['reasons'][0])
+        self.assertEqual(by_name['무접촉고객']['id'], c_idle.id)
+        self.assertEqual(by_name['생일고객']['id'], c_birth.id)
+
+    def test_only_active_status(self):
+        """보류·휴면·종료 고객은 사유가 강해도 제외."""
+        for st in (Customer.STATUS_HOLD, Customer.STATUS_DORMANT,
+                   Customer.STATUS_CLOSED):
+            self._customer(
+                f'파킹-{st}', status=st,
+                last_contacted_at=timezone.now() - datetime.timedelta(days=40))
+        active = self._customer(
+            '진행중고객',
+            last_contacted_at=timezone.now() - datetime.timedelta(days=10))
+        r = self.client.get(self.URL)
+        body = r.json()
+        self.assertEqual([row['id'] for row in body['results']], [active.id])
+        self.assertEqual(body['total_candidates'], 1)
+
+    def test_owner_isolation(self):
+        """타 설계사 고객은 사유가 있어도 절대 미노출."""
+        self._customer(
+            '남의고객', owner=self.other,
+            birth_day=self._birth_str(0),
+            last_contacted_at=timezone.now() - datetime.timedelta(days=50))
+        mine = self._customer(
+            '내고객', last_contacted_at=timezone.now() - datetime.timedelta(days=5))
+        r = self.client.get(self.URL)
+        body = r.json()
+        self.assertEqual([row['id'] for row in body['results']], [mine.id])
+        self.assertEqual(body['total_candidates'], 1)
+
+    def test_zero_score_excluded_and_cap_10(self):
+        """사유 없는(score 0) 고객 제외 + 10명 캡 + total_candidates."""
+        fresh = self._customer('오늘등록')  # created 오늘 → 무접촉 0 → score 0
+        # 단계 보정만으로는 리스트에 오르지 않음(사유 없음).
+        momentum = self._customer('모멘텀만', sales_stage=Customer.STAGE_CONTACT)
+        for i in range(12):
+            self._customer(
+                f'무접촉{i}',
+                last_contacted_at=timezone.now() - datetime.timedelta(days=5 + i))
+        r = self.client.get(self.URL)
+        body = r.json()
+        self.assertEqual(len(body['results']), 10)
+        self.assertEqual(body['total_candidates'], 12)
+        ids = {row['id'] for row in body['results']}
+        self.assertNotIn(fresh.id, ids)
+        self.assertNotIn(momentum.id, ids)
+
+    def test_stage_bonus_applied_when_reason_exists(self):
+        """같은 사유(무접촉 20일)면 TA/FA 단계가 +10으로 앞선다."""
+        anchor = timezone.now() - datetime.timedelta(days=20)
+        db_cust = self._customer('디비단계', last_contacted_at=anchor)
+        ta_cust = self._customer('티에이단계', sales_stage=Customer.STAGE_CONTACT,
+                                 last_contacted_at=anchor)
+        r = self.client.get(self.URL)
+        by_name = {row['name']: row for row in r.json()['results']}
+        self.assertEqual(by_name['티에이단계']['score'],
+                         by_name['디비단계']['score'] + 10)
+        self.assertEqual([row['id'] for row in r.json()['results']],
+                         [ta_cust.id, db_cust.id])
+
+    def test_malformed_dates_are_safe(self):
+        """생일·만기 문자열이 깨져도 200 + 그 사유만 조용히 무시."""
+        self._customer('깨진생일', birth_day='19-XX')  # 파싱 불가 + 무접촉 0 → 제외
+        broken_exp = self._customer(
+            '깨진만기', last_contacted_at=timezone.now() - datetime.timedelta(days=3))
+        self._expiry(broken_exp, 5)
+        broken_exp.customer_insurance_list.update(expiry_date='2026.13.99')
+        r = self.client.get(self.URL)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual([row['id'] for row in body['results']], [broken_exp.id])
+        reasons = body['results'][0]['reasons']
+        self.assertTrue(all('만기' not in x and '생일' not in x for x in reasons))
+        self.assertEqual(body['total_candidates'], 1)

@@ -3,14 +3,15 @@
 // 관리자(지점장·팀장) 조직관리 대시보드 — 동의(manager_share_opt_in)한 소속 설계사 KPI '집계만'.
 // ★ 개별 고객 이름·병력 등 PII는 절대 표시 안 함(BE가 집계 수치만 반환). 성과 수치는 '추정' 라벨.
 
-import { useState, useEffect, useMemo } from "react";
-import { Wallet, UserPlus, Users, AlertTriangle } from "lucide-react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { Wallet, UserPlus, Users, AlertTriangle, Link2 } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { Card, StatCard, SectionTitle } from "@/components/ui";
 import { BarChart } from "@/components/charts";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   getManagerDashboard,
+  createTeamInviteLink,
   SALES_STAGES,
   funnelConversion,
   type ManagerDashboardResponse,
@@ -124,6 +125,78 @@ function RankCard({ rank, a }: { rank: number; a: ManagerAgentKpi }) {
   );
 }
 
+// 팀 초대 링크 카드(#24) — 링크 생성·복사(공유 위젯 패턴 재사용). 동의 침해 없음:
+// 가입 시 팀 연결만 되고, 성과 공유 여부는 가입한 본인이 설정에서 직접 선택한다.
+function TeamInviteCard() {
+  const [link, setLink] = useState<string | null>(null);
+  const [ttlDays, setTtlDays] = useState(7);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const generate = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await createTeamInviteLink();
+      setLink(r.url);
+      if (r.ttl_days) setTtlDays(r.ttl_days);
+    } catch {
+      setError("링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const copy = useCallback(async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* 미지원 환경 무시 */
+    }
+  }, [link]);
+
+  return (
+    <Card className="mt-4 p-4 sm:p-5">
+      <div className="flex items-center gap-2">
+        <Link2 size={16} className="text-brand" />
+        <span className="text-[15px] font-bold text-ink">팀 초대 링크</span>
+      </div>
+      <p className="mt-1 text-[12px] text-ink3 leading-5">
+        이 링크로 가입한 설계사는 내 팀으로 연결돼요. 성과 공유 여부는 본인이 설정에서 선택해요. (링크는 {ttlDays}일 유효)
+      </p>
+      {error && <p className="mt-2 text-[12px] text-danger">{error}</p>}
+      {link ? (
+        <div className="mt-2.5 flex items-center gap-2">
+          <input
+            readOnly
+            value={link}
+            onFocus={(e) => e.currentTarget.select()}
+            className="flex-1 min-w-0 rounded-xl border border-line bg-surface2 px-3 py-2 text-[12px] text-ink2 truncate"
+          />
+          <button
+            onClick={copy}
+            className="shrink-0 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 active:scale-[0.98] transition"
+          >
+            {copied ? "복사됨" : "링크 복사"}
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={generate}
+          disabled={busy}
+          className="mt-2.5 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-60 active:scale-[0.98] transition"
+        >
+          {busy ? "만드는 중..." : "초대 링크 만들기"}
+        </button>
+      )}
+    </Card>
+  );
+}
+
 export default function ManagerPage() {
   const ready = useAuthGuard();
   const [data, setData] = useState<ManagerDashboardResponse | null>(null);
@@ -158,6 +231,9 @@ export default function ManagerPage() {
         <p className="mt-1 text-[13px] text-ink3 leading-5">
           월말 취합 엑셀은 그만. 성과 공유에 <b>동의한</b> 소속 설계사의 집계를 실시간으로 봐요. 개별 고객 정보는 표시되지 않아요(프라이버시). 성과 수치는 추정이에요.
         </p>
+
+        {/* 팀 초대 링크 — 팀이 아직 없어도 항상 노출(팀을 만드는 첫 행동) */}
+        <TeamInviteCard />
 
         {error && (
           <div className="mt-4 rounded-xl border border-danger/30 bg-danger-tint px-4 py-2.5 text-[13px] text-danger">{error}</div>

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Users, UserPlus, CalendarCheck, Wallet,
   ChevronRight, MessageSquare, Calendar as CalendarIcon, Activity,
-  Link2, Gift, X, type LucideIcon,
+  Link2, Gift, X, Phone, type LucideIcon,
 } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { Card, StatCard, SectionTitle } from "@/components/ui";
@@ -15,9 +16,10 @@ import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers, getProfile, listMeetings,
   getDashboard, updateDashboardGoal, listScheduleItems,
-  getDashboardInsights, SALES_STAGES, funnelConversion,
+  getDashboardInsights, SALES_STAGES, funnelConversion, getCallList,
   type ProfileResponse, type Meeting, type DashboardSummary,
   type ScheduleItem, type ScheduleCategory, type DashboardInsights,
+  type CallListResponse,
 } from "@/lib/api";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
@@ -147,6 +149,34 @@ export default function HomePage() {
   const [selDay, setSelDay] = useState(todayD);
   const [dayModalOpen, setDayModalOpen] = useState(false); // 캘린더 날짜 클릭 시 그 날 일정 모달
 
+  // 오늘 전화할 고객 — pull 방식(화면 열 때 계산). callRefresh 증가 = 다시 시도.
+  const [callList, setCallList] = useState<CallListResponse | null>(null);
+  const [callLoading, setCallLoading] = useState(true);
+  const [callError, setCallError] = useState(false);
+  const [callRefresh, setCallRefresh] = useState(0);
+
+  // 로더 무음 실패 방지 — 어느 로더든 하나라도 실패하면 상단 배너 1개(카드별 배너 금지, §6 소음 방지).
+  // '다시 시도' = reloadKey 증가 → 아래 로더 이펙트 전부 재실행(+콜리스트도 함께).
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  function retryAll() {
+    setLoadFailed(false);
+    setReloadKey((k) => k + 1);
+    setCallRefresh((n) => n + 1);
+  }
+
+  useEffect(() => {
+    if (!ready) return;
+    let alive = true;
+    setCallLoading(true);
+    setCallError(false);
+    getCallList()
+      .then((r) => { if (alive) setCallList(r); })
+      .catch(() => { if (alive) setCallError(true); })
+      .finally(() => { if (alive) setCallLoading(false); });
+    return () => { alive = false; };
+  }, [ready, callRefresh]);
+
   useEffect(() => {
     if (!ready) return;
     getProfile()
@@ -154,42 +184,44 @@ export default function HomePage() {
         if (!p.onboarding_completed_at) { router.replace("/onboarding"); return; }
         setProfile(p);
       })
-      .catch(() => { /* 토큰 만료 시 useAuthGuard가 처리 */ });
+      .catch(() => setLoadFailed(true)); // 401(토큰 만료)은 api.ts가 로그인으로 이동 → 배너는 그 외 실패용
     listCustomers({ page: 1 })
       .then((res) => setCustomerCount(res.count))
-      .catch(() => setCustomerCount(null));
+      .catch(() => { setCustomerCount(null); setLoadFailed(true); });
     listMeetings(true)
       .then((res) => setMeetings(res.results))
-      .catch(() => setMeetings([]));
+      .catch(() => { setMeetings([]); setLoadFailed(true); });
     getDashboard()
       .then((d) => {
         setDash(d);
         setGMeet(d.target_meetings); setGPrem(d.target_premium); setGMult(d.income_multiplier);
       })
-      .catch(() => setDash(null));
-  }, [ready, router]);
+      .catch(() => { setDash(null); setLoadFailed(true); });
+  }, [ready, router, reloadKey]);
 
   // 기간 필터 변경 시 insights 재조회 (기간 버튼 포함)
   useEffect(() => {
     if (!ready) return;
-    getDashboardInsights({ months: trendMonths }).then(setInsights).catch(() => setInsights(null));
-  }, [ready, trendMonths]);
+    getDashboardInsights({ months: trendMonths })
+      .then(setInsights)
+      .catch(() => { setInsights(null); setLoadFailed(true); });
+  }, [ready, trendMonths, reloadKey]);
 
   // 보고 있는 달의 내 일정/할일/차단 로드(월 이동 시 갱신) — 캘린더용
   useEffect(() => {
     if (!ready) return;
     listScheduleItems({ month: `${viewY}-${pad(viewM)}` })
       .then((r) => setScheduleItems(r.results))
-      .catch(() => setScheduleItems([]));
-  }, [ready, viewY, viewM]);
+      .catch(() => { setScheduleItems([]); setLoadFailed(true); });
+  }, [ready, viewY, viewM, reloadKey]);
 
   // 이번 달 일정(오늘 카드용) — 캘린더를 다른 달로 넘겨도 '오늘 일정'은 항상 보이게 별도 로드.
   useEffect(() => {
     if (!ready) return;
     listScheduleItems({ month: `${todayY}-${pad(todayM)}` })
       .then((r) => setTodayScheduleItems(r.results))
-      .catch(() => setTodayScheduleItems([]));
-  }, [ready, todayY, todayM]);
+      .catch(() => { setTodayScheduleItems([]); setLoadFailed(true); });
+  }, [ready, todayY, todayM, reloadKey]);
 
   // 날짜별 일정 맵 — 캘린더(보는 달) / 오늘 카드(이번 달) 각각. (알림은 우측 상단 종에서만)
   const agenda = useMemo(() => buildAgenda(scheduleItems, meetings), [scheduleItems, meetings]);
@@ -289,6 +321,23 @@ export default function HomePage() {
             {todayY}.{pad(todayM)}.{pad(todayD)}
           </span>
         </div>
+
+        {/* 로더 실패 통합 배너 — 하나라도 실패하면 여기 1개만(카드별 배너 없음). 다시 시도 = 전체 재로드 */}
+        {loadFailed && (
+          <div
+            role="alert"
+            className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[13px]"
+          >
+            <span className="text-amber-800">일부 정보를 못 불러왔어요.</span>
+            <button
+              type="button"
+              onClick={retryAll}
+              className="shrink-0 rounded-lg bg-surface px-3 py-1.5 text-[12px] font-semibold text-brand border border-line hover:border-brand transition"
+            >
+              다시 시도
+            </button>
+          </div>
+        )}
 
         {/* ── 1행: 이번 달 목표(8) + 오늘의 일정(4) — 같은 높이(items-stretch) ── */}
         <div className="mt-4 grid grid-cols-12 gap-4 items-stretch">
@@ -468,6 +517,101 @@ export default function HomePage() {
                 </div>
               </Card>
             )}
+
+            {/* 오늘 전화할 고객 — 아침에 열면 오늘 연락할 고객이 정해져 있는 카드(연락 우선순위). */}
+            <Card className="p-4 sm:p-5">
+              <SectionTitle
+                title={
+                  <span className="inline-flex items-center gap-1.5">
+                    <Phone className="w-4 h-4 text-brand" strokeWidth={2.5} />
+                    오늘 전화할 고객
+                  </span>
+                }
+                action={
+                  callList && callList.total_candidates > callList.results.length ? (
+                    <span className="text-[12px] text-ink3">
+                      챙길 고객 {callList.total_candidates}명 중 상위 {callList.results.length}명
+                    </span>
+                  ) : undefined
+                }
+              />
+              {callLoading ? (
+                <div className="space-y-2" aria-hidden>
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="h-10 rounded-xl bg-surface2 animate-pulse" />
+                  ))}
+                </div>
+              ) : callError ? (
+                <div className="py-5 text-center">
+                  <p className="text-[13px] text-ink3">목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.</p>
+                  <button
+                    type="button"
+                    onClick={() => setCallRefresh((n) => n + 1)}
+                    className="mt-2 px-3.5 py-1.5 rounded-lg bg-surface2 text-[12px] font-semibold text-ink2 hover:text-ink transition-colors"
+                  >
+                    다시 시도
+                  </button>
+                </div>
+              ) : !callList || callList.results.length === 0 ? (
+                <p className="py-5 text-center text-[13px] text-ink3">
+                  오늘은 챙길 고객을 다 챙겼어요. 새 고객 발굴에 시간을 써보세요.
+                </p>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {callList.results.map((c) => (
+                    <li key={c.id} className="py-2.5 flex items-center gap-3">
+                      <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                        <Link
+                          href={`/customer/${c.id}`}
+                          className="text-[14px] font-bold text-ink hover:text-brand transition-colors"
+                        >
+                          {c.name}
+                        </Link>
+                        {c.reasons.slice(0, 3).map((r) => (
+                          <span
+                            key={r}
+                            className="px-1.5 py-0.5 rounded-md bg-surface2 text-[11px] font-semibold text-ink2 tnum"
+                          >
+                            {r}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {c.mobile_phone_number && (
+                          <>
+                            <a
+                              href={`tel:${c.mobile_phone_number}`}
+                              className="px-2.5 py-1 rounded-lg bg-brand-soft text-[12px] font-semibold text-brand hover:opacity-80 transition-opacity"
+                            >
+                              전화
+                            </a>
+                            <a
+                              href={`sms:${c.mobile_phone_number}`}
+                              className="px-2.5 py-1 rounded-lg bg-surface2 text-[12px] font-semibold text-ink2 hover:text-ink transition-colors"
+                            >
+                              문자
+                            </a>
+                          </>
+                        )}
+                        <Link
+                          href={`/scripts?customer=${encodeURIComponent(c.name)}`}
+                          className="px-2.5 py-1 rounded-lg bg-surface2 text-[12px] font-semibold text-ink2 hover:text-ink transition-colors"
+                        >
+                          화법
+                        </Link>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                type="button"
+                onClick={() => router.push("/customers")}
+                className="mt-3 w-full text-center text-[12px] font-semibold text-brand"
+              >
+                고객 전체 보기 →
+              </button>
+            </Card>
           </div>
 
           {/* 우 4: 월별 보험료 추이 — 좌측(통계+단계) 높이만큼 채움 */}
