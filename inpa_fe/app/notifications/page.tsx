@@ -335,7 +335,7 @@ function NotificationsContent() {
   return (
     <div className="min-h-dvh">
       <AppNav active="notifications" />
-      <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6">
+      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         {/* 헤더 */}
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-[22px] font-extrabold text-ink">

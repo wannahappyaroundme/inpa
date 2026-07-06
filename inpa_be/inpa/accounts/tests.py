@@ -1,4 +1,6 @@
 """계정 도메인 happy-path + 핵심 게이트 테스트."""
+from unittest import mock
+
 from django.core import mail
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -81,21 +83,50 @@ class AuthFlowTests(TestCase):
         self.assertEqual(self._register().status_code, 400)
 
     def test_register_with_planner_fields(self):
-        """회원가입에서 소속·직책·설계사 번호(14자리)를 함께 저장."""
+        """회원가입에서 소속·직책·설계사 번호(영문·숫자 혼용 가능)를 함께 저장."""
         payload = {**self.reg, 'affiliation': '메리츠화재 강남지점', 'title': '팀장',
-                   'license_no': '01234567890123'}
+                   'license_no': 'AB-2026-0012345'}  # 회사별 영문·숫자 혼용 형식
         r = self.c.post('/api/v1/auth/register/', payload, format='json')
         self.assertEqual(r.status_code, 201, r.content)
         p = Profile.objects.get(user__email=self.reg['email'])
         self.assertEqual(p.affiliation, '메리츠화재 강남지점')
         self.assertEqual(p.title, '팀장')
-        self.assertEqual(p.license_no, '01234567890123')
+        self.assertEqual(p.license_no, 'AB-2026-0012345')
 
     def test_register_rejects_bad_license_no(self):
-        """설계사 번호는 숫자 14자리만 허용(그 외 400)."""
-        r = self.c.post('/api/v1/auth/register/',
-                        {**self.reg, 'license_no': '12345'}, format='json')
-        self.assertEqual(r.status_code, 400)
+        """설계사 번호는 느슨한 형식(영문/숫자/하이픈 4~20자)만 확인 — 그 외 400.
+
+        자릿수 강제 금지(PM 2026-07-07): 회사·협회별로 숫자·영문 혼용이라
+        특수문자·과도한 길이·너무 짧은 값만 거른다.
+        """
+        for bad in ('a!', '12', '가나다라마', 'x' * 21):
+            r = self.c.post('/api/v1/auth/register/',
+                            {**self.reg, 'license_no': bad}, format='json')
+            self.assertEqual(r.status_code, 400, bad)
+
+    def test_register_succeeds_even_if_email_send_fails(self):
+        """메일 발송 실패가 가입을 500으로 만들지 않는다(2026-07-07 프로드 사고 회귀).
+
+        유저는 생성되고 201 + email_sent=false + 재발송 안내 메시지를 받는다.
+        (발송 실패 후 재시도하면 '이미 가입된 이메일' 400에 갇히는 최악 경로 차단)
+        """
+        with mock.patch('inpa.accounts.views.send_mail',
+                        side_effect=OSError('smtp down')):
+            r = self._register()
+        self.assertEqual(r.status_code, 201, r.content)
+        body = r.json()
+        self.assertFalse(body['email_sent'])
+        self.assertIn('다시 받기', body['message'])
+        self.assertTrue(User.objects.filter(email=self.reg['email']).exists())
+
+    def test_resend_verification_stays_200_on_send_failure(self):
+        """재발송도 발송 실패 시 500 대신 200 유지(계정 존재 노출 방지 응답 불변)."""
+        self._register()
+        with mock.patch('inpa.accounts.views.send_mail',
+                        side_effect=OSError('smtp down')):
+            r = self.c.post('/api/v1/auth/resend-verification/',
+                            {'email': self.reg['email']}, format='json')
+        self.assertEqual(r.status_code, 200)
 
     def test_login_lockout_after_5_fails(self):
         self._register()

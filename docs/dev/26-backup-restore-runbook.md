@@ -64,9 +64,26 @@
 | 증상 | 원인·해결 |
 |---|---|
 | `pg_dump 미설치` | A-1 다시 실행 |
+| `invalid URI query parameter: "channel_binding"` 또는 `server version mismatch` | 서버의 PostgreSQL 클라이언트가 구버전(우분투 20.04 = 12). 아래 '구버전 우분투: 도커 우회' 적용 |
 | `암호문 파일이 없거나 비어 있음` | A-3의 파일 경로가 backup.env 값과 같은지 확인 |
 | `덤프 크기 …B < …B` | DATABASE_URL이 빈 DB/잘못된 브랜치를 보고 있을 가능성. Neon 접속 문자열 재확인 |
 | cron이 안 돎 | `crontab -l`로 등록 확인, 경로가 절대경로인지 확인 |
+
+## E-2. 구버전 우분투: 도커 우회 (2026-07-06 실적용)
+
+우분투 20.04는 공식 PostgreSQL 저장소(PGDG) 지원이 끝나 최신 클라이언트를 설치할 수 없다.
+서버에 도커가 있으면 스크립트가 도커 안의 최신 PostgreSQL을 쓰도록 한 번만 패치한다:
+
+```
+cd ~/inpa-backup
+sed -i 's|^pg_dump --format=custom|docker run --rm -v "$BACKUP_DIR":"$BACKUP_DIR" postgres:18 pg_dump --format=custom|' neon_backup.sh
+sed -i 's|^pg_restore --clean|docker run --rm -v /tmp:/tmp postgres:18 pg_restore --clean|' neon_restore.sh
+```
+
+- 이미지 버전(postgres:18)은 Neon 서버 버전 이상이어야 한다. 버전 불일치 오류 메시지에
+  `server version: 18.x` 처럼 표시되니 그 숫자에 맞추면 된다.
+- 첫 실행은 이미지 다운로드로 1~2분. `docker ps`가 권한 오류면
+  `sudo usermod -aG docker <사용자>` 후 재접속.
 
 ## F. 개인정보 주의 (PIPA)
 

@@ -1,5 +1,6 @@
 """계정 도메인 시리얼라이저 (dev/11 정본)."""
 import logging
+import re
 
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
@@ -30,10 +31,12 @@ class RegisterSerializer(serializers.Serializer):
         return value.lower()
 
     def validate_license_no(self, value):
-        # 설계사(모집인) 번호 — 선택 입력. 넣으면 숫자 14자리만 허용.
+        # 설계사(모집인) 번호 — 선택 입력. 회사·협회별로 숫자·영문이 혼용되므로
+        # 자릿수를 강제하지 않고 형식만 느슨히 확인한다(영문/숫자/하이픈 4~20자).
+        # PM 2026-07-07: '숫자 14자리' 강제·노출 금지.
         v = (value or '').strip()
-        if v and (not v.isdigit() or len(v) != 14):
-            raise serializers.ValidationError('설계사 번호는 숫자 14자리로 입력해 주세요.')
+        if v and not re.fullmatch(r'[A-Za-z0-9-]{4,20}', v):
+            raise serializers.ValidationError('설계사 번호를 다시 확인해 주세요.')
         return v
 
     def validate(self, data):

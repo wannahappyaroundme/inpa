@@ -8,7 +8,13 @@ import type { Metadata } from "next";
 
 const OG_IMAGE = { url: "/opengraph-image.jpg", width: 1200, height: 630 };
 
-export function publicTokenMetadata(title: string, description: string): Metadata {
+/** 라우트 전용 OG 이미지가 있으면 세 번째 인자로 public/ 경로를 넘긴다(예: "/og-self-diagnosis.jpeg"). */
+export function publicTokenMetadata(
+  title: string,
+  description: string,
+  imageUrl?: string,
+): Metadata {
+  const image = imageUrl ? { url: imageUrl, width: 1200, height: 630 } : OG_IMAGE;
   return {
     title: { absolute: title },
     description,
@@ -19,13 +25,13 @@ export function publicTokenMetadata(title: string, description: string): Metadat
       siteName: "인파(Inpa)",
       title,
       description,
-      images: [OG_IMAGE],
+      images: [image],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: [OG_IMAGE.url],
+      images: [image.url],
     },
   };
 }
