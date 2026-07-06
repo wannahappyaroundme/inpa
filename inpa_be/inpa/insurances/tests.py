@@ -542,6 +542,165 @@ class SelfDiagnosisGateTests(TestCase):
         self.assertTrue(c.consent_logs.filter(scope=ConsentLog.SCOPE_THIRD_PARTY).exists())
 
 
+def _fake_ocr_product(product_name, cat='진단비', sub='암', det='일반암',
+                      amount=50000000, monthly=30000):
+    """다중 업로드용 mock Ocr_Data — 상품명·담보 경로를 파일별로 다르게 만든다."""
+    ocr = Ocr_Data()
+    ocr.parsing_method = 'claude'
+    ocr.is_same_insured = True
+    head = ocr.dict_loss_head_data
+    head['손해보험'] = 2  # 삼성화재
+    head['상품명'] = product_name
+    head['계약자'] = '홍길동'
+    head['피보험자'] = '홍길동'
+    head['납입기간'] = 20
+    head['보장기간'] = 100
+    head['월납입보험료'] = monthly
+    head['월보장보험료'] = monthly
+    head['계약일'] = '2020.01.15'
+    head['payment_period_type'] = 1
+    head['warranty_period_type'] = 1
+    ocr.dict_detail_data[cat][sub][det].append(f'20:1:100:1:{amount}:10000')
+    return ocr
+
+
+def _tree_detail_names(tree):
+    """트리 → leaf 담보 이름 set (보험별 트리 분리 검증용)."""
+    return {det['name'] for c in tree for s in c['sub_categories'] for det in s['details']}
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 셀프진단 다중 증권(files) — 파일별 독립 파싱·캡 소모 + insurances[] 카드 응답
+# ──────────────────────────────────────────────────────────────────────
+@override_settings(ANTHROPIC_API_KEY='test-key')
+class SelfDiagnosisMultiPdfTests(TestCase):
+    """PM 2026-07-07: 증권 여러 장 업로드 → 보험별 카드(insurances[]) 응답."""
+
+    BASE = {'name': '홍길동', 'phone': '01012345678', 'birth': '1990-01-01', 'gender': '1',
+            'consent_share': 'true', 'consent_overseas': 'true'}
+
+    def setUp(self):
+        from django.core.cache import cache
+        from django.core.management import call_command
+        cache.clear()  # throttle + 파싱 카운터 격리
+        call_command('seed_normalization')  # 표준 트리 — 보험별 트리 분리 검증에 필요
+        self.planner, _ = _make_planner('multipdf@test.com')
+        self.ref = self.planner.profile.ref_code
+        self.public = APIClient()
+
+    def _pdf(self, name):
+        return SimpleUploadedFile(name, b'%PDF-1.4 dummy', content_type='application/pdf')
+
+    def _post(self, files, extra=None):
+        data = {**self.BASE, 'files': files, **(extra or {})}
+        return self.public.post(f'/api/v1/d/{self.ref}/', data, format='multipart')
+
+    def test_two_pdfs_two_insurance_cards_one_lead(self):
+        """스펙 TC1: 2장 → insurances 2건, 각자 트리 분리, 고객 1명, 동의 로그 정상."""
+        ocr_a = _fake_ocr_product('A종합보험', '진단비', '암', '일반암')          # → 일반암진단비
+        ocr_b = _fake_ocr_product('B수술보험', '수술', '암', '암수술비')          # → 암수술비
+        with mock.patch('inpa.insurances.self_diagnosis.claude_parse',
+                        side_effect=[ocr_a, ocr_b]) as m_parse, \
+                mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines',
+                           return_value=(['line'], None)):
+            r = self._post([self._pdf('a.pdf'), self._pdf('b.pdf')])
+        self.assertEqual(r.status_code, 201, r.content)
+        body = r.json()
+        self.assertEqual(m_parse.call_count, 2)  # 파일 1장당 1회 파싱
+        cards = body['insurances']
+        self.assertEqual(len(cards), 2)
+        self.assertEqual([c['status'] for c in cards], ['ok', 'ok'])
+        self.assertEqual([c['name'] for c in cards], ['A종합보험', 'B수술보험'])
+        self.assertEqual(cards[0]['company_label'], '삼성화재')
+        self.assertEqual(cards[0]['monthly_premium'], 30000)
+        self.assertEqual(cards[0]['coverage_count'], 1)
+        # ★ 보험별 트리 분리 — 각 카드 트리는 자기 담보만 담는다.
+        names_a = _tree_detail_names(cards[0]['tree'])
+        names_b = _tree_detail_names(cards[1]['tree'])
+        self.assertIn('일반암진단비', names_a)
+        self.assertNotIn('암수술비', names_a)
+        self.assertIn('암수술비', names_b)
+        self.assertNotIn('일반암진단비', names_b)
+        # 고객(리드) 1명 + 보험 2건 귀속 + 동의 로그(개인정보·국외이전) 정상
+        lead = Customer.objects.get(owner=self.planner, lead_source='self_diagnosis')
+        self.assertEqual(CustomerInsurance.objects.filter(customer=lead).count(), 2)
+        self.assertIsNotNone(lead.consent_overseas_at)
+        self.assertEqual(lead.consent_logs.filter(scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL).count(), 1)
+        self.assertEqual(lead.consent_logs.filter(scope=ConsentLog.SCOPE_PERSONAL_INFO).count(), 1)
+        # 최상위 요약(하위호환) = 성공 보험 합산
+        self.assertEqual(body['summary']['monthly_premiums'], 60000)
+        self.assertTrue(body['analyzed'])
+        self.assertNotIn('notice', body)
+
+    def test_six_files_processes_five_with_notice(self):
+        """스펙 TC2: 6장 업로드 → 5장만 처리 + notice 안내(초과분 파싱 0회)."""
+        ocrs = [_fake_ocr_product(f'보험{i}') for i in range(5)]
+        with mock.patch('inpa.insurances.self_diagnosis.claude_parse',
+                        side_effect=ocrs) as m_parse, \
+                mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines',
+                           return_value=(['line'], None)):
+            r = self._post([self._pdf(f'p{i}.pdf') for i in range(6)])
+        self.assertEqual(r.status_code, 201, r.content)
+        body = r.json()
+        self.assertEqual(len(body['insurances']), 5)
+        self.assertEqual(m_parse.call_count, 5)  # 6번째 파일은 받지 않음
+        self.assertIn('5장', body['notice'])
+
+    def test_parse_failure_isolated_per_file(self):
+        """스펙 TC3: 1장 실패 + 1장 성공 → status 혼합, 요청은 201 유지."""
+        ocr_ok = _fake_ocr_product('성공보험')
+        with mock.patch('inpa.insurances.self_diagnosis.claude_parse',
+                        side_effect=[None, ocr_ok]), \
+                mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines',
+                           return_value=(['line'], None)):
+            r = self._post([self._pdf('bad.pdf'), self._pdf('good.pdf')])
+        self.assertEqual(r.status_code, 201, r.content)
+        cards = r.json()['insurances']
+        self.assertEqual([c['status'] for c in cards], ['failed', 'ok'])
+        self.assertEqual(cards[0]['name'], 'bad')          # 파일명 폴백(.pdf 제거)
+        self.assertTrue(cards[0]['message'])               # 긍정 안내 문구 존재
+        self.assertEqual(cards[0]['tree'], [])
+        lead = Customer.objects.get(owner=self.planner, lead_source='self_diagnosis')
+        self.assertEqual(CustomerInsurance.objects.filter(customer=lead).count(), 1)
+
+    def test_daily_cap_consumed_per_file(self):
+        """스펙 TC4: 남은 캡 1일 때 3장 → 1장 ok + 2장 skipped(파싱 1회만)."""
+        from django.core.cache import cache
+        from inpa.insurances.self_diagnosis import (
+            MSG_FILE_SKIPPED, SELF_DIAG_DAILY_CAP_PER_REF)
+        key = f'selfdiag-attempts:{self.ref}:{timezone.now().date().isoformat()}'
+        cache.set(key, SELF_DIAG_DAILY_CAP_PER_REF - 1, 60 * 60 * 24)
+        with mock.patch('inpa.insurances.self_diagnosis.claude_parse',
+                        side_effect=[_fake_ocr_product('마지막보험')]) as m_parse, \
+                mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines',
+                           return_value=(['line'], None)):
+            r = self._post([self._pdf('p1.pdf'), self._pdf('p2.pdf'), self._pdf('p3.pdf')])
+        self.assertEqual(r.status_code, 201, r.content)
+        cards = r.json()['insurances']
+        self.assertEqual([c['status'] for c in cards], ['ok', 'skipped', 'skipped'])
+        self.assertEqual(cards[1]['message'], MSG_FILE_SKIPPED)
+        self.assertEqual(m_parse.call_count, 1)  # Claude 호출은 캡 안에서 1회만
+
+    def test_legacy_single_file_field_still_works(self):
+        """스펙 TC5: 기존 단일 'file' 필드 하위호환 — insurances 1건 + 기존 응답 유지."""
+        with mock.patch('inpa.insurances.self_diagnosis.claude_parse',
+                        return_value=_fake_ocr_product('단일보험')), \
+                mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines',
+                           return_value=(['line'], None)):
+            r = self.public.post(
+                f'/api/v1/d/{self.ref}/',
+                {**self.BASE, 'file': self._pdf('one.pdf')}, format='multipart')
+        self.assertEqual(r.status_code, 201, r.content)
+        body = r.json()
+        self.assertEqual(len(body['insurances']), 1)
+        self.assertEqual(body['insurances'][0]['status'], 'ok')
+        self.assertEqual(body['insurances'][0]['name'], '단일보험')
+        # 기존(하위호환) 최상위 형태 유지
+        self.assertIn('tree', body)
+        self.assertIn('summary', body)
+        self.assertTrue(body['analyzed'])
+
+
 # ──────────────────────────────────────────────────────────────────────
 # 정확도 다중검사(verify.py) — 네트워크 없이 핵심 로직만(JSON 파싱·키없음 격리)
 # ──────────────────────────────────────────────────────────────────────
@@ -1006,8 +1165,7 @@ class SelfDiagnosisConsentTests(TestCase):
     def _pdf(self):
         return SimpleUploadedFile('p.pdf', b'%PDF-1.4 test', content_type='application/pdf')
 
-    @mock.patch('inpa.insurances.self_diagnosis._persist_ocr')
-    @mock.patch('inpa.insurances.self_diagnosis.claude_parse', return_value={'insurances': []})
+    @mock.patch('inpa.insurances.self_diagnosis.claude_parse', return_value=_fake_ocr_data())
     @mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines', return_value=(['line'], None))
     def test_lead_gets_personal_info_consent(self, *_):
         from inpa.customers.models import ConsentLog, Customer
@@ -1023,8 +1181,7 @@ class SelfDiagnosisConsentTests(TestCase):
         self.assertFalse(ConsentLog.objects.filter(
             customer=cust, scope=ConsentLog.SCOPE_MARKETING).exists())
 
-    @mock.patch('inpa.insurances.self_diagnosis._persist_ocr')
-    @mock.patch('inpa.insurances.self_diagnosis.claude_parse', return_value={'insurances': []})
+    @mock.patch('inpa.insurances.self_diagnosis.claude_parse', return_value=_fake_ocr_data())
     @mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines', return_value=(['line'], None))
     def test_marketing_optional(self, *_):
         from inpa.customers.models import ConsentLog, Customer
