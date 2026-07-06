@@ -922,9 +922,12 @@ export interface HeatmapResponse {
   insurances: InsuranceFee[];
 }
 
-/** GET /api/v1/customers/<id>/heatmap/ — requires token */
-export async function getHeatmap(customerId: number): Promise<HeatmapResponse> {
-  return request<HeatmapResponse>("GET", `/customers/${customerId}/heatmap/`, undefined, true);
+/** GET /api/v1/customers/<id>/heatmap/ — requires token.
+ *  insuranceId 를 주면 그 보험 1건만 집계한 트리/summary (보험별 상세 보기).
+ *  남의/없는 보험 id 는 BE 가 404 (owner 격리). */
+export async function getHeatmap(customerId: number, insuranceId?: number): Promise<HeatmapResponse> {
+  const qs = insuranceId != null ? `?insurance_id=${insuranceId}` : "";
+  return request<HeatmapResponse>("GET", `/customers/${customerId}/heatmap/${qs}`, undefined, true);
 }
 
 // ─── 설계사 기준선 (PlannerBaseline) ─────────────────────────────────────────
