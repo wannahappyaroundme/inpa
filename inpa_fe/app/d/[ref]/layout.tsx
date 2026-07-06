@@ -7,6 +7,7 @@ import { publicTokenMetadata } from "@/lib/public-og";
 export const metadata: Metadata = publicTokenMetadata(
   "내 보험, 지금 상황에 맞을까요?",
   "1분이면 무료로 확인할 수 있어요.",
+  "/og-self-diagnosis.jpeg", // 셀프진단 전용 OG 이미지(PM 제작, public/)
 );
 
 export default function SelfDiagnosisLayout({ children }: { children: ReactNode }) {
