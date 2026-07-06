@@ -170,18 +170,16 @@ def _planner_phone(customer):
     return None
 
 
-def _build_share_payload(customer):
-    """공유뷰 페이로드 — '사실'만(neutral 강제, baseline 부재).
+def build_coverage_tree(customer, insurance_list, held_only=False):
+    """주어진 보험 리스트만 집계한 담보 트리 + 합계 — '사실'만(neutral 강제, baseline 부재).
 
-    held_amount(보유 보장금액)와 status('none'|'neutral')만 노출한다.
+    공유뷰(/s)·셀프진단(/d)이 공유하는 단일 트리 빌더. held_amount(보유 보장금액)와
+    status('none'|'neutral')만 노출한다(부족/충분 단정 물리 부재).
+
+    held_only=True 면 보유(held>0) 담보만 남기고 빈 소분류/대분류를 가지치기한 트리
+    (셀프진단 보험별 카드 상세용 — 그 보험이 실제 보장하는 담보 리스트).
+    Returns (tree, summary).
     """
-    insurance_list = list(
-        customer.customer_insurance_list
-        .prefetch_related('case_list__detail__analysis_detail',
-                          'case_list__detail__chart_detail')
-        .all()
-    )
-
     analysis_details = list(AnalysisDetail.objects.all().values(
         'id', 'name', 'order', 'chart_based_amount', 'sub_category_id'))
     case_list = [dict(d) for d in analysis_details]
@@ -202,6 +200,8 @@ def _build_share_payload(customer):
             detail_nodes = []
             for det in sub.details.all().order_by('order', 'id'):
                 held = held_by_detail_id.get(det.id, 0)
+                if held_only and not held:
+                    continue
                 # ★ 공유뷰 status: 'none'(0원=미보유 사실) | 'neutral'. 부족/충분 부재.
                 cell_status = 'none' if not held else 'neutral'
                 detail_nodes.append({
@@ -211,11 +211,15 @@ def _build_share_payload(customer):
                     'status': cell_status,
                     # ⚠️ baseline 키 물리 부재 — 설계사 기준선 공유뷰 노출 금지
                 })
+            if held_only and not detail_nodes:
+                continue
             sub_nodes.append({
                 'sub_category_id': sub.id,
                 'name': sub.name,
                 'details': detail_nodes,
             })
+        if held_only and not sub_nodes:
+            continue
         tree.append({
             'category_id': cat.id,
             'name': cat.name,
@@ -228,6 +232,21 @@ def _build_share_payload(customer):
         'total_premiums', 'total_renewal_premium', 'total_non_renewal_premium',
     )
     summary = {k: result[k] for k in summary_keys}
+    return tree, summary
+
+
+def _build_share_payload(customer):
+    """공유뷰 페이로드 — '사실'만(neutral 강제, baseline 부재).
+
+    held_amount(보유 보장금액)와 status('none'|'neutral')만 노출한다.
+    """
+    insurance_list = list(
+        customer.customer_insurance_list
+        .prefetch_related('case_list__detail__analysis_detail',
+                          'case_list__detail__chart_detail')
+        .all()
+    )
+    tree, summary = build_coverage_tree(customer, insurance_list)
 
     payload = {
         'customer': {

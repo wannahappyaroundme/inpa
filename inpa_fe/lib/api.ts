@@ -451,6 +451,17 @@ export async function syncChurnAlerts(): Promise<{ created: number }> {
 }
 
 // ─── 셀프진단 인바운드 (공개, 비로그인) ─────────────────────────────────────────
+/** 업로드한 증권 1장 = 카드 1장. failed/skipped 는 message(다음 행동 안내)만 담긴다. */
+export interface SelfDiagnosisInsurance {
+  name: string;                    // 상품명(파싱) 또는 파일명 폴백
+  company_label: string | null;    // 보험사명(미감지면 null)
+  monthly_premium: number | null;
+  total_premium: number | null;
+  coverage_count: number;          // 읽어들인 담보 수
+  tree: ShareCategory[];           // 이 보험만의 보유 담보 트리(neutral, held>0만)
+  status: "ok" | "failed" | "skipped";
+  message?: string;                // failed/skipped 안내 문구(BE 고정 카피)
+}
 export interface SelfDiagnosisResult {
   customer: { name_masked: string; gender: number | null; birth_year: number | null };
   mode: string;
@@ -460,8 +471,10 @@ export interface SelfDiagnosisResult {
   lead_created?: boolean;
   analyzed?: boolean;   // PDF 분석 수행 여부. false = 증권 미첨부(리드만 접수, 결과 없음)
   booking_url?: string; // 예약 가능할 때만(설계사 영업시간 존재) — '바로 상담 예약' CTA
+  insurances?: SelfDiagnosisInsurance[]; // 업로드한 증권별 카드(업로드 순서 보존)
+  notice?: string;      // 5장 초과 업로드 시 안내 문구
 }
-/** POST /api/v1/d/<refcode>/ — multipart: name·phone·birth·gender 필수, consent_*·file 선택 */
+/** POST /api/v1/d/<refcode>/ — multipart: name·phone·birth·gender 필수, consent_*·files(최대 5장) 선택 */
 export async function postSelfDiagnosis(refcode: string, form: FormData): Promise<SelfDiagnosisResult> {
   const res = await fetch(`${API_BASE}/d/${encodeURIComponent(refcode)}/`, {
     method: "POST",
