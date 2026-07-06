@@ -51,7 +51,7 @@ export default function RegisterPage() {
   function validate(): string | null {
     if (password.length < 8) return "비밀번호는 8자 이상이어야 합니다.";
     if (password !== passwordConfirm) return "비밀번호가 일치하지 않습니다.";
-    if (licenseNo && licenseNo.length !== 14) return "설계사 번호는 숫자 14자리로 입력해 주세요.";
+    if (licenseNo && !/^[A-Za-z0-9-]{4,20}$/.test(licenseNo)) return "정상적인 설계사 번호를 확인해 주세요.";
     if (!tosAgreed) return "이용약관에 동의해야 합니다.";
     if (!ppAgreed) return "개인정보처리방침에 동의해야 합니다.";
     return null;
@@ -225,17 +225,16 @@ export default function RegisterPage() {
           </div>
 
           <label className="flex flex-col gap-1">
-            <span className="text-[13px] font-semibold text-[var(--ink-2)]">설계사 번호 <span className="font-normal text-[var(--ink-3)]">(선택, 숫자 14자리)</span></span>
+            <span className="text-[13px] font-semibold text-[var(--ink-2)]">설계사 번호 <span className="font-normal text-[var(--ink-3)]">(선택)</span></span>
             <input
-              inputMode="numeric"
               value={licenseNo}
-              onChange={(e) => setLicenseNo(e.target.value.replace(/\D/g, "").slice(0, 14))}
+              onChange={(e) => setLicenseNo(e.target.value.replace(/[^A-Za-z0-9-]/g, "").slice(0, 20))}
               className="w-full rounded-xl border border-[var(--line)] px-4 py-3 text-[14px] text-[var(--ink)] bg-[var(--surface)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)] min-h-[48px]"
-              placeholder="숫자 14자리"
+              placeholder="설계사 번호 입력"
             />
             {licenseNo.length > 0 && (
-              <span className={`text-[12px] ${licenseNo.length === 14 ? "text-success" : "text-[var(--ink-3)]"}`}>
-                {licenseNo.length === 14 ? "✓ 14자리 확인" : `숫자 14자리 (현재 ${licenseNo.length}자리)`}
+              <span className={`text-[12px] ${/^[A-Za-z0-9-]{4,20}$/.test(licenseNo) ? "text-success" : "text-[var(--ink-3)]"}`}>
+                {/^[A-Za-z0-9-]{4,20}$/.test(licenseNo) ? "✓ 확인됐어요" : "정상적인 설계사 번호를 확인해 주세요"}
               </span>
             )}
           </label>
@@ -254,12 +253,12 @@ export default function RegisterPage() {
               {allAgreed ? "전체 동의 완료" : "전체 동의하기"}
             </button>
 
-            <label className="flex items-start gap-3 cursor-pointer min-h-[44px]">
+            <label className="flex items-center gap-3 cursor-pointer min-h-[44px]">
               <input
                 type="checkbox"
                 checked={tosAgreed}
                 onChange={(e) => setTosAgreed(e.target.checked)}
-                className="mt-0.5 w-4 h-4 accent-[var(--brand)]"
+                className="w-4 h-4 accent-[var(--brand)]"
               />
               <span className="text-[13px] text-[var(--ink-2)]">
                 <span className="font-semibold text-[var(--danger)]">[필수]</span>{" "}
@@ -267,12 +266,12 @@ export default function RegisterPage() {
               </span>
             </label>
 
-            <label className="flex items-start gap-3 cursor-pointer min-h-[44px]">
+            <label className="flex items-center gap-3 cursor-pointer min-h-[44px]">
               <input
                 type="checkbox"
                 checked={ppAgreed}
                 onChange={(e) => setPpAgreed(e.target.checked)}
-                className="mt-0.5 w-4 h-4 accent-[var(--brand)]"
+                className="w-4 h-4 accent-[var(--brand)]"
               />
               <span className="text-[13px] text-[var(--ink-2)]">
                 <span className="font-semibold text-[var(--danger)]">[필수]</span>{" "}
@@ -280,12 +279,12 @@ export default function RegisterPage() {
               </span>
             </label>
 
-            <label className="flex items-start gap-3 cursor-pointer min-h-[44px]">
+            <label className="flex items-center gap-3 cursor-pointer min-h-[44px]">
               <input
                 type="checkbox"
                 checked={marketingAgreed}
                 onChange={(e) => setMarketingAgreed(e.target.checked)}
-                className="mt-0.5 w-4 h-4 accent-[var(--brand)]"
+                className="w-4 h-4 accent-[var(--brand)]"
               />
               <span className="text-[13px] text-[var(--ink-2)]">
                 <span className="text-[var(--ink-3)]">[선택]</span>{" "}

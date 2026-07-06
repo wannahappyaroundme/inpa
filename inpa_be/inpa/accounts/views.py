@@ -3,6 +3,8 @@
 엔드포인트: register · verify-email · resend-verification · login · logout
 · password-reset(+confirm) · password/change · profile · withdraw · onboarding/attest
 """
+import logging
+
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.core import signing
@@ -46,7 +48,26 @@ def _link_manager(profile, manager_email):
         profile.save(update_fields=['manager'])
 
 
+logger = logging.getLogger(__name__)
+
+
 # ── 이메일 발송 헬퍼 (로컬=콘솔, 운영=Resend SMTP) ────────────────
+def _try_send(sender, user):
+    """메일 발송 실패를 가입·요청 흐름과 격리 — 예외를 밖으로 던지지 않는다.
+
+    2026-07-07 프로드 사고: Resend SMTP 실패가 가입 500으로 번짐(유저 생성 후
+    발송 단계에서 폭발 → 재시도하면 '이미 가입된 이메일'로 막히는 최악 경로).
+    발송 실패는 내용 없이 로깅만 하고 흐름은 계속한다(회복 경로 = 재발송 버튼).
+    """
+    try:
+        sender(user)
+        return True
+    except Exception:
+        logger.exception('메일 발송 실패 (도메인=%s)',
+                         user.email.split('@')[-1] if user.email else '?')
+        return False
+
+
 def _send_verify_email(user):
     token = make_email_verify_token(user)
     url = f'{settings.FRONTEND_BASE_URL}/verify-email?token={token}'
@@ -75,9 +96,12 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        _send_verify_email(user)
+        sent = _try_send(_send_verify_email, user)
+        msg = ('인증 이메일을 발송했습니다. 메일함을 확인해주세요.' if sent else
+               '가입이 완료됐어요. 인증 메일이 곧 도착해요. 오지 않으면 로그인 화면의 '
+               "'인증 메일 다시 받기'로 다시 받을 수 있어요.")
         return Response(
-            {'message': '인증 이메일을 발송했습니다. 메일함을 확인해주세요.', 'email': user.email},
+            {'message': msg, 'email': user.email, 'email_sent': sent},
             status=status.HTTP_201_CREATED)
 
 
@@ -122,7 +146,7 @@ class ResendVerificationView(APIView):
         email = (request.data.get('email') or '').lower()
         user = User.objects.filter(email__iexact=email, is_active=False).first()
         if user:
-            _send_verify_email(user)
+            _try_send(_send_verify_email, user)  # 실패해도 200 유지(계정 존재 노출 방지)
         # 계정 존재 노출 방지 — 항상 200
         return Response({'message': '미인증 계정이면 인증 메일을 재발송했습니다.'})
 
@@ -326,7 +350,7 @@ class PasswordResetView(APIView):
         serializer.is_valid(raise_exception=True)
         user = User.objects.filter(email__iexact=serializer.validated_data['email']).first()
         if user:
-            _send_reset_email(user)
+            _try_send(_send_reset_email, user)  # 실패해도 200 유지(계정 존재 노출 방지)
         return Response({'message': '가입된 이메일이면 재설정 링크를 보냈습니다.'})
 
 
