@@ -156,8 +156,8 @@ def _booking_url(customer):
 def _planner_phone(customer):
     """설계사 연락처(전화번호) — 공유뷰 '전화하기/문자하기' 버튼용. 없으면 None.
 
-    2026-07-04 실필드 추적 결과: Profile/User에 전화번호 필드가 아직 없다 → 항상 None.
-    필드가 생기면 아래 후보 목록에 이름만 추가하면 페이로드에 자동 반영된다
+    2026-07-07: Profile.phone 실필드 신설(마이페이지 입력) → 프로브 1순위 'phone'이 감지해
+    값이 있으면 planner_contact 가 자동으로 채워진다. 비어 있으면 None
     (호출부·FE는 null 처리 완비 — 키는 항상 존재, 값만 채워짐).
     """
     profile = getattr(customer.owner, 'profile', None)

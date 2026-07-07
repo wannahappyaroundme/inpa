@@ -123,20 +123,29 @@ class CustomerHeatmapView(APIView):
     def get(self, request, customer_pk):
         customer = self._get_customer(customer_pk)
 
+        # ── 1) 보험 목록 (customer__owner 경유 소유자 전용 → customer 필터로 격리 완결) ──
+        #    선택 파라미터 ?insurance_id= : 해당 보험 1건만 집계(보험별 상세 보기, 2026-07-07).
+        #    이미 owner 스코프를 통과한 customer 의 리스트에서 pk 필터 → 남의 보험/다른 고객의
+        #    보험/없는 id/형식 오류 전부 404(존재 자체 은폐). 응답 형태는 전체 조회와 동일.
+        #    ★ 404 판정을 크레딧 차감보다 먼저 해 잘못된 요청에 크레딧을 헛차감하지 않는다.
+        insurance_qs = customer.customer_insurance_list.prefetch_related(
+            'case_list__detail__analysis_detail', 'case_list__detail__chart_detail')
+        insurance_id = request.query_params.get('insurance_id')
+        if insurance_id is not None:
+            try:
+                insurance_qs = insurance_qs.filter(pk=int(insurance_id))
+            except (TypeError, ValueError):
+                raise NotFound('보험을 찾을 수 없습니다.')
+        insurance_list = list(insurance_qs.all())
+        if insurance_id is not None and not insurance_list:
+            raise NotFound('보험을 찾을 수 없습니다.')
+
         # ── 0) 크레딧 차감 (kind='analysis') — 한눈표/히트맵 진입. 한도 초과 시 402 ──
         #    베타 FREE_TIER_UNLIMITED=True 면 통과(무차감).
         try:
             check_and_consume(request.user, 'analysis')
         except LimitExceeded as exc:
             return _credit_exhausted_response(exc, request.user)
-
-        # ── 1) 보험 목록 (customer__owner 경유 소유자 전용 → customer 필터로 격리 완결) ──
-        insurance_list = list(
-            customer.customer_insurance_list
-            .prefetch_related('case_list__detail__analysis_detail',
-                              'case_list__detail__chart_detail')
-            .all()
-        )
 
         # ── 2) 표준 담보 트리(AnalysisDetail) · 차트단위(ChartDetail) → calculate 입력 ──
         #    calculate_total_analysis 는 case['id']/chart['id'] 로 인덱싱하므로 dict 화 필수.

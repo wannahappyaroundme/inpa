@@ -29,6 +29,12 @@ function fmt(d: string): string {
   return new Date(d).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
+// form_response `_` 접두 메타 키(회신 이메일·추가 요청사항) — 운영자용 라벨 매핑
+const META_KEY_LABELS: Record<string, string> = {
+  _reply_email: "회신 이메일",
+  _extra_request: "추가 요청사항",
+};
+
 function OrdersContent() {
   const ready = useAdminGuard();
   const searchParams = useSearchParams();
@@ -237,7 +243,7 @@ function OrdersContent() {
                   <div className="text-[12px] font-semibold text-ink3 mb-2">주문 내역</div>
                   {Object.entries(selectedOrder.form_response).map(([k, v]) => (
                     <div key={k} className="flex gap-2 text-[12px] mb-1">
-                      <span className="text-ink3 shrink-0">{k}:</span>
+                      <span className="text-ink3 shrink-0">{META_KEY_LABELS[k] ?? k}:</span>
                       <span className="text-ink">{String(v)}</span>
                     </div>
                   ))}

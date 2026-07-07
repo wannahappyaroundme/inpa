@@ -449,7 +449,7 @@ class ShareContactLayerTests(TestCase):
         return f'/api/v1/s/{self.customer.share_token}/event/'
 
     def test_payload_planner_contact_null_when_no_phone_field(self):
-        """Profile/User에 전화번호 실필드가 없으면 planner_contact=null(키는 존재)."""
+        """Profile.phone(2026-07-07 신설)이 비어 있으면 planner_contact=null(키는 존재)."""
         r = self.public.get(self._view_url())
         self.assertEqual(r.status_code, 200)
         body = r.json()
@@ -462,6 +462,16 @@ class ShareContactLayerTests(TestCase):
                         return_value='010-1234-5678'):
             r = self.public.get(self._view_url())
         self.assertEqual(r.json()['planner_contact'], '010-1234-5678')
+
+    def test_payload_planner_contact_from_profile_phone_field(self):
+        """실필드 회귀(2026-07-07 Profile.phone): 마이페이지에 전화번호를 저장하면
+        /s 페이로드 planner_contact가 그 번호로 자동 활성(전화하기/문자하기 버튼)."""
+        profile = self.user.profile
+        profile.phone = '010-9876-5432'
+        profile.save(update_fields=['phone'])
+        r = self.public.get(self._view_url())
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['planner_contact'], '010-9876-5432')
 
     def test_callback_request_creates_notification_to_owner(self):
         """callback_request → 이벤트 적재 + 소유 설계사에게 알림 1건(기존 타입 재사용)."""

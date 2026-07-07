@@ -291,6 +291,7 @@ export async function confirmPasswordReset(
 export interface ProfileResponse {
   email: string;
   name: string;
+  phone: string;                // 설계사 전화번호(/s 전화·문자 버튼 + 판촉물 인쇄 정보 프리필)
   affiliation: string | null;
   agent_type: number | null;
   /** 1=전속(원수사) 2=GA. null=미신고 */
@@ -329,6 +330,7 @@ export async function getProfile(): Promise<ProfileResponse> {
 /** PATCH /api/v1/auth/profile/ — 모드·동의·매니저 연결 변경 */
 export interface ProfileUpdatePayload {
   name?: string;
+  phone?: string;
   affiliation?: string;
   affiliation_type?: number | null;
   cohort_opt_in?: boolean;
@@ -922,9 +924,12 @@ export interface HeatmapResponse {
   insurances: InsuranceFee[];
 }
 
-/** GET /api/v1/customers/<id>/heatmap/ — requires token */
-export async function getHeatmap(customerId: number): Promise<HeatmapResponse> {
-  return request<HeatmapResponse>("GET", `/customers/${customerId}/heatmap/`, undefined, true);
+/** GET /api/v1/customers/<id>/heatmap/ — requires token.
+ *  insuranceId 를 주면 그 보험 1건만 집계한 트리/summary (보험별 상세 보기).
+ *  남의/없는 보험 id 는 BE 가 404 (owner 격리). */
+export async function getHeatmap(customerId: number, insuranceId?: number): Promise<HeatmapResponse> {
+  const qs = insuranceId != null ? `?insurance_id=${insuranceId}` : "";
+  return request<HeatmapResponse>("GET", `/customers/${customerId}/heatmap/${qs}`, undefined, true);
 }
 
 // ─── 설계사 기준선 (PlannerBaseline) ─────────────────────────────────────────

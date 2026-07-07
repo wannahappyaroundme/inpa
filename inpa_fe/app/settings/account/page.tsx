@@ -20,6 +20,7 @@ export default function AccountSettingsPage() {
   const [p, setP] = useState<ProfileResponse | null>(null);
   const [managerEmail, setManagerEmail] = useState("");
   const [introText, setIntroText] = useState("");
+  const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [couponCode, setCouponCode] = useState("");
@@ -30,6 +31,7 @@ export default function AccountSettingsPage() {
       setP(res);
       setManagerEmail(res.manager_email ?? "");
       setIntroText(res.intro_text ?? "");
+      setPhone(res.phone ?? "");
     }).catch(() => { /* useAuthGuard 처리 */ });
   }, [ready]);
 
@@ -153,6 +155,29 @@ export default function AccountSettingsPage() {
               <input type="file" accept="image/*" className="hidden" disabled={saving} onChange={onPickPhoto} />
             </label>
           </div>
+        </Card>
+
+        {/* 전화번호 — /s 전화·문자 버튼 + 판촉물 인쇄 정보 프리필 */}
+        <Card className="px-5 py-4">
+          <div className="text-[15px] font-bold text-ink">전화번호</div>
+          <p className="mt-1 text-[12px] text-ink3 leading-5">
+            고객이 보는 보장 안내 화면의 <b>전화하기·문자하기</b> 버튼과 판촉물 인쇄 정보에 쓰여요. 숫자와 하이픈(-)으로 입력해 주세요.
+          </p>
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value.replace(/[^0-9-]/g, ""))}
+            maxLength={20}
+            inputMode="tel"
+            placeholder="예: 010-1234-5678"
+            className="mt-3 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+          />
+          <button
+            disabled={saving}
+            onClick={() => patch({ phone: phone.trim() }, "전화번호를 저장했어요")}
+            className="mt-2 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-60"
+          >
+            저장
+          </button>
         </Card>
 
         {/* 위촉 형태 */}

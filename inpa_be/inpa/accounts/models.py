@@ -106,6 +106,9 @@ class Profile(models.Model):
 
     # 설계사 본인 이름 — 예약/안내 문구의 {설계사명}에 자동 매핑. 비면 소속/이메일로 폴백.
     name = models.CharField('설계사 이름', max_length=30, blank=True, default='')
+    # 설계사 전화번호 — /s 공유뷰 '전화하기/문자하기'(analytics._planner_phone 프로브 1순위 후보명 'phone')
+    # + 판촉물 주문 인쇄 정보 프리필. 숫자·하이픈(선두 + 허용), 형식 검증은 serializer. PG-safe(char20, default '').
+    phone = models.CharField('전화번호', max_length=20, blank=True, default='')
 
     # ── 미팅 예약(Calendly식) 설정 ──────────────────────────────────────
     # 예약 링크와 함께 고객에게 보낼 메시지 템플릿({고객명}{설계사명}{링크}). 빈 값이면 기본 템플릿.

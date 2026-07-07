@@ -652,6 +652,123 @@ class HeatmapInsurancesTests(TestCase):
         self.assertEqual(len(insurance['case_fees']), 1)
 
 
+class HeatmapInsuranceFilterTests(TestCase):
+    """?insurance_id= 보험별 필터 — 해당 보험 case_list 만 집계 + owner 격리(404).
+
+    스펙(2026-07-07 analysis-insurance-cards): 파라미터 없으면 기존 전체 합산 그대로,
+    주어지면 그 보험의 트리/summary 만. 남의/다른 고객/없는/형식 오류 id 전부 404.
+    """
+
+    def setUp(self):
+        self.user, self.client = _make_planner('filter@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='필터고객', birth_day='1990.01.01')
+        # 표준 담보 2종: 사망보장 / 암진단 (같은 서브카테고리)
+        self.det_death = _build_std_tree()
+        sub = self.det_death.sub_category
+        self.det_cancer = AnalysisDetail.objects.create(
+            sub_category=sub, name='암진단', order=2)
+        # 카탈로그 담보 2종 → 각각 표준 담보 1개에 연결
+        self.idet_death = _catalog_detail_linked_to(self.det_death)
+        icat = InsuranceCategory.objects.create(insurance_type=2, name='손보상품2', order=2)
+        isub = InsuranceSubCategory.objects.create(
+            insurance_type=2, category=icat, name='보장2', order=1)
+        self.idet_cancer = InsuranceDetail.objects.create(
+            sub_category=isub, name='암담보', order=1)
+        self.idet_cancer.analysis_detail.add(self.det_cancer)
+        # 보험 A(사망보장 1억, 월 3만) / 보험 B(암진단 3천만, 월 5만)
+        self.ci_a = self._make_ins('보험A', 30000, self.idet_death, 100000000)
+        self.ci_b = self._make_ins('보험B', 50000, self.idet_cancer, 30000000)
+
+    def _make_ins(self, name, monthly, catalog_detail, amount):
+        ci = CustomerInsurance.objects.create(
+            customer=self.customer, insurance_type=2, name=name,
+            portfolio_type=1, payment_period_type=1, payment_period=20,
+            monthly_premiums=monthly, monthly_assurance_premium=monthly)
+        CustomerInsuranceDetail.objects.create(
+            insurance=ci, detail=catalog_detail,
+            assurance_amount=amount, premium=10000,
+            payment_period_type=1, payment_period=20,
+            warranty_period_type=1, warranty_period='100')
+        ci.set_renewal_month()
+        ci.calculate()
+        ci.save()
+        return ci
+
+    def _get(self, insurance_id=None):
+        url = f'/api/v1/customers/{self.customer.id}/heatmap/'
+        if insurance_id is not None:
+            url += f'?insurance_id={insurance_id}'
+        return self.client.get(url)
+
+    def _held(self, body):
+        """트리에서 담보명 → held_amount 맵."""
+        held = {}
+        for cat in body['tree']:
+            for sub in cat['sub_categories']:
+                for det in sub['details']:
+                    held[det['name']] = det['held_amount']
+        return held
+
+    def test_filter_by_each_insurance_splits_tree_and_summary(self):
+        """각 id 로 조회하면 트리는 해당 보험 담보만, summary 도 해당 보험 수치만."""
+        r = self._get(self.ci_a.id)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        held = self._held(body)
+        self.assertEqual(held['사망보장'], 100000000)
+        self.assertEqual(held['암진단'], 0)
+        self.assertEqual(body['summary']['monthly_premiums'], 30000)
+        self.assertEqual(body['insurance_count'], 1)
+        self.assertEqual([i['id'] for i in body['insurances']], [self.ci_a.id])
+
+        r = self._get(self.ci_b.id)
+        body = r.json()
+        held = self._held(body)
+        self.assertEqual(held['사망보장'], 0)
+        self.assertEqual(held['암진단'], 30000000)
+        self.assertEqual(body['summary']['monthly_premiums'], 50000)
+        self.assertEqual([i['id'] for i in body['insurances']], [self.ci_b.id])
+
+    def test_no_param_keeps_full_aggregation(self):
+        """파라미터 없음 = 기존 전체 합산 그대로(하위호환)."""
+        r = self._get()
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        held = self._held(body)
+        self.assertEqual(held['사망보장'], 100000000)
+        self.assertEqual(held['암진단'], 30000000)
+        self.assertEqual(body['summary']['monthly_premiums'], 80000)
+        self.assertEqual(body['insurance_count'], 2)
+
+    def test_other_owners_insurance_id_404(self):
+        """남의 보험 id 를 내 고객 heatmap 에 붙여도 404(존재 은폐)."""
+        other, _ = _make_planner('other@filter.com')
+        other_cust = Customer.objects.create(
+            owner=other, name='남의고객', birth_day='1980.01.01')
+        other_ci = CustomerInsurance.objects.create(
+            customer=other_cust, insurance_type=2, name='남의보험',
+            portfolio_type=1, payment_period_type=1, payment_period=20,
+            monthly_premiums=10000, monthly_assurance_premium=10000)
+        r = self._get(other_ci.id)
+        self.assertEqual(r.status_code, 404)
+
+    def test_same_owner_other_customer_insurance_404(self):
+        """같은 설계사의 다른 고객 보험 id 도 이 고객 heatmap 에선 404."""
+        cust2 = Customer.objects.create(
+            owner=self.user, name='둘째고객', birth_day='1992.02.02')
+        ci2 = CustomerInsurance.objects.create(
+            customer=cust2, insurance_type=2, name='둘째보험',
+            portfolio_type=1, payment_period_type=1, payment_period=20,
+            monthly_premiums=10000, monthly_assurance_premium=10000)
+        r = self._get(ci2.id)
+        self.assertEqual(r.status_code, 404)
+
+    def test_unknown_or_malformed_id_404(self):
+        self.assertEqual(self._get(9999999).status_code, 404)
+        self.assertEqual(self._get('abc').status_code, 404)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # LB-1 시드 안전화 — identity-true upsert + 버전 마커 + 고아/prune + 손상 복구
 # ══════════════════════════════════════════════════════════════════════

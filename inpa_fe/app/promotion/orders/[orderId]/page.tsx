@@ -54,6 +54,12 @@ function StatusBadge({ status }: { status: PromotionOrderStatus }) {
   );
 }
 
+// form_response `_` 접두 메타 키(회신 이메일·추가 요청사항) — 표시용 라벨 매핑
+const META_KEY_LABELS: Record<string, string> = {
+  _reply_email: "회신 이메일",
+  _extra_request: "추가 요청사항",
+};
+
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -247,7 +253,7 @@ export default function OrderDetailPage({
                 {formEntries.map(([key, val]) => (
                   <div key={key} className="flex gap-3">
                     <dt className="text-[12px] font-semibold text-ink3 w-28 shrink-0 pt-0.5">
-                      {key}
+                      {META_KEY_LABELS[key] ?? key}
                     </dt>
                     <dd className="text-[13px] text-ink flex-1 break-words">
                       {Array.isArray(val)
