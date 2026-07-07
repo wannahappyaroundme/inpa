@@ -157,6 +157,7 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
   - *Sentry(LB#11 완결):* BE = Render `SENTRY_DSN` env(기존 prod.py 코드) · FE = `@sentry/nextjs` 10.x, Next16 컨벤션(instrumentation/-client.ts + server/edge config + withSentryConfig org fingo-dm). **PII 원칙: sendDefaultPii=false·리플레이 0·트레이싱 0·프로덕션만**. DSN 내장(공개 키)+env 재정의.
   - 테스트 573(568→573) · 마이그레이션 billing 0005 1건 · FE build+lint 통과.
 
+- **2026-07-07 (new.inpa.kr 시네마 랜딩 — DESIGN LOCKED, implementation PENDING):** PM 시안 `landing_page.pdf`(14p, untracked) 기반 브랜드 스토리 랜딩을 새 도메인 **new.inpa.kr**에 신설 확정 (www `/` 불변). **Spec = `docs/superpowers/specs/2026-07-07-new-inpa-cinematic-landing-design.md`** (SSOT; 여기는 요약). Hybrid: click-through cinema (시안 p2~p8: 人波 정의 → 흩어진 업무 2비트 → INPA:Insure Partner 반전 → 군중 → 파랑 약속; 글자 단위 타자기 타이핑 + WebAudio 합성 타자음, 입장 게이트 '소리와 함께 시작/조용히 보기' = autoplay 정책 대응, 건너뛰기·음소거 상시, reduced-motion = 즉시 표시) → 밝아지며 scroll landing (시안 p9~p14 + **www `app/page.tsx` 섹션 재사용**: TrustBar·핵심기능·기능한눈에·차별점·어떤분에게·어떻게쓰나요·원칙·CTA·푸터 → 공용 추출 리팩토링, www 렌더 불변 조건). 시안 p1(발표용 포스터)은 제외, p2부터 시작(PM). 요금제 = 시안 4단 공개(Basic 0 / **Manager 19,900 — billing 미존재 플랜, 유료 전환 전 등록 후속** / Plus 19,900 / Super 39,900) + `(VAT 별도)` 병기(전사 규칙, 시안과 유일한 의도적 차이) + 쿠폰 부제·가입자 FREE 블록. 기술: `app/new/` 라우트(작업명) + **Next 16 `proxy.ts`**(middleware 아님) host-rewrite; new는 www와 달리 로그인 리다이렉트 없음. 시네마 파트의 검은 화면은 영화 연출이며 다크 모드 아님(§6 테마 가드레일과 별개; 스크롤 파트는 라이트).
 - **2026-07-06~07 (PM 스모크 후속 — PR #61·#62·#63 DEPLOYED):**
   - *오늘 전화 독립 메뉴 (PR #61):* 홈 카드 제거 → `/call-list` 전용 화면(공용 `components/call-list.tsx`, limit=50) + 사이드바 '오늘 전화'(고객 다음) + 모바일 더보기 첫 항목. BE call-list `?limit=`(기본 10, 상한 50).
   - *가입 500 긴급 수정 (PR #62):* Resend SMTP 실패가 유저 생성 후 인증메일 발송에서 500으로 번짐(실서버 재현) → `accounts/views.py::_try_send()` 발송 격리(가입 201 + `email_sent` + 재발송 안내; resend/reset은 200 유지 = 계정 존재 노출 방지). **운영 픽스: Resend 도메인 inpa.kr 인증 + `DEFAULT_FROM_EMAIL` 오타(.com→.kr) 교정 → `email_sent:true` 실서버 확인.** 설계사 번호 검증 완화(숫자14 → 영문/숫자/하이픈 4~20, FE 자릿수 노출 제거), 약관 체크박스 중앙 정렬, 알림 페이지 폭 1440px.
@@ -253,6 +254,8 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 - ✅ 비교 분석 selection DONE: `compare.py::_respond` accepts `current_ids`/`proposed_ids` (GET query or POST body via `_selected_ids`; absent=all, present-empty=none) → planner checks which 보유/제안 to compare in SwitchTab (`SelectInsRow`, re-compares on toggle), aggregate + 추가/삭제/변경 reflect the selection. `compareCustomer(id, {currentIds, proposedIds})` POSTs when a selection is given.
 - ✅ `GapTab` dead code removed (2026-07-02) + unused `HeatmapDetail` import.
 - ⬜ Backfill: pre-existing FA/청약 customers have `fa_reached_at=null` (not counted) — fine going forward.
+- ⬜ **new.inpa.kr cinematic landing: design LOCKED 2026-07-07, implementation pending** (spec `docs/superpowers/specs/2026-07-07-new-inpa-cinematic-landing-design.md`; 완성 후 Vercel domain add + DNS CNAME은 PM 콘솔 작업, 클릭 단위 가이드 제공).
+- ⬜ **Manager plan (월 19,900, 관리자 전용) not in billing** (free/plus/super만 존재) — new 랜딩에는 마케팅 표기로 노출(결제가 수동 데스크라 즉시 파손 없음); 유료 전환 전 Plan 등록 필요.
 
 ## 13. Docs map (`docs/`)
 
