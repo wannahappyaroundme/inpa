@@ -28,7 +28,7 @@
 - **BE:** Django 4.2 + DRF + Python 3.11. Reuses foliio's `core/ocr/claude_parser`, `customers/calculate.py` (8 cases, numpy_financial), coverage-normalization **verbatim** (re-porting risk avoidance = core asset).
 - **DB:** PostgreSQL (prod = Neon free; local = SQLite). ORM-only, zero code impact, `psycopg2-binary`.
 - **AI:** Anthropic Claude API. Model ids injected via env ONLY — `CLAUDE_MODEL_PARSE` (Opus: comparison/normalization), `CLAUDE_MODEL_BULK` (Haiku: bulk OCR), nightly = Batches. **NEVER hardcode model ids.**
-- **Local-only dirs (gitignored, NEVER commit or quote):** `samples/` = real policy PDFs (PII/sensitive); `benchmark/` = UI reference screenshots; root `data/` = PM's raw data extracts (the operational copy lives under each app's `data/`). Root `*.jpeg`/`calender*.webp` are committed design refs.
+- **Local-only dirs (gitignored, NEVER commit or quote):** `samples/` = real policy PDFs (PII/sensitive); `benchmark/` = UI reference screenshots; root `data/` = PM's raw data extracts (the operational copy lives under each app's `data/`). Root `*.jpeg`/`calender*.webp` are committed design refs. Root `landing_page.pdf` (untracked, 7.5MB) = PM's new.inpa.kr cinematic-landing 시안 (14p) — keep local, design SSOT for that project is the spec doc.
 
 ## 4. Commands
 
@@ -150,13 +150,22 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 ## 11. Changelog (newest first — condensed; the durable detail lives in the sections above)
 
+- **2026-07-07 (최후순위 묶음 완결 — 법정 표시·가격·결제 데스크·Sentry, PR PENDING):**
+  - *법정 표시(H-6 완결):* 약관·개인정보처리방침·랜딩 푸터에 (주)서울엘엔에스금융컨설팅(브랜드 핀고)·대표 황희철·사업자 109-86-17632·통신판매업 2021-서울구로-1990·주소·이메일, 시행일 2026-07-07, **CPO 황예진**. 플레이스홀더('예비창업'·'확정 후 기재'·legal.tsx 초안 배너) 전면 제거.
+  - *가격·Super(billing 0005):* Plus **19,900원(VAT 별도)**(placeholder 29,000 조건부 데이터 마이그레이션, 관리자 수정값 보존) + **Super 신설 39,900원(VAT 별도), 한도 무제한(null)**. `seed_billing` super 포함. 랜딩 요금표 3열.
+  - *계좌이체 결제 데스크(#12):* UpgradeModal — **VAT 표시 규칙(PM): 노출은 VAT 별도만, 결제 단계에서만 요금제 토글 → 월 이용료/VAT(10%)/최종 입금액(21,890/43,890) 분해** + 국민은행 459001-04-503030(예금주 핀고) 복사 + 절차 3단계(세금계산서 안내). 수동 데스크(관리자 구독 부여), KICC PG 후속.
+  - *Sentry(LB#11 완결):* BE = Render `SENTRY_DSN` env(기존 prod.py 코드) · FE = `@sentry/nextjs` 10.x, Next16 컨벤션(instrumentation/-client.ts + server/edge config + withSentryConfig org fingo-dm). **PII 원칙: sendDefaultPii=false·리플레이 0·트레이싱 0·프로덕션만**. DSN 내장(공개 키)+env 재정의.
+  - 테스트 573(568→573) · 마이그레이션 billing 0005 1건 · FE build+lint 통과.
+
+- **2026-07-07 (new.inpa.kr 시네마 랜딩 — DESIGN LOCKED, implementation PENDING):** PM 시안 `landing_page.pdf`(14p, untracked) 기반 브랜드 스토리 랜딩을 새 도메인 **new.inpa.kr**에 신설 확정 (www `/` 불변). **Spec = `docs/superpowers/specs/2026-07-07-new-inpa-cinematic-landing-design.md`** (SSOT; 여기는 요약). Hybrid: click-through cinema (시안 p2~p8: 人波 정의 → 흩어진 업무 2비트 → INPA:Insure Partner 반전 → 군중 → 파랑 약속; 글자 단위 타자기 타이핑 + WebAudio 합성 타자음, 입장 게이트 '소리와 함께 시작/조용히 보기' = autoplay 정책 대응, 건너뛰기·음소거 상시, reduced-motion = 즉시 표시) → 밝아지며 scroll landing (시안 p9~p14 + **www `app/page.tsx` 섹션 재사용**: TrustBar·핵심기능·기능한눈에·차별점·어떤분에게·어떻게쓰나요·원칙·CTA·푸터 → 공용 추출 리팩토링, www 렌더 불변 조건). 시안 p1(발표용 포스터)은 제외, p2부터 시작(PM). 요금제 = 시안 4단 공개(Basic 0 / **Manager 19,900 — billing 미존재 플랜, 유료 전환 전 등록 후속** / Plus 19,900 / Super 39,900) + `(VAT 별도)` 병기(전사 규칙, 시안과 유일한 의도적 차이) + 쿠폰 부제·가입자 FREE 블록. 기술: `app/new/` 라우트(작업명) + **Next 16 `proxy.ts`**(middleware 아님) host-rewrite; new는 www와 달리 로그인 리다이렉트 없음. 시네마 파트의 검은 화면은 영화 연출이며 다크 모드 아님(§6 테마 가드레일과 별개; 스크롤 파트는 라이트).
 - **2026-07-06~07 (PM 스모크 후속 — PR #61·#62·#63 DEPLOYED):**
   - *오늘 전화 독립 메뉴 (PR #61):* 홈 카드 제거 → `/call-list` 전용 화면(공용 `components/call-list.tsx`, limit=50) + 사이드바 '오늘 전화'(고객 다음) + 모바일 더보기 첫 항목. BE call-list `?limit=`(기본 10, 상한 50).
   - *가입 500 긴급 수정 (PR #62):* Resend SMTP 실패가 유저 생성 후 인증메일 발송에서 500으로 번짐(실서버 재현) → `accounts/views.py::_try_send()` 발송 격리(가입 201 + `email_sent` + 재발송 안내; resend/reset은 200 유지 = 계정 존재 노출 방지). **운영 픽스: Resend 도메인 inpa.kr 인증 + `DEFAULT_FROM_EMAIL` 오타(.com→.kr) 교정 → `email_sent:true` 실서버 확인.** 설계사 번호 검증 완화(숫자14 → 영문/숫자/하이픈 4~20, FE 자릿수 노출 제거), 약관 체크박스 중앙 정렬, 알림 페이지 폭 1440px.
   - */d 전용 OG (PR #62):* `public-og.ts` 라우트별 이미지 인자 + PM 제작 `public/og-self-diagnosis.jpeg` 연결(메인과 분리).
   - *셀프진단 다중 증권 (PR #63):* `files[]` 최대 5장(단일 `file` 하위호환), 파일별 파싱 격리 + **장당 일일 캡 소모**(비용 가드), 리드 1명 귀속, 응답 `insurances[]`(보험별 pruned tree/status/message). FE 다중 선택·파일별 제거, 2장 이상 = 보험 카드 목록 → 탭 시 개별 보장 상세(한 번에 하나). `/s`·`/d` 트리 빌더 공용화(`build_coverage_tree`, /s 출력 불변). 테스트 546→554.
   - *백업 실설치(PM 서버):* 우분투 20.04 = PGDG 종료 + Neon **PG18** → 도커 우회(sed 패치, `docs/dev/26` E-2절) 실적용, 첫 암호화 백업 성공. 메일 정상화와 함께 감사 H-8/H-3 실운영 완결.
-  - *(PENDING PR):* /analysis 보험별 카드 우선 보기(`?insurance_id=` 필터, 559 tests) + 판촉물 주문 개선·`Profile.phone`(진행 중).
+  - */analysis 보험 카드 뷰 (PR #64):* 보유 2건+ = '전체' + 보험별 카드 → 클릭 시 그 보험만의 한눈표(`?insurance_id=` 필터, 소유 격리 404 — 크레딧 소모 전 차단, 전체 복귀는 재조회 없음). 유료 전환 메모: 필터 조회도 분석 크레딧 1회.
+  - *판촉물 주문 개선 + `Profile.phone` (PR #64, accounts 0012):* 회신 이메일(`_reply_email`, 계정 프리필+이중 검증)·추가 요청(`_extra_request`)·'인쇄' 라벨 필드 프로필 자동 채움 + 완료 카드 신설. **전화번호 저장 → `/s` planner_contact 자동 활성(전화/문자 버튼)**, 마이페이지 전화번호 카드. 테스트 559→568.
 - **2026-07-04~05 (MVP 스프린트 — 리뷰 티어 'MVP' 5건, 3 commits, PR PENDING):**
   - *오늘 전화할 고객 (#19, 채점 1위):* `customers/views.py` call-list @action(생일 D≤7 > 만기 D≤30 > 무접촉≤60점 + TA/FA +10, 사유 0 제외, top10+total) + 홈 좌측 파이프라인 아래 카드(사유 칩 + tel/sms/화법 원탭, 화법 프리필=이름 기반 기존 리더). KST 앵커, 날짜 파싱은 notifications.jobs 헬퍼 재사용.
   - *카톡/OG 미리보기 + SEO (#20·22):* 공개 5종 라우트별 정적 OG(`lib/public-og.ts` 공용 빌더 — §7 Next16 함정 참조), /p noindex 보강, `app/robots.ts`(토큰 경로 트레일링 슬래시로 /schedule 오차단 방지)+`app/sitemap.ts`, in-pa.vercel.app 잔재 0.
@@ -245,6 +254,8 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 - ✅ 비교 분석 selection DONE: `compare.py::_respond` accepts `current_ids`/`proposed_ids` (GET query or POST body via `_selected_ids`; absent=all, present-empty=none) → planner checks which 보유/제안 to compare in SwitchTab (`SelectInsRow`, re-compares on toggle), aggregate + 추가/삭제/변경 reflect the selection. `compareCustomer(id, {currentIds, proposedIds})` POSTs when a selection is given.
 - ✅ `GapTab` dead code removed (2026-07-02) + unused `HeatmapDetail` import.
 - ⬜ Backfill: pre-existing FA/청약 customers have `fa_reached_at=null` (not counted) — fine going forward.
+- ⬜ **new.inpa.kr cinematic landing: design LOCKED 2026-07-07, implementation pending** (spec `docs/superpowers/specs/2026-07-07-new-inpa-cinematic-landing-design.md`; 완성 후 Vercel domain add + DNS CNAME은 PM 콘솔 작업, 클릭 단위 가이드 제공).
+- ⬜ **Manager plan (월 19,900, 관리자 전용) not in billing** (free/plus/super만 존재) — new 랜딩에는 마케팅 표기로 노출(결제가 수동 데스크라 즉시 파손 없음); 유료 전환 전 Plan 등록 필요.
 
 ## 13. Docs map (`docs/`)
 

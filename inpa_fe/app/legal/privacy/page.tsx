@@ -1,5 +1,5 @@
 // 개인정보처리방침 (PP-v1) — 정본: docs/dev/16-legal-and-consent.md §3.
-// 한국 개인정보보호법(PIPA) 기준. CPO·법인 정보는 확정 후 TBD 자리에 기재.
+// 한국 개인정보보호법(PIPA) 기준. CPO = 황예진, 운영사 (주)서울엘엔에스금융컨설팅 (2026-07-07 확정).
 import { LegalPage, Article, LegalTable } from "@/components/legal";
 
 export const metadata = { title: "개인정보처리방침" };
@@ -8,7 +8,7 @@ const Li = ({ children }: { children: React.ReactNode }) => <li className="ml-1"
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="개인정보처리방침" effective="버전 PP-v1 · 운영 핀고(Fingo, 예비창업) · 시행일 [확정 후 기재] · 한국 개인정보보호법(PIPA)·정보통신망법 기준.">
+    <LegalPage title="개인정보처리방침" effective="버전 PP-v1 · 운영 (주)서울엘엔에스금융컨설팅(브랜드: 핀고) · 시행일 2026-07-07 · 한국 개인정보보호법(PIPA)·정보통신망법 기준.">
       <Article n={1} title="수집하는 개인정보">
         <p className="font-semibold text-[var(--ink)]">가. 설계사(이용자) 정보</p>
         <LegalTable
@@ -118,10 +118,12 @@ export default function PrivacyPage() {
 
       <Article n={7} title="개인정보 보호책임자(CPO)">
         <ul className="list-disc pl-6 space-y-0.5">
-          <Li>운영: 핀고(Fingo) · 예비창업 단계</Li>
-          <Li>개인정보 관련 문의: 서비스 내 1:1 문의</Li>
+          <Li>운영: (주)서울엘엔에스금융컨설팅 (브랜드: 핀고/Fingo) · 대표자 황희철</Li>
+          <Li>사업자등록번호: 109-86-17632 · 통신판매업신고: 2021-서울구로-1990</Li>
+          <Li>주소: 서울특별시 금천구 서부샛길 606, A동 24층 2409호(가산동, 대성디폴리스지식산업센터) (우편번호 08504)</Li>
+          <Li><b>개인정보 보호책임자: 황예진 (hello.fingo.official@gmail.com)</b></Li>
+          <Li>개인정보 관련 문의: hello.fingo.official@gmail.com 또는 서비스 내 1:1 문의</Li>
         </ul>
-        <p className="mt-1 text-[13px]">사업자등록·법인 설립이 완료되는 대로 개인정보 보호책임자(이름·연락처)를 지정해 이 방침에 게재합니다.</p>
         <p className="mt-1 text-[13px]">개인정보 침해에 대한 신고·상담은 개인정보침해신고센터(118), 대검찰청·경찰청 사이버수사 등에 문의할 수 있습니다.</p>
       </Article>
 

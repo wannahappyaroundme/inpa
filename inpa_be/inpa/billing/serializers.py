@@ -79,7 +79,7 @@ class AdminSubscriptionPatchSerializer(serializers.Serializer):
 
     plan_code / status / expires_at 부분 전송 허용.
     """
-    plan_code = serializers.ChoiceField(choices=['free', 'plus'], required=False)
+    plan_code = serializers.ChoiceField(choices=['free', 'plus', 'super'], required=False)
     status = serializers.ChoiceField(
         choices=['active', 'cancelled', 'expired', 'trial'], required=False
     )

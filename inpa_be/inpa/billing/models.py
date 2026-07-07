@@ -31,6 +31,7 @@ class Plan(models.Model):
     PLAN_CODE = (
         ('free', 'Free'),
         ('plus', 'Plus'),
+        ('super', 'Super'),
     )
 
     code = models.CharField(max_length=20, unique=True, choices=PLAN_CODE)
