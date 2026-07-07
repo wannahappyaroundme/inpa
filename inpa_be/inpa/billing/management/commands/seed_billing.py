@@ -20,6 +20,10 @@ from django.db import transaction
 from inpa.billing.models import Plan, Subscription
 
 PLUS_DESCRIPTION = '월 19,900원 (VAT 별도). OCR 200/AI비교 100/AI분석 200/판촉 100 월 한도.'
+MANAGER_DESCRIPTION = (
+    '월 19,900원 (VAT 별도) · 관리자(팀장·지점장·지사장) 전용. '
+    'Plus 전체 기능 + 팀원 인사 관리 · 팀원 개별 실적 관리 · 팀 전체 실적 관리.'
+)
 SUPER_DESCRIPTION = '월 39,900원 (VAT 별도). 모든 월 한도 무제한(null).'
 
 
@@ -48,6 +52,16 @@ class Command(BaseCommand):
                 'limit_analysis': 200, 'limit_promotion': 100,
             },
         )
+        manager, manager_created = Plan.objects.get_or_create(
+            code='manager',
+            defaults={
+                'display_name': 'Manager',
+                'price_krw': 19900,  # VAT 별도 (확정 2026-07-07)
+                'description': MANAGER_DESCRIPTION,
+                'limit_ocr': 200, 'limit_ai_compare': 100,
+                'limit_analysis': 200, 'limit_promotion': 100,
+            },
+        )
         superp, super_created = Plan.objects.get_or_create(
             code='super',
             defaults={
@@ -72,6 +86,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'seed_billing 완료 — free({"신규" if free_created else "기존"}) · '
             f'plus({"신규" if plus_created else "기존"}) · '
+            f'manager({"신규" if manager_created else "기존"}) · '
             f'super({"신규" if super_created else "기존"}) · 구독 백필 {backfilled}명. '
             f'(가격·한도 변경은 Django Admin)'
         ))

@@ -31,6 +31,7 @@ class Plan(models.Model):
     PLAN_CODE = (
         ('free', 'Free'),
         ('plus', 'Plus'),
+        ('manager', 'Manager'),
         ('super', 'Super'),
     )
 
