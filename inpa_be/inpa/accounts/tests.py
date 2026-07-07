@@ -403,3 +403,35 @@ class TeamInviteTests(TestCase):
         self.assertEqual(r.status_code, 201, r.content)
         p = Profile.objects.get(user__email='newbie@test.com')
         self.assertIsNone(p.manager_id)
+
+
+class ProfilePhoneTests(TestCase):
+    """Profile.phone(2026-07-07) — PATCH 왕복 + 형식(숫자·하이픈·선두 +, 20자) 검증."""
+
+    def setUp(self):
+        self.user, self.c = _verified_planner('phone@test.com')
+
+    def test_phone_patch_roundtrip(self):
+        r = self.c.patch('/api/v1/auth/profile/', {'phone': '010-1234-5678'}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()['phone'], '010-1234-5678')
+        self.assertEqual(self.c.get('/api/v1/auth/profile/').json()['phone'], '010-1234-5678')
+        self.assertEqual(Profile.objects.get(user=self.user).phone, '010-1234-5678')
+
+    def test_phone_allows_plus_prefix_and_blank_clear(self):
+        r = self.c.patch('/api/v1/auth/profile/', {'phone': '+82-10-1234-5678'}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        # 빈 값으로 지우기 허용(공유뷰 연락 버튼 비활성으로 회귀)
+        r2 = self.c.patch('/api/v1/auth/profile/', {'phone': ''}, format='json')
+        self.assertEqual(r2.status_code, 200, r2.content)
+        self.assertEqual(r2.json()['phone'], '')
+
+    def test_phone_rejects_bad_chars(self):
+        for bad in ('010-1234-56ab', '공일공-1234', '010 1234 5678', '010(1234)5678'):
+            r = self.c.patch('/api/v1/auth/profile/', {'phone': bad}, format='json')
+            self.assertEqual(r.status_code, 400, bad)
+        self.assertEqual(Profile.objects.get(user=self.user).phone, '')
+
+    def test_phone_rejects_over_20_chars(self):
+        r = self.c.patch('/api/v1/auth/profile/', {'phone': '0' * 21}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)

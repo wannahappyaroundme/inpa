@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { SamplePlaceholder } from "@/components/sample-placeholder";
@@ -9,6 +8,7 @@ import { Card } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   getSample,
+  getProfile,
   createOrder,
   requestDigitalSample,
   ApiError,
@@ -202,13 +202,15 @@ function FormField({ field, value, onChange }: FieldProps) {
 
 // ── 메인 페이지 ─────────────────────────────────────────────────────────────
 
+// 회신 이메일 형식(제출 버튼 활성 판단용 — 서버도 같은 검증을 한 번 더 한다)
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function SampleDetailPage({
   params,
 }: {
   params: Promise<{ sampleId: string }>;
 }) {
   const { sampleId } = use(params);
-  const router = useRouter();
   const ready = useAuthGuard();
 
   const [sample, setSample] = useState<PromotionSampleDetail | null>(null);
@@ -218,6 +220,10 @@ export default function SampleDetailPage({
   const [selectedImageIdx, setSelectedImageIdx] = useState(0);
   const [failedUrls, setFailedUrls] = useState<Set<string>>(new Set()); // 죽은 이미지 URL → 플레이스홀더
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
+  // 회신 받을 이메일(필수, 기본값=계정 이메일) + 추가 요청사항(선택) — PM 2026-07-07
+  const [replyEmail, setReplyEmail] = useState("");
+  const [extraRequest, setExtraRequest] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
@@ -234,13 +240,29 @@ export default function SampleDetailPage({
       setLoadingPage(false);
       return;
     }
-    getSample(id)
-      .then((s) => {
+    // 프로필은 프리필용 — 실패해도 폼은 그대로 열린다(프리필만 생략).
+    Promise.all([getSample(id), getProfile().catch(() => null)])
+      .then(([s, prof]) => {
         setSample(s);
+        if (prof?.email) setReplyEmail(prof.email);
+        // 인쇄 정보 프리필: 라벨에 '인쇄'가 든 text/textarea 필드가 비어 있으면
+        // 프로필의 {이름, 전화번호, 소속}으로 채움(없는 값은 빼고 콤마 정리, 수정 가능).
+        const printPrefill = prof
+          ? [prof.name, prof.phone, prof.affiliation]
+              .map((v) => (v ?? "").trim())
+              .filter(Boolean)
+              .join(", ")
+          : "";
         // 초기 폼 값 설정
         const init: Record<string, unknown> = {};
         for (const f of s.form_fields) {
           if (f.type === "checkbox") init[f.key] = [];
+          else if (
+            printPrefill &&
+            (f.label ?? "").includes("인쇄") &&
+            (!f.type || f.type === "text" || f.type === "textarea")
+          )
+            init[f.key] = printPrefill;
           else init[f.key] = "";
         }
         setFormValues(init);
@@ -254,6 +276,7 @@ export default function SampleDetailPage({
   // 필수 필드 모두 채워졌는지 확인
   function isFormValid(): boolean {
     if (!sample) return false;
+    if (!EMAIL_RE.test(replyEmail.trim())) return false; // 회신 이메일 필수
     for (const f of sample.form_fields) {
       if (!f.required) continue;
       const v = formValues[f.key];
@@ -280,8 +303,14 @@ export default function SampleDetailPage({
     setSubmitError(null);
     setUpgradeInfo(undefined);
     try {
-      await createOrder({ sample: sample.id, form_response: formValues });
-      router.push("/promotion/orders");
+      // `_` 접두 메타 키 — 회신 이메일(필수) + 추가 요청사항(있을 때만)
+      const form_response: Record<string, unknown> = {
+        ...formValues,
+        _reply_email: replyEmail.trim(),
+      };
+      if (extraRequest.trim()) form_response._extra_request = extraRequest.trim();
+      await createOrder({ sample: sample.id, form_response });
+      setSubmitted(true);
     } catch (err) {
       if (err instanceof ApiError && err.status === 402) {
         setUpgradeInfo(err.creditBody ?? { kind: "promotion" });
@@ -477,8 +506,24 @@ export default function SampleDetailPage({
               </div>
             )}
 
+            {/* 접수 완료 화면 (실물 판촉물) — PM 2026-07-07 완료 문구 */}
+            {!sample.is_digital && submitted && (
+              <Card className="p-6 text-center">
+                <h2 className="text-[17px] font-extrabold text-ink">신청이 접수됐어요.</h2>
+                <p className="mt-2 text-[13px] text-ink2 leading-6">
+                  담당자가 빠르게 확인한 뒤 견적과 함께 남겨주신 메일과 알림으로 회신드리겠습니다.
+                </p>
+                <Link
+                  href="/promotion/orders"
+                  className="mt-4 inline-block rounded-xl bg-brand text-white text-[14px] font-bold px-5 py-3"
+                >
+                  주문 목록 보기
+                </Link>
+              </Card>
+            )}
+
             {/* 동적 폼 (실물 판촉물) */}
-            {!sample.is_digital && (
+            {!sample.is_digital && !submitted && (
             <form onSubmit={handleSubmit} className="space-y-5">
               {sample.form_fields.map((field) => (
                 <FormField
@@ -488,6 +533,39 @@ export default function SampleDetailPage({
                   onChange={handleFieldChange}
                 />
               ))}
+
+              {/* 회신 받을 이메일(필수) — 기본값은 계정 이메일, 수정 가능 */}
+              <div className="space-y-1.5">
+                <label className="block text-[13px] font-semibold text-ink">
+                  회신 받을 이메일
+                  <span className="text-danger ml-0.5">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={replyEmail}
+                  onChange={(e) => {
+                    setReplyEmail(e.target.value);
+                    setSubmitError(null);
+                  }}
+                  placeholder="reply@example.com"
+                  className="w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition"
+                />
+                <p className="text-[12px] text-ink3">견적과 진행 소식을 이 주소로 보내드려요.</p>
+              </div>
+
+              {/* 추가 요청사항(선택) */}
+              <div className="space-y-1.5">
+                <label className="block text-[13px] font-semibold text-ink">
+                  추가 요청사항 (선택)
+                </label>
+                <textarea
+                  rows={3}
+                  value={extraRequest}
+                  onChange={(e) => setExtraRequest(e.target.value)}
+                  placeholder="따로 요청하실 내용이 있으면 적어주세요."
+                  className="w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand transition resize-none"
+                />
+              </div>
 
               {/* 일반 에러 */}
               {submitError && (

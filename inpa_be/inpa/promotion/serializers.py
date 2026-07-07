@@ -150,6 +150,12 @@ class PromotionOrderCreateSerializer(serializers.Serializer):
 
     required_fields 검증: sample.form_fields[].required=True 항목이
     form_response에 모두 있는지 서버사이드 확인 (FE 우회 방어).
+
+    ★ `_` 접두 메타 키(2026-07-07, PM 지시): form_fields 정의에 없어도 통과.
+      `_reply_email`  — 회신 받을 이메일(FE 필수, 기본값=계정 이메일). 키가 있으면 형식 검증.
+      `_extra_request` — 추가 요청사항(선택 자유 텍스트, 검증 없음).
+      (required 검증은 form_fields 목록만 돌므로 메타 키는 원래부터 비파괴 통과 —
+       여기서는 이메일 형식만 추가로 확인한다.)
     """
     sample = serializers.PrimaryKeyRelatedField(
         queryset=PromotionSample.objects.filter(is_available=True),
@@ -173,6 +179,15 @@ class PromotionOrderCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {'form_response': f'필수 항목 미입력: {", ".join(missing)}'}
             )
+
+        # 메타 키 — 회신 이메일 형식 검증(키가 있을 때만; 빈 값도 형식 오류로 거절)
+        if isinstance(form_response, dict) and '_reply_email' in form_response:
+            try:
+                serializers.EmailField().run_validation(form_response['_reply_email'])
+            except serializers.ValidationError:
+                raise serializers.ValidationError(
+                    {'form_response': '회신 받을 이메일 주소를 확인해 주세요.'}
+                )
         return data
 
 

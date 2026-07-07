@@ -93,7 +93,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         # ★ google_sub / google_calendar_refresh_token 은 절대 노출 금지(여기에 넣지 않는다).
-        fields = ('email', 'name', 'affiliation', 'agent_type', 'affiliation_type',
+        fields = ('email', 'name', 'phone', 'affiliation', 'agent_type', 'affiliation_type',
                   'cohort_opt_in', 'manager_share_opt_in', 'manager_share_level',
                   'manager_email', 'managed_agents_count',
                   'license_self_declared', 'license_no', 'career_years',
@@ -105,6 +105,14 @@ class ProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ('email', 'onboarding_completed_at', 'ref_code', 'email_verified_at',
                             'is_admin', 'is_dormant', 'manager_email', 'managed_agents_count',
                             'google_calendar_connected', 'has_usable_password')
+
+    def validate_phone(self, value):
+        # 전화번호 형식 — 숫자·하이픈(선두 + 허용), 최대 20자(모델 max_length).
+        # 빈 값 허용(지우기 = 공유뷰 연락 버튼 비활성). tel:/sms: 링크에 그대로 쓰이므로 문자 제한.
+        v = (value or '').strip()
+        if v and not re.fullmatch(r'\+?[0-9-]+', v):
+            raise serializers.ValidationError('전화번호는 숫자와 하이픈(-)으로 입력해 주세요.')
+        return v
 
     def update(self, instance, validated_data):
         # 공유 단계(manager_share_level) 저장 시 레거시 bool(opt_in)을 동기화 — none이 아니면 True.

@@ -394,3 +394,59 @@ class TransitionModelTests(TestCase):
         self.order.save(update_fields=['status', 'updated_at'])
         with self.assertRaises(ValueError):
             self.order.transition_to(PromotionOrder.STATUS_CANCELLED, self.user)
+
+
+# ─── 메타 키(_reply_email·_extra_request) — 2026-07-07 PM 지시 ────────
+
+class OrderMetaKeysTests(TestCase):
+    """form_response `_` 접두 메타 키 — form_fields 정의에 없어도 통과 + 이메일 형식 검증.
+
+    M1  _reply_email(유효)·_extra_request 포함 → 201, form_response에 그대로 저장
+    M2  _reply_email 형식 오류 → 400 (한 건도 저장 안 됨)
+    M3  _reply_email 빈 문자열(키 존재) → 400
+    M4  메타 키 없는 기존 형태 주문 → 여전히 201 (비파괴 — 기존 계약 유지)
+    """
+
+    def setUp(self):
+        self.user, self.client_a = _make_planner('meta@test.com')
+        self.sample = _make_sample()
+
+    def test_M1_meta_keys_stored_verbatim(self):
+        r = self.client_a.post('/api/v1/promotion/orders/', {
+            'sample': self.sample.pk,
+            'form_response': {
+                'quantity': 100,
+                '_reply_email': 'reply@example.com',
+                '_extra_request': '로고는 크게 부탁드려요',
+            },
+        }, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        stored = PromotionOrder.objects.get(pk=r.json()['id']).form_response
+        self.assertEqual(stored['_reply_email'], 'reply@example.com')
+        self.assertEqual(stored['_extra_request'], '로고는 크게 부탁드려요')
+        self.assertEqual(stored['quantity'], 100)
+        # 설계사 본인 상세 응답에도 그대로 노출
+        detail = self.client_a.get(f"/api/v1/promotion/orders/{r.json()['id']}/").json()
+        self.assertEqual(detail['form_response']['_reply_email'], 'reply@example.com')
+
+    def test_M2_invalid_reply_email_rejected(self):
+        r = self.client_a.post('/api/v1/promotion/orders/', {
+            'sample': self.sample.pk,
+            'form_response': {'quantity': 100, '_reply_email': 'not-an-email'},
+        }, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(PromotionOrder.objects.count(), 0)
+
+    def test_M3_blank_reply_email_rejected(self):
+        r = self.client_a.post('/api/v1/promotion/orders/', {
+            'sample': self.sample.pk,
+            'form_response': {'quantity': 100, '_reply_email': ''},
+        }, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+
+    def test_M4_order_without_meta_keys_still_created(self):
+        r = self.client_a.post('/api/v1/promotion/orders/', {
+            'sample': self.sample.pk,
+            'form_response': {'quantity': 100},
+        }, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
