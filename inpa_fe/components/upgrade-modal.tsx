@@ -4,12 +4,16 @@
 // 한도 초과 소프트 안내 모달 — 402 credit_exhausted 수신 시 공통 사용
 //
 // 정직성 레드라인:
-//   - 결제 강요 없음. 전환 경로는 쿠폰 등록·1:1 문의(계좌이체/KICC PG 연동 전까지)만 안내.
+//   - 결제 강요 없음. 전환 경로는 쿠폰 등록·계좌이체(수동 데스크)·1:1 문의 안내.
 //   - 카피 철학(PM 2026-07-03, CLAUDE.md §6): 소진→활용(위치감), 적합성 프레임("딱 맞아요").
+//   - VAT 표시 규칙(PM 2026-07-07): 요금제 소개 줄은 VAT 별도 금액만.
+//     최종(부가세 포함) 금액은 아래 결제(입금) 단계의 금액 분해에서만 표시.
+// 결제는 수동 데스크: 입금 → 1:1 문의 → 관리자 요금제 적용(자동화 없음, KICC PG는 후속).
 // 테마: 서비스 페이지 = 라이트 고정. dark: 변형 추가 금지.
 // ════════════════════════════════════════════════════════════════════════════
 
 import Link from "next/link";
+import { useState } from "react";
 
 /** BE 402 credit_exhausted 추가 필드 (api.ts CreditExhaustedBody 와 동형) */
 export interface UpgradeModalInfo {
@@ -56,11 +60,35 @@ function kindShort(kind: string | undefined): string {
   }
 }
 
+// 확정 가격(2026-07-07). base = VAT 별도 월 이용료, vat = 10%, total = 최종 입금액.
+const PLAN_PRICING = {
+  plus: { name: "플러스", base: "19,900원", vat: "1,990원", total: "21,890원" },
+  super: { name: "슈퍼", base: "39,900원", vat: "3,990원", total: "43,890원" },
+} as const;
+
+const BANK_ACCOUNT_NUMBER = "459001-04-503030";
+const BANK_ACCOUNT_DISPLAY = "국민은행 459001-04-503030 (예금주: 핀고)";
+
 export function UpgradeModal({ open, onClose, info }: UpgradeModalProps) {
+  const [payPlan, setPayPlan] = useState<keyof typeof PLAN_PRICING>("plus");
+  const [copied, setCopied] = useState(false);
+
   if (!open) return null;
 
   const hasNumbers =
     typeof info?.used === "number" && typeof info?.limit === "number" && info.limit !== null;
+
+  const pricing = PLAN_PRICING[payPlan];
+
+  async function copyAccount() {
+    try {
+      await navigator.clipboard.writeText(BANK_ACCOUNT_NUMBER);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // 클립보드 권한이 없으면 계좌가 화면에 그대로 보이므로 조용히 넘어간다.
+    }
+  }
 
   return (
     <div
@@ -73,7 +101,7 @@ export function UpgradeModal({ open, onClose, info }: UpgradeModalProps) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full sm:max-w-md bg-surface rounded-t-3xl sm:rounded-2xl px-6 pt-6 pb-8 shadow-xl">
+      <div className="w-full sm:max-w-md max-h-[90dvh] overflow-y-auto bg-surface rounded-t-3xl sm:rounded-2xl px-6 pt-6 pb-8 shadow-xl">
         {/* 헤더 */}
         <div className="flex items-start justify-between gap-3">
           <h2
@@ -110,10 +138,78 @@ export function UpgradeModal({ open, onClose, info }: UpgradeModalProps) {
           이만큼 쓰시는 설계사님에게는 플러스 요금제가 딱 맞아요.
         </p>
 
+        {/* 요금제 소개 — 표시 규칙: VAT 별도 금액만 */}
+        <div className="mt-4 rounded-xl border border-line bg-surface2 px-4 py-3">
+          <p className="text-[13px] font-bold text-ink">요금제 안내</p>
+          <ul className="mt-1.5 space-y-1 text-[13px] text-ink2 leading-5">
+            <li>플러스 월 19,900원 (VAT 별도)</li>
+            <li>슈퍼 월 39,900원 (VAT 별도) · 한도 무제한</li>
+          </ul>
+        </div>
+
+        {/* 결제(입금) 단계 — 최종 금액은 여기에서만, VAT 분해로 표시 */}
+        <div className="mt-3 rounded-xl border border-line px-4 py-3">
+          <p className="text-[13px] font-bold text-ink">계좌이체로 시작하기</p>
+
+          {/* 요금제 선택 토글 */}
+          <div className="mt-2 grid grid-cols-2 gap-1.5" role="group" aria-label="요금제 선택">
+            {(Object.keys(PLAN_PRICING) as (keyof typeof PLAN_PRICING)[]).map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setPayPlan(code)}
+                aria-pressed={payPlan === code}
+                className={`rounded-lg border px-3 py-2 text-[13px] font-semibold transition ${
+                  payPlan === code
+                    ? "border-brand text-brand bg-brand-soft"
+                    : "border-line text-ink3 hover:text-ink"
+                }`}
+              >
+                {PLAN_PRICING[code].name}
+              </button>
+            ))}
+          </div>
+
+          {/* 금액 분해 */}
+          <dl className="mt-3 space-y-1 text-[13px]">
+            <div className="flex items-center justify-between">
+              <dt className="text-ink3">월 이용료</dt>
+              <dd className="font-semibold text-ink">{pricing.base}</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt className="text-ink3">VAT(10%)</dt>
+              <dd className="font-semibold text-ink">{pricing.vat}</dd>
+            </div>
+            <div className="flex items-center justify-between border-t border-line pt-1.5 mt-1.5">
+              <dt className="font-bold text-ink">최종 입금액</dt>
+              <dd className="text-[14px] font-extrabold text-brand">{pricing.total}</dd>
+            </div>
+          </dl>
+
+          {/* 입금 계좌 + 복사 */}
+          <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-surface2 px-3 py-2.5">
+            <span className="text-[13px] font-semibold text-ink">{BANK_ACCOUNT_DISPLAY}</span>
+            <button
+              type="button"
+              onClick={copyAccount}
+              className="shrink-0 rounded-lg border border-line bg-surface px-2.5 py-1 text-[12px] font-semibold text-ink2 transition hover:bg-surface2"
+            >
+              {copied ? "복사됨" : "복사"}
+            </button>
+          </div>
+
+          {/* 절차 3단계 */}
+          <ol className="mt-3 list-decimal pl-5 space-y-1 text-[12px] text-ink3 leading-5">
+            <li>위 계좌로 최종 입금액을 입금해 주세요.</li>
+            <li>1:1 문의에 입금자명과 원하는 요금제를 남겨 주세요.</li>
+            <li>확인 후 요금제를 적용해 드려요. 세금계산서 발행이 필요하면 사업자 정보를 함께 남겨 주세요.</li>
+          </ol>
+        </div>
+
         {/* 안내 텍스트 */}
         <p className="mt-3 text-[12px] text-ink3 leading-5">
           한도는 매월 1일 초기화돼요. 쿠폰이 있다면 설정 &gt; 계정에서 등록해 바로 이어갈 수
-          있고, 플러스 전환은 1:1 문의로 안내해 드려요.
+          있어요.
         </p>
 
         {/* 버튼 영역 */}

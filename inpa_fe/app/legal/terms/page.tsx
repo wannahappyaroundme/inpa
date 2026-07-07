@@ -1,5 +1,5 @@
 // 서비스 이용약관 (TOS-v1) — 정본: docs/dev/16-legal-and-consent.md §2.
-// 법인명·대표자·사업자번호·연락처는 확정 후 TBD 자리에 기재.
+// 사업자 정보 확정(2026-07-07): 운영사 (주)서울엘엔에스금융컨설팅 (브랜드: 핀고).
 import { LegalPage, Article } from "@/components/legal";
 
 export const metadata = { title: "서비스 이용약관" };
@@ -8,10 +8,10 @@ const Li = ({ children }: { children: React.ReactNode }) => <li className="ml-1"
 
 export default function TermsPage() {
   return (
-    <LegalPage title="서비스 이용약관" effective="버전 TOS-v1 · 운영 핀고(Fingo, 예비창업) · 시행일 [확정 후 기재] · 한국 전자상거래법·약관규제법·개인정보보호법을 참고해 작성되었습니다.">
+    <LegalPage title="서비스 이용약관" effective="버전 TOS-v1 · 운영 (주)서울엘엔에스금융컨설팅(브랜드: 핀고) · 시행일 2026-07-07 · 한국 전자상거래법·약관규제법·개인정보보호법을 참고해 작성되었습니다.">
       <Article n={1} title="목적">
         <p>
-          이 약관은 인파(이하 &quot;인파&quot; 또는 &quot;서비스&quot;)의 운영자(이하 &quot;회사&quot;)가
+          이 약관은 인파(이하 &quot;인파&quot; 또는 &quot;서비스&quot;)를 운영하는 (주)서울엘엔에스금융컨설팅(이하 &quot;회사&quot;)이
           제공하는 보험설계사용 AI 영업지원 웹 애플리케이션 서비스의 이용에 관한 조건과 절차를 규정함을 목적으로 합니다.
         </p>
       </Article>
@@ -90,13 +90,13 @@ export default function TermsPage() {
 
       <Article title="회사 정보 · 문의">
         <ul className="list-disc pl-6 space-y-0.5">
-          <Li>상호: 핀고(Fingo)</Li>
-          <Li>운영 단계: 예비창업</Li>
-          <Li>문의: 서비스 내 1:1 문의</Li>
+          <Li>상호: (주)서울엘엔에스금융컨설팅 (브랜드: 핀고/Fingo)</Li>
+          <Li>대표자: 황희철</Li>
+          <Li>사업자등록번호: 109-86-17632 (일반과세자, 세금계산서 발행 가능)</Li>
+          <Li>통신판매업신고: 2021-서울구로-1990</Li>
+          <Li>주소: 서울특별시 금천구 서부샛길 606, A동 24층 2409호(가산동, 대성디폴리스지식산업센터) (우편번호 08504)</Li>
+          <Li>문의: hello.fingo.official@gmail.com 또는 서비스 내 1:1 문의</Li>
         </ul>
-        <p className="mt-2 text-[var(--ink-3)] text-[13px]">
-          예비창업 단계로, 사업자등록·통신판매업 신고 등 법정 표시사항은 등록이 완료되는 대로 이 약관에 갱신해 기재합니다.
-        </p>
       </Article>
     </LegalPage>
   );

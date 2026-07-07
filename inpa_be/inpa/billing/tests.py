@@ -436,7 +436,7 @@ class SubscriptionAutoCreateTests(TestCase):
 
 
 class SeedBillingCommandTests(TestCase):
-    """seed_billing — free·plus 플랜 시드 + 구독 없는 사용자 free 구독 백필(멱등)."""
+    """seed_billing — free·plus·super 플랜 시드 + 구독 없는 사용자 free 구독 백필(멱등)."""
 
     def test_seeds_plans_and_backfills_missing_subscription(self):
         from django.core.management import call_command
@@ -450,6 +450,7 @@ class SeedBillingCommandTests(TestCase):
 
         self.assertTrue(Plan.objects.filter(code='free').exists())
         self.assertTrue(Plan.objects.filter(code='plus').exists())
+        self.assertTrue(Plan.objects.filter(code='super').exists())
         sub = Subscription.objects.get(user=user)
         self.assertEqual(sub.plan.code, 'free')
         self.assertEqual(sub.status, 'active')
@@ -457,6 +458,71 @@ class SeedBillingCommandTests(TestCase):
         # 멱등 — 재실행해도 중복/오류 없음(구독 1개 유지).
         call_command('seed_billing')
         self.assertEqual(Subscription.objects.filter(user=user).count(), 1)
+
+    def test_seeds_confirmed_prices_and_super_unlimited(self):
+        """신규 생성 시 확정가(Plus 19,900 / Super 39,900, VAT 별도) + super 한도 전부 null."""
+        from django.core.management import call_command
+
+        call_command('seed_billing')
+
+        plus = Plan.objects.get(code='plus')
+        self.assertEqual(plus.price_krw, 19900)
+        self.assertIn('VAT 별도', plus.description)
+
+        superp = Plan.objects.get(code='super')
+        self.assertEqual(superp.display_name, 'Super')
+        self.assertEqual(superp.price_krw, 39900)
+        self.assertIn('VAT 별도', superp.description)
+        for field in ('limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion'):
+            self.assertIsNone(getattr(superp, field), field)
+
+        # 멱등 — 재실행해도 super 1행 유지.
+        call_command('seed_billing')
+        self.assertEqual(Plan.objects.filter(code='super').count(), 1)
+
+    def test_seed_preserves_admin_modified_plus(self):
+        """이미 존재하는 plus 행(관리자 수정값)은 재실행이 덮지 않는다(CREATE 기본값만)."""
+        from django.core.management import call_command
+
+        Plan.objects.create(code='plus', display_name='Plus', price_krw=24900,
+                            description='관리자 수정값')
+        call_command('seed_billing')
+
+        plus = Plan.objects.get(code='plus')
+        self.assertEqual(plus.price_krw, 24900)
+        self.assertEqual(plus.description, '관리자 수정값')
+
+
+class PlusPriceDataMigrationTests(TestCase):
+    """migrations/0005 — plus placeholder(29000)일 때만 19900 전환(조건부, spec B-2)."""
+
+    @staticmethod
+    def _run_migration_fn():
+        from importlib import import_module
+
+        from django.apps import apps as global_apps
+
+        mod = import_module('inpa.billing.migrations.0005_plus_price_and_super_choice')
+        mod.update_plus_placeholder_price(global_apps, None)
+
+    def test_placeholder_price_updated_to_final(self):
+        Plan.objects.create(code='plus', display_name='Plus', price_krw=29000)
+        self._run_migration_fn()
+        plus = Plan.objects.get(code='plus')
+        self.assertEqual(plus.price_krw, 19900)
+        self.assertIn('VAT 별도', plus.description)
+
+    def test_non_placeholder_price_untouched(self):
+        Plan.objects.create(code='plus', display_name='Plus', price_krw=25000,
+                            description='관리자 수정값')
+        self._run_migration_fn()
+        plus = Plan.objects.get(code='plus')
+        self.assertEqual(plus.price_krw, 25000)
+        self.assertEqual(plus.description, '관리자 수정값')
+
+    def test_no_plus_row_is_noop(self):
+        self._run_migration_fn()  # 행이 없어도 조용히 통과
+        self.assertFalse(Plan.objects.filter(code='plus').exists())
 
 
 # ─── RuntimeConfig / 유료화 모드 토글 ───────────────────────────

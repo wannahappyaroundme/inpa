@@ -1,15 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-// 확정 전 항목(법인명·CPO 등) 표시 — 노란 칩으로 "채워야 함"을 분명히.
-export function TBD({ children }: { children: ReactNode }) {
-  return (
-    <mark className="bg-amber-100 text-amber-900 rounded px-1 py-0.5 text-[0.92em] font-medium">
-      [{children}, 확정 후 기재]
-    </mark>
-  );
-}
-
 // 조항 블록
 export function Article({ n, title, children }: { n?: number; title: string; children: ReactNode }) {
   return (
@@ -22,7 +13,7 @@ export function Article({ n, title, children }: { n?: number; title: string; chi
   );
 }
 
-// 공용 법무 페이지 셸 (공개·비로그인). 헤더/초안 고지/푸터 + prose 스타일.
+// 공용 법무 페이지 셸 (공개·비로그인). 헤더/면책 고지/푸터 + prose 스타일.
 export function LegalPage({
   title,
   effective,
@@ -51,9 +42,9 @@ export function LegalPage({
         <h1 className="text-[26px] font-extrabold text-[var(--ink)]">{title}</h1>
         <p className="mt-1 text-[13px] text-[var(--ink-3)]">{effective}</p>
 
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800 leading-6">
-          본 문서는 <b>초안(시행 전)</b>입니다. 법인 정보·시행일 확정 및 법무 검토 후 정식 게시됩니다.
-          인파는 보험을 중개·권유하지 않으며, AI 산출물은 보조 초안입니다.
+        <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-[13px] text-[var(--ink-3)] leading-6">
+          인파는 보험을 중개·권유하지 않는 분석·정리 소프트웨어입니다. 보장 판단과 고객 안내는
+          설계사님의 업무이며, 산출물은 AI가 정리한 참고 자료입니다.
         </div>
 
         <article className="mt-6 space-y-6 text-[14px] leading-7 text-[var(--ink-2)]">

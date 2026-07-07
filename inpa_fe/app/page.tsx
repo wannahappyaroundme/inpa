@@ -334,6 +334,7 @@ function HowItWorksSection() {
 function PricingSection() {
   const free = ["증권 분석·비교 분석 핵심 기능 포함", "베타 기간에는 월 한도 없이", "보장 한눈표 조회 무제한"];
   const plus = ["증권 분석 더 많이", "비교안내서 복수 발행", "AI 분석·메시지 제한 완화", "판촉물 주문 제한 완화"];
+  const superPlan = ["Plus의 모든 기능 포함", "증권 분석·비교안내서 무제한", "AI 분석·메시지 무제한", "판촉물 주문 무제한"];
   return (
     <section className="py-20 md:py-28 bg-[var(--surface)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
@@ -341,10 +342,10 @@ function PricingSection() {
           <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">요금제</h2>
           <p className="mt-3 text-center text-[15px] text-[var(--ink-3)]">최초 가입하면 한 달 무료 사용 쿠폰을 드립니다. 정식 출시 후에도 가입자 혜택은 그대로예요.</p>
         </Reveal>
-        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           <Reveal className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 flex flex-col gap-3">
             <div className="text-[13px] font-semibold text-[var(--ink-3)] uppercase tracking-wide">무료</div>
-            <div className="text-[34px] font-extrabold text-[var(--ink)]">0원</div>
+            <div className="text-[28px] font-extrabold text-[var(--ink)]">0원</div>
             <p className="text-[13px] text-[var(--ink-3)]">이제 고객 명단을 만들기 시작한 설계사님에게 딱 맞아요.</p>
             <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
               {free.map((f) => (<li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>))}
@@ -356,12 +357,21 @@ function PricingSection() {
               <div className="text-[13px] font-semibold text-[var(--brand)] uppercase tracking-wide">Plus</div>
               <span className="px-2 py-0.5 rounded-full bg-[var(--accent-tint)] text-[var(--brand)] text-[11px] font-bold">추천</span>
             </div>
-            <div className="text-[24px] font-extrabold text-[var(--ink)]">추후 공개</div>
+            <div className="text-[28px] font-extrabold text-[var(--ink)]">월 19,900원 <span className="text-[13px] font-semibold text-[var(--ink-3)]">(VAT 별도)</span></div>
             <p className="text-[13px] text-[var(--ink-3)]">증권 분석이 일상이 된 설계사님에게 딱 맞아요.</p>
             <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
               {plus.map((f) => (<li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>))}
             </ul>
             <Link href="/register" className="mt-auto w-full py-3.5 rounded-xl border-2 border-[var(--brand)] text-[var(--brand)] font-bold text-[15px] text-center min-h-[50px] flex items-center justify-center hover:bg-[var(--accent-tint)] transition">베타 신청하기</Link>
+          </Reveal>
+          <Reveal delay={180} className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 flex flex-col gap-3">
+            <div className="text-[13px] font-semibold text-[var(--ink-3)] uppercase tracking-wide">Super</div>
+            <div className="text-[28px] font-extrabold text-[var(--ink)]">월 39,900원 <span className="text-[13px] font-semibold text-[var(--ink-3)]">(VAT 별도)</span></div>
+            <p className="text-[13px] text-[var(--ink-3)]">팀 단위로, 한도 걱정 없이 쓰는 설계사님에게 딱 맞아요.</p>
+            <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
+              {superPlan.map((f) => (<li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>))}
+            </ul>
+            <Link href="/register" className="mt-auto w-full py-3.5 rounded-xl border border-[var(--line)] text-[var(--ink)] font-bold text-[15px] text-center min-h-[50px] flex items-center justify-center hover:bg-[var(--surface-2)] transition">무료로 먼저 확인해보기</Link>
           </Reveal>
         </div>
       </div>
@@ -424,7 +434,7 @@ function LandingFooter() {
           </div>
         </div>
         <div className="mt-10 pt-6 border-t border-white/15 text-[12px] text-white/40 flex flex-col gap-1">
-          <p>회사 정보는 법인 설립·정식 출시 시 기재됩니다. (현재 예비창업 베타 단계)</p>
+          <p>(주)서울엘엔에스금융컨설팅 · 대표 황희철 · 사업자등록번호 109-86-17632 · 통신판매업신고 2021-서울구로-1990 · 서울특별시 금천구 서부샛길 606, A동 24층 2409호 · hello.fingo.official@gmail.com</p>
           <p className="mt-2 text-white/55">인파는 보험을 중개·권유하지 않는 분석·정리 도구이며, 산출물은 AI가 정리한 참고 자료예요.</p>
           <p className="mt-1">© 2026 Inpa. All rights reserved.</p>
         </div>
