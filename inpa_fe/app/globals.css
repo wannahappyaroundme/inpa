@@ -67,6 +67,11 @@
   .cell-pop { animation: none; }
 }
 
+/* 시네마 랜딩 타자기 커서 */
+@keyframes twBlink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.tw-cursor { display: inline-block; width: 0.55em; height: 1.15em; margin-left: 2px; vertical-align: -0.18em; background: currentColor; animation: twBlink 1s steps(1) infinite; }
+@media (prefers-reduced-motion: reduce) { .tw-cursor { animation: none; } }
+
 /* ── 다크: 어드민(.theme-system)만 시스템 설정을 따름 ──
    서비스 페이지엔 .theme-system 이 없어 항상 라이트(:root). 어드민 레이아웃/로그인 루트에만
    .theme-system 을 붙인다. CSS 변수는 하위로 상속되어 어드민 서브트리 전체가 다크가 된다. */
