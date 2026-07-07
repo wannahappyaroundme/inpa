@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, Suspense } from "react";
-import { login, tokenStore, ApiError } from "@/lib/api";
+import { login, resendVerification, tokenStore, ApiError } from "@/lib/api";
 import { GoogleSignInButton } from "@/components/google-signin-button";
 
 // ─── Small Logo ───────────────────────────────────────────────────────────────
@@ -30,6 +30,20 @@ function LoginForm() {
   const [verifiedBanner, setVerifiedBanner] = useState(false);
   const [resetBanner, setResetBanner] = useState(false);
   const [expiredBanner, setExpiredBanner] = useState(false);
+  // 미인증 로그인 시 재발송 버튼(2026-07-07: 버튼 부재로 미인증 계정이 메일을 다시 못 받던 문제)
+  const [showResend, setShowResend] = useState(false);
+  const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
+
+  async function handleResend() {
+    if (!email || resendState === "sending") return;
+    setResendState("sending");
+    try {
+      await resendVerification(email);
+    } catch {
+      /* 항상 동일 안내(계정 존재 비노출) — 실패해도 아래 문구 유지 */
+    }
+    setResendState("sent");
+  }
 
   useEffect(() => {
     if (params.get("verified") === "true") setVerifiedBanner(true);
@@ -57,6 +71,8 @@ function LoginForm() {
         switch (err.code) {
           case "EMAIL_NOT_VERIFIED":
             setError("이메일 인증 후 로그인하세요. 받은편지함에서 인증 링크를 확인하세요.");
+            setShowResend(true);
+            setResendState("idle");
             break;
           case "INVALID_CREDENTIALS":
             setError("이메일 또는 비밀번호가 올바르지 않습니다.");
@@ -115,6 +131,24 @@ function LoginForm() {
           {error && (
             <div className="p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
               {error}
+              {showResend && (
+                <div className="mt-2">
+                  {resendState === "sent" ? (
+                    <p className="text-[12px] text-ink2">
+                      인증 메일을 다시 보냈어요. 받은편지함과 스팸함을 확인해 주세요.
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResend}
+                      disabled={resendState === "sending"}
+                      className="rounded-lg border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-ink2 transition hover:bg-surface2 disabled:opacity-50"
+                    >
+                      {resendState === "sending" ? "보내는 중..." : "인증 메일 다시 받기"}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
