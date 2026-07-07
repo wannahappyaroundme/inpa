@@ -60,7 +60,7 @@
 
 ## 4. Flags (후속 확인 필요)
 
-1. **Manager 19,900 플랜은 billing에 미존재**(free/plus + super 신설 진행 중). 랜딩 노출은 마케팅 표기로 가능(결제 자체가 계좌이체 데스크 경유)하나, **유료 전환 전 Manager Plan 등록 필요**. → PM/billing 후속.
+1. **Manager 플랜 billing 등록 — PM 승인 완료(2026-07-07): 이번 범위에 포함.** 스펙: `code='manager'`, display_name 'Manager', **price_krw=19900 (VAT 별도)**, **한도는 Plus와 동일**(limit_ocr 200 / ai_compare 100 / analysis 200 / promotion 100), 설명 = 관리자(팀장·지점장·지사장) 전용, Plus 전체 기능 + 팀원 인사 관리·팀원 개별 실적 관리·팀 전체 실적 관리. `seed_billing`에 get_or_create 추가 + `PLAN_CODE` choices에 'manager' 추가(choices 정합용 마이그레이션 0006, DB 무영향) + admin 구독 부여 serializer choices에 'manager'. **주의: 팀 기능을 Manager 플랜 가입자만 쓰게 막는 권한 게이트는 이번 범위 밖**(현재 팀 기능은 동의 기반 무료) — 유료 전환 전 별도 결정.
 2. 시안 부제의 "모바일 명함 무료 제작 쿠폰": 판촉물 디지털 자산으로 실제 이행 가능한지 운영 확인.
 3. 시안 p14 가격에 VAT 표기가 없음 → 전사 규칙(2026-07-07 확정)에 따라 `(VAT 별도)` 소자 병기로 노출(시안과 유일한 의도적 차이).
 
