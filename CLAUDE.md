@@ -28,7 +28,7 @@
 - **BE:** Django 4.2 + DRF + Python 3.11. Reuses foliio's `core/ocr/claude_parser`, `customers/calculate.py` (8 cases, numpy_financial), coverage-normalization **verbatim** (re-porting risk avoidance = core asset).
 - **DB:** PostgreSQL (prod = Neon free; local = SQLite). ORM-only, zero code impact, `psycopg2-binary`.
 - **AI:** Anthropic Claude API. Model ids injected via env ONLY — `CLAUDE_MODEL_PARSE` (Opus: comparison/normalization), `CLAUDE_MODEL_BULK` (Haiku: bulk OCR), nightly = Batches. **NEVER hardcode model ids.**
-- **Local-only dirs (gitignored, NEVER commit or quote):** `samples/` = real policy PDFs (PII/sensitive); `benchmark/` = UI reference screenshots; root `data/` = PM's raw data extracts (the operational copy lives under each app's `data/`). Root `*.jpeg`/`calender*.webp` are committed design refs.
+- **Local-only dirs (gitignored, NEVER commit or quote):** `samples/` = real policy PDFs (PII/sensitive); `benchmark/` = UI reference screenshots; root `data/` = PM's raw data extracts (the operational copy lives under each app's `data/`). Root `*.jpeg`/`calender*.webp` are committed design refs. Root `landing_page.pdf` (untracked, 7.5MB) = PM's new.inpa.kr cinematic-landing 시안 (14p) — keep local, design SSOT for that project is the spec doc.
 
 ## 4. Commands
 
@@ -149,6 +149,13 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 - **Close every deploy by updating README.md + CLAUDE.md.** Standing rule, do it unprompted.
 
 ## 11. Changelog (newest first — condensed; the durable detail lives in the sections above)
+
+- **2026-07-07 (최후순위 묶음 완결 — 법정 표시·가격·결제 데스크·Sentry, PR PENDING):**
+  - *법정 표시(H-6 완결):* 약관·개인정보처리방침·랜딩 푸터에 (주)서울엘엔에스금융컨설팅(브랜드 핀고)·대표 황희철·사업자 109-86-17632·통신판매업 2021-서울구로-1990·주소·이메일, 시행일 2026-07-07, **CPO 황예진**. 플레이스홀더('예비창업'·'확정 후 기재'·legal.tsx 초안 배너) 전면 제거.
+  - *가격·Super(billing 0005):* Plus **19,900원(VAT 별도)**(placeholder 29,000 조건부 데이터 마이그레이션, 관리자 수정값 보존) + **Super 신설 39,900원(VAT 별도), 한도 무제한(null)**. `seed_billing` super 포함. 랜딩 요금표 3열.
+  - *계좌이체 결제 데스크(#12):* UpgradeModal — **VAT 표시 규칙(PM): 노출은 VAT 별도만, 결제 단계에서만 요금제 토글 → 월 이용료/VAT(10%)/최종 입금액(21,890/43,890) 분해** + 국민은행 459001-04-503030(예금주 핀고) 복사 + 절차 3단계(세금계산서 안내). 수동 데스크(관리자 구독 부여), KICC PG 후속.
+  - *Sentry(LB#11 완결):* BE = Render `SENTRY_DSN` env(기존 prod.py 코드) · FE = `@sentry/nextjs` 10.x, Next16 컨벤션(instrumentation/-client.ts + server/edge config + withSentryConfig org fingo-dm). **PII 원칙: sendDefaultPii=false·리플레이 0·트레이싱 0·프로덕션만**. DSN 내장(공개 키)+env 재정의.
+  - 테스트 573(568→573) · 마이그레이션 billing 0005 1건 · FE build+lint 통과.
 
 - **2026-07-06~07 (PM 스모크 후속 — PR #61·#62·#63 DEPLOYED):**
   - *오늘 전화 독립 메뉴 (PR #61):* 홈 카드 제거 → `/call-list` 전용 화면(공용 `components/call-list.tsx`, limit=50) + 사이드바 '오늘 전화'(고객 다음) + 모바일 더보기 첫 항목. BE call-list `?limit=`(기본 10, 상한 50).
