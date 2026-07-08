@@ -72,10 +72,13 @@
 .tw-cursor { display: inline-block; width: 0.55em; height: 1.15em; margin-left: 2px; vertical-align: -0.18em; background: currentColor; animation: twBlink 1s steps(1) infinite; }
 @media (prefers-reduced-motion: reduce) { .tw-cursor { animation: none; } }
 
-/* 시네마 랜딩: 사진 배경 장면은 줄 단위로 한 번에 등장 */
+/* 시네마 랜딩: 사진·파랑 배경 장면은 줄 단위로 한 번에 등장 (PM: 50% 느리게) */
 @keyframes linePop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-.line-pop { display: inline-block; animation: linePop 0.35s ease-out both; }
-@media (prefers-reduced-motion: reduce) { .line-pop { animation: none; } }
+.line-pop { display: inline-block; animation: linePop 0.55s ease-out both; }
+/* 둘째 줄: 높이가 자라며 등장해 첫 줄을 부드럽게 위로 밀어올린다 */
+@keyframes lineRise { from { opacity: 0; max-height: 0; transform: translateY(10px); } to { opacity: 1; max-height: 12em; transform: none; } }
+.line-rise { overflow: hidden; animation: lineRise 0.55s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .line-pop, .line-rise { animation: none; } .line-rise { max-height: none; } }
 
 /* ── 다크: 어드민(.theme-system)만 시스템 설정을 따름 ──
    서비스 페이지엔 .theme-system 이 없어 항상 라이트(:root). 어드민 레이아웃/로그인 루트에만

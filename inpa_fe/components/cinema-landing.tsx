@@ -213,11 +213,10 @@ export function CinemaLanding() {
           {scene.beats.slice(0, beatIdx + 1).map((b, i) => (
             <p key={`${scene.id}-${i}`}
               className={`text-center leading-relaxed ${b.mono ? "font-mono tracking-wide" : "font-bold"} ${
-                i === 0 && scene.beats.length > 1 && beatIdx > 0
-                  ? (scene.instant ? "text-[24px] sm:text-[33px] opacity-80" : "text-[16px] sm:text-[22px] opacity-80")
-                  : (scene.instant ? "text-[30px] sm:text-[48px]" : "text-[20px] sm:text-[32px]")} ${i > 0 ? "mt-5 font-extrabold" : ""}`}>
+                scene.instant ? "text-[30px] sm:text-[48px]" : "text-[20px] sm:text-[32px]"} ${
+                i > 0 ? "mt-5 font-extrabold" : ""} ${i > 0 && i === beatIdx && scene.instant ? "line-rise" : ""}`}>
               {i < beatIdx ? b.text : scene.instant ? (
-                <span className="line-pop">{b.text}</span>
+                i === 0 ? <span className="line-pop">{b.text}</span> : b.text
               ) : (
                 <Typewriter
                   text={b.text}
