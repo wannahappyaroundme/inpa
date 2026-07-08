@@ -91,6 +91,8 @@ export function CinemaLanding() {
   useEffect(() => {
     if (mode !== "film") return;
     const onKey = (e: KeyboardEvent) => {
+      // 건너뛰기·음소거 버튼에 포커스가 있으면 버튼 동작이 우선(키보드 접근성)
+      if ((e.target as HTMLElement | null)?.closest?.("button")) return;
       if (e.key === " " || e.key === "Enter" || e.key === "ArrowRight") { e.preventDefault(); advance(); }
     };
     window.addEventListener("keydown", onKey);
