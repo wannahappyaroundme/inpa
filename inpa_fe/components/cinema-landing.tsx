@@ -23,17 +23,18 @@ type Scene = {
   id: string;
   bg: "black" | "scatter" | "crowd" | "blue";
   beats: Beat[];
+  instant?: boolean; // 사진 배경 장면: 타이핑 대신 줄 단위로 한 번에 등장 (PM 2026-07-08)
 };
 
 const SCENES: Scene[] = [
   { id: "definition", bg: "black", beats: [{ text: "人波 : 수많은 사람을 이르는 말" }] },
-  { id: "problem", bg: "scatter", beats: [
+  { id: "problem", bg: "scatter", instant: true, beats: [
     { text: "오늘도 흩어진 고객 명단, 엑셀, 메모장, 카톡 사이를 헤매고 있나요?" },
     { text: "보험설계사의 업무는 늘 人波 속에 있습니다." },
   ]},
   { id: "reveal", bg: "black", beats: [{ text: "INPA : Insure Partner", mono: true }] },
   { id: "bridge", bg: "black", beats: [{ text: "人波 속에서 INPA가...", mono: true }] },
-  { id: "crowd", bg: "crowd", beats: [{ text: "수많은 인파 속, 흔들림 없는 안내" }] },
+  { id: "crowd", bg: "crowd", instant: true, beats: [{ text: "수많은 인파 속, 흔들림 없는 안내" }] },
   { id: "promise", bg: "blue", beats: [{ text: "오직 당신만을 위한 인슈어 파트너가 되어드립니다" }] },
 ];
 
@@ -98,6 +99,14 @@ export function CinemaLanding() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [mode, advance]);
+
+  // 사진 배경 장면(instant): 줄이 통째로 등장 — 등장 즉시 진행 가능 + 낮은 타건음 1회
+  useEffect(() => {
+    if (mode !== "film") return;
+    if (!SCENES[sceneIdx].instant) return;
+    setBeatDone(true);
+    soundRef.current?.key(true);
+  }, [mode, sceneIdx, beatIdx]);
 
   const toggleMute = useCallback(() => {
     setMuted((m) => {
@@ -205,7 +214,9 @@ export function CinemaLanding() {
             <p key={`${scene.id}-${i}`}
               className={`text-center leading-relaxed ${b.mono ? "font-mono tracking-wide" : "font-bold"} ${
                 i === 0 && scene.beats.length > 1 && beatIdx > 0 ? "text-[16px] sm:text-[22px] opacity-80" : "text-[20px] sm:text-[32px]"} ${i > 0 ? "mt-5 font-extrabold" : ""}`}>
-              {i < beatIdx ? b.text : (
+              {i < beatIdx ? b.text : scene.instant ? (
+                <span className="line-pop">{b.text}</span>
+              ) : (
                 <Typewriter
                   text={b.text}
                   active={mode === "film"}
