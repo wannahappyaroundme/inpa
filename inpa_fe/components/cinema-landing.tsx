@@ -23,7 +23,7 @@ type Scene = {
   id: string;
   bg: "black" | "scatter" | "crowd" | "blue";
   beats: Beat[];
-  instant?: boolean; // 사진 배경 장면: 타이핑 대신 줄 단위로 한 번에 등장 (PM 2026-07-08)
+  instant?: boolean; // 사진·파랑 배경 장면: 타이핑 대신 줄 단위로 한 번에 등장 + 1.5배 큰 글씨 (PM 2026-07-08)
 };
 
 const SCENES: Scene[] = [
@@ -35,7 +35,7 @@ const SCENES: Scene[] = [
   { id: "reveal", bg: "black", beats: [{ text: "INPA : Insure Partner", mono: true }] },
   { id: "bridge", bg: "black", beats: [{ text: "人波 속에서 INPA가...", mono: true }] },
   { id: "crowd", bg: "crowd", instant: true, beats: [{ text: "수많은 인파 속, 흔들림 없는 안내" }] },
-  { id: "promise", bg: "blue", beats: [{ text: "오직 당신만을 위한 인슈어 파트너가 되어드립니다" }] },
+  { id: "promise", bg: "blue", instant: true, beats: [{ text: "오직 당신만을 위한 인슈어 파트너가 되어드립니다" }] },
 ];
 
 const BG_IMAGES = ["/landing-new/scatter-bg.webp", "/landing-new/crowd-dark.webp"];
@@ -213,7 +213,9 @@ export function CinemaLanding() {
           {scene.beats.slice(0, beatIdx + 1).map((b, i) => (
             <p key={`${scene.id}-${i}`}
               className={`text-center leading-relaxed ${b.mono ? "font-mono tracking-wide" : "font-bold"} ${
-                i === 0 && scene.beats.length > 1 && beatIdx > 0 ? "text-[16px] sm:text-[22px] opacity-80" : "text-[20px] sm:text-[32px]"} ${i > 0 ? "mt-5 font-extrabold" : ""}`}>
+                i === 0 && scene.beats.length > 1 && beatIdx > 0
+                  ? (scene.instant ? "text-[24px] sm:text-[33px] opacity-80" : "text-[16px] sm:text-[22px] opacity-80")
+                  : (scene.instant ? "text-[30px] sm:text-[48px]" : "text-[20px] sm:text-[32px]")} ${i > 0 ? "mt-5 font-extrabold" : ""}`}>
               {i < beatIdx ? b.text : scene.instant ? (
                 <span className="line-pop">{b.text}</span>
               ) : (
