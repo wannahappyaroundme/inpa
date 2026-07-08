@@ -377,6 +377,24 @@ def cleanup_expired_leads(today):
     return len(ids)
 
 
+# ─── 정리 단계 — 공유(/s) 스냅샷 보유기간 자동 파기 (spec 2026-07-08, 프리런치 #27) ──
+
+def cleanup_expired_share_snapshots(now):
+    """공유(/s) 스냅샷 보유기간(SHARE_SNAPSHOT_RETENTION_DAYS, 기본 180일) 경과분 하드 삭제.
+
+    retention_expires_at 은 캡처 시점(aware datetime)에 이미 +N일로 계산돼 저장되므로
+    비교는 aware datetime끼리 그대로 한다(KST 날짜 변환 불필요 — 저장 자체가 절대시각,
+    CLAUDE.md §7 "이번 달" 류의 날짜-버킷 함정과 무관). 재실행 멱등(대상 0 → 삭제 0).
+    """
+    from inpa.analytics.models import ShareSnapshot
+    # 안전 스위치: 0 이하면 파기 전면 중단(§97 소송 보전 등). cleanup_expired_leads 와 동일.
+    days = int(getattr(settings, 'SHARE_SNAPSHOT_RETENTION_DAYS', 180) or 0)
+    if days <= 0:
+        return 0
+    deleted, _ = ShareSnapshot.objects.filter(retention_expires_at__lte=now).delete()
+    return deleted
+
+
 # ─── 레지스트리 + 실행기 ──────────────────────────────────────────
 
 PRODUCERS = (
@@ -412,6 +430,13 @@ def run_daily_jobs(today=None):
         logger.exception('daily cleanup failed: lead_retention')
         counts['lead_retention_deleted'] = 0
         errors['lead_retention'] = f'{type(exc).__name__}: {exc}'
+    # 정리 단계 — 공유(/s) 스냅샷 보유기간 파기(spec 2026-07-08). 실패 격리 동일.
+    try:
+        counts['share_snapshot_retention_deleted'] = cleanup_expired_share_snapshots(timezone.now())
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('daily cleanup failed: share_snapshot_retention')
+        counts['share_snapshot_retention_deleted'] = 0
+        errors['share_snapshot_retention'] = f'{type(exc).__name__}: {exc}'
     if not errors:
         SeedMarker.objects.update_or_create(
             key=HEARTBEAT_KEY, defaults={'version': today.isoformat()})

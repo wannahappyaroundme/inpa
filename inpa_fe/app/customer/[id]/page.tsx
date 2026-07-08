@@ -37,6 +37,7 @@ import { BaselineRequiredModal } from "@/components/baseline-required-modal";
 import { PremiumSplitSection, ComparePremiumSplit } from "@/components/premium-split";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 import { ShareLinkButton } from "@/components/share-link-button";
+import { ShareSnapshotButton } from "@/components/share-snapshot-panel";
 import { CompareBarChart } from "@/components/charts";
 import {
   getCustomer,
@@ -1145,6 +1146,7 @@ function AnalysisTab({
             직접 입력
           </button>
           <ShareLinkButton customerId={customerId} />
+          <ShareSnapshotButton customerId={customerId} />
         </div>
       </div>
       {bookingOpen && (

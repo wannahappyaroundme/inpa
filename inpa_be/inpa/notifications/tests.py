@@ -798,3 +798,58 @@ class LeadRetentionTests(TestCase):
         result = run_daily_jobs()
         self.assertEqual(result['counts']['lead_retention_deleted'], 1)
         self.assertEqual(result['errors'], {})
+
+
+# ─── 공유(/s) 스냅샷 보유기간 자동 파기 (spec 2026-07-08, 프리런치 #27) ──
+
+from inpa.analytics.models import ShareSnapshot  # noqa: E402
+
+from .jobs import cleanup_expired_share_snapshots  # noqa: E402
+
+
+class ShareSnapshotRetentionTests(TestCase):
+    """SHARE_SNAPSHOT_RETENTION_DAYS(기본 180) 경과 스냅샷만 파기. 미만은 보존."""
+
+    def setUp(self):
+        self.user, _ = _make_planner('snap-retention@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='김공유기록')
+
+    def _snapshot(self, retention_days_from_now):
+        return ShareSnapshot.objects.create(
+            owner=self.user, customer=self.customer,
+            payload={'tree': [], 'summary': {}, 'disclaimer': 'x',
+                     'customer': {'name_masked': '김**'}, 'mode': 'neutral'},
+            retention_expires_at=tz.now() + timedelta(days=retention_days_from_now))
+
+    def test_expired_snapshot_deleted(self):
+        expired = self._snapshot(-1)  # 이미 어제 만료
+        kept = self._snapshot(10)     # 아직 10일 남음
+        deleted = cleanup_expired_share_snapshots(tz.now())
+        self.assertEqual(deleted, 1)
+        self.assertFalse(ShareSnapshot.objects.filter(pk=expired.pk).exists())
+        self.assertTrue(ShareSnapshot.objects.filter(pk=kept.pk).exists())
+
+    def test_idempotent_rerun_no_error(self):
+        self._snapshot(-1)
+        self.assertEqual(cleanup_expired_share_snapshots(tz.now()), 1)
+        self.assertEqual(cleanup_expired_share_snapshots(tz.now()), 0)
+
+    @override_settings(SHARE_SNAPSHOT_RETENTION_DAYS=0)
+    def test_zero_days_pauses_purge(self):
+        """안전 스위치: 0 이하면 이미 만료된 스냅샷도 파기하지 않는다(소송 보전 등)."""
+        expired = self._snapshot(-5)
+        self.assertEqual(cleanup_expired_share_snapshots(tz.now()), 0)
+        self.assertTrue(ShareSnapshot.objects.filter(pk=expired.pk).exists())
+
+    def test_run_daily_jobs_includes_share_snapshot_cleanup_step(self):
+        """daily runner에 정리 단계 탑재 — 하트비트 유지, 중복 삭제 없음(멱등)."""
+        self._snapshot(-1)
+        result = run_daily_jobs()
+        self.assertEqual(result['counts']['share_snapshot_retention_deleted'], 1)
+        self.assertEqual(result['errors'], {})
+        marker = SeedMarker.objects.get(key=HEARTBEAT_KEY)
+        self.assertEqual(marker.version, tz.localdate().isoformat())
+        # 재실행 — 이미 삭제됐으니 0, 에러 없이 하트비트 그대로.
+        second = run_daily_jobs()
+        self.assertEqual(second['counts']['share_snapshot_retention_deleted'], 0)
+        self.assertEqual(second['errors'], {})

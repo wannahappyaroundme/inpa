@@ -100,6 +100,11 @@ class PublicConsentView(_NoIndexMixin, APIView):
         revoked_at/revoke_ip 스탬프. 재철회는 0건 갱신(멱등). 국외이전 철회 시
         Customer.consent_overseas_at 스냅샷도 함께 비워 표시(동의 완료 배지)·게이트가
         일관되게 '미동의' 상태로 돌아간다(이미 저장된 분석 자료는 그대로 유지).
+
+        ★ personal_info(개인정보 수집·이용) 철회 = "내 정보 보관을 중단해 달라"는
+        요청이므로, 그 고객의 공유(/s) 기록(ShareSnapshot)도 함께 즉시 파기한다
+        (spec 2026-07-08). 다른 scope(overseas_medical 등) 철회는 공유 기록과
+        무관해 보존한다.
         """
         now = timezone.now()
         results = []
@@ -110,6 +115,9 @@ class PublicConsentView(_NoIndexMixin, APIView):
             if sc == ConsentLog.SCOPE_OVERSEAS_MEDICAL and customer.consent_overseas_at is not None:
                 customer.consent_overseas_at = None
                 customer.save(update_fields=['consent_overseas_at'])
+            if sc == ConsentLog.SCOPE_PERSONAL_INFO:
+                from inpa.analytics.models import ShareSnapshot
+                ShareSnapshot.objects.filter(customer=customer).delete()
             results.append({'scope': sc, 'revoked': True, 'updated_logs': updated})
         return results
 
