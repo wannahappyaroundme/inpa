@@ -48,7 +48,8 @@ export function Typewriter({
       const ch = text[i];
       i += 1;
       setCount(i);
-      if (ch.trim() !== "") cbRef.current.onChar?.(ch);
+      cbRef.current.onChar?.(ch); // 공백도 전달해 스페이스바 타건음이 나게 한다
+
       const pause = PAUSE_AFTER.has(ch) ? 340 : 0;
       const jitter = Math.random() * 40 - 20;
       timerRef.current = setTimeout(tick, charMs + pause + jitter);
