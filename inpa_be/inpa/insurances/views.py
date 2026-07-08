@@ -164,9 +164,12 @@ def _get_or_create_detail(cat_name, sub_name, det_name, insurance_type):
     # [P0] 표준 담보(AnalysisDetail) 다리 연결 — 히트맵/계산이 보유금액을 집계하려면
     # detail.analysis_detail M2M 가 있어야 한다(없으면 held=0). 파서 이름↔표준 이름이
     # 달라 명시 맵(coverage_bridge)으로 잇는다. 미대응이면 std=None → 미연결(graceful).
-    # .add 는 멱등 → 같은 케이스 재업로드해도 중복 안 생김.
+    # ★ 연결이 하나도 없을 때만 잇는다(repair_analysis_links 와 동일 후보 규칙) —
+    #   어드민 정정(set([new_leaf]), 담보 사전 피드백)이 다음 업로드에서 옛 leaf 재추가로
+    #   되돌려지거나 이중 연결(히트맵 이중 집계)되는 것을 방지. 무연결 신규/기존 행은
+    #   기존처럼 브리지로 연결(멱등: 이미 같은 std 에 연결된 행은 exists 로 스킵).
     std = resolve_std_detail(cat_name, sub_name, det_name)
-    if std is not None:
+    if std is not None and not det.analysis_detail.exists():
         det.analysis_detail.add(std)
     return det
 
@@ -224,7 +227,10 @@ def _persist_ocr(customer, ocr_data, portfolio_type=1):
     loss_head = ocr_data.dict_loss_head_data
     if life_head.get('생명보험', -1) > -1:
         head, insurance_type = life_head, _LIFE_TYPE
-        company_code = life_head.get('생명보험', -1)
+        # ★ 사전 코드 공간 규약(seed_normalization 보험사 코드): 손해 = raw index,
+        #   생명 = 200 + LifeInsurance index (예: 삼성생명=206). head dict 는 raw index
+        #   유지(ocrdata 소비자 불변) — 사전/로그 공간으로 나갈 때만 오프셋 적용.
+        company_code = 200 + life_head.get('생명보험', -1)
     elif loss_head.get('손해보험', -1) > -1:
         head, insurance_type = loss_head, _LOSS_TYPE
         company_code = loss_head.get('손해보험', -1)
@@ -241,6 +247,9 @@ def _persist_ocr(customer, ocr_data, portfolio_type=1):
         customer=customer,
         insurance_type=insurance_type,
         portfolio_type=portfolio_type,  # 1=보유(좌측) / 2=제안(갈아타기 우측)
+        # ✦ 담보 사전 피드백: 감지된 보험사 코드 보존(-1=미감지). 오매핑 신고 시
+        #   NormalizationDict(company, raw_name) 별칭 등록의 company 원천.
+        company=company_code,
         name=head.get('상품명', '') or None,
         contractor_name=contractor,
         insured_name=insured,
@@ -262,6 +271,9 @@ def _persist_ocr(customer, ocr_data, portfolio_type=1):
     )
 
     # ── 3) 담보 케이스(dict_detail_data) → CustomerInsuranceDetail ──
+    # ✦ 담보 사전 피드백: claude_parser._add_coverage 가 실은 케이스별 원문명 병렬 맵.
+    #   키 = (cat, sub, det, value). 레거시/직접 입력 경로에는 맵이 없어 빈 값.
+    raw_name_map = getattr(ocr_data, '_raw_name_by_case', None) or {}
     created_cases = 0
     for cat_name, subs in ocr_data.dict_detail_data.items():
         for sub_name, dets in subs.items():
@@ -274,9 +286,12 @@ def _persist_ocr(customer, ocr_data, portfolio_type=1):
                         cat_name, sub_name, det_name, insurance_type)
                     # payment_period_type: 갱신형이면 3(년갱신), 아니면 OCR 타입(1년/2세)
                     pp_type = 3 if parsed['is_renewal'] else parsed['payment_period_type']
+                    raw_name = (raw_name_map.get(
+                        (cat_name, sub_name, det_name, value)) or '')[:200]
                     CustomerInsuranceDetail.objects.create(
                         insurance=ci,
                         detail=detail,
+                        raw_name=raw_name,
                         assurance_amount=parsed['amount'],
                         premium=parsed['premium'] or None,
                         payment_period=parsed['payment_period'] or None,

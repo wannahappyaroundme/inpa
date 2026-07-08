@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.throttling import ScopedRateThrottle
 
-from inpa.analysis.models import NormalizationDict, UnmatchedLog
+from inpa.analysis.models import AnalysisDetail, CoverageFlag, NormalizationDict, UnmatchedLog
 from inpa.billing.models import Plan, Subscription, UsageMeter
 from inpa.boards.models import (
     Comment,
@@ -38,6 +38,7 @@ from inpa.promotion.models import PromotionOrder
 from .models import PolicyVersion
 from .serializers import (
     AdminConsentLogSerializer,
+    AdminCoverageFlagSerializer,
     AdminCustomerListSerializer,
     AdminFaqSerializer,
     AdminFaqWriteSerializer,
@@ -112,6 +113,10 @@ class AdminDashboardView(APIView):
                 status=PromotionOrder.STATUS_PENDING
             ).count(),
             'unresolved_unmatched': UnmatchedLog.objects.filter(resolved=False).count(),
+            # 담보 위치 확인 요청(설계사 피드백) 미처리 건수 — 정규화 검수 큐와 나란히.
+            'open_flags': CoverageFlag.objects.filter(
+                status=CoverageFlag.STATUS_OPEN
+            ).count(),
         }
         serializer = DashboardSerializer(data)
         return Response(serializer.data)
@@ -655,6 +660,189 @@ class AdminNormalizationDictDetailView(APIView):
         company = norm.company
         norm.delete()
         return Response({'deleted': True, 'raw_name': raw_name, 'company': company})
+
+
+# ─── I-2. 담보 위치 확인 요청 (설계사 피드백 → 사전 반영, 2026-07-09) ───
+
+# 표준 담보 트리 카테고리 마커 (seed_normalization.STD_MARKER / coverage_bridge 동일).
+_STD_MARKER = '[표준]'
+
+
+class AdminNormalizationLeavesView(APIView):
+    """GET /api/v1/admin/normalization/leaves/?q=
+    표준 담보(AnalysisDetail) leaf 목록 — 매핑/플래그 검수의 표준 담보 선택기용.
+    [표준] 카테고리로 한정(seed_demo 동명 leaf 오선택 방지, coverage_bridge 와 동일 기준).
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        qs = (
+            AnalysisDetail.objects
+            .filter(sub_category__category__name__startswith=_STD_MARKER)
+            .select_related('sub_category__category')
+            .order_by('sub_category__category__order', 'sub_category__order', 'order', 'id')
+        )
+        q = request.query_params.get('q')
+        if q:
+            qs = qs.filter(name__icontains=q)
+        return Response([
+            {
+                'id': d.id,
+                'name': d.name,
+                'category_name': d.sub_category.category.name,
+                'sub_category_name': d.sub_category.name,
+            }
+            for d in qs
+        ])
+
+
+class AdminCoverageFlagListView(APIView):
+    """GET /api/v1/admin/normalization/flags/?status=
+    담보 위치 확인 요청 목록. 기본 open(대기)만, status=all 로 전체.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from rest_framework.pagination import PageNumberPagination
+        qs = (
+            CoverageFlag.objects
+            .select_related('owner', 'customer', 'analysis_detail')
+            .order_by('-created_at')
+        )
+        status_q = request.query_params.get('status') or CoverageFlag.STATUS_OPEN
+        if status_q != 'all':
+            qs = qs.filter(status=status_q)
+
+        paginator = PageNumberPagination()
+        paginator.page_size = 20
+        page = paginator.paginate_queryset(qs, request)
+        serializer = AdminCoverageFlagSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+
+def _substring_collision_warnings(company, raw_name, exclude_pk=None):
+    """같은 회사 사전에서 raw_name 과 부분문자열 관계인 기존 항목 경고 목록.
+
+    사전 룩업은 exact-match 라 실위험은 낮지만, 키워드(substring) 매칭 경로와의
+    혼동을 어드민이 인지하도록 경고만 한다(차단 없음 — spec v1 대체안 #18).
+    """
+    warnings = []
+    qs = NormalizationDict.objects.filter(company=company)
+    if exclude_pk is not None:
+        qs = qs.exclude(pk=exclude_pk)
+    for other in qs.values_list('raw_name', flat=True):
+        if not other or other == raw_name:
+            continue
+        if other in raw_name or raw_name in other:
+            warnings.append(
+                f'기존 사전 원문 "{other}" 과(와) 부분 문자열 관계입니다. 혼동 여부를 확인해 주세요.')
+    return warnings
+
+
+class AdminCoverageFlagResolveView(APIView):
+    """POST /api/v1/admin/normalization/flags/<flag_id>/resolve/
+    body: {action: 'accept'|'reject', std_detail_id?, raw_name?, memo?}
+
+    accept:
+      - NormalizationDict(company, raw_name → std_detail, source=admin_verified) upsert.
+        raw_name 은 어드민이 덮어쓸 수 있음(기본 = 스냅샷). company/원문이 없으면
+        사전 등록은 건너뛰고(관측 불가) 연결 정정만 수행.
+      - 연결 정정: 플래그된 case 의 InsuranceDetail.analysis_detail M2M 을 새 leaf 로
+        교체. 카탈로그 행은 전 고객 공유 → 같은 이름 전체에 적용(사전 철학과 동일).
+      - 응답: relinked(교정된 카탈로그 행 수 0|1) + warnings(부분문자열 충돌, 차단 없음).
+    reject: status/memo 만.
+    """
+    permission_classes = [IsAdmin]
+
+    def post(self, request, flag_id):
+        flag = get_object_or_404(
+            CoverageFlag.objects.select_related('case__detail', 'case__insurance'),
+            pk=flag_id)
+        if flag.status != CoverageFlag.STATUS_OPEN:
+            return Response({'code': 'ALREADY_RESOLVED',
+                             'detail': '이미 처리된 요청입니다.'},
+                            status=status.HTTP_409_CONFLICT)
+
+        action = request.data.get('action')
+        memo = str(request.data.get('memo') or '').strip()[:200]
+
+        if action == 'reject':
+            flag.status = CoverageFlag.STATUS_REJECTED
+            flag.resolved_by = request.user
+            flag.resolution_memo = memo
+            flag.save(update_fields=['status', 'resolved_by', 'resolution_memo', 'updated_at'])
+            return Response({'flag': AdminCoverageFlagSerializer(flag).data})
+
+        if action != 'accept':
+            return Response({'code': 'INVALID_ACTION',
+                             'detail': "action 은 'accept' 또는 'reject' 여야 합니다."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # ── accept ──
+        std_detail = None
+        try:
+            std_detail = AnalysisDetail.objects.get(pk=int(request.data.get('std_detail_id')))
+        except (TypeError, ValueError, AnalysisDetail.DoesNotExist):
+            return Response({'code': 'STD_DETAIL_REQUIRED',
+                             'detail': 'std_detail_id(표준 담보 id)가 필요합니다.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # 원문: 어드민 덮어쓰기 > 스냅샷. 사전 컬럼 한도(120)에 맞춰 절단.
+        submitted_raw = str(request.data.get('raw_name') or flag.raw_name_snapshot or '').strip()
+        raw_name = submitted_raw[:120]
+
+        dict_created = False
+        dict_id = None
+        warnings = []
+        relinked = 0
+
+        with transaction.atomic():
+            # 1) 정규화 사전 upsert — company·원문이 있어야 별칭이 성립.
+            #    company < 0 (-1 = 보험사 미감지)는 사전 등록 스킵: 파싱 시점 룩업이
+            #    company_idx < 0 이면 조회 자체를 안 하므로 -1 별칭은 절대 매칭되지
+            #    않는 죽은 행이 된다(연결 정정은 그대로 수행).
+            if raw_name and flag.company is not None and flag.company >= 0:
+                norm, dict_created = NormalizationDict.objects.get_or_create(
+                    company=flag.company,
+                    raw_name=raw_name,
+                    defaults={
+                        'std_detail': std_detail,
+                        'source': NormalizationDict.SOURCE_ADMIN_VERIFIED,
+                        'verified_by': request.user,
+                    },
+                )
+                if not dict_created:
+                    norm.std_detail = std_detail
+                    norm.source = NormalizationDict.SOURCE_ADMIN_VERIFIED
+                    norm.verified_by = request.user
+                    norm.save()
+                dict_id = norm.id
+                warnings = _substring_collision_warnings(
+                    flag.company, raw_name, exclude_pk=norm.pk)
+                if len(submitted_raw) > 120:
+                    # 사전 raw_name 은 120자로 잘라 저장되는데 파싱 시점 룩업은 원문
+                    # 전체(exact-match)라, 잘린 별칭은 매칭되지 않을 수 있음을 고지.
+                    warnings.append(
+                        '원문이 120자를 넘어 잘라 등록했습니다. '
+                        '등록된 별칭이 실제 파싱에서 매칭되지 않을 수 있습니다.')
+
+            # 2) 연결 정정 — 카탈로그(InsuranceDetail) M2M 교체(전역 공유 행 = 전역 정정).
+            if flag.case is not None and flag.case.detail_id:
+                flag.case.detail.analysis_detail.set([std_detail])
+                relinked = 1
+
+            flag.status = CoverageFlag.STATUS_ACCEPTED
+            flag.resolved_by = request.user
+            flag.resolution_memo = memo
+            flag.save(update_fields=['status', 'resolved_by', 'resolution_memo', 'updated_at'])
+
+        return Response({
+            'flag': AdminCoverageFlagSerializer(flag).data,
+            'dict_created': dict_created,
+            'dict_id': dict_id,
+            'relinked': relinked,
+            'warnings': warnings,
+        })
 
 
 # ─── D. 공지사항 ─────────────────────────────────────────────────────

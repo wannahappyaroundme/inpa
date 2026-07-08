@@ -450,6 +450,243 @@ class AdminNormalizationTest(TestCase):
         )
 
 
+# ─── F: 담보 위치 확인 요청 (설계사 피드백 검수, 2026-07-09) ──────────
+
+class AdminCoverageFlagTest(TestCase):
+    """F1-F6: 플래그 목록/승인(사전 등록 + M2M 교정 + 충돌 경고)/반려/권한."""
+
+    def setUp(self):
+        from inpa.insurances.models import (
+            CustomerInsurance, CustomerInsuranceDetail, InsuranceCategory,
+            InsuranceDetail, InsuranceSubCategory,
+        )
+        self.admin = _make_user('admin@inpa.kr', is_admin=True)
+        self.client_admin = _auth_client(self.admin)
+        self.planner = _make_user('planner@inpa.kr')
+        self.client_planner = _auth_client(self.planner)
+        self.customer = Customer.objects.create(owner=self.planner, name='홍길동')
+
+        # 표준 트리([표준] 마커) — 잘못 매핑된 leaf(old) + 올바른 leaf(new)
+        cat = AnalysisCategory.objects.create(name='[표준] 진단비', insurance_type=0)
+        sub = AnalysisSubCategory.objects.create(name='암', category=cat, insurance_type=0)
+        self.old_leaf = AnalysisDetail.objects.create(name='일반암', sub_category=sub)
+        self.new_leaf = AnalysisDetail.objects.create(name='유사암', sub_category=sub)
+        # 비표준(seed_demo 류) leaf — leaves 응답에서 제외돼야 함
+        demo_cat = AnalysisCategory.objects.create(name='데모', insurance_type=0)
+        demo_sub = AnalysisSubCategory.objects.create(name='데모암', category=demo_cat, insurance_type=0)
+        self.demo_leaf = AnalysisDetail.objects.create(name='데모일반암', sub_category=demo_sub)
+
+        # 카탈로그 담보(전역 공유) — 현재 old_leaf 에 연결됨
+        icat = InsuranceCategory.objects.create(name='손보상품', insurance_type=2)
+        isub = InsuranceSubCategory.objects.create(name='보장', category=icat, insurance_type=2)
+        self.idet = InsuranceDetail.objects.create(sub_category=isub, name='상피내암진단')
+        self.idet.analysis_detail.add(self.old_leaf)
+
+        ci = CustomerInsurance.objects.create(
+            customer=self.customer, insurance_type=2, portfolio_type=1,
+            name='테스트보험', company=2)
+        self.case = CustomerInsuranceDetail.objects.create(
+            insurance=ci, detail=self.idet, assurance_amount=10_000_000,
+            raw_name='상피내암진단특약')
+
+        from inpa.analysis.models import CoverageFlag
+        self.flag = CoverageFlag.objects.create(
+            owner=self.planner, customer=self.customer,
+            analysis_detail=self.old_leaf, case=self.case,
+            raw_name_snapshot='상피내암진단특약', company=2, note='유사암 같아요')
+
+    def _resolve_url(self, flag_id):
+        return f'/api/v1/admin/normalization/flags/{flag_id}/resolve/'
+
+    def test_F1_list_defaults_to_open(self):
+        from inpa.analysis.models import CoverageFlag
+        CoverageFlag.objects.create(
+            owner=self.planner, customer=self.customer,
+            analysis_detail=self.old_leaf, raw_name_snapshot='이미처리',
+            company=2, status=CoverageFlag.STATUS_REJECTED)
+        res = self.client_admin.get('/api/v1/admin/normalization/flags/')
+        self.assertEqual(res.status_code, 200)
+        rows = res.json()['results']
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row['raw_name_snapshot'], '상피내암진단특약')
+        self.assertEqual(row['company'], 2)
+        self.assertEqual(row['planner_email'], 'planner@inpa.kr')
+        self.assertEqual(row['customer_name'], '홍길동')
+        self.assertEqual(row['current_mapping'], '일반암')
+        self.assertEqual(row['status'], 'open')
+        # status=all → 2건
+        res_all = self.client_admin.get('/api/v1/admin/normalization/flags/?status=all')
+        self.assertEqual(res_all.json()['count'], 2)
+
+    def test_F2_accept_creates_dict_relinks_and_warns(self):
+        from inpa.analysis.models import CoverageFlag, NormalizationDict
+        # 부분문자열 관계의 기존 사전 행('암진단' ⊂ '상피내암진단특약') → 경고 대상
+        NormalizationDict.objects.create(
+            std_detail=self.old_leaf, company=2, raw_name='암진단',
+            source=NormalizationDict.SOURCE_ADMIN_VERIFIED)
+        res = self.client_admin.post(self._resolve_url(self.flag.id), {
+            'action': 'accept', 'std_detail_id': self.new_leaf.id, 'memo': '유사암으로 정정',
+        }, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        # 사전 행: admin_verified + verified_by
+        norm = NormalizationDict.objects.get(company=2, raw_name='상피내암진단특약')
+        self.assertEqual(norm.std_detail_id, self.new_leaf.id)
+        self.assertEqual(norm.source, NormalizationDict.SOURCE_ADMIN_VERIFIED)
+        self.assertEqual(norm.verified_by_id, self.admin.id)
+        self.assertTrue(body['dict_created'])
+        # M2M 교체(카탈로그 전역 정정)
+        self.assertEqual(
+            list(self.idet.analysis_detail.values_list('id', flat=True)),
+            [self.new_leaf.id])
+        self.assertEqual(body['relinked'], 1)
+        # 충돌 경고(차단 없음)
+        self.assertTrue(any('암진단' in w for w in body['warnings']))
+        # 플래그 상태
+        self.flag.refresh_from_db()
+        self.assertEqual(self.flag.status, CoverageFlag.STATUS_ACCEPTED)
+        self.assertEqual(self.flag.resolved_by_id, self.admin.id)
+        self.assertEqual(self.flag.resolution_memo, '유사암으로 정정')
+
+    def test_F2b_accept_without_std_detail_400(self):
+        res = self.client_admin.post(self._resolve_url(self.flag.id), {
+            'action': 'accept',
+        }, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()['code'], 'STD_DETAIL_REQUIRED')
+
+    def test_F3_reject_sets_status_and_memo(self):
+        from inpa.analysis.models import CoverageFlag, NormalizationDict
+        res = self.client_admin.post(self._resolve_url(self.flag.id), {
+            'action': 'reject', 'memo': '현재 매핑이 맞아요',
+        }, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.flag.refresh_from_db()
+        self.assertEqual(self.flag.status, CoverageFlag.STATUS_REJECTED)
+        self.assertEqual(self.flag.resolution_memo, '현재 매핑이 맞아요')
+        self.assertEqual(self.flag.resolved_by_id, self.admin.id)
+        self.assertEqual(NormalizationDict.objects.count(), 0)
+        # M2M 무변경
+        self.assertEqual(
+            list(self.idet.analysis_detail.values_list('id', flat=True)),
+            [self.old_leaf.id])
+
+    def test_F4_already_resolved_409(self):
+        self.client_admin.post(self._resolve_url(self.flag.id), {
+            'action': 'reject',
+        }, format='json')
+        res = self.client_admin.post(self._resolve_url(self.flag.id), {
+            'action': 'accept', 'std_detail_id': self.new_leaf.id,
+        }, format='json')
+        self.assertEqual(res.status_code, 409)
+
+    def test_F5_planner_cannot_access(self):
+        res = self.client_planner.get('/api/v1/admin/normalization/flags/')
+        self.assertEqual(res.status_code, 403)
+        res2 = self.client_planner.post(self._resolve_url(self.flag.id), {
+            'action': 'reject',
+        }, format='json')
+        self.assertEqual(res2.status_code, 403)
+
+    def test_F6_leaves_standard_scope_only(self):
+        res = self.client_admin.get('/api/v1/admin/normalization/leaves/')
+        self.assertEqual(res.status_code, 200)
+        ids = [row['id'] for row in res.json()]
+        self.assertIn(self.old_leaf.id, ids)
+        self.assertIn(self.new_leaf.id, ids)
+        self.assertNotIn(self.demo_leaf.id, ids)  # 비표준([표준] 마커 없음) 제외
+        row = next(r for r in res.json() if r['id'] == self.old_leaf.id)
+        self.assertEqual(row['category_name'], '[표준] 진단비')
+        self.assertEqual(row['sub_category_name'], '암')
+
+    def test_F7_dashboard_counts_open_flags(self):
+        res = self.client_admin.get('/api/v1/admin/dashboard/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['open_flags'], 1)
+
+    def test_F8_accept_company_negative_skips_dict_but_relinks(self):
+        """보험사 미감지(company=-1) 승인: 죽은 사전 행을 만들지 않되 연결은 정정."""
+        from inpa.analysis.models import CoverageFlag, NormalizationDict
+        from inpa.insurances.models import (
+            CustomerInsurance, CustomerInsuranceDetail, InsuranceDetail,
+        )
+        icat = self.idet.sub_category.category
+        isub = self.idet.sub_category
+        idet2 = InsuranceDetail.objects.create(sub_category=isub, name='미감지담보')
+        idet2.analysis_detail.add(self.old_leaf)
+        ci2 = CustomerInsurance.objects.create(
+            customer=self.customer, insurance_type=2, portfolio_type=1,
+            name='미감지보험', company=-1)
+        case2 = CustomerInsuranceDetail.objects.create(
+            insurance=ci2, detail=idet2, assurance_amount=5_000_000,
+            raw_name='미감지원문특약')
+        flag2 = CoverageFlag.objects.create(
+            owner=self.planner, customer=self.customer,
+            analysis_detail=self.old_leaf, case=case2,
+            raw_name_snapshot='미감지원문특약', company=-1, note='분류 이상')
+        res = self.client_admin.post(self._resolve_url(flag2.id), {
+            'action': 'accept', 'std_detail_id': self.new_leaf.id,
+        }, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        # 사전 행은 생성되지 않음(파싱 룩업이 company<0 을 조회 안 하므로 죽은 행 방지)
+        self.assertFalse(body['dict_created'])
+        self.assertFalse(
+            NormalizationDict.objects.filter(raw_name='미감지원문특약').exists())
+        # 연결 정정은 그대로 수행
+        self.assertEqual(
+            list(idet2.analysis_detail.values_list('id', flat=True)),
+            [self.new_leaf.id])
+        self.assertEqual(body['relinked'], 1)
+        flag2.refresh_from_db()
+        self.assertEqual(flag2.status, CoverageFlag.STATUS_ACCEPTED)
+
+    def test_F9_accept_wipes_all_prior_leaves(self):
+        """카탈로그 행이 여러 leaf 에 연결돼 있어도 승인 후 정확히 [new_leaf] 하나만 남음."""
+        from inpa.analysis.models import CoverageFlag
+        from inpa.insurances.models import (
+            CustomerInsurance, CustomerInsuranceDetail, InsuranceDetail,
+        )
+        isub = self.idet.sub_category
+        # old_leaf + demo_leaf 둘 다에 연결된 카탈로그 행
+        idet3 = InsuranceDetail.objects.create(sub_category=isub, name='이중연결담보')
+        idet3.analysis_detail.add(self.old_leaf, self.demo_leaf)
+        ci3 = CustomerInsurance.objects.create(
+            customer=self.customer, insurance_type=2, portfolio_type=1,
+            name='이중보험', company=2)
+        case3 = CustomerInsuranceDetail.objects.create(
+            insurance=ci3, detail=idet3, assurance_amount=3_000_000,
+            raw_name='이중연결원문')
+        flag3 = CoverageFlag.objects.create(
+            owner=self.planner, customer=self.customer,
+            analysis_detail=self.old_leaf, case=case3,
+            raw_name_snapshot='이중연결원문', company=2)
+        res = self.client_admin.post(self._resolve_url(flag3.id), {
+            'action': 'accept', 'std_detail_id': self.new_leaf.id,
+        }, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        # set([new]) 이므로 기존 2개 leaf 전부 치워지고 new_leaf 하나만
+        self.assertEqual(
+            list(idet3.analysis_detail.values_list('id', flat=True)),
+            [self.new_leaf.id])
+
+    def test_F10_accept_raw_name_over_120_warns_truncation(self):
+        """원문이 120자를 넘으면 절단 경고가 응답 warnings 에 포함(파싱 미스 고지)."""
+        from inpa.analysis.models import NormalizationDict
+        long_raw = '초장문담보명' * 25  # 150자 > 120
+        res = self.client_admin.post(self._resolve_url(self.flag.id), {
+            'action': 'accept', 'std_detail_id': self.new_leaf.id,
+            'raw_name': long_raw,
+        }, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        self.assertTrue(any('120자' in w for w in body['warnings']))
+        # 사전 행은 120자로 절단 저장
+        norm = NormalizationDict.objects.get(std_detail=self.new_leaf, company=2)
+        self.assertEqual(len(norm.raw_name), 120)
+
+
 # ─── N: 공지사항 ─────────────────────────────────────────────────────
 
 class AdminNoticeTest(TestCase):

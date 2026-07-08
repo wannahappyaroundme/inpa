@@ -6,6 +6,8 @@ from django.urls import path
 
 from .views import (
     AdminConsentLogListView,
+    AdminCoverageFlagListView,
+    AdminCoverageFlagResolveView,
     AdminDashboardView,
     AdminFaqDetailView,
     AdminFaqListView,
@@ -18,6 +20,7 @@ from .views import (
     AdminLogoutView,
     AdminNormalizationDictDetailView,
     AdminNormalizationDictListView,
+    AdminNormalizationLeavesView,
     AdminNormalizationMapView,
     AdminNoticeDetailView,
     AdminNoticeListView,
@@ -89,6 +92,12 @@ urlpatterns = [
          name='admin-normalization-dict-list'),
     path('admin/normalization/dict/<int:dict_id>/', AdminNormalizationDictDetailView.as_view(),
          name='admin-normalization-dict-detail'),
+    path('admin/normalization/leaves/', AdminNormalizationLeavesView.as_view(),
+         name='admin-normalization-leaves'),
+    path('admin/normalization/flags/', AdminCoverageFlagListView.as_view(),
+         name='admin-coverage-flag-list'),
+    path('admin/normalization/flags/<int:flag_id>/resolve/', AdminCoverageFlagResolveView.as_view(),
+         name='admin-coverage-flag-resolve'),
 
     # ── 공지사항 (admin 쓰기 — 읽기는 /api/v1/board/notices/ AllowAny) ──
     path('admin/notices/', AdminNoticeListView.as_view(), name='admin-notice-list'),

@@ -942,6 +942,49 @@ export async function getHeatmap(customerId: number, insuranceId?: number): Prom
   return request<HeatmapResponse>("GET", `/customers/${customerId}/heatmap/${qs}`, undefined, true);
 }
 
+// ─── 담보 사전 피드백 (담보 위치 확인 요청, 2026-07-09) ─────────────────────
+// BE: analysis/flags.py — 한눈표에서 잘못 잡힌 담보를 알리면 운영팀이 검수해
+// 정규화 사전에 반영(다음 분석부터 자동 적용). 소유자 격리(타인 고객 404).
+
+/** 표준 담보(leaf)에 연결된 고객 담보 케이스 1건 — 플래그 모달의 선택지. */
+export interface CoverageCase {
+  case_id: number;
+  insurance_id: number;
+  insurance_title: string | null;
+  /** 카탈로그 담보명 */
+  name: string;
+  /** 증권에서 읽은 원문명 — 빈 값(직접 입력/과거 데이터)이면 name 으로 폴백 표시 */
+  raw_name: string;
+  assurance_amount: number | null;
+}
+
+/** GET /api/v1/customers/<id>/coverage-cases/?detail_id= */
+export async function getCoverageCases(
+  customerId: number,
+  detailId: number
+): Promise<CoverageCase[]> {
+  return request<CoverageCase[]>(
+    "GET",
+    `/customers/${customerId}/coverage-cases/?detail_id=${detailId}`,
+    undefined,
+    true
+  );
+}
+
+/** POST /api/v1/customers/<id>/coverage-flags/ — 담보 위치 확인 요청 생성.
+ *  raw_name/보험사 스냅샷은 서버가 케이스에서 복사(클라이언트 입력 불신). */
+export async function createCoverageFlag(
+  customerId: number,
+  payload: { analysis_detail_id: number; case_id?: number; note?: string }
+): Promise<{ id: number; status: string }> {
+  return request<{ id: number; status: string }>(
+    "POST",
+    `/customers/${customerId}/coverage-flags/`,
+    payload,
+    true
+  );
+}
+
 // ─── 설계사 기준선 (PlannerBaseline) ─────────────────────────────────────────
 // ★ 준법 통제점 (dev/10): baseline_source 가 null 이면 분석은 neutral 강제.
 //   기준을 설정하면(source='planner') 부족/적정/넉넉 판정 권위·최종책임은 설계사.
@@ -1700,6 +1743,8 @@ export interface AdminDashboardStats {
   plan_distribution: Record<string, number>;
   pending_orders: number;
   unresolved_unmatched: number;
+  /** 담보 위치 확인 요청(설계사 피드백) 대기 건수 */
+  open_flags: number;
 }
 
 /** GET /api/v1/admin/dashboard/ — 운영 지표 (사실 카운트만) */

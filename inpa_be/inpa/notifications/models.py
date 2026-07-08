@@ -43,10 +43,12 @@ class NotifType(models.TextChoices):
     PROMOTION_STATUS = 'promotion_status', '판촉물 상태'
     PROMOTION_DIGITAL_REQUESTED = 'promotion_digital_requested', '전자자료 요청'   # → 어드민
     PROMOTION_DIGITAL_READY = 'promotion_digital_ready', '전자자료 준비됨'         # → 설계사
+    # ── 담보 사전 피드백(2026-07-09) — 설계사의 담보 위치 확인 요청 → 어드민 검수 큐. ──
+    COVERAGE_FLAG_REQUESTED = 'coverage_flag_requested', '담보 위치 확인 요청'      # → 어드민
 
 
 # 네비 카테고리 배지용 — 미읽음 알림을 각 메뉴(고객/일정/게시판/판촉물/관리자)로 분류.
-# 13종이 모두 정확히 1개 카테고리로 매핑(파티션) → 알림(받은함) 배지는 전체 유지, 각 메뉴는 부분집합.
+# 14종이 모두 정확히 1개 카테고리로 매핑(파티션) → 알림(받은함) 배지는 전체 유지, 각 메뉴는 부분집합.
 # 소거는 표준 읽음 처리(read/read-all)로 = '알림처럼'.
 CUSTOMER_NOTIF_TYPES = frozenset({
     NotifType.BIRTHDAY_SOON.value, NotifType.SHARE_UNREAD.value, NotifType.SELF_DIAGNOSIS_LEAD.value,
@@ -61,8 +63,9 @@ BOARD_NOTIF_TYPES = frozenset({
 PROMOTION_NOTIF_TYPES = frozenset({  # 설계사용 — 내 주문/전자자료
     NotifType.PROMOTION_STATUS.value, NotifType.PROMOTION_DIGITAL_READY.value,
 })
-ADMIN_NOTIF_TYPES = frozenset({  # 어드민용 — 들어온 제작 요청
+ADMIN_NOTIF_TYPES = frozenset({  # 어드민용 — 들어온 제작 요청 + 담보 위치 확인 요청
     NotifType.PROMOTION_DIGITAL_REQUESTED.value,
+    NotifType.COVERAGE_FLAG_REQUESTED.value,
 })
 
 

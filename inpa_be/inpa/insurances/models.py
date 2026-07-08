@@ -183,6 +183,10 @@ class CustomerInsurance(models.Model):
 
     is_common = models.BooleanField('공통 유무', default=False)  # 어드민용
 
+    # ✦ 담보 사전 피드백(2026-07-09): OCR이 감지한 보험사 코드(ocrdata index, -1=미감지).
+    #   NormalizationDict.company 와 같은 코드 공간. 수기 입력/레거시 행은 null.
+    company = models.SmallIntegerField('보험사 코드', default=None, null=True, blank=True)
+
     insurance = models.ForeignKey(Insurance, on_delete=models.SET_NULL, default=None, null=True, blank=True)
     # ✦ owner 스코프 = customer__owner 경유 (foliio user 직속 FK 제거). customer 필수·CASCADE.
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE,
@@ -440,6 +444,10 @@ class CustomerInsuranceDetail(models.Model):
     """
     insurance = models.ForeignKey(CustomerInsurance, on_delete=models.CASCADE, related_name="case_list")
     detail = models.ForeignKey(InsuranceDetail, on_delete=models.CASCADE)
+
+    # ✦ 담보 사전 피드백(2026-07-09): 증권에서 읽은 담보 원문명. 오매핑 신고 → 정규화
+    #   사전 별칭 등록의 원료. 직접 입력/레거시 행은 빈 값(FE는 detail.name 폴백).
+    raw_name = models.CharField('담보 원문명', max_length=200, default='', blank=True)
 
     PAYMENT_PERIOD_TYPE = (
         (1, '년'),

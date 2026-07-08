@@ -71,6 +71,13 @@ export default function AdminDashboardPage() {
       href: "/admin/normalization",
       linkLabel: "매핑 큐",
     },
+    {
+      count: stats?.open_flags ?? 0,
+      label: "담보 위치 확인 요청",
+      suffix: "건 대기",
+      href: "/admin/normalization?tab=flags",
+      linkLabel: "이상 신고",
+    },
   ];
 
   return (
