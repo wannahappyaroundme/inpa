@@ -11,5 +11,4 @@ export default withSentryConfig(nextConfig, {
   org: "fingo-dm",
   project: "inpa-fe",
   silent: true, // 빌드 로그 소음 방지
-  disableLogger: true, // Sentry 디버그 로거 번들 제외(용량 절감)
 });

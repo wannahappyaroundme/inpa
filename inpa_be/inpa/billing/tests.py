@@ -492,6 +492,22 @@ class SeedBillingCommandTests(TestCase):
         self.assertEqual(plus.price_krw, 24900)
         self.assertEqual(plus.description, '관리자 수정값')
 
+    def test_seeds_manager_plan_with_plus_limits(self):
+        """manager 플랜: 19,900원(VAT 별도), 한도는 Plus와 동일, 멱등."""
+        from django.core.management import call_command
+
+        call_command('seed_billing')
+        manager = Plan.objects.get(code='manager')
+        self.assertEqual(manager.display_name, 'Manager')
+        self.assertEqual(manager.price_krw, 19900)
+        self.assertIn('VAT 별도', manager.description)
+        self.assertIn('관리자', manager.description)
+        plus = Plan.objects.get(code='plus')
+        for field in ('limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion'):
+            self.assertEqual(getattr(manager, field), getattr(plus, field))
+        call_command('seed_billing')  # 멱등
+        self.assertEqual(Plan.objects.filter(code='manager').count(), 1)
+
 
 class PlusPriceDataMigrationTests(TestCase):
     """migrations/0005 — plus placeholder(29000)일 때만 19900 전환(조건부, spec B-2)."""

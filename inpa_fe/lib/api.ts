@@ -77,6 +77,19 @@ function handleUnauthorized(status: number): void {
   }
 }
 
+/** 오류 본문 → 사용자 메시지. detail/message 우선, 없으면 DRF 필드 검증 오류
+ *  ({field: ["메시지", ...]})의 첫 메시지를 그대로 노출한다.
+ *  (2026-07-07: 가입 400이 '오류가 발생했습니다'로만 보이던 문제 — 실제 사유
+ *   예: '이미 가입된 이메일입니다'가 사용자에게 전달되지 않았음) */
+function extractErrorDetail(data: Record<string, unknown>, statusText: string): string {
+  const direct = (data["detail"] as string) ?? (data["message"] as string);
+  if (direct) return direct;
+  for (const v of Object.values(data)) {
+    if (Array.isArray(v) && typeof v[0] === "string") return v[0];
+  }
+  return statusText;
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -110,10 +123,7 @@ async function request<T>(
       (data["error"] as string) ??
       (data["code"] as string) ??
       String(res.status);
-    const detail =
-      (data["detail"] as string) ??
-      (data["message"] as string) ??
-      res.statusText;
+    const detail = extractErrorDetail(data, res.statusText);
     // 402 credit_exhausted: 추가 필드(kind/limit/used) 추출해 ApiError에 첨부
     const creditBody: CreditExhaustedBody | undefined =
       res.status === 402 && code === "credit_exhausted"
@@ -361,7 +371,7 @@ export async function uploadProfileImage(file: File): Promise<ProfileResponse> {
   try { data = await res.json(); } catch { /* empty */ }
   if (!res.ok) {
     const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
-    const detail = (data["detail"] as string) ?? (data["message"] as string) ?? res.statusText;
+    const detail = extractErrorDetail(data, res.statusText);
     handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
@@ -740,7 +750,7 @@ export async function uploadBusinessCard(id: number, file: File): Promise<Custom
   try { data = await res.json(); } catch { /* empty */ }
   if (!res.ok) {
     const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
-    const detail = (data["detail"] as string) ?? (data["message"] as string) ?? res.statusText;
+    const detail = extractErrorDetail(data, res.statusText);
     handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
@@ -836,7 +846,7 @@ export async function deleteCustomer(id: number): Promise<void> {
     let data: Record<string, unknown> = {};
     try { data = await res.json(); } catch { /* empty */ }
     const code = (data["error"] as string) ?? String(res.status);
-    const detail = (data["detail"] as string) ?? res.statusText;
+    const detail = extractErrorDetail(data, res.statusText);
     handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
@@ -1041,7 +1051,7 @@ async function requestVoid(method: string, path: string, auth = true): Promise<v
     let data: Record<string, unknown> = {};
     try { data = await res.json(); } catch { /* empty */ }
     const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
-    const detail = (data["detail"] as string) ?? res.statusText;
+    const detail = extractErrorDetail(data, res.statusText);
     if (auth) handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail);
   }
@@ -1861,10 +1871,7 @@ export async function uploadInsuranceOcr(
       (data["code"] as string) ??
       (data["error"] as string) ??
       String(res.status);
-    const detail =
-      (data["detail"] as string) ??
-      (data["message"] as string) ??
-      res.statusText;
+    const detail = extractErrorDetail(data, res.statusText);
     handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail, undefined, data["reason"] as string | undefined);
   }
@@ -2361,10 +2368,7 @@ export async function getShareView(token: string): Promise<ShareViewResponse> {
       (data["code"] as string) ??
       (data["error"] as string) ??
       String(res.status);
-    const detail =
-      (data["detail"] as string) ??
-      (data["message"] as string) ??
-      res.statusText;
+    const detail = extractErrorDetail(data, res.statusText);
     throw new ApiError(res.status, code, detail);
   }
 
