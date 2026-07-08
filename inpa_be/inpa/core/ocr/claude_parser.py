@@ -830,10 +830,17 @@ def _convert_to_ocr_data(parsed, normalizer=None):
                 head['환급유형'] = refund_type + 1
 
         # 담보 데이터 변환
+        # ★ 사전 코드 공간 규약(seed_normalization): 손해 = raw index, 생명 = 200 + index
+        #   (예: 삼성생명=206). NormalizationDict 룩업(normalizer)에는 사전 공간 코드를
+        #   넘겨야 admin_verified 별칭이 파싱 시점에 실제로 매칭된다. head dict 는 raw
+        #   index 유지(ocrdata 소비자 불변).
+        dict_company_idx = company_idx
+        if actual_type == 'life' and company_idx >= 0:
+            dict_company_idx = 200 + company_idx
         coverages = parsed.get('coverages', [])
         for cov in coverages:
             _add_coverage(ocr, cov, payment_period, warranty_period,
-                          normalizer=normalizer, company_idx=company_idx)
+                          normalizer=normalizer, company_idx=dict_company_idx)
 
         return ocr
 
@@ -986,6 +993,17 @@ def _add_coverage(ocr, cov, default_payment, default_warranty,
     if not keep_existing:
         new_list.append(value)
     target_list[:] = new_list
+
+    # ✦ 담보 사전 피드백(2026-07-09): 케이스별 담보 원문명 보존.
+    # dict_detail_data 값 문자열에는 원문명이 없으므로 (cat, sub, det, value) 키의
+    # 병렬 맵으로 원문을 실어 나른다 → _persist_ocr 가 CustomerInsuranceDetail.raw_name 에 저장.
+    # keep_existing(기존 값 유지)이면 기존 원문 맵도 그대로 유효하므로 기록 생략.
+    if not keep_existing and original_name:
+        raw_map = getattr(ocr, '_raw_name_by_case', None)
+        if raw_map is None:
+            raw_map = {}
+            ocr._raw_name_by_case = raw_map
+        raw_map[(cat, sub, det, value)] = original_name
 
 
 def _split_value(value):

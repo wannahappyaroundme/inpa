@@ -85,6 +85,10 @@ def _fake_ocr_data():
     head['warranty_period_type'] = 1
     # 담보: 진단비 > 암 > 일반암, 5천만원, 보험료 1만원, 20년납/100세만기
     ocr.dict_detail_data['진단비']['암']['일반암'].append('20:1:100:1:50000000:10000')
+    # 케이스별 원문명 병렬 맵 (claude_parser._add_coverage 가 실는 형태 — 담보 사전 피드백)
+    ocr._raw_name_by_case = {
+        ('진단비', '암', '일반암', '20:1:100:1:50000000:10000'): '삼성 암진단특약(무배당)',
+    }
     return ocr
 
 
@@ -189,6 +193,27 @@ class OcrParsePersistTests(TestCase):
         self.assertEqual(case.assurance_amount, 50000000)
         self.assertEqual(case.detail.name, '일반암')
 
+    def test_persist_stores_raw_name_and_company(self):
+        """담보 사전 피드백(2026-07-09): 케이스 원문명 + 보험사 코드 보존 회귀."""
+        r = self._upload()
+        self.assertEqual(r.status_code, 201, r.content)
+        ci = CustomerInsurance.objects.get()
+        self.assertEqual(ci.company, 2)  # 삼성화재 (head['손해보험'])
+        case = CustomerInsuranceDetail.objects.get()
+        self.assertEqual(case.raw_name, '삼성 암진단특약(무배당)')
+
+    def test_persist_raw_name_empty_without_map(self):
+        """원문 맵이 없는 레거시 Ocr_Data 경로 → raw_name 빈 값(graceful)."""
+        ocr = _fake_ocr_data()
+        del ocr._raw_name_by_case
+        with mock.patch('inpa.insurances.views.claude_parse', return_value=ocr), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['dummy'], None)):
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(CustomerInsuranceDetail.objects.get().raw_name, '')
+
     def test_calculate_engine_ran(self):
         """foliio 8케이스 엔진이 호출되어 계산 필드가 채워졌는지(무변경 호출 검증)."""
         self._upload()
@@ -231,6 +256,179 @@ class OcrParsePersistTests(TestCase):
         self.assertEqual(r.status_code, 400)
         self.assertEqual(r.json()['code'], 'IMAGE_PDF')
         m_parse.assert_not_called()
+
+
+class BridgePreservesAdminLinkTests(TestCase):
+    """★ _get_or_create_detail 은 무연결 행만 브리지로 잇는다 (2026-07-09 리뷰 F3).
+
+    카탈로그(InsuranceDetail) 행은 전 고객 공유 — 어드민 정정(set([new_leaf]),
+    담보 사전 피드백 accept)이 다음 업로드의 무조건 .add(bridge_std) 로 옛 leaf 가
+    재추가되면 이중 연결 = 히트맵 이중 집계로 되돌아간다. repair_analysis_links 와
+    동일한 '무연결 행만 후보' 규칙을 회귀로 고정한다.
+    """
+
+    def setUp(self):
+        # 브리지 대상 [표준] 트리: PARSER_TO_STD[('진단비','암','일반암')] = '일반암진단비'
+        cat = AnalysisCategory.objects.create(insurance_type=0, name='[표준] 진단비')
+        sub = AnalysisSubCategory.objects.create(insurance_type=0, category=cat, name='암')
+        self.bridge_leaf = AnalysisDetail.objects.create(sub_category=sub, name='일반암진단비')
+        self.other_leaf = AnalysisDetail.objects.create(sub_category=sub, name='유사암진단비')
+
+    def test_zero_link_row_gets_bridge_link(self):
+        """무연결 신규 행은 기존처럼 브리지로 연결된다(기능 보존)."""
+        from inpa.insurances.views import _get_or_create_detail
+        det = _get_or_create_detail('진단비', '암', '일반암', 2)
+        self.assertEqual(
+            list(det.analysis_detail.values_list('id', flat=True)),
+            [self.bridge_leaf.id])
+
+    def test_admin_corrected_row_is_not_relinked_on_next_upload(self):
+        """어드민 정정(set([other]))된 행은 다음 업로드에서 옛 leaf 가 재추가되지 않는다."""
+        from inpa.insurances.views import _get_or_create_detail
+        det = _get_or_create_detail('진단비', '암', '일반암', 2)
+        # 어드민 정정 시뮬레이션 (resolve accept 의 M2M 교체와 동일)
+        det.analysis_detail.set([self.other_leaf])
+        # 다음 업로드가 같은 이름의 카탈로그 행을 다시 통과
+        det2 = _get_or_create_detail('진단비', '암', '일반암', 2)
+        self.assertEqual(det2.id, det.id)
+        self.assertEqual(
+            list(det2.analysis_detail.values_list('id', flat=True)),
+            [self.other_leaf.id])  # 옛 브리지 leaf 미재추가 — 정정 보존
+
+
+def _fake_life_ocr_data():
+    """생명보험 Ocr_Data — head 는 raw index(6=삼성생명), 담보 1건 + 미매칭 1건."""
+    ocr = Ocr_Data()
+    ocr.parsing_method = 'claude'
+    ocr.is_same_insured = True
+    head = ocr.dict_life_head_data
+    head['생명보험'] = 6  # 삼성생명 (LifeInsurance raw index)
+    head['상품명'] = '무배당 종신보험'
+    head['계약자'] = '홍길동'
+    head['피보험자'] = '홍길동'
+    head['납입기간'] = 20
+    head['보장기간'] = 100
+    head['월납입보험료'] = 50000
+    head['계약일'] = '2020.01.15'
+    ocr.dict_detail_data['진단비']['암']['일반암'].append('20:1:100:1:50000000:10000')
+    ocr._unmatched_coverages = ['미지의생명담보']
+    return ocr
+
+
+class LifeCompanyDictSpaceTests(TestCase):
+    """★ 생명보험 사전 코드 공간(200+index) 회귀 (2026-07-09 리뷰 F1).
+
+    규약(seed_normalization 보험사 코드): 손해 = raw index, 생명 = 200 + LifeInsurance
+    index (예: 삼성생명 = 206). head dict 는 raw index 를 유지하되, 사전(NormalizationDict)
+    룩업·persist(company)·UnmatchedLog 는 전부 사전 공간 코드를 써야 한다.
+    이 정합이 깨지면 생명 별칭이 등록돼도 파싱 시점에 절대 매칭되지 않는다.
+    """
+
+    def setUp(self):
+        self.user, self.client = _make_planner('lifedict@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='생명고객', birth_day='1985.03.10', gender=1)
+        # 파서 dict_detail_data 경로(진단비>암>일반암)와 같은 이름의 표준 트리
+        # — normalizer 가 (cat,sub,det) 이름 경로를 돌려줘야 _add_coverage 가 안착.
+        cat = AnalysisCategory.objects.create(insurance_type=1, name='진단비')
+        sub = AnalysisSubCategory.objects.create(insurance_type=1, category=cat, name='암')
+        self.std = AnalysisDetail.objects.create(sub_category=sub, name='일반암')
+
+    def _parsed_life(self, coverage_name):
+        """Claude 응답 JSON 흉내 — 삼성생명(사전 공간 206) + 담보 1건."""
+        return {
+            'insurance_type': 'life',
+            'company_name': '삼성생명',
+            'product_name': '무배당 종신보험',
+            'contractor': '홍길동', 'insured': '홍길동', 'is_same_insured': True,
+            'payment_period': 20, 'warranty_period': 100, 'monthly_premium': 50000,
+            'coverages': [{
+                'category': '', 'subcategory': '', 'detail_name': '',
+                'name': coverage_name, 'amount': 50000000, 'premium': 10000,
+                'payment_period': 20, 'payment_period_type': 1,
+                'warranty_period': 100, 'warranty_period_type': 1,
+            }],
+        }
+
+    def test_life_alias_200_space_fires_at_parse_time(self):
+        """company=206(200+삼성생명) admin_verified 별칭이 파싱 시점 룩업에서 실제 발화."""
+        from inpa.core.ocr.claude_parser import _convert_to_ocr_data
+        from inpa.insurances.views import _build_normalizer
+        # 키워드 매칭으로는 절대 안 잡히는 원문 → 별칭이 유일한 매칭 경로(회귀 증명)
+        NormalizationDict.objects.create(
+            std_detail=self.std, company=206, raw_name='우리집든든플랜2형',
+            source=NormalizationDict.SOURCE_ADMIN_VERIFIED)
+        ocr = _convert_to_ocr_data(
+            self._parsed_life('우리집든든플랜2형'), normalizer=_build_normalizer())
+        self.assertIsNotNone(ocr)
+        # head dict 는 raw index 유지 (ocrdata 소비자 계약)
+        self.assertEqual(ocr.dict_life_head_data['생명보험'], 6)
+        # 별칭 발화 → 표준 경로에 담보 안착 + hit_count 증가
+        self.assertEqual(
+            ocr.dict_detail_data['진단비']['암']['일반암'],
+            ['20:1:100:1:50000000:10000'])
+        norm = NormalizationDict.objects.get(raw_name='우리집든든플랜2형')
+        self.assertEqual(norm.hit_count, 1)
+
+    def test_life_alias_in_raw_index_space_does_not_fire(self):
+        """(음성 대조) raw index 공간(company=6)에 잘못 등록된 별칭은 매칭되지 않는다."""
+        from inpa.core.ocr.claude_parser import _convert_to_ocr_data
+        from inpa.insurances.views import _build_normalizer
+        NormalizationDict.objects.create(
+            std_detail=self.std, company=6, raw_name='우리집든든플랜2형',
+            source=NormalizationDict.SOURCE_ADMIN_VERIFIED)
+        ocr = _convert_to_ocr_data(
+            self._parsed_life('우리집든든플랜2형'), normalizer=_build_normalizer())
+        self.assertIsNotNone(ocr)
+        self.assertEqual(ocr.dict_detail_data['진단비']['암']['일반암'], [])
+        norm = NormalizationDict.objects.get(raw_name='우리집든든플랜2형')
+        self.assertEqual(norm.hit_count, 0)
+
+    def test_persist_life_company_code_offset(self):
+        """persist: CustomerInsurance.company·UnmatchedLog.company = 200+index 공간."""
+        from inpa.analysis.models import UnmatchedLog
+        from inpa.insurances.views import _persist_ocr
+        ci, _created = _persist_ocr(self.customer, _fake_life_ocr_data())
+        self.assertEqual(ci.insurance_type, 1)  # 생명
+        self.assertEqual(ci.company, 206)       # 200 + 6(삼성생명)
+        log = UnmatchedLog.objects.get(raw_name='미지의생명담보')
+        self.assertEqual(log.company, 206)
+
+
+class AddCoverageRawNameMapTests(TestCase):
+    """claude_parser._add_coverage 원문명 병렬 맵 회귀 (담보 사전 피드백, 2026-07-09).
+
+    dict_detail_data 값 문자열에는 원문명이 없어 (cat, sub, det, value) 키의 병렬 맵으로
+    실어 나른다 — _persist_ocr 저장 키와 정확히 같은 형태인지 파서 경로에서 직접 검증.
+    """
+
+    def test_add_coverage_records_raw_name(self):
+        from inpa.core.ocr.claude_parser import _add_coverage
+        ocr = Ocr_Data()
+        cov = {'category': '진단비', 'subcategory': '암', 'detail_name': '일반암',
+               'name': '삼성 암진단특약(무배당)', 'amount': 50000000, 'premium': 10000,
+               'payment_period': 20, 'payment_period_type': 1,
+               'warranty_period': 100, 'warranty_period_type': 1}
+        _add_coverage(ocr, cov, 20, 100)
+        value = '20:1:100:1:50000000:10000'
+        self.assertEqual(ocr.dict_detail_data['진단비']['암']['일반암'], [value])
+        self.assertEqual(
+            ocr._raw_name_by_case[('진단비', '암', '일반암', value)],
+            '삼성 암진단특약(무배당)')
+
+    def test_dedup_replacement_records_new_raw_name(self):
+        """동일 가입조건 큰 금액 교체 시 새 value 키로 원문이 기록된다."""
+        from inpa.core.ocr.claude_parser import _add_coverage
+        ocr = Ocr_Data()
+        base = {'category': '진단비', 'subcategory': '암', 'detail_name': '일반암',
+                'premium': 10000, 'payment_period': 20, 'payment_period_type': 1,
+                'warranty_period': 100, 'warranty_period_type': 1}
+        _add_coverage(ocr, {**base, 'name': '작은담보', 'amount': 10000000}, 20, 100)
+        _add_coverage(ocr, {**base, 'name': '큰담보', 'amount': 50000000}, 20, 100)
+        value = '20:1:100:1:50000000:10000'
+        self.assertEqual(ocr.dict_detail_data['진단비']['암']['일반암'], [value])
+        self.assertEqual(
+            ocr._raw_name_by_case[('진단비', '암', '일반암', value)], '큰담보')
 
 
 @override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)

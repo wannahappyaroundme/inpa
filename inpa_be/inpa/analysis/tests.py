@@ -1133,3 +1133,160 @@ class ClaudeParserLogRedactionTests(TestCase):
         self.assertIn('length=', joined)               # 길이 수준만 기록
         self.assertNotIn('홍길동', joined)              # 응답 본문 미포함
         self.assertNotIn('증권원문내용', joined)
+
+
+# ═══ 담보 사전 피드백 루프 — 설계사 플래그 API (2026-07-09) ═══════════════════
+
+class CoverageCasesTests(TestCase):
+    """GET /customers/<id>/coverage-cases/?detail_id= — 소유 격리 + 응답 형태."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('cases@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='케이스고객', birth_day='1985.03.10')
+        self.det = _build_std_tree()
+        self.idet = _catalog_detail_linked_to(self.det)
+        self.ci = _make_portfolio(self.customer, self.idet, 50_000_000)
+        self.case = self.ci.case_list.get()
+
+    def _url(self, cid, detail_id=None):
+        qs = f'?detail_id={detail_id}' if detail_id is not None else ''
+        return f'/api/v1/customers/{cid}/coverage-cases/{qs}'
+
+    def test_lists_cases_for_leaf(self):
+        self.case.raw_name = '삼성 사망담보 특약'
+        self.case.save(update_fields=['raw_name'])
+        r = self.client.get(self._url(self.customer.id, self.det.id))
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(len(body), 1)
+        row = body[0]
+        self.assertEqual(row['case_id'], self.case.id)
+        self.assertEqual(row['insurance_id'], self.ci.id)
+        self.assertEqual(row['insurance_title'], '테스트보험')
+        self.assertEqual(row['name'], '사망담보')
+        self.assertEqual(row['raw_name'], '삼성 사망담보 특약')
+        self.assertEqual(row['assurance_amount'], 50_000_000)
+
+    def test_raw_name_empty_when_not_stored(self):
+        """레거시/직접 입력 케이스는 raw_name 빈 값(FE가 name 으로 폴백)."""
+        r = self.client.get(self._url(self.customer.id, self.det.id))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()[0]['raw_name'], '')
+
+    def test_requires_detail_id(self):
+        r = self.client.get(self._url(self.customer.id))
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['code'], 'DETAIL_ID_REQUIRED')
+
+    def test_owner_isolation_404(self):
+        _, client_b = _make_planner('cases-b@test.com')
+        r = client_b.get(self._url(self.customer.id, self.det.id))
+        self.assertEqual(r.status_code, 404)
+
+
+class CoverageFlagCreateTests(TestCase):
+    """POST /customers/<id>/coverage-flags/ — 스냅샷 + 격리 + 어드민 fan-out."""
+
+    def setUp(self):
+        from inpa.analysis.models import CoverageFlag  # noqa: F401 (아래 참조용)
+        self.user, self.client = _make_planner('flag@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='플래그고객', birth_day='1985.03.10')
+        self.det = _build_std_tree()
+        self.idet = _catalog_detail_linked_to(self.det)
+        self.ci = _make_portfolio(self.customer, self.idet, 50_000_000)
+        self.ci.company = 2  # 삼성화재
+        self.ci.save(update_fields=['company'])
+        self.case = self.ci.case_list.get()
+        # 어드민 1명 (fan-out 수신자)
+        self.admin = User.objects.create_user(email='admin@test.com', password='inpaPass123!')
+        self.admin.is_active = True
+        self.admin.save(update_fields=['is_active'])
+        Profile.objects.create(user=self.admin, email_verified_at=timezone.now(), is_admin=True)
+
+    def _url(self, cid):
+        return f'/api/v1/customers/{cid}/coverage-flags/'
+
+    def test_create_snapshots_from_case_and_notifies_admin(self):
+        from inpa.analysis.models import CoverageFlag
+        from inpa.notifications.models import Notification, NotifType
+        self.case.raw_name = '삼성 사망담보 특약'
+        self.case.save(update_fields=['raw_name'])
+        r = self.client.post(self._url(self.customer.id), {
+            'analysis_detail_id': self.det.id,
+            'case_id': self.case.id,
+            'note': '위치가 이상해요',
+        }, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        flag = CoverageFlag.objects.get(pk=r.json()['id'])
+        self.assertEqual(flag.owner_id, self.user.id)
+        self.assertEqual(flag.customer_id, self.customer.id)
+        self.assertEqual(flag.analysis_detail_id, self.det.id)
+        self.assertEqual(flag.case_id, self.case.id)
+        self.assertEqual(flag.raw_name_snapshot, '삼성 사망담보 특약')
+        self.assertEqual(flag.company, 2)
+        self.assertEqual(flag.note, '위치가 이상해요')
+        self.assertEqual(flag.status, CoverageFlag.STATUS_OPEN)
+        # 어드민 fan-out 알림 (ADMIN_NOTIF_TYPES 파티션에 포함)
+        notif = Notification.objects.filter(
+            owner=self.admin, notif_type=NotifType.COVERAGE_FLAG_REQUESTED)
+        self.assertEqual(notif.count(), 1)
+        from inpa.notifications.models import ADMIN_NOTIF_TYPES
+        self.assertIn(NotifType.COVERAGE_FLAG_REQUESTED.value, ADMIN_NOTIF_TYPES)
+
+    def test_raw_name_snapshot_falls_back_to_detail_name(self):
+        """case.raw_name 이 빈 값(레거시)이면 카탈로그 담보명으로 폴백."""
+        from inpa.analysis.models import CoverageFlag
+        r = self.client.post(self._url(self.customer.id), {
+            'analysis_detail_id': self.det.id, 'case_id': self.case.id,
+        }, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        flag = CoverageFlag.objects.get(pk=r.json()['id'])
+        self.assertEqual(flag.raw_name_snapshot, '사망담보')
+
+    def test_flag_without_case_allowed(self):
+        """케이스 미선택 플래그(빈 leaf 신고)도 생성 — 스냅샷은 빈 값."""
+        from inpa.analysis.models import CoverageFlag
+        r = self.client.post(self._url(self.customer.id), {
+            'analysis_detail_id': self.det.id, 'note': '여기 담보가 안 잡혀요',
+        }, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        flag = CoverageFlag.objects.get(pk=r.json()['id'])
+        self.assertEqual(flag.raw_name_snapshot, '')
+        self.assertIsNone(flag.company)
+        self.assertIsNone(flag.case_id)
+
+    def test_owner_isolation_404(self):
+        from inpa.analysis.models import CoverageFlag
+        _, client_b = _make_planner('flag-b@test.com')
+        r = client_b.post(self._url(self.customer.id), {
+            'analysis_detail_id': self.det.id, 'case_id': self.case.id,
+        }, format='json')
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(CoverageFlag.objects.count(), 0)
+
+    def test_case_of_other_customer_404(self):
+        """같은 소유자라도 다른 고객의 케이스 id 는 404(케이스-고객 정합)."""
+        other = Customer.objects.create(owner=self.user, name='다른고객')
+        r = self.client.post(self._url(other.id), {
+            'analysis_detail_id': self.det.id, 'case_id': self.case.id,
+        }, format='json')
+        self.assertEqual(r.status_code, 404)
+
+    def test_invalid_detail_400(self):
+        r = self.client.post(self._url(self.customer.id), {
+            'analysis_detail_id': 999999,
+        }, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['code'], 'ANALYSIS_DETAIL_NOT_FOUND')
+
+    def test_duplicate_flags_allowed(self):
+        """동일 leaf 재신고는 새 행(중복 허용 — spec)."""
+        from inpa.analysis.models import CoverageFlag
+        for _ in range(2):
+            r = self.client.post(self._url(self.customer.id), {
+                'analysis_detail_id': self.det.id, 'case_id': self.case.id,
+            }, format='json')
+            self.assertEqual(r.status_code, 201)
+        self.assertEqual(CoverageFlag.objects.count(), 2)

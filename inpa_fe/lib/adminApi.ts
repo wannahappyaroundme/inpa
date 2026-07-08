@@ -311,25 +311,44 @@ export async function adminGetOrder(id: number): Promise<PromotionOrderDetail> {
 }
 
 // ─── Normalization ────────────────────────────────────────────────────────────
+// ★ BE 계약이 SSOT (admin_console/serializers.py). 2026-07-09 정합 픽스:
+//   - UnmatchedLog: company(코드 숫자)/occurrence — 과거 insurer/count 는 드리프트였음.
+//   - 매핑 등록 payload: {unmatched_log_id, std_detail_id, confidence} — 과거
+//     {unmatched_id, standard_name} 은 BE 400(동작 불능 버그).
 
 export interface UnmatchedLogItem {
   id: number;
   raw_name: string;
-  insurer: string;
-  count: number;
+  /** 보험사 코드(ocrdata index, -1=미감지) — 라벨 변환은 FE 표시층에서 */
+  company: number;
+  occurrence: number;
   sample_ctx: string | null;
   resolved: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface NormalizationDictItem {
   id: number;
-  standard_name: string;
+  std_detail: number;
+  std_detail_name: string;
   raw_name: string;
-  insurer: string;
-  source: string;
+  company: number;
+  source: number;
+  source_display: string;
   confidence: number;
+  verified_by_email: string | null;
   hit_count: number;
   created_at: string;
+  updated_at: string;
+}
+
+/** 표준 담보 leaf (관리자 선택기용 — [표준] 스코프만) */
+export interface NormalizationLeaf {
+  id: number;
+  name: string;
+  category_name: string;
+  sub_category_name: string;
 }
 
 /** GET /api/v1/admin/normalization/unmatched/ */
@@ -342,12 +361,16 @@ export async function adminListUnmatched(
   return req<PaginatedResult<UnmatchedLogItem>>("GET", `/admin/normalization/unmatched/${query}`);
 }
 
-/** POST /api/v1/admin/normalization/map/ — 매핑 등록 */
+/** POST /api/v1/admin/normalization/map/ — 매핑 등록 (BE 계약: unmatched_log_id + std_detail_id) */
 export async function adminMapNormalization(payload: {
-  unmatched_id: number;
-  standard_name: string;
+  unmatched_log_id: number;
+  std_detail_id: number;
+  confidence?: number;
 }): Promise<NormalizationDictItem> {
-  return req<NormalizationDictItem>("POST", "/admin/normalization/map/", payload);
+  return req<NormalizationDictItem>("POST", "/admin/normalization/map/", {
+    confidence: 100,
+    ...payload,
+  });
 }
 
 /** GET /api/v1/admin/normalization/dict/ */
@@ -364,6 +387,69 @@ export async function adminListNormalizationDict(
 /** DELETE /api/v1/admin/normalization/dict/{id}/ — 오매핑 삭제 */
 export async function adminDeleteNormalizationDict(id: number): Promise<void> {
   return reqVoid("DELETE", `/admin/normalization/dict/${id}/`);
+}
+
+/** GET /api/v1/admin/normalization/leaves/ — 표준 담보 leaf 목록(선택기용) */
+export async function adminListNormalizationLeaves(q?: string): Promise<NormalizationLeaf[]> {
+  const query = q ? `?q=${encodeURIComponent(q)}` : "";
+  return req<NormalizationLeaf[]>("GET", `/admin/normalization/leaves/${query}`);
+}
+
+// ─── Coverage Flags (담보 위치 확인 요청 — 설계사 피드백 검수) ────────────────
+
+export type CoverageFlagStatus = "open" | "accepted" | "rejected";
+
+export interface CoverageFlagItem {
+  id: number;
+  company: number | null;
+  raw_name_snapshot: string;
+  note: string;
+  status: CoverageFlagStatus;
+  planner_email: string | null;
+  customer_name: string | null;
+  /** 신고 당시 매핑돼 있던 표준 담보명(null 가능) */
+  current_mapping: string | null;
+  analysis_detail_id: number | null;
+  case_id: number | null;
+  resolution_memo: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CoverageFlagResolveResult {
+  flag: CoverageFlagItem;
+  /** accept 에서만 의미: 사전 행 신규 생성 여부 */
+  dict_created?: boolean;
+  dict_id?: number | null;
+  /** 교정된 카탈로그 연결 수(0|1) */
+  relinked?: number;
+  /** 부분 문자열 충돌 경고(차단 없음) */
+  warnings?: string[];
+}
+
+/** GET /api/v1/admin/normalization/flags/?status= — 기본 open, 'all' 로 전체 */
+export async function adminListCoverageFlags(
+  params: { page?: number; status?: CoverageFlagStatus | "all" } = {}
+): Promise<PaginatedResult<CoverageFlagItem>> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set("page", String(params.page));
+  if (params.status) qs.set("status", params.status);
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return req<PaginatedResult<CoverageFlagItem>>("GET", `/admin/normalization/flags/${query}`);
+}
+
+/** POST /api/v1/admin/normalization/flags/{id}/resolve/ — 승인(사전 반영)/반려 */
+export async function adminResolveCoverageFlag(
+  id: number,
+  payload:
+    | { action: "accept"; std_detail_id: number; raw_name?: string; memo?: string }
+    | { action: "reject"; memo?: string }
+): Promise<CoverageFlagResolveResult> {
+  return req<CoverageFlagResolveResult>(
+    "POST",
+    `/admin/normalization/flags/${id}/resolve/`,
+    payload
+  );
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────

@@ -4,12 +4,15 @@ base 는 config/urls.py 에서 /api/v1/ 로 마운트.
   GET  /api/v1/customers/<customer_pk>/heatmap/          CustomerHeatmapView (소유자 격리 + neutral 게이트)
   GET/POST /api/v1/customers/<customer_pk>/compare/      CustomerCompareView (보유 vs 제안 담보별 비교 + §97 게이트)
   POST /api/v1/customers/<customer_pk>/compare/publish/  CustomerComparePublishView (★ 발행 하드블록)
+  GET  /api/v1/customers/<customer_pk>/coverage-cases/   CustomerCoverageCasesView (담보 케이스 목록 — 플래그 모달용)
+  POST /api/v1/customers/<customer_pk>/coverage-flags/   CustomerCoverageFlagView (담보 위치 확인 요청 + 어드민 알림)
 
 담보 분류 트리/정규화 사전 CRUD ViewSet 은 다음 라운드.
 """
 from django.urls import path
 
 from .compare import CustomerCompareView, CustomerComparePublishView
+from .flags import CustomerCoverageCasesView, CustomerCoverageFlagView
 from .views import CustomerHeatmapView
 
 app_name = 'analysis'
@@ -21,4 +24,8 @@ urlpatterns = [
          CustomerCompareView.as_view(), name='customer-compare'),
     path('customers/<int:customer_pk>/compare/publish/',
          CustomerComparePublishView.as_view(), name='customer-compare-publish'),
+    path('customers/<int:customer_pk>/coverage-cases/',
+         CustomerCoverageCasesView.as_view(), name='customer-coverage-cases'),
+    path('customers/<int:customer_pk>/coverage-flags/',
+         CustomerCoverageFlagView.as_view(), name='customer-coverage-flags'),
 ]

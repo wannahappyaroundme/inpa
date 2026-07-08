@@ -171,6 +171,60 @@ class SeedMarker(models.Model):
         return f'{self.key}={self.version}'
 
 
+class CoverageFlag(models.Model):
+    """설계사 담보 위치 확인 요청 (✦ 2026-07-09, 담보 사전 피드백 루프).
+
+    한눈표에서 잘못 잡힌 담보를 설계사가 알리면 어드민이 검수 →
+    accept 시 NormalizationDict(admin_verified) 별칭 등록 + 해당 케이스의
+    InsuranceDetail.analysis_detail M2M 교정 → 다음 분석부터 자동 반영(데이터 복리).
+    UnmatchedLog(미매칭 전용)와 별개 — 이쪽은 '매칭은 됐지만 위치가 틀린' 케이스.
+
+    스냅샷 원칙: raw_name/company 는 생성 시점에 서버가 case 에서 복사(SET_NULL 로
+    원본이 지워져도 검수 가능). 소유자 전용(owner) + 어드민 검수(READ/RESOLVE).
+    """
+    STATUS_OPEN = 'open'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_REJECTED = 'rejected'
+    STATUS = (
+        (STATUS_OPEN, '대기'),
+        (STATUS_ACCEPTED, '반영'),
+        (STATUS_REJECTED, '반려'),
+    )
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                              related_name='coverage_flags', verbose_name='설계사(소유자)')
+    customer = models.ForeignKey('customers.Customer', on_delete=models.SET_NULL,
+                                 null=True, blank=True, related_name='coverage_flags',
+                                 verbose_name='연관 고객')
+    analysis_detail = models.ForeignKey(AnalysisDetail, on_delete=models.SET_NULL,
+                                        null=True, blank=True, related_name='coverage_flags',
+                                        verbose_name='현재 매핑된 표준 담보')
+    case = models.ForeignKey('insurances.CustomerInsuranceDetail', on_delete=models.SET_NULL,
+                             null=True, blank=True, related_name='coverage_flags',
+                             verbose_name='연관 담보 케이스')
+    raw_name_snapshot = models.CharField('담보 원문 스냅샷', max_length=200, default='', blank=True)
+    company = models.SmallIntegerField('보험사 코드', null=True, blank=True)
+    note = models.CharField('설계사 메모', max_length=300, default='', blank=True)
+
+    status = models.CharField('상태', max_length=10, choices=STATUS, default=STATUS_OPEN)
+    resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, blank=True, related_name='resolved_coverage_flags',
+                                    verbose_name='처리 관리자')
+    resolution_memo = models.CharField('처리 메모', max_length=200, default='', blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'coverage_flag'
+        verbose_name = '담보 위치 확인 요청'
+        verbose_name_plural = '담보 위치 확인 요청'
+        indexes = [models.Index(fields=['status'])]
+
+    def __str__(self):
+        return f'[{self.status}] {self.raw_name_snapshot or "(원문 없음)"}'
+
+
 class UnmatchedLog(models.Model):
     """미매칭 담보명 학습 플라이휠 (✦ 신규, dev/02 §5.3).
 

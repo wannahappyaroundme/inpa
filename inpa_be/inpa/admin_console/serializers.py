@@ -11,7 +11,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from inpa.accounts.models import Profile
-from inpa.analysis.models import AnalysisDetail, NormalizationDict, UnmatchedLog
+from inpa.analysis.models import AnalysisDetail, CoverageFlag, NormalizationDict, UnmatchedLog
 from inpa.billing.models import Plan, Subscription, UsageMeter
 from inpa.boards.models import (
     Faq,
@@ -282,6 +282,7 @@ class DashboardSerializer(serializers.Serializer):
     # 미처리 항목
     pending_orders = serializers.IntegerField()
     unresolved_unmatched = serializers.IntegerField()
+    open_flags = serializers.IntegerField()  # 담보 위치 확인 요청 대기(설계사 피드백)
 
 
 # ─── 1:1 문의 ─────────────────────────────────────────────────────────
@@ -492,6 +493,36 @@ class AdminNormalizationDictSerializer(serializers.ModelSerializer):
 
     def get_verified_by_email(self, obj):
         return obj.verified_by.email if obj.verified_by else None
+
+
+class AdminCoverageFlagSerializer(serializers.ModelSerializer):
+    """담보 위치 확인 요청 목록/처리 결과 (admin 검수용).
+
+    customer_name 은 이름만(연락처·생년월일 등 추가 PII 미노출 — dev/19 §7 최소 원칙).
+    current_mapping = 신고 당시 매핑돼 있던 표준 담보명(analysis_detail SET_NULL 대응).
+    """
+    planner_email = serializers.SerializerMethodField()
+    customer_name = serializers.SerializerMethodField()
+    current_mapping = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CoverageFlag
+        fields = [
+            'id', 'company', 'raw_name_snapshot', 'note', 'status',
+            'planner_email', 'customer_name', 'current_mapping',
+            'analysis_detail_id', 'case_id', 'resolution_memo',
+            'created_at', 'updated_at',
+        ]
+
+    def get_planner_email(self, obj):
+        return obj.owner.email if obj.owner_id else None
+
+    def get_customer_name(self, obj):
+        # customer SET_NULL — 고객 파기 후 null 가능(요청 이력은 잔존).
+        return obj.customer.name if obj.customer_id else None
+
+    def get_current_mapping(self, obj):
+        return obj.analysis_detail.name if obj.analysis_detail_id else None
 
 
 # ─── 공지사항 ─────────────────────────────────────────────────────────

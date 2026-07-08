@@ -12,7 +12,9 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
+import { Flag } from "lucide-react";
 import type { HeatmapResponse, HeatmapDetail, HeatmapStatus } from "@/lib/api";
+import { CoverageFlagModal } from "@/components/coverage-flag-modal";
 
 // ── 색 매핑 (BE status → Tailwind 신호등) ─────────────
 // 기준 미설정(neutral 모드)이면 판정색을 칠하지 않고 담백한 기본 셀로 둔다.
@@ -79,14 +81,19 @@ export function fmtWon(val: number | null): string {
 export type FilterKey = "all" | "shortage" | "adequate" | "over";
 
 // ── HeatCell ──────────────────────────────────────────────────────────────
+// onFlag: 담보 사전 피드백 — "담보 위치가 이상해요" 조용한 액션(2026-07-09).
+// 데스크탑은 호버/포커스에서만 보이고, 터치(sm 미만)에서는 작은 아이콘이 항상 보인다.
+// neutral(기준 미설정) 모드에서도 동작(매핑 위치 문제는 판정과 무관).
 export function HeatCell({
   detail,
   mode,
   graded,
+  onFlag,
 }: {
   detail: HeatmapDetail;
   mode: "neutral" | "graded";
   graded: boolean;
+  onFlag?: (detail: HeatmapDetail) => void;
 }) {
   const cls = cellClasses(detail.status, mode);
   const label = statusLabel(detail.status, mode);
@@ -94,7 +101,9 @@ export function HeatCell({
 
   return (
     <div
-      className={`rounded-lg px-3 py-2 text-[13px] transition ${cls}`}
+      className={`group relative rounded-lg px-3 py-2 text-[13px] transition ${cls} ${
+        onFlag ? "pr-6" : ""
+      }`}
       aria-label={aria}
       title={aria}
     >
@@ -104,6 +113,20 @@ export function HeatCell({
           <span className="tnum opacity-80">{fmtAmount(detail.held_amount)}</span>
           {label && <span className="opacity-70">· {label}</span>}
         </div>
+      )}
+      {onFlag && (
+        <button
+          type="button"
+          onClick={() => onFlag(detail)}
+          aria-label={`담보 위치가 이상해요: ${detail.name}`}
+          title="담보 위치가 이상해요"
+          className="absolute top-1 right-1 rounded p-0.5 text-current opacity-40 transition
+                     hover:opacity-100 focus-visible:opacity-100
+                     sm:opacity-0 sm:group-hover:opacity-60 sm:group-hover:hover:opacity-100
+                     sm:focus-visible:opacity-100"
+        >
+          <Flag size={11} aria-hidden />
+        </button>
       )}
     </div>
   );
@@ -196,6 +219,8 @@ export function HeatmapGrid({
   const [coverageOnly, setCoverageOnly] = useState(false);
   // 기준 미설정 상태에서 넉넉/적정/부족을 누르면 '먼저 기준을 설정' 안내를 띄운다(PM 07.01).
   const [gateNotice, setGateNotice] = useState(false);
+  // 담보 사전 피드백 모달 — 셀의 깃발 액션으로 연다. customer_id 는 응답에 실려 온다.
+  const [flagTarget, setFlagTarget] = useState<HeatmapDetail | null>(null);
 
   const filteredTree = heatmap.tree
     .map((cat) => ({
@@ -362,6 +387,7 @@ export function HeatmapGrid({
                             detail={detail}
                             mode={heatmap.mode}
                             graded={graded}
+                            onFlag={setFlagTarget}
                           />
                         ))}
                       </div>
@@ -394,6 +420,16 @@ export function HeatmapGrid({
           </div>
         )}
       </div>
+
+      {/* 담보 사전 피드백 모달 — "담보 위치가 이상해요" */}
+      {flagTarget && (
+        <CoverageFlagModal
+          customerId={heatmap.customer_id}
+          detailId={flagTarget.detail_id}
+          detailName={flagTarget.name}
+          onClose={() => setFlagTarget(null)}
+        />
+      )}
     </div>
   );
 }
