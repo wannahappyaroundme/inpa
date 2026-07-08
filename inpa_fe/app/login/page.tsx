@@ -56,6 +56,7 @@ function LoginForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setShowResend(false);
     setLoading(true);
 
     try {
