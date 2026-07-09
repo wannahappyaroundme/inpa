@@ -42,6 +42,7 @@ from inpa.accounts.models import Profile
 from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
 from inpa.analytics.views import _NoIndexMixin, _build_share_payload, build_coverage_tree
+from inpa.billing.credit import log_claude_usage
 from inpa.core.copyguard import warn_if_advice_words
 from inpa.core.ocr.claude_parser import claude_parse
 from inpa.core.ocr.ocrdata import LifeInsurance, LossInsurance
@@ -190,11 +191,26 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                     cache.incr(attempt_key)
                 except ValueError:
                     cache.set(attempt_key, 1, 60 * 60 * 24)
+                claude_meta = {}
                 try:
-                    ocr_data = claude_parse(lines, normalizer=_build_normalizer())
+                    ocr_data = claude_parse(lines, normalizer=_build_normalizer(), meta=claude_meta)
                 except Exception as e:  # 파일별 격리 — 내용 없는 로그만(PII 레드라인)
                     logger.warning('[self-diag] parse error: %s', type(e).__name__)
                     ocr_data = None
+                # ★ 프리런치 #17: /d 는 비로그인 공개 경로 → user=None(귀속 없음). 성공·실패 모두 기록.
+                #   claude_parse 를 직접 mock 하는 기존 다중 PDF 테스트는 meta 를 채우지 않으므로
+                #   ocr_data 유무로 안전한 fallback 을 둔다(views.py ocr_parse 와 동일 패턴).
+                outcome = claude_meta.get('outcome') or ('success' if ocr_data is not None else 'api_error')
+                log_claude_usage(
+                    action='self_diagnosis',
+                    model=claude_meta.get('model') or getattr(settings, 'CLAUDE_MODEL_PARSE', ''),
+                    usage=claude_meta.get('usage'),
+                    user=None,
+                    outcome=outcome,
+                    carrier_code=claude_meta.get('carrier_code'),
+                    matched=claude_meta.get('matched_count'),
+                    unmatched=claude_meta.get('unmatched_count'),
+                )
                 if ocr_data is not None:
                     item.update(status='ok', ocr_data=ocr_data, message=None)
                 parsed_items.append(item)

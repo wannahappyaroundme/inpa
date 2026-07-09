@@ -5,6 +5,7 @@ base path: /api/v1/admin/  (config/urls.py에서 include)
 from django.urls import path
 
 from .views import (
+    AdminClaudeCostView,
     AdminConsentLogListView,
     AdminCoverageFlagListView,
     AdminCoverageFlagResolveView,
@@ -50,6 +51,7 @@ urlpatterns = [
     # ── 대시보드 ──────────────────────────────────────────────────────
     path('admin/dashboard/', AdminDashboardView.as_view(), name='admin-dashboard'),
     path('admin/usage/', AdminUsageView.as_view(), name='admin-usage'),
+    path('admin/claude-cost/', AdminClaudeCostView.as_view(), name='admin-claude-cost'),
 
     # ── 설계사 관리 ───────────────────────────────────────────────────
     path('admin/users/', AdminUserListView.as_view(), name='admin-user-list'),

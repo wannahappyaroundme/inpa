@@ -109,21 +109,25 @@ class CouponRedemptionAdmin(admin.ModelAdmin):
 
 @admin.register(ClaudeApiLog)
 class ClaudeApiLogAdmin(admin.ModelAdmin):
-    """Claude API 비용 로그 — 관리자 전용 읽기 (dev/02 §14.2).
+    """Claude API 비용·결과 로그 — 관리자 전용 읽기 (dev/02 §14.2, 프리런치 #17).
 
-    owner FK 없음(운영 로그). 월 예산 캡 집계·모델별 비용·캐시 효율 모니터링.
-    추가/수정 불가(시스템 기록), 삭제만 관리자 재량.
+    운영 로그(설계사 본인 조회 불가). 월 예산 캡 집계·모델별 비용·캐시 효율·파싱 성공률·
+    회사별 미매칭율 모니터링. 추가/수정 불가(시스템 기록), 삭제만 관리자 재량.
+    cost_krw 는 추정치(§6 정직성) — list_display 라벨에도 명시.
     """
     list_display = [
-        'created_at', 'action', 'model',
+        'created_at', 'action', 'model', 'user', 'parse_outcome',
         'input_tokens', 'output_tokens',
         'cache_read_input_tokens', 'cache_creation_input_tokens',
+        'cost_krw', 'carrier_code', 'matched_count', 'unmatched_count',
     ]
-    list_filter = ['action', 'model']
+    list_filter = ['action', 'model', 'parse_outcome']
+    search_fields = ['user__email']
     ordering = ['-created_at']
     readonly_fields = [
-        'action', 'model', 'input_tokens', 'output_tokens',
+        'action', 'model', 'user', 'input_tokens', 'output_tokens',
         'cache_read_input_tokens', 'cache_creation_input_tokens', 'created_at',
+        'cost_krw', 'parse_outcome', 'carrier_code', 'matched_count', 'unmatched_count',
     ]
 
     def has_add_permission(self, request):

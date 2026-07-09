@@ -183,22 +183,52 @@ class UsageMeter(models.Model):
 
 
 class ClaudeApiLog(models.Model):
-    """Claude API 호출당 토큰·비용 로깅 (관리자 전용 — dev/02 §14.2).
+    """Claude API 호출당 토큰·비용·파싱결과 로깅 (관리자 전용 — dev/02 §14.2, 프리런치 #17).
 
-    ★ owner FK 없음: 운영 로그(설계사 본인 조회 불가, 관리자 전체 조회).
-    월 예산 캡 집계·모델별 비용 추적·prompt caching 효율(cache_read 비율) 모니터링용.
+    ★ 운영 로그(설계사 본인 조회 불가, 관리자 전체 조회). 월 예산 캡 집계·모델별 비용 추적·
+    prompt caching 효율(cache_read 비율)·파싱 성공률·회사별 미매칭율 모니터링용.
+
+    ★ PII-safe 필드만 — 증권 원문·Claude 응답 본문·상품/고객명은 절대 저장하지 않는다
+    (claude_parser.py:29 레드라인과 동일 원칙). user 는 FK(id)만, 이름 아님.
 
     필드:
-      - action: 호출 목적 (ocr_parse|compare_guide|message_gen 등). 자유 문자열.
+      - action: 호출 목적 (ocr_parse|ocr_verify|compare_guide|self_diagnosis 등). 자유 문자열.
       - model:  실제 호출된 Claude 모델 ID (settings CLAUDE_MODEL_PARSE/BULK 정본).
       - input_tokens / output_tokens: usage 기본 토큰.
       - cache_read_input_tokens:     prompt caching 재사용 토큰(~0.1x 비용).
       - cache_creation_input_tokens: prompt caching 신규 작성 토큰(~1.25x 비용).
+      - user: 호출을 발생시킨 설계사(SET_NULL, null 허용 — /d 공개 경로는 귀속 없음).
+      - cost_krw: ★ 추정 비용(원) — 토큰×단가(billing/pricing.py)×환율. 원천 진실은 토큰수,
+        cost 는 파생 추정치(§6 정직성 — 정밀 청구서 아님).
+      - parse_outcome: 이 호출의 결과 신호(성공/빈 결과/JSON 오류/API 오류/타임아웃/키 없음/
+        패키지 없음). 실패도 1건으로 기록해 '실패율'을 관측 가능하게 한다.
+      - carrier_code: 보험사 코드(int, UnmatchedLog 규약과 동일 — 손해=raw index/생명=200+idx).
+      - matched_count / unmatched_count: 이 호출에서 표준 담보에 매칭/미매칭된 담보 수(정수만,
+        담보명 원문은 저장하지 않는다).
     """
     ACTION_CHOICES = (
         ('ocr_parse', '증권 OCR 파싱'),
+        ('ocr_verify', '증권 파싱 다중검사'),
         ('compare_guide', '비교 분석 안내서'),
+        ('self_diagnosis', '셀프진단(공개)'),
         ('message_gen', '고객 메시지 생성'),
+    )
+
+    OUTCOME_SUCCESS = 'success'
+    OUTCOME_EMPTY = 'empty'
+    OUTCOME_JSON_INVALID = 'json_invalid'
+    OUTCOME_API_ERROR = 'api_error'
+    OUTCOME_TIMEOUT = 'timeout'
+    OUTCOME_NO_KEY = 'no_key'
+    OUTCOME_PACKAGE_MISSING = 'package_missing'
+    OUTCOME_CHOICES = (
+        (OUTCOME_SUCCESS, '성공'),
+        (OUTCOME_EMPTY, '결과 없음'),
+        (OUTCOME_JSON_INVALID, 'JSON 형식 오류'),
+        (OUTCOME_API_ERROR, 'API 오류'),
+        (OUTCOME_TIMEOUT, '시간 초과'),
+        (OUTCOME_NO_KEY, '키 미설정'),
+        (OUTCOME_PACKAGE_MISSING, '패키지 없음'),
     )
 
     action = models.CharField('호출 목적', max_length=30)
@@ -209,6 +239,21 @@ class ClaudeApiLog(models.Model):
         '캐시 읽기 토큰', default=0, help_text='prompt caching 재사용(~0.1x 비용).')
     cache_creation_input_tokens = models.PositiveIntegerField(
         '캐시 작성 토큰', default=0, help_text='prompt caching 신규 작성(~1.25x 비용).')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='claude_api_logs', verbose_name='호출 설계사',
+        help_text='공개 경로(/d 셀프진단)는 null.')
+    cost_krw = models.DecimalField(
+        '추정 비용(원)', max_digits=10, decimal_places=2, default=0,
+        help_text='★ 추정치 — 토큰×단가×환율 파생값. 정밀 청구서 아님(§6 정직성).')
+    parse_outcome = models.CharField(
+        '파싱 결과', max_length=20, choices=OUTCOME_CHOICES, default=OUTCOME_SUCCESS,
+        db_index=True)
+    carrier_code = models.SmallIntegerField(
+        '보험사 코드', null=True, blank=True,
+        help_text='손해=raw index / 생명=200+index (UnmatchedLog 규약과 동일). 미상=null.')
+    matched_count = models.SmallIntegerField('매칭 담보 수', default=0)
+    unmatched_count = models.SmallIntegerField('미매칭 담보 수', default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -218,10 +263,12 @@ class ClaudeApiLog(models.Model):
         indexes = [
             models.Index(fields=['action', 'created_at']),
             models.Index(fields=['model', 'created_at']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['parse_outcome']),
         ]
 
     def __str__(self):
-        return (f'{self.action} / {self.model} / '
+        return (f'{self.action} / {self.model} / {self.parse_outcome} / '
                 f'in={self.input_tokens} out={self.output_tokens} '
                 f'cache_r={self.cache_read_input_tokens} @ {self.created_at:%Y-%m-%d}')
 

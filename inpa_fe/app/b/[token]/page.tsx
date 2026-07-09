@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Card } from "@/components/ui";
+import { SkeletonBar, SkeletonRow, TokenLoadingShell } from "@/components/token-skeleton";
 import {
   getBookingInfo,
   submitBooking,
@@ -14,6 +15,27 @@ import {
   type PublicBookingInfo,
   type MeetingMethod,
 } from "@/lib/api";
+
+function BookingSkeleton() {
+  return (
+    <TokenLoadingShell headerLabel="인파 상담 예약" caption="불러오고 있어요">
+      <SkeletonBar w="w-2/3" h="h-7" />
+      <SkeletonBar w="w-full" h="h-4" />
+      <SkeletonBar w="w-4/5" h="h-4" />
+      <div className="grid grid-cols-3 gap-2 pt-2">
+        {[1, 2, 3].map((i) => (
+          <SkeletonBar key={i} h="h-10" className="rounded-xl" />
+        ))}
+      </div>
+      <div className="space-y-2 pt-2">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <SkeletonRow key={i} className="rounded-xl" />
+        ))}
+      </div>
+      <SkeletonBar h="h-14" className="rounded-2xl mt-4" />
+    </TokenLoadingShell>
+  );
+}
 
 function fmtKST(iso: string): string {
   try {
@@ -104,11 +126,7 @@ export default function PublicBookingPage() {
 
   // ── 로딩 ──
   if (!info) {
-    return (
-      <div className="mx-auto w-full max-w-md min-h-dvh bg-surface2 flex items-center justify-center">
-        <div className="text-[13px] text-ink3">불러오는 중…</div>
-      </div>
-    );
+    return <BookingSkeleton />;
   }
 
   const canSubmit = selectedStart !== null && method !== null && !submitting;

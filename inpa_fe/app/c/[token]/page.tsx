@@ -7,12 +7,38 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Card } from "@/components/ui";
+import { SkeletonBar, SkeletonCard, TokenLoadingShell } from "@/components/token-skeleton";
 import {
   getConsentDisclosure,
   submitConsent,
   ApiError,
   type ConsentDisclosure,
 } from "@/lib/api";
+
+function ConsentSkeleton() {
+  return (
+    <TokenLoadingShell headerLabel="인파 동의" caption="불러오고 있어요">
+      <SkeletonBar w="w-2/3" h="h-7" />
+      <SkeletonBar w="w-full" h="h-4" />
+      <SkeletonBar w="w-4/5" h="h-4" />
+      <div className="space-y-3 pt-2">
+        {[1, 2, 3, 4].map((i) => (
+          <SkeletonCard key={i} className="px-4 py-4 space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <SkeletonBar w="w-4" h="h-4" className="mt-0.5 rounded" />
+              <SkeletonBar w="w-4/5" h="h-4" />
+            </div>
+            <div className="ml-7 space-y-1.5">
+              <SkeletonBar h="h-3" />
+              <SkeletonBar w="w-3/4" h="h-3" />
+            </div>
+          </SkeletonCard>
+        ))}
+      </div>
+      <SkeletonBar h="h-14" className="rounded-2xl mt-4" />
+    </TokenLoadingShell>
+  );
+}
 
 // 철회 확인 문구 — 사실 + 다음 행동만 (고객 대면 §6: 쉬운 말·긍정 톤).
 const REVOKE_NOTES: Record<string, string> = {
@@ -139,11 +165,7 @@ export default function CustomerConsentPage() {
   }
 
   if (!disclosure) {
-    return (
-      <div className="mx-auto w-full max-w-md min-h-dvh bg-surface2 flex items-center justify-center">
-        <div className="text-[13px] text-ink3">불러오는 중…</div>
-      </div>
-    );
+    return <ConsentSkeleton />;
   }
 
   return (

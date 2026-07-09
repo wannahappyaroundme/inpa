@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 const NAV = [
   { href: "/admin",              label: "대시보드",       icon: "📊" },
   { href: "/admin/usage",        label: "사용량",         icon: "📈" },
+  { href: "/admin/claude-cost",  label: "Claude 비용",     icon: "💳" },
   { href: "/admin/users",        label: "설계사 관리",     icon: "👤" },
   { href: "/admin/board",        label: "게시판 모더레이션", icon: "📋" },
   { href: "/admin/announcements",label: "공지사항",        icon: "📢" },
