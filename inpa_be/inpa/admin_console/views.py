@@ -1275,6 +1275,143 @@ class AdminClaudeCostView(APIView):
         })
 
 
+class AdminActivationFunnelView(APIView):
+    """가입→인증→첫 고객→첫 분석→첫 공유→활성화 코호트 퍼널 — GET /api/v1/admin/activation-funnel/?days=30 (IsAdmin).
+
+    프리런치 리뷰 #16. ★ 이름 충돌 주의: `dashboard/aggregation.py::compute_funnel`은 설계사
+    영업단계(DB/TA/FA/청약) 퍼널이며 이 뷰와 전혀 무관하다.
+
+    새 이벤트 배선 없이 기존 타임스탬프로 전부 계산(이벤트는 누락 위험 → 타임스탬프가 더 견고):
+      signup(User.date_joined) → verified(Profile.email_verified_at not null) →
+      first_customer(MIN Customer.created_at per owner) →
+      first_analysis(MIN CustomerInsurance.created_at per customer__owner) →
+      first_share(MIN Customer.share_sent_at per owner, not null) →
+      activated(첫분석 AND 첫공유 모두 가입 후 ACTIVATION_WINDOW_DAYS(기본 7일) 이내).
+    가입 코호트(창 days 내 date_joined) 기준, @inpa.local 제외(AdminUsageView 관례).
+    사실 카운트 + 단계별(직전 단계 대비) 전환율(%)만(§6 판정어 금지). UTM(utm_source, 없으면
+    'direct') 별 가입·활성화 분해 + 활성화 코호트 평균 활성화 소요일수도 함께 반환.
+    성능: 코호트 크기와 무관하게 고정 쿼리 수(코호트 1 + owner별 MIN 3, N+1 없음).
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from datetime import timedelta
+
+        from django.conf import settings as dj_settings
+        from django.db.models import Min
+
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import Customer
+        from inpa.insurances.models import CustomerInsurance
+
+        try:
+            days = int(request.query_params.get('days', 30))
+        except (TypeError, ValueError):
+            days = 30
+        days = max(0, min(days, 3650))  # 과대 입력(OverflowError)·음수 방어. 0=전체.
+
+        window_days = int(getattr(dj_settings, 'ACTIVATION_WINDOW_DAYS', 7) or 7)
+        window = timedelta(days=window_days)
+
+        cohort_qs = User.objects.exclude(email__iendswith='@inpa.local')
+        if days > 0:
+            cohort_qs = cohort_qs.filter(date_joined__gte=timezone.now() - timedelta(days=days))
+        cohort_rows = list(cohort_qs.values(
+            'id', 'date_joined', 'profile__email_verified_at', 'profile__utm_source'))
+        cohort_ids = [r['id'] for r in cohort_rows]
+
+        def _first_per_owner(qs, owner_field, ts_field):
+            """owner_id(코호트 한정) → 그 owner의 최초 ts_field. 서브쿼리 1개, N+1 없음."""
+            if not cohort_ids:
+                return {}
+            rows = (qs.filter(**{f'{owner_field}__in': cohort_ids})
+                      .values(owner_field)
+                      .annotate(first_ts=Min(ts_field)))
+            return {r[owner_field]: r['first_ts'] for r in rows}
+
+        first_customer = _first_per_owner(Customer.objects, 'owner', 'created_at')
+        first_analysis = _first_per_owner(CustomerInsurance.objects, 'customer__owner', 'created_at')
+        # ★ 첫 공유는 불변 이벤트(NorthStarEvent.SHARE_CREATED, append-only)의 최초 시각으로 계산.
+        #   Customer.share_sent_at 은 공유 재발급마다 덮어써지는 가변 필드라, 무관한 재발급이
+        #   과거 코호트의 '활성화'를 사후에 뒤집는다(리뷰 blocker). sender=설계사(owner).
+        first_share = _first_per_owner(
+            NorthStarEvent.objects.filter(event_type=NorthStarEvent.SHARE_CREATED),
+            'sender', 'created_at')
+
+        signup_count = len(cohort_rows)
+        verified_count = 0
+        first_customer_count = 0
+        first_analysis_count = 0
+        first_share_count = 0
+        activated_count = 0
+        activation_days = []
+        utm_breakdown = {}  # source(또는 'direct') → {signups, activated}
+
+        for row in cohort_rows:
+            uid = row['id']
+            joined = row['date_joined']
+            # ★ 단계 중첩(monotonic 퍼널): 각 단계는 직전 단계 도달자 부분집합으로만 집계.
+            #   전환율이 100%를 넘는 착시(미인증 유저의 수동 고객 생성 등 엣지) 방지.
+            reached_verified = row['profile__email_verified_at'] is not None
+            reached_customer = reached_verified and (uid in first_customer)
+            reached_analysis = reached_customer and (uid in first_analysis)
+            reached_share = reached_analysis and (uid in first_share)
+
+            activated = False
+            if reached_analysis and reached_share:
+                a_ts, s_ts = first_analysis[uid], first_share[uid]
+                if (a_ts - joined) <= window and (s_ts - joined) <= window:
+                    activated = True
+                    activation_days.append((max(a_ts, s_ts) - joined).total_seconds() / 86400)
+
+            verified_count += reached_verified
+            first_customer_count += reached_customer
+            first_analysis_count += reached_analysis
+            first_share_count += reached_share
+            activated_count += activated
+
+            source = (row['profile__utm_source'] or '').strip() or 'direct'
+            bucket = utm_breakdown.setdefault(source, {'signups': 0, 'activated': 0})
+            bucket['signups'] += 1
+            bucket['activated'] += int(activated)
+
+        def _rate(numer, denom):
+            return round(numer / denom * 100, 1) if denom else None
+
+        steps = [
+            {'step': 'signup', 'label': '가입', 'count': signup_count, 'conversion_rate': None},
+            {'step': 'verified', 'label': '이메일 인증', 'count': verified_count,
+             'conversion_rate': _rate(verified_count, signup_count)},
+            {'step': 'first_customer', 'label': '첫 고객 등록', 'count': first_customer_count,
+             'conversion_rate': _rate(first_customer_count, verified_count)},
+            {'step': 'first_analysis', 'label': '첫 분석', 'count': first_analysis_count,
+             'conversion_rate': _rate(first_analysis_count, first_customer_count)},
+            {'step': 'first_share', 'label': '첫 공유 링크', 'count': first_share_count,
+             'conversion_rate': _rate(first_share_count, first_analysis_count)},
+            {'step': 'activated', 'label': '활성화', 'count': activated_count,
+             'conversion_rate': _rate(activated_count, first_share_count)},
+        ]
+        utm_sources = [
+            {'source': k, 'signups': v['signups'], 'activated': v['activated'],
+             'activation_rate': _rate(v['activated'], v['signups'])}
+            for k, v in sorted(utm_breakdown.items(), key=lambda kv: -kv[1]['signups'])
+        ]
+        avg_days_to_activation = (
+            round(sum(activation_days) / len(activation_days), 1) if activation_days else None
+        )
+
+        return Response({
+            'days': days,
+            'activation_window_days': window_days,
+            'signup_count': signup_count,
+            'activated_count': activated_count,
+            'activation_rate': _rate(activated_count, signup_count),
+            'steps': steps,
+            'utm_sources': utm_sources,
+            'avg_days_to_activation': avg_days_to_activation,
+        })
+
+
 class AdminLogoutView(APIView):
     """POST /api/v1/admin/auth/logout/ — 토큰 폐기."""
     permission_classes = [IsAdmin]

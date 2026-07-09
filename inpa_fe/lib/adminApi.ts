@@ -608,3 +608,37 @@ export interface AdminClaudeCostResponse {
 export async function adminGetClaudeCost(days = 30): Promise<AdminClaudeCostResponse> {
   return req<AdminClaudeCostResponse>("GET", `/admin/claude-cost/?days=${days}`);
 }
+
+// ─── 활성화 퍼널 (프리런치 리뷰 #16) ──────────────────────────────────────
+
+export interface ActivationFunnelStep {
+  step: string;
+  label: string;
+  count: number;
+  /** 직전 단계 대비 전환율(%), 소수 1자리. 첫 단계(signup)는 null */
+  conversion_rate: number | null;
+}
+export interface ActivationUtmSource {
+  /** utm_source 값, 없으면 'direct' */
+  source: string;
+  signups: number;
+  activated: number;
+  activation_rate: number | null;
+}
+export interface AdminActivationFunnelResponse {
+  days: number;
+  /** 활성화 판정 창(일), env ACTIVATION_WINDOW_DAYS(기본 7) */
+  activation_window_days: number;
+  signup_count: number;
+  activated_count: number;
+  activation_rate: number | null;
+  steps: ActivationFunnelStep[];
+  utm_sources: ActivationUtmSource[];
+  /** 활성화 코호트 평균 소요일수(가입→활성화), 활성화 0명이면 null */
+  avg_days_to_activation: number | null;
+}
+
+/** GET /api/v1/admin/activation-funnel/?days= — 가입→인증→첫고객→첫분석→첫공유→활성화 코호트 퍼널(데모 제외) */
+export async function adminGetActivationFunnel(days = 30): Promise<AdminActivationFunnelResponse> {
+  return req<AdminActivationFunnelResponse>("GET", `/admin/activation-funnel/?days=${days}`);
+}

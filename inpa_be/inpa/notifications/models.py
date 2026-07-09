@@ -45,6 +45,8 @@ class NotifType(models.TextChoices):
     PROMOTION_DIGITAL_READY = 'promotion_digital_ready', '전자자료 준비됨'         # → 설계사
     # ── 담보 사전 피드백(2026-07-09) — 설계사의 담보 위치 확인 요청 → 어드민 검수 큐. ──
     COVERAGE_FLAG_REQUESTED = 'coverage_flag_requested', '담보 위치 확인 요청'      # → 어드민
+    # ── 활성화 퍼널 데드맨 알람(2026-07-08, #16) — 가입은 있는데 인증이 멈췄을 때 → 어드민. ──
+    SIGNUP_VERIFY_FLATLINE = 'signup_verify_flatline', '이메일 인증 멈춤'          # → 어드민
 
 
 # 네비 카테고리 배지용 — 미읽음 알림을 각 메뉴(고객/일정/게시판/판촉물/관리자)로 분류.
@@ -63,9 +65,10 @@ BOARD_NOTIF_TYPES = frozenset({
 PROMOTION_NOTIF_TYPES = frozenset({  # 설계사용 — 내 주문/전자자료
     NotifType.PROMOTION_STATUS.value, NotifType.PROMOTION_DIGITAL_READY.value,
 })
-ADMIN_NOTIF_TYPES = frozenset({  # 어드민용 — 들어온 제작 요청 + 담보 위치 확인 요청
+ADMIN_NOTIF_TYPES = frozenset({  # 어드민용 — 들어온 제작 요청 + 담보 위치 확인 요청 + 인증 멈춤 알람
     NotifType.PROMOTION_DIGITAL_REQUESTED.value,
     NotifType.COVERAGE_FLAG_REQUESTED.value,
+    NotifType.SIGNUP_VERIFY_FLATLINE.value,
 })
 
 

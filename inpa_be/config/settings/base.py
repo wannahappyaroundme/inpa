@@ -240,6 +240,14 @@ LEAD_RETENTION_DAYS = env.int('LEAD_RETENTION_DAYS', default=180)
 # 파기(notifications/jobs.py::cleanup_expired_share_snapshots). 0 이하 = 파기 스킵.
 SHARE_SNAPSHOT_RETENTION_DAYS = env.int('SHARE_SNAPSHOT_RETENTION_DAYS', default=180)
 
+# ── 활성화 퍼널 (프리런치 리뷰 #16, spec 2026-07-08) ──────────────────────
+# 활성화 정의: 첫 분석 AND 첫 공유 링크가 모두 가입 후 N일 이내(admin_console AdminActivationFunnelView).
+ACTIVATION_WINDOW_DAYS = env.int('ACTIVATION_WINDOW_DAYS', default=7)
+# 인증 멈춤 데드맨 알람(notifications/jobs.py::check_signup_verification_flatline):
+# 최근 창(기본 1일=오늘, KST) 신규 가입이 이 값 이상인데 같은 창 이메일 인증이 0건이면 관리자 알림.
+ACTIVATION_FLATLINE_LOOKBACK_DAYS = env.int('ACTIVATION_FLATLINE_LOOKBACK_DAYS', default=1)
+ACTIVATION_FLATLINE_MIN_SIGNUPS = env.int('ACTIVATION_FLATLINE_MIN_SIGNUPS', default=3)
+
 # ── 갈아타기(승환) 비교 게이트 (dev/09 중개금지 · dev/02 §16 · §97) ──────
 # ★ 컴플라이언스 게이트 — 우회 금지. 둘 다 기본 False (보수적 기본값).
 #   COMPARE_AI_ENABLED=True 여야만 AI 비교안내서 초안 생성(check_and_consume+Claude).

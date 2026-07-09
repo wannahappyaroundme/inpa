@@ -853,3 +853,96 @@ class ShareSnapshotRetentionTests(TestCase):
         second = run_daily_jobs()
         self.assertEqual(second['counts']['share_snapshot_retention_deleted'], 0)
         self.assertEqual(second['errors'], {})
+
+
+# ─── 인증 멈춤 데드맨 알람 (spec 2026-07-08, 프리런치 #16) ────────────────
+
+from .jobs import check_signup_verification_flatline  # noqa: E402
+
+
+class SignupVerificationFlatlineTests(TestCase):
+    """가입≥임계(기본 3)+인증 0건 → 관리자 알림. 인증>0 또는 가입<임계 → 무알림. 하루 1회 멱등."""
+
+    def setUp(self):
+        self.today = tz.localdate()
+        # 관리자 계정은 '오늘 새 가입/오늘 인증'이 아니게 어제자로 백데이팅(집계 오염 방지) —
+        # 관리자 본인의 email_verified_at까지 오늘 창에 잡히면 '오늘 인증 0건' 시나리오가 깨진다.
+        admin_user = User.objects.create_user(email='admin-flatline@test.com', password='inpaPass123!')
+        admin_user.is_active = True
+        admin_user.save(update_fields=['is_active'])
+        yesterday = tz.now() - timedelta(days=1)
+        Profile.objects.create(user=admin_user, is_admin=True, email_verified_at=yesterday)
+        User.objects.filter(pk=admin_user.pk).update(date_joined=yesterday)
+        self.admin = admin_user
+
+    def _signup(self, email, verified=False):
+        user = User.objects.create_user(email=email, password='inpaPass123!')
+        Profile.objects.create(
+            user=user, email_verified_at=tz.now() if verified else None)
+        return user
+
+    def test_triggers_when_signups_over_threshold_and_zero_verifications(self):
+        for i in range(3):
+            self._signup(f'flat{i}@test.com')
+        created = check_signup_verification_flatline(self.today)
+        self.assertEqual(created, 1)
+        notif = Notification.objects.get(owner=self.admin, notif_type=NotifType.SIGNUP_VERIFY_FLATLINE)
+        self.assertIn('3', notif.body)
+        self.assertNotIn('—', notif.body)
+
+    def test_no_trigger_when_a_verification_happened(self):
+        self._signup('v0@test.com', verified=True)
+        self._signup('v1@test.com')
+        self._signup('v2@test.com')
+        created = check_signup_verification_flatline(self.today)
+        self.assertEqual(created, 0)
+        self.assertFalse(
+            Notification.objects.filter(notif_type=NotifType.SIGNUP_VERIFY_FLATLINE).exists())
+
+    def test_no_trigger_when_below_min_signups(self):
+        self._signup('below0@test.com')
+        self._signup('below1@test.com')  # 기본 임계 3 미만
+        created = check_signup_verification_flatline(self.today)
+        self.assertEqual(created, 0)
+
+    def test_idempotent_rerun_same_day(self):
+        for i in range(3):
+            self._signup(f'idem{i}@test.com')
+        first = check_signup_verification_flatline(self.today)
+        self.assertEqual(first, 1)
+        second = check_signup_verification_flatline(self.today)
+        self.assertEqual(second, 0)
+        self.assertEqual(
+            Notification.objects.filter(notif_type=NotifType.SIGNUP_VERIFY_FLATLINE).count(), 1)
+
+    def test_fans_out_to_every_admin_once(self):
+        """관리자 여러 명이면 각자 1건씩(중복 없이) 받는다."""
+        admin2 = User.objects.create_user(email='admin2-flat@test.com', password='inpaPass123!')
+        yesterday = tz.now() - timedelta(days=1)
+        Profile.objects.create(user=admin2, is_admin=True, email_verified_at=yesterday)
+        User.objects.filter(pk=admin2.pk).update(date_joined=yesterday)
+        for i in range(3):
+            self._signup(f'fan{i}@test.com')
+        created = check_signup_verification_flatline(self.today)
+        self.assertEqual(created, 2)  # admin + admin2 각 1건
+        for a in (self.admin, admin2):
+            self.assertEqual(Notification.objects.filter(
+                owner=a, notif_type=NotifType.SIGNUP_VERIFY_FLATLINE).count(), 1)
+
+    def test_demo_accounts_excluded_from_counts(self):
+        """@inpa.local 데모 계정은 가입·인증 집계에서 제외(실장애 중 seed_demo가 알람 억제 방지)."""
+        for i in range(3):
+            self._signup(f'realflat{i}@test.com')
+        # 데모 인증 계정을 오늘 만들어도 '오늘 인증 0건'이 유지되어 알람이 떠야 함.
+        self._signup('demo-verified@inpa.local', verified=True)
+        created = check_signup_verification_flatline(self.today)
+        self.assertEqual(created, 1)
+
+    def test_run_daily_jobs_includes_check_step_and_heartbeat_intact(self):
+        for i in range(3):
+            self._signup(f'runner{i}@test.com')
+        result = run_daily_jobs()
+        self.assertEqual(result['counts']['signup_verify_flatline'], 1)
+        self.assertEqual(result['errors'], {})
+        marker = SeedMarker.objects.get(key=HEARTBEAT_KEY)
+        self.assertEqual(marker.version, tz.localdate().isoformat())

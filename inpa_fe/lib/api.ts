@@ -155,6 +155,10 @@ export interface RegisterPayload {
   title?: string;         // 직책(선택)
   license_no?: string;    // 설계사 번호(선택, 숫자 14자리)
   invite_token?: string;  // 팀 초대 토큰(선택) — 무효여도 가입은 성공(BE가 토큰만 무시)
+  // UTM/유입 캡처(#16, 선택) — sessionStorage 첫터치 또는 현재 URL 쿼리에서 옴. PII 아님.
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
 }
 
 export interface RegisterResponse {
