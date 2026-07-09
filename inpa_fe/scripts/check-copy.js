@@ -23,11 +23,14 @@
 const fs = require("fs");
 const path = require("path");
 
-const ROOTS = ["app", "components"];
+const ROOTS = ["app", "components", "lib"];
 const EXT = new Set([".ts", ".tsx"]);
 
 // 고객 대면(비로그인 공개) 라우트 — 권유 단어 규칙은 여기만 검사(설계사 내부 화면은 규칙 설명 등 정당 언급 허용).
 const CUSTOMER_ROUTES = ["app/s", "app/b", "app/c", "app/d", "app/p"];
+// 고객 전송용 텍스트를 만드는 모듈 — 설계사 페이지 안이지만 이 텍스트는 고객이 직접 읽으므로 권유어 규칙을
+// 여기에도 적용한다(페이지 전체는 정당한 §97 내부 안내 문구 때문에 오탐이라 파일 단위로 분리해 가드한다).
+const ADVICE_PATHS = [...CUSTOMER_ROUTES, "lib/compare-export.ts"];
 const ADVICE_HINT = "고객 대면 화면 권유어 금지(§97·금소법). 사실 서술·중립 표현으로 바꾸세요.";
 
 // 렌더 카피에 절대 없어야 하는 표기(주석 제거 후 검사). 추가할 땐 여기만 늘리면 됨(오탐 검증 필수).
@@ -37,12 +40,12 @@ const RULES = [
   // §6c 긍정 프레임: '준비 중/준비중'(beta-sounding, 없는 기능 광고) 금지 — 다음 행동으로 재서술.
   { name: "준비 중", re: /준비\s?중/, hint: "'준비 중'은 금지. 지금 가능한 다음 행동으로 바꿔 쓰세요(예: '관리자 설정 후 연결할 수 있어요')." },
   // #23 권유 단어 블랙리스트 — 고객 대면 라우트 한정. '추천인'(referrer)은 부정형 전방탐색으로 제외.
-  { name: "권유어(추천)", re: /추천(?!인)/, paths: CUSTOMER_ROUTES, hint: ADVICE_HINT },
-  { name: "권유어(갈아타)", re: /갈아타/, paths: CUSTOMER_ROUTES, hint: ADVICE_HINT },
-  { name: "권유어(해지 유도)", re: /해지하(세요|시는 게|시길)/, paths: CUSTOMER_ROUTES, hint: ADVICE_HINT },
-  { name: "권유어(더 유리)", re: /더 유리/, paths: CUSTOMER_ROUTES, hint: ADVICE_HINT },
-  { name: "권유어(가입하세요)", re: /가입하세요/, paths: CUSTOMER_ROUTES, hint: ADVICE_HINT },
-  { name: "권유어(전환하세요)", re: /전환하세요/, paths: CUSTOMER_ROUTES, hint: ADVICE_HINT },
+  { name: "권유어(추천)", re: /추천(?!인)/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
+  { name: "권유어(갈아타)", re: /갈아타/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
+  { name: "권유어(해지 유도)", re: /해지하(세요|시는 게|시길)/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
+  { name: "권유어(더 유리)", re: /더 유리/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
+  { name: "권유어(가입하세요)", re: /가입하세요/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
+  { name: "권유어(전환하세요)", re: /전환하세요/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
 ];
 
 /** rule.paths 가 있으면 해당 경로(디렉터리) 하위 파일에만 적용. */

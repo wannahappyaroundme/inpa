@@ -73,6 +73,7 @@ import {
   type ContractChecklistItem,
 } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
+import { buildCompareExportText, compareDiffText } from "@/lib/compare-export";
 
 type TabKey = "analysis" | "switch" | "info" | "contract" | "history";
 
@@ -1052,32 +1053,59 @@ function InsuranceCards({ customerId, portfolioType, refreshKey, emptyHint, titl
   );
 }
 
-// ── 선택형 보험 행 (비교 분석에서 비교 대상 고르기) ──
-function toggleSet(setter: (updater: (prev: Set<number>) => Set<number>) => void, id: number) {
-  setter((prev) => {
-    const n = new Set(prev);
-    if (n.has(id)) n.delete(id); else n.add(id);
-    return n;
-  });
+// ── 자유 A/B 배정 행 (비교 분석 — 보험 아무거나 A안·B안·미포함 중 하나로) ── 2026-07-09 ──
+// ★ 미포함은 '키 삭제'가 아니라 명시적 "none"으로 저장한다: 삭제하면 목록 새로고침(제안 추가 등) 때
+//   '미배정'과 구분이 안 돼 portfolio_type 프리셋으로 되살아나, 설계사가 뺀 보험이 고객 텍스트에
+//   다시 섞이는 버그가 있었다(리뷰 major). "none"으로 남기면 새로고침이 그 배정을 보존한다.
+type SideAssign = "A" | "B" | "none";
+function assignInsurance(
+  setter: (updater: (prev: Record<number, SideAssign>) => Record<number, SideAssign>) => void,
+  id: number,
+  value: SideAssign
+) {
+  setter((prev) => ({ ...prev, [id]: value }));
 }
-function SelectInsRow({ it, selected, onToggle }: { it: ManualInsuranceItem; selected: boolean; onToggle: () => void }) {
+function AssignInsRow({ it, value, onChange }: { it: ManualInsuranceItem; value: SideAssign; onChange: (v: SideAssign) => void }) {
   const sub = [it.contractor_name && `계약 ${it.contractor_name}`, it.insured_name && `피보험 ${it.insured_name}`]
     .filter(Boolean).join(" · ") || (it.insurance_type === 1 ? "생명" : "손해");
+  const portfolioTag = it.portfolio_type === 1 ? "보유" : "제안";
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={`w-full text-left flex items-center gap-2.5 rounded-xl border px-3 py-2 transition ${selected ? "border-brand bg-accent-tint" : "border-line bg-surface"}`}
-    >
-      <span className={`w-4 h-4 rounded border shrink-0 flex items-center justify-center ${selected ? "bg-brand border-brand" : "border-line"}`}>
-        {selected && <span className="text-white text-[10px] leading-none">✓</span>}
-      </span>
+    <div className="flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2">
       <span className="flex-1 min-w-0">
-        <span className="block text-[13px] font-semibold text-ink truncate">{it.name ?? "이름 없는 보험"}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="text-[13px] font-semibold text-ink truncate">{it.name ?? "이름 없는 보험"}</span>
+          <span className="shrink-0 text-[10px] font-semibold rounded-full px-1.5 py-0.5 bg-surface2 text-ink3 border border-line">{portfolioTag}</span>
+        </span>
         <span className="block text-[11px] text-ink3 truncate">{sub}</span>
       </span>
       <span className="shrink-0 text-[11px] text-ink2 tnum">{fmtWon(it.monthly_premiums)}</span>
-    </button>
+      <div className="shrink-0 inline-flex rounded-lg border border-line overflow-hidden text-[11px] font-semibold">
+        <button
+          type="button"
+          onClick={() => onChange("A")}
+          aria-pressed={value === "A"}
+          className={`px-2.5 py-1.5 transition ${value === "A" ? "bg-brand text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}
+        >
+          A안
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange("none")}
+          aria-pressed={value === "none"}
+          className={`px-2.5 py-1.5 border-x border-line transition ${value === "none" ? "bg-surface2 text-ink" : "bg-surface text-ink3 hover:bg-surface2"}`}
+        >
+          미포함
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange("B")}
+          aria-pressed={value === "B"}
+          className={`px-2.5 py-1.5 transition ${value === "B" ? "bg-ink text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}
+        >
+          B안
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1299,11 +1327,14 @@ function SwitchTab({ customerId }: { customerId: number }) {
   const [publishTooltip, setPublishTooltip] = useState(false);
   const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  // ④ 비교안내서 = 설계사 직접 발송 — 인파는 복사 편의만 제공(자동 발송 없음, §97).
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
 
-  // 보험 목록 + 비교 대상 선택(보유/제안). 처음엔 전체 선택. 토글하면 그 보험만 비교(총합·변동 반영).
+  // 보험 목록 + 비교 대상 자유 배정(A안/B안/미포함, 2026-07-09 재정의 — 보유/제안 풀 구분 없이
+  // 아무 보험이나 A·B에 넣을 수 있다: 제안 vs 제안·증권 vs 증권도 가능). 마운트 시 보유→A/제안→B
+  // 프리셋(회귀 방지 UX), 이후 설계사가 자유 변경. 목록 새로고침 시 기존 배정은 보존, 새 보험만 프리셋.
   const [insurances, setInsurances] = useState<ManualInsuranceItem[]>([]);
-  const [curSel, setCurSel] = useState<Set<number>>(new Set());
-  const [propSel, setPropSel] = useState<Set<number>>(new Set());
+  const [assign, setAssign] = useState<Record<number, SideAssign>>({});
   const [insLoaded, setInsLoaded] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
 
@@ -1311,8 +1342,17 @@ function SwitchTab({ customerId }: { customerId: number }) {
     listManualInsurances(customerId)
       .then((r) => {
         setInsurances(r.results);
-        setCurSel(new Set(r.results.filter((x) => x.portfolio_type === 1).map((x) => x.id)));
-        setPropSel(new Set(r.results.filter((x) => x.portfolio_type === 2).map((x) => x.id)));
+        setAssign((prev) => {
+          const next: Record<number, SideAssign> = {};
+          for (const it of r.results) {
+            // 기존 배정(A·B·none 모두)은 그대로 보존 — 설계사가 뺀 보험을 되살리지 않는다.
+            if (it.id in prev) { next[it.id] = prev[it.id]; continue; }
+            if (it.portfolio_type === 1) next[it.id] = "A";
+            else if (it.portfolio_type === 2) next[it.id] = "B";
+            else next[it.id] = "none";
+          }
+          return next;
+        });
         setInsLoaded(true);
       })
       .catch(() => setInsLoaded(true));
@@ -1324,7 +1364,9 @@ function SwitchTab({ customerId }: { customerId: number }) {
     setError(null);
     setUpgradeInfo(undefined);
     setUpgradeOpen(false);
-    compareCustomer(customerId, { sideAIds: [...curSel], sideBIds: [...propSel] })
+    const sideAIds = Object.entries(assign).filter(([, v]) => v === "A").map(([id]) => Number(id));
+    const sideBIds = Object.entries(assign).filter(([, v]) => v === "B").map(([id]) => Number(id));
+    compareCustomer(customerId, { sideAIds, sideBIds })
       .then((d) => setData(d))
       .catch((e: unknown) => {
         if (e instanceof ApiError && e.status === 402) {
@@ -1335,17 +1377,17 @@ function SwitchTab({ customerId }: { customerId: number }) {
         }
       })
       .finally(() => setLoading(false));
-  }, [customerId, curSel, propSel]);
+  }, [customerId, assign]);
 
-  // 제안 추가(업로드/직접) 후 목록 새로고침 → 선택(전체) 갱신 → 재비교.
+  // 제안 추가(업로드/직접) 후 목록 새로고침 → 배정 갱신(기존 보존+신규 프리셋) → 재비교.
   const propOcr = useOcrUpload(() => { loadInsurances(); }, 2);
 
   useEffect(() => {
     if (insLoaded) doCompare();
   }, [doCompare, insLoaded]);
 
-  const held = insurances.filter((x) => x.portfolio_type === 1);
-  const proposed = insurances.filter((x) => x.portfolio_type === 2);
+  const aCount = Object.values(assign).filter((v) => v === "A").length;
+  const bCount = Object.values(assign).filter((v) => v === "B").length;
 
   // 발행 버튼 — publishable=false 이므로 항상 disabled
   async function handlePublish() {
@@ -1409,56 +1451,70 @@ function SwitchTab({ customerId }: { customerId: number }) {
     const sign = d > 0 ? "+" : "";
     return sign + new Intl.NumberFormat("ko-KR").format(d);
   }
-  // 담보 변동: 추가(신규)/삭제(빠짐)/변경/유지 — 현재 vs 제안 금액 기준.
+  // 담보 변동: 추가(신규)/삭제(빠짐)/변경/유지 — A안 vs B안 금액 기준. 라벨 판정은 compare-export 와 공유.
   function diffLabel(cur: number | null, prop: number | null): { text: string; cls: string } {
-    const c = cur ?? 0, p = prop ?? 0;
-    if (c <= 0 && p > 0) return { text: "추가", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
-    if (c > 0 && p <= 0) return { text: "삭제", cls: "bg-rose-50 text-rose-600 border-rose-200" };
-    if (c > 0 && p > 0 && c !== p) return { text: "변경", cls: "bg-amber-50 text-amber-700 border-amber-200" };
-    if (c > 0 && p > 0) return { text: "유지", cls: "bg-surface2 text-ink3 border-line" };
-    return { text: "-", cls: "bg-surface2 text-ink3 border-line" };
+    const text = compareDiffText(cur, prop);
+    const clsBy: Record<string, string> = {
+      "추가": "bg-emerald-50 text-emerald-700 border-emerald-200",
+      "삭제": "bg-rose-50 text-rose-600 border-rose-200",
+      "변경": "bg-amber-50 text-amber-700 border-amber-200",
+    };
+    return { text, cls: clsBy[text] ?? "bg-surface2 text-ink3 border-line" };
+  }
+
+  // ★ 열 이름 적응(사실 정확성 + §97): A안이 전부 보유(portfolio_type==1)이고 B안이 전부 제안(==2)인
+  //   '표준 갈아타기' 배치일 때만 친숙한 '현재/제안'을 쓴다. 제안 vs 제안·증권 vs 증권처럼 그렇지
+  //   않은 배치에선 A측을 '현재'로 부르면 고객에게 거짓이 되므로 중립 라벨 'A안/B안'을 쓴다.
+  const aTypes = new Set(insurances.filter((i) => assign[i.id] === "A").map((i) => i.portfolio_type));
+  const bTypes = new Set(insurances.filter((i) => assign[i.id] === "B").map((i) => i.portfolio_type));
+  const canonicalSides =
+    aTypes.size > 0 && bTypes.size > 0 &&
+    [...aTypes].every((t) => t === 1) && [...bTypes].every((t) => t === 2);
+  const labelA = canonicalSides ? "현재" : "A안";
+  const labelB = canonicalSides ? "제안" : "B안";
+  const canExport = aCount > 0 && bCount > 0;
+
+  // ④ 고객에게 보낼 내용 — 중립 사실만(담보·금액·증감 라벨). §97: 판정·권유·switch_warnings(설계사
+  // 내부 전용) 절대 미포함, 인파는 복사만 하고 발송하지 않는다(설계사가 직접 카톡·문자로 전달).
+  // 텍스트 생성은 가드되는 lib/compare-export 로 분리(권유어 CI 검사 대상).
+  async function copyExportText() {
+    if (!data || !canExport) return;
+    const ok = await copyText(buildCompareExportText(data, labelA, labelB));
+    setCopyMsg(ok ? "복사했어요. 고객에게 붙여넣어 보내세요." : "복사에 실패했어요. 다시 시도해 주세요.");
+    setTimeout(() => setCopyMsg(null), 3000);
   }
 
   return (
     <div>
-      {/* 비교할 보험 고르기 — 왼쪽/오른쪽 선택·추가. 고르면 그 보험만 총합·비교(나란히 정리, 판단은 설계사) */}
-      <div className="mb-4 grid sm:grid-cols-2 gap-3">
-        {/* A안 (왼쪽) · 보유 보험 */}
-        <div className="rounded-2xl border border-line bg-surface2 p-3.5">
-          <div className="text-[13px] font-bold text-ink mb-2">
-            왼쪽 · 보유 보험 <span className="text-ink3 tnum">{curSel.size}/{held.length}</span>
+      {/* 비교할 보험 고르기 — 보유·제안 구분 없이 아무 보험이나 A안·B안·미포함 중 하나로 자유 배정.
+          제안끼리, 보유끼리도 비교 가능(2026-07-09 재정의). 배정 바뀌면 그 조합으로 재비교(나란히 정리, 판단은 설계사). */}
+      <div className="mb-4 rounded-2xl border border-line bg-surface2 p-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div className="text-[13px] font-bold text-ink">
+            비교할 보험 고르기 <span className="text-ink3 tnum">A안 {aCount} · B안 {bCount}</span>
           </div>
-          {held.length === 0 ? (
-            <p className="text-[12px] text-ink3 leading-5">분석 탭에서 증권을 등록하면 여기에서 고를 수 있어요.</p>
-          ) : (
-            <div className="space-y-2">
-              {held.map((it) => (
-                <SelectInsRow key={it.id} it={it} selected={curSel.has(it.id)} onToggle={() => toggleSet(setCurSel, it.id)} />
-              ))}
-            </div>
-          )}
-        </div>
-        {/* B안 (오른쪽) · 제안 보험 */}
-        <div className="rounded-2xl border border-line bg-surface2 p-3.5">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <div className="text-[13px] font-bold text-ink">
-              오른쪽 · 제안 보험 <span className="text-ink3 tnum">{propSel.size}/{proposed.length}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <OcrUploadButton customerId={customerId} phase={propOcr.phase} onFileChange={propOcr.onFileChange} inputId="proposal-ocr-input" label="제안서 업로드" />
-              <button type="button" onClick={() => setManualOpen(true)} className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition">직접 입력</button>
-            </div>
+          <div className="flex items-center gap-1.5">
+            <OcrUploadButton customerId={customerId} phase={propOcr.phase} onFileChange={propOcr.onFileChange} inputId="proposal-ocr-input" label="제안서 업로드" />
+            <button type="button" onClick={() => setManualOpen(true)} className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition">직접 입력</button>
           </div>
-          {proposed.length === 0 ? (
-            <p className="text-[12px] text-ink3 leading-5">가입제안서를 올리거나 직접 입력하면 비교가 시작돼요.</p>
-          ) : (
-            <div className="space-y-2">
-              {proposed.map((it) => (
-                <SelectInsRow key={it.id} it={it} selected={propSel.has(it.id)} onToggle={() => toggleSet(setPropSel, it.id)} />
-              ))}
-            </div>
-          )}
         </div>
+        {insurances.length === 0 ? (
+          <p className="text-[12px] text-ink3 leading-5">분석 탭에서 증권을 등록하거나 가입제안서를 올리면 여기에서 비교 대상을 고를 수 있어요.</p>
+        ) : (
+          <div className="space-y-2">
+            {insurances.map((it) => (
+              <AssignInsRow
+                key={it.id}
+                it={it}
+                value={assign[it.id] ?? "none"}
+                onChange={(v) => assignInsurance(setAssign, it.id, v)}
+              />
+            ))}
+          </div>
+        )}
+        <p className="mt-2.5 text-[11px] leading-4 text-ink3">
+          각 보험을 A안·B안 중 하나로 고르거나 비교에서 빼세요. 제안끼리, 보유끼리도 나란히 비교할 수 있어요.
+        </p>
       </div>
       <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} onManualEntry={() => setManualOpen(true)} />
       {propOcr.phase === "consent_required" && (
@@ -1522,7 +1578,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
       {/* 보험료 요약 */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="rounded-xl border border-line bg-surface2 px-4 py-3">
-          <div className="text-[11px] font-semibold text-ink3">현재 월 보험료</div>
+          <div className="text-[11px] font-semibold text-ink3">{labelA} 월 보험료</div>
           <div className="mt-1 text-[16px] font-bold text-ink tnum">
             {fmtPrem(data.current.monthly_premiums)}
           </div>
@@ -1531,7 +1587,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
           </div>
         </div>
         <div className="rounded-xl border border-line bg-surface2 px-4 py-3">
-          <div className="text-[11px] font-semibold text-ink3">제안 월 보험료</div>
+          <div className="text-[11px] font-semibold text-ink3">{labelB} 월 보험료</div>
           <div className="mt-1 text-[16px] font-bold text-ink tnum">
             {fmtPrem(data.proposed.monthly_premiums)}
           </div>
@@ -1542,19 +1598,19 @@ function SwitchTab({ customerId }: { customerId: number }) {
       </div>
 
       {/* 갱신/비갱신 보험료 요약·증감 표 */}
-      <ComparePremiumSplit current={data.current} proposed={data.proposed} />
+      <ComparePremiumSplit current={data.current} proposed={data.proposed} labelA={labelA} labelB={labelB} />
 
       {/* 기존 vs 제안 보장 그룹 막대(006) — 담보별 2줄(기존·제안). 정확 수치 같이 표시 + 아래 비교표 */}
       {data.rows.length >= 2 && (
         <div className="rounded-xl border border-line bg-surface px-4 py-3.5 mb-4">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[13px] font-bold text-ink">보장 비교 (기존 vs 제안)</span>
+            <span className="text-[13px] font-bold text-ink">보장 비교 ({labelA} vs {labelB})</span>
             <div className="flex items-center gap-3 text-[11px]">
               <span className="inline-flex items-center gap-1 text-ink2">
-                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "var(--existing)" }} />기존
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "var(--existing)" }} />{labelA}
               </span>
               <span className="inline-flex items-center gap-1 text-ink2">
-                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "var(--proposal)" }} />제안
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "var(--proposal)" }} />{labelB}
               </span>
             </div>
           </div>
@@ -1566,7 +1622,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
             }))}
             format={fmtAmount}
           />
-          <p className="mt-2 text-[11px] text-ink3">담보별 기존·제안 보장금액 비교예요. 정확한 수치는 아래 비교표에서 확인하세요.</p>
+          <p className="mt-2 text-[11px] text-ink3">담보별 {labelA}·{labelB} 보장금액 비교예요. 정확한 수치는 아래 비교표에서 확인하세요.</p>
         </div>
       )}
 
@@ -1577,8 +1633,8 @@ function SwitchTab({ customerId }: { customerId: number }) {
             <thead>
               <tr className="bg-surface2 border-b border-line">
                 <th className="px-3 py-2.5 text-left font-semibold text-ink2">담보</th>
-                <th className="px-3 py-2.5 text-right font-semibold text-ink2">현재</th>
-                <th className="px-3 py-2.5 text-right font-semibold text-ink2">제안</th>
+                <th className="px-3 py-2.5 text-right font-semibold text-ink2">{labelA}</th>
+                <th className="px-3 py-2.5 text-right font-semibold text-ink2">{labelB}</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-ink2">증감</th>
                 <th className="px-3 py-2.5 text-center font-semibold text-ink2">변동</th>
               </tr>
@@ -1630,6 +1686,22 @@ function SwitchTab({ customerId }: { customerId: number }) {
           <p className="text-[14px] text-ink3">비교할 담보 데이터가 없어요.</p>
         </div>
       )}
+
+      {/* ④ 고객에게 보낼 내용 복사 — 인파는 복사만, 발송은 설계사가 직접(카톡·문자). 중립 사실만
+          담아 §97을 지킨다(판정·권유·확인해야 할 사항 미포함, 위 buildExportText 참고). */}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={copyExportText}
+          disabled={!canExport}
+          className="rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-surface"
+        >
+          고객에게 보낼 내용 복사
+        </button>
+        {copyMsg
+          ? <span className="text-[12px] text-ink3">{copyMsg}</span>
+          : !canExport && <span className="text-[12px] text-ink3">A안·B안에 보험을 하나씩 배정하면 복사할 수 있어요.</span>}
+      </div>
 
       {/* AI 비교안내서 — guide_enabled=false 면 법무 게이트 안내만 */}
       <div className="mt-5">

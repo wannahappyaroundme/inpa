@@ -125,12 +125,12 @@ function CompareRow({ label, cur, prop }: { label: string; cur: number | null; p
   );
 }
 
-export function ComparePremiumSplit({ current, proposed }: { current: CompareSide; proposed: CompareSide }) {
+export function ComparePremiumSplit({ current, proposed, labelA = "현재", labelB = "제안" }: { current: CompareSide; proposed: CompareSide; labelA?: string; labelB?: string }) {
   return (
     <section className="mt-5 rounded-xl border border-line bg-surface px-4 py-3">
       <h4 className="text-[14px] font-bold text-ink mb-2">보험료 비교 (갱신/비갱신)</h4>
       <div className="grid grid-cols-4 text-[11px] text-ink3 pb-1 border-b border-line">
-        <span></span><span className="text-right">현재</span><span className="text-right">제안</span><span className="text-right">증감</span>
+        <span></span><span className="text-right">{labelA}</span><span className="text-right">{labelB}</span><span className="text-right">증감</span>
       </div>
       <div className="text-[12px] font-bold text-ink3 pt-2">월 보험료</div>
       <CompareRow label="갱신형" cur={current.monthly_renewal_premium} prop={proposed.monthly_renewal_premium} />
