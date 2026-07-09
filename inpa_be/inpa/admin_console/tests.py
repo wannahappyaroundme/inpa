@@ -42,6 +42,8 @@
   [요금제 설정]
   P1   PATCH /api/v1/admin/settings/plans/:code/ — 한도 변경
 """
+from decimal import Decimal
+
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -914,3 +916,94 @@ class AdminFeatureFlagsTest(TestCase):
             format='json',
         )
         self.assertEqual(res.status_code, 405)
+
+
+# ─── Claude 호출당 비용·파싱 결과 계측 (프리런치 리뷰 #17) ────────────────────
+
+class AdminClaudeCostTest(TestCase):
+    """GET /api/v1/admin/claude-cost/?days= — IsAdmin 격리 + 집계 shape + 데모 제외."""
+
+    def setUp(self):
+        from inpa.billing.models import ClaudeApiLog
+
+        self.ClaudeApiLog = ClaudeApiLog
+        self.admin = _make_user('admin_cost@inpa.kr', is_admin=True)
+        self.planner = _make_user('planner_cost@test.kr', is_admin=False)
+        self.demo = _make_user('demo_cost@inpa.local', is_admin=False)
+        self.client_admin = _auth_client(self.admin)
+        self.client_planner = _auth_client(self.planner)
+
+        # 성공 1건(설계사) — 매칭 3/미매칭 1, 회사코드 2
+        ClaudeApiLog.objects.create(
+            action='ocr_parse', model='claude-opus-4-8', user=self.planner,
+            input_tokens=1000, output_tokens=200, cost_krw=Decimal('7000.00'),
+            parse_outcome='success', carrier_code=2, matched_count=3, unmatched_count=1,
+        )
+        # 실패 1건(설계사) — timeout, 비용 0
+        ClaudeApiLog.objects.create(
+            action='ocr_parse', model='claude-opus-4-8', user=self.planner,
+            parse_outcome='timeout',
+        )
+        # 공개 /d 경로 — user=None(데모 아님, 집계에 포함되어야 함)
+        ClaudeApiLog.objects.create(
+            action='self_diagnosis', model='claude-opus-4-8', user=None,
+            input_tokens=500, cost_krw=Decimal('3500.00'),
+            parse_outcome='success', carrier_code=2, matched_count=1, unmatched_count=0,
+        )
+        # 데모 계정 — 집계에서 제외되어야 함
+        ClaudeApiLog.objects.create(
+            action='ocr_parse', model='claude-opus-4-8', user=self.demo,
+            input_tokens=999999, cost_krw=Decimal('99999.00'), parse_outcome='success',
+        )
+
+    def test_CC1_admin_gets_200_shape(self):
+        """CC1: admin → 200 + 필수 키 shape."""
+        res = self.client_admin.get('/api/v1/admin/claude-cost/?days=30')
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        for key in ('days', 'total_calls', 'total_cost_krw', 'cost_is_estimate',
+                    'usd_krw_rate', 'success_rate', 'outcome_counts', 'by_action',
+                    'daily', 'by_carrier'):
+            self.assertIn(key, data, f'키 누락: {key}')
+        self.assertTrue(data['cost_is_estimate'])
+
+    def test_CC2_non_admin_403(self):
+        """CC2: 설계사 → 403."""
+        res = self.client_planner.get('/api/v1/admin/claude-cost/')
+        self.assertEqual(res.status_code, 403)
+
+    def test_CC3_demo_account_excluded_public_included(self):
+        """CC3: @inpa.local 데모 제외, user=None(공개 /d) 은 포함 — 총 3건(성공2·실패1)."""
+        res = self.client_admin.get('/api/v1/admin/claude-cost/?days=30')
+        data = res.json()
+        self.assertEqual(data['total_calls'], 3)
+        self.assertEqual(data['total_cost_krw'], 10500.0)  # 7000 + 3500 (데모 99999 제외)
+
+    def test_CC4_outcome_counts_and_success_rate(self):
+        """CC4: outcome 분포(성공 2·timeout 1) + 성공률 계산."""
+        res = self.client_admin.get('/api/v1/admin/claude-cost/?days=30')
+        data = res.json()
+        self.assertEqual(data['outcome_counts'].get('success'), 2)
+        self.assertEqual(data['outcome_counts'].get('timeout'), 1)
+        self.assertAlmostEqual(data['success_rate'], 66.7, places=1)
+
+    def test_CC5_by_action_breakdown(self):
+        """CC5: action별 호출수·비용 분해(데모 제외)."""
+        res = self.client_admin.get('/api/v1/admin/claude-cost/?days=30')
+        by_action = {row['action']: row for row in res.json()['by_action']}
+        self.assertEqual(by_action['ocr_parse']['calls'], 2)
+        self.assertEqual(by_action['self_diagnosis']['calls'], 1)
+
+    def test_CC6_by_carrier_unmatched_rate(self):
+        """CC6: carrier_code=2 매칭 4(3+1)/미매칭 1 → 미매칭율 = 1/5*100 = 20.0%."""
+        res = self.client_admin.get('/api/v1/admin/claude-cost/?days=30')
+        rows = res.json()['by_carrier']
+        row = next(r for r in rows if r['carrier_code'] == 2)
+        self.assertEqual(row['matched'], 4)
+        self.assertEqual(row['unmatched'], 1)
+        self.assertEqual(row['unmatched_rate'], 20.0)
+
+    def test_CC7_days_zero_means_all_time(self):
+        """CC7: days=0 → 기간 제한 없이 전체(데모 제외 3건)."""
+        res = self.client_admin.get('/api/v1/admin/claude-cost/?days=0')
+        self.assertEqual(res.json()['total_calls'], 3)

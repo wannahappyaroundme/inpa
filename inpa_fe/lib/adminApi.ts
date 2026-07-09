@@ -568,3 +568,43 @@ export async function getBillingMode(): Promise<BillingMode> {
 export async function setBillingMode(free_tier_unlimited: boolean): Promise<BillingMode> {
   return req<BillingMode>("PATCH", "/admin/billing/mode/", { free_tier_unlimited });
 }
+
+// ─── Claude 호출당 비용·파싱 결과 계측 (프리런치 리뷰 #17) ───────────────────
+// cost_krw 는 전부 "추정치"(토큰 × 모델 단가 × 환율 추정). 실제 청구서와 다를 수 있음(§6 정직성).
+
+export interface ClaudeCostByAction {
+  action: string;
+  calls: number;
+  cost_krw: number;
+}
+export interface ClaudeCostDailyPoint {
+  date: string | null; // YYYY-MM-DD
+  calls: number;
+  cost_krw: number;
+}
+export interface ClaudeCostByCarrier {
+  carrier_code: number;
+  matched: number;
+  unmatched: number;
+  /** 미매칭 담보 건수 ÷ (매칭+미매칭) × 100, 소수 1자리 */
+  unmatched_rate: number;
+}
+export interface AdminClaudeCostResponse {
+  days: number;
+  total_calls: number;
+  total_cost_krw: number;
+  /** 항상 true — cost_krw 가 추정치임을 FE 가 명시하라는 신호(판정어 아닌 사실 플래그) */
+  cost_is_estimate: boolean;
+  usd_krw_rate: number;
+  /** 0건이면 null (분모 없음) */
+  success_rate: number | null;
+  outcome_counts: Record<string, number>;
+  by_action: ClaudeCostByAction[];
+  daily: ClaudeCostDailyPoint[];
+  by_carrier: ClaudeCostByCarrier[];
+}
+
+/** GET /api/v1/admin/claude-cost/?days= — Claude 호출당 비용(추정)·파싱 결과 집계(데모 제외) */
+export async function adminGetClaudeCost(days = 30): Promise<AdminClaudeCostResponse> {
+  return req<AdminClaudeCostResponse>("GET", `/admin/claude-cost/?days=${days}`);
+}

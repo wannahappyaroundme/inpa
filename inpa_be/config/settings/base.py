@@ -177,6 +177,10 @@ CLAUDE_API_KEY = ANTHROPIC_API_KEY
 CLAUDE_MODEL_PARSE = env('CLAUDE_MODEL_PARSE', default='claude-opus-4-8')
 CLAUDE_MODEL_BULK = env('CLAUDE_MODEL_BULK', default='claude-haiku-4-5')
 
+# ── Claude 비용 추정 환율 (프리런치 #17, billing/pricing.py) ────────────
+# 원/달러 환율 추정치 — 어드민 관측용 cost_krw 계산에만 쓰인다(정밀 청구서 아님, §6 정직성).
+CLAUDE_USD_KRW_RATE = env.float('CLAUDE_USD_KRW_RATE', default=1400.0)
+
 # ── CORS ─────────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=['http://localhost:3000'])
 

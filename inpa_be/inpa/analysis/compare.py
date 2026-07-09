@@ -22,6 +22,8 @@ mode(neutral|graded): 히트맵과 동일 게이트 — 살아있는 PlannerBase
 owner 격리: 부모 Customer 를 owner 스코프 쿼리로 잡는다(없으면 404 = 존재 자체 은폐).
   CustomerInsurance 는 customer__owner 경유 소유자 전용이므로 customer 필터로 격리 완결.
 """
+import logging
+
 from django.conf import settings
 from rest_framework import status
 from rest_framework.exceptions import NotFound
@@ -33,6 +35,8 @@ from inpa.analysis.switch_verdict import compute_verdict
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer, PlannerBaseline
+
+logger = logging.getLogger(__name__)
 
 # ★ AI 초안 면책 — 절대 변경 금지(정직성 레드라인). "심의 완료/안전" 류 보증 문구 금지.
 COMPARE_DISCLAIMER = (
@@ -171,24 +175,35 @@ def _mode_for_customer(customer):
     return 'graded' if has_live_baseline else 'neutral'
 
 
-def _generate_guide_draft(customer, current_summary, proposed_summary, rows):
+def _generate_guide_draft(customer, current_summary, proposed_summary, rows, meta=None):
     """Claude(settings.CLAUDE_MODEL_PARSE) 로 §97 6요건 구조 비교안내서 초안 생성.
 
     호출 전제: settings.COMPARE_AI_ENABLED=True + check_and_consume 통과(호출자 책임).
     실패(키 없음/패키지 없음/API 오류) 시 None 반환 → 호출자가 guide_enabled 처리.
 
+    Args:
+        meta: ★ 선택 out-param(dict, 프리런치 #17). 성공·실패 outcome
+            (success/no_key/package_missing/api_error) 을 채운다. None 이면 기존 동작과
+            동일(부작용 없음 — 이 함수를 직접 mock 하는 기존 테스트 하위호환).
+
     Returns:
         (guide_text, usage) | (None, None)
     """
+    def _set_meta(**kwargs):
+        if meta is not None:
+            meta.update(kwargs)
+
     api_key = getattr(settings, 'CLAUDE_API_KEY', '')
     if not api_key:
-        print('[compare] CLAUDE_API_KEY not configured')
+        logger.warning('[compare] CLAUDE_API_KEY not configured')
+        _set_meta(outcome='no_key')
         return None, None
 
     try:
         import anthropic
     except ImportError:
-        print('[compare] anthropic package not installed')
+        logger.warning('[compare] anthropic package not installed')
+        _set_meta(outcome='package_missing')
         return None, None
 
     model_id = getattr(settings, 'CLAUDE_MODEL_PARSE', 'claude-opus-4-8')
@@ -240,9 +255,11 @@ def _generate_guide_draft(customer, current_summary, proposed_summary, rows):
         )
         text = message.content[0].text.strip()
         usage = getattr(message, 'usage', None)
+        _set_meta(outcome='success')
         return text, usage
-    except Exception as e:  # API 오류는 비교표(사실) 응답을 깨뜨리지 않는다
-        print(f'[compare] guide generation error: {e}')
+    except Exception as e:  # API 오류는 비교표(사실) 응답을 깨뜨리지 않는다. 예외 타입만(내용 미포함).
+        logger.warning('[compare] guide generation error: %s', type(e).__name__)
+        _set_meta(outcome='api_error')
         return None, None
 
 
@@ -326,16 +343,23 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
             except LimitExceeded as exc:
                 return _credit_exhausted_response(exc, request.user)
 
+            guide_meta = {}
             text, usage = _generate_guide_draft(
-                customer, current_summary, proposed_summary, rows)
+                customer, current_summary, proposed_summary, rows, meta=guide_meta)
             if text is not None:
                 guide_draft = text
                 guide_enabled = True
-                log_claude_usage(
-                    'compare_guide',
-                    getattr(settings, 'CLAUDE_MODEL_PARSE', 'claude-opus-4-8'),
-                    usage,
-                )
+            # ★ 프리런치 #17: 성공·실패 모두 기록(과거엔 성공 시에만 로깅 — 실패 관측 불가였음).
+            #   guide_meta 는 _generate_guide_draft 를 직접 mock 하는 기존 테스트에서는 비어 있을
+            #   수 있으므로(부작용 없음), text 유무로 안전한 fallback outcome 을 둔다.
+            outcome = guide_meta.get('outcome') or ('success' if text is not None else 'api_error')
+            log_claude_usage(
+                'compare_guide',
+                getattr(settings, 'CLAUDE_MODEL_PARSE', 'claude-opus-4-8'),
+                usage,
+                user=request.user,
+                outcome=outcome,
+            )
 
         return Response({
             'mode': mode,

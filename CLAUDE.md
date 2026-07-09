@@ -150,6 +150,12 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 ## 11. Changelog (newest first — condensed; the durable detail lives in the sections above)
 
+- **2026-07-08 (골든셋 정규화 정확도 회귀 게이트 — 프리런치 #18, Phase 2 로드맵 ③, PR #72 DEPLOYED):** 정규화 사전(인파 유일 취득자산)의 정확도를 CI 상시 측정·회귀 방지 + #26 승인 게이트 재사용. PM이 #29 유지율 대신 선택(#29 = 보험사 연동 부재로 해약 여부 불가지 → 정직성 문제, 패널 deferred 확정). 구현/리뷰 sonnet·opus / 픽스 Opus 오케스트레이터. BE **638 tests**, 마이그레이션 0.
+  - *코퍼스:* `analysis/data/golden_set.json`(회귀 앵커 11: §7 substring 함정 5 + 3대 진단비/후유장해 대표 6) + `NORMALIZATION_V0`(자체 사전) live 로드. `(company,raw_name)` dedup(앵커 우선=하드게이트 승격). **보험사 원본 문서·samples/·benchmark/ 절대 미참조**(패널 provenance 조건).
+  - *채점기:* `analysis/golden_eval.py::evaluate_golden_set()` — prod 매칭 순서 재현(admin_verified exact-match → `_match_by_keywords` → `resolve_std_detail`), 순수 함수. `GOLDEN_SET_MIN_ACCURACY=0.60`(실측 baseline 0.6176 바로 아래). `find_golden_expected` 코퍼스 조회(DB 무접근).
+  - *CI 게이트:* `GoldenSetGateTests`(정확도 바닥선 + **앵커 100% 하드게이트**). aggregate 는 gross 바닥선, 세밀 회귀는 11 앵커가 담당(단일 항목 회귀는 aggregate 0.4%p 만 움직임 → 고빈도 매핑은 앵커 승격). `manage.py eval_normalization` 리포트 커맨드.
+  - *가시성:* 어드민 `GET /admin/normalization/accuracy/` + FE 카드. **★ 카드 라벨 = '키워드 매처 재현율 기준선'**(정직성 §6): 62% 는 제품 정확도가 아니라 키워드 매처만 떼어낸 재현율(실 파이프라인은 Claude+검수 사전+가드로 더 정확)이라고 명시. 낮은 이유 = 세분류 담보의 키워드 재현 한계(버그 아님) + 실제 매처 한계 몇 건(사망 substring 등, 후속 리포트).
+  - *#26 연동:* accept 시 골든셋 기대와 다른 매핑이면 비차단 경고. ★ 트랜잭션 밖 + try/except(코퍼스 파일 부재에도 accept 롤백 방지) + 매 승인 전체 재채점(238건) 제거(성능). Spec `docs/superpowers/specs/2026-07-08-golden-set-normalization-eval.md`.
 - **2026-07-08 (공유(/s) 스냅샷 보관 — 프리런치 #27, Phase 2 로드맵 ②, PR #71 DEPLOYED):** 고객에게 공유 링크를 보낸 시점의 `/s` 화면을 그대로 박제해 §97 승환 분쟁 증거로 보관. **PM 확정: 보존 180일**(리드 파기와 동일). **설계 결정: 비교(갈아타기) 공유가 §97로 존재하지 않아 → 한눈표 공유(/s)를 발급 시점에 스냅샷**(원 스코프 '비교 스냅샷'의 실현). 구현 sonnet / 리뷰 opus / 픽스 Opus 오케스트레이터. BE **625 tests**.
   - *모델:* `analytics.ShareSnapshot`(append-only, `owner`/`customer` **CASCADE**=고객 삭제 시 PII 동반 파기, `payload` JSONField=`_build_share_payload` 결과 그대로 복제=표준트리 FK 0=불변, `consent_overseas`/`consent_doc_version`/`consent_scopes`/`dict_version`(SeedMarker live)/`insurance_count`/`captured_at`/`retention_expires_at` db_index). 마이그레이션 analytics 0002(additive).
   - *캡처:* `CustomerShareCreateView.post` 토큰 회전 후 `_build_share_payload(customer)` 재사용해 create. **try/except + `transaction.atomic()` savepoint 격리** → 캡처 실패해도 링크 201 정상 발급, 예외는 타입명만 로그(`logger.error` exc_info 없음, §7 PII 로그 레드라인).
@@ -265,7 +271,9 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 - ✅ **담보 사전 피드백 루프(#26) DEPLOYED 2026-07-08** (PR #70). 이제 어드민 검수→admin_verified 별칭이 파싱 룩업에 즉시 반영. 후속: 골든셋 자동 채점(#18)이 붙으면 별칭 승인 전 substring 오라우팅을 사전 차단(현재는 충돌 경고만).
 - ✅ **공유(/s) 스냅샷 보관(#27) DEPLOYED 2026-07-08** (PR #71). 발급 시점 /s 화면 불변 기록 + 180일 자동 파기.
-- **Phase 2 로드맵 남은 후보(PM과 순서 재확인 필요):** #18 골든셋 평가(사전 정확도 기준선, #26 substring 하드게이트 선행조건 — 지금 가장 전략적) · #14 스켈레톤/로딩 UX · #17 비용 텔레메트리 · #16 활성화 계측. **⚠️ #29 유지율(13/25회차)은 패널이 'deferred'로 판정**(유지 회차 타이머가 연체/미납을 일부러 뺐는데 유지율 공표는 보험사 전산과 충돌해 정직성 해자 훼손 우려 — features.md §Deferred #29). 빌드 전 재검토 필수. #28(추천 쿠폰)은 유료 모드 라이브 종속, #30(판촉물 실사진)은 deferred.
+- ✅ **골든셋 정확도 게이트(#18) DEPLOYED 2026-07-08** (PR #72). 사전·매처 변경 시 CI 회귀 검사(앵커 11 하드게이트).
+- **진행 중(PM 지시 2026-07-08):** #17 AI 비용 계측 + #14 로딩 화면(스켈레톤).
+- **Phase 2 남은 후보:** #16 활성화 계측. **⚠️ #29 유지율(13/25회차)은 'deferred' 확정**(인파 = 보험사 전산 미연동 → 해약/미납 여부 불가지 → 유지율 공표는 정직성 해자 훼손. PM 2026-07-08 동의. 보험사 API 제휴 전까지 보류). #28(추천 쿠폰)은 유료 모드 라이브 종속, #30(판촉물 실사진)은 deferred.
 - ⬜ OCR remaining: 종합보험 17-22 unmatched coverages — **needs §8 표준 담보 트리 확장 decision** (deferred). Life 변액 company-unknown now classified `'life'` (2026-07-02, no wrong-company guess). 미매칭은 `UnmatchedLog`로 적재되고 어드민 `/admin/normalization` 미매칭 큐에서 수동 매핑 가능(#26). See memory `ocr-coverage-sections`.
 - ⬜ At launch: flipping `FREE_TIER_UNLIMITED=False` activates 402 + the upgrade modal (built) + **coupon (built 2026-07-02; `credit.py` expiry-aware)** — verify upgrade-modal copy first.
 - ✅ Booking: legacy manual `MeetingSlot` **API removed** (2026-07-02; model + `Meeting.slot` FK + admin kept). The public booking `start_at` flow is automated-test-verified but not browser-smoke-tested.

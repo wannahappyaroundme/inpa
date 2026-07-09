@@ -8,6 +8,7 @@
 
 ★ 실제 Claude 호출 금지 — 모든 파싱 경로는 mock.
 """
+from decimal import Decimal
 from unittest import mock
 
 from django.test import TestCase, override_settings
@@ -493,6 +494,112 @@ class AnthropicClientMockTests(TestCase):
         self.assertEqual(case.detail.name, '일반암')
 
 
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test',
+                    OCR_VERIFY_ENABLED=False, CLAUDE_USD_KRW_RATE=1000.0)
+class ClaudeApiLogWiringTests(TestCase):
+    """프리런치 #17 — ocr_parse 호출 경로가 성공·실패 모두 ClaudeApiLog 1건을 남긴다."""
+
+    def setUp(self):
+        import importlib.util
+        if importlib.util.find_spec('anthropic') is None:
+            self.skipTest('anthropic 미설치 — SDK mock 테스트 skip(실 호출 0)')
+        self.user, self.client = _make_planner('claudelog-ocr@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='로그고객', birth_day='1990.06.01')
+        _grant_overseas(self.customer)
+
+    def test_success_logs_user_outcome_carrier_matched_unmatched(self):
+        from inpa.billing.models import ClaudeApiLog
+
+        import json as _json
+        fake_json = _json.dumps({
+            'insurance_type': 'loss', 'company_name': '삼성화재',
+            'product_name': '무배당 종합보험', 'contractor': '김철수', 'insured': '김철수',
+            'is_same_insured': True, 'payment_period': 20, 'warranty_period': 100,
+            'contract_date': '2021.02.01',
+            'coverages': [{
+                'name': '일반암진단비', 'category': '진단비', 'subcategory': '암',
+                'detail_name': '일반암', 'amount': 30000000, 'premium': 8000,
+            }],
+            'unmatched_coverages': ['알수없는특약'],
+        })
+        fake_block = mock.Mock()
+        fake_block.text = fake_json
+        fake_usage = mock.Mock(input_tokens=1000, output_tokens=200,
+                               cache_read_input_tokens=0, cache_creation_input_tokens=0)
+        fake_msg = mock.Mock()
+        fake_msg.content = [fake_block]
+        fake_msg.usage = fake_usage
+        fake_client = mock.Mock()
+        fake_client.messages.create.return_value = fake_msg
+
+        import anthropic
+        with mock.patch.object(anthropic, 'Anthropic', return_value=fake_client), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['삼성화재 무배당 종합보험 일반암진단비 3천만원'], None)):
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+
+        self.assertEqual(r.status_code, 201, r.content)
+        log = ClaudeApiLog.objects.get(action='ocr_parse')
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertEqual(log.parse_outcome, 'success')
+        self.assertEqual(log.carrier_code, 2)  # 삼성화재 = 손해보험 raw idx 2
+        self.assertEqual(log.matched_count, 1)
+        self.assertEqual(log.unmatched_count, 1)
+        self.assertEqual(log.input_tokens, 1000)
+        self.assertEqual(log.output_tokens, 200)
+        self.assertGreater(log.cost_krw, 0)
+
+    def test_json_invalid_outcome_logged_on_bad_response(self):
+        """Claude 응답이 JSON이 아니면 422 + ClaudeApiLog(outcome=json_invalid) 1건."""
+        from inpa.billing.models import ClaudeApiLog
+
+        fake_block = mock.Mock()
+        fake_block.text = '이건 JSON이 아닙니다'
+        fake_usage = mock.Mock(input_tokens=40, output_tokens=3,
+                               cache_read_input_tokens=0, cache_creation_input_tokens=0)
+        fake_msg = mock.Mock()
+        fake_msg.content = [fake_block]
+        fake_msg.usage = fake_usage
+        fake_client = mock.Mock()
+        fake_client.messages.create.return_value = fake_msg
+
+        import anthropic
+        with mock.patch.object(anthropic, 'Anthropic', return_value=fake_client), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['dummy'], None)):
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual(CustomerInsurance.objects.count(), 0)
+        log = ClaudeApiLog.objects.get(action='ocr_parse')
+        self.assertEqual(log.parse_outcome, 'json_invalid')
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertEqual(log.input_tokens, 40)  # 실패해도 usage(호출 자체는 성공)는 기록
+
+    def test_api_error_outcome_logged_on_sdk_exception(self):
+        """SDK 호출 자체가 예외 → 422 + ClaudeApiLog(outcome=api_error, 토큰 0)."""
+        from inpa.billing.models import ClaudeApiLog
+
+        fake_client = mock.Mock()
+        fake_client.messages.create.side_effect = RuntimeError('boom')
+
+        import anthropic
+        with mock.patch.object(anthropic, 'Anthropic', return_value=fake_client), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['dummy'], None)):
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+
+        self.assertEqual(r.status_code, 422)
+        log = ClaudeApiLog.objects.get(action='ocr_parse')
+        self.assertEqual(log.parse_outcome, 'api_error')
+        self.assertEqual(log.input_tokens, 0)
+        self.assertEqual(log.cost_krw, Decimal('0'))
+
+
 @override_settings(ANTHROPIC_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
 class OwnerIsolationTests(TestCase):
     """(c) ★ owner 격리 — A 는 B 고객에 OCR 업로드 불가."""
@@ -740,6 +847,74 @@ class SelfDiagnosisGateTests(TestCase):
         self.assertTrue(c.consent_logs.filter(scope=ConsentLog.SCOPE_THIRD_PARTY).exists())
 
 
+# 테스트용 더미 값(실제 키 아님). 변수로 두어 'KEY=리터럴' 패턴을 만들지 않는다
+# (gitleaks generic-api-key 오탐 회피 — 키 이름 없는 변수라 규칙에 걸리지 않음).
+_DUMMY_KEY = 'test-key'
+
+
+@override_settings(
+    ANTHROPIC_API_KEY=_DUMMY_KEY,
+    CLAUDE_API_KEY=_DUMMY_KEY,
+    CLAUDE_USD_KRW_RATE=1000.0,
+)
+class SelfDiagnosisClaudeApiLogTests(TestCase):
+    """프리런치 #17 — /d(비로그인 공개) 경로도 ClaudeApiLog 를 남긴다(user=None, 실 SDK mock)."""
+
+    BASE = {'name': '홍길동', 'phone': '01012345678', 'birth': '1990-01-01', 'gender': '1',
+            'consent_share': 'true', 'consent_overseas': 'true'}
+
+    def setUp(self):
+        import importlib.util
+        if importlib.util.find_spec('anthropic') is None:
+            self.skipTest('anthropic 미설치 — SDK mock 테스트 skip(실 호출 0)')
+        from django.core.cache import cache
+        cache.clear()
+        self.planner, _ = _make_planner('claudelog-d@test.com')
+        self.ref = self.planner.profile.ref_code
+        self.public = APIClient()
+
+    def test_public_diagnosis_logs_claude_api_log_with_null_user(self):
+        from inpa.billing.models import ClaudeApiLog
+
+        import json as _json
+        fake_json = _json.dumps({
+            'insurance_type': 'loss', 'company_name': '삼성화재',
+            'product_name': '무배당 종합보험', 'payment_period': 20, 'warranty_period': 100,
+            'coverages': [{
+                'name': '일반암진단비', 'category': '진단비', 'subcategory': '암',
+                'detail_name': '일반암', 'amount': 30000000, 'premium': 8000,
+                'payment_period': 20, 'warranty_period': 100,
+            }],
+            'unmatched_coverages': [],
+        })
+        fake_block = mock.Mock()
+        fake_block.text = fake_json
+        fake_usage = mock.Mock(input_tokens=500, output_tokens=80,
+                               cache_read_input_tokens=0, cache_creation_input_tokens=0)
+        fake_msg = mock.Mock()
+        fake_msg.content = [fake_block]
+        fake_msg.usage = fake_usage
+        fake_client = mock.Mock()
+        fake_client.messages.create.return_value = fake_msg
+
+        pdf = SimpleUploadedFile('policy.pdf', b'%PDF-1.4 dummy', content_type='application/pdf')
+
+        import anthropic
+        with mock.patch.object(anthropic, 'Anthropic', return_value=fake_client), \
+                mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines',
+                           return_value=(['삼성화재 무배당 종합보험 일반암진단비 3천만원'], None)):
+            r = self.public.post(
+                f'/api/v1/d/{self.ref}/', {**self.BASE, 'file': pdf}, format='multipart')
+
+        self.assertEqual(r.status_code, 201, r.content)
+        log = ClaudeApiLog.objects.get(action='self_diagnosis')
+        self.assertIsNone(log.user)  # ★ /d 는 비로그인 공개 경로 → 귀속 없음
+        self.assertEqual(log.parse_outcome, 'success')
+        self.assertEqual(log.input_tokens, 500)
+        self.assertEqual(log.output_tokens, 80)
+        self.assertGreater(log.cost_krw, 0)
+
+
 def _fake_ocr_product(product_name, cat='진단비', sub='암', det='일반암',
                       amount=50000000, monthly=30000):
     """다중 업로드용 mock Ocr_Data — 상품명·담보 경로를 파일별로 다르게 만든다."""
@@ -913,8 +1088,37 @@ class VerifyUnitTests(TestCase):
     @override_settings(ANTHROPIC_API_KEY='', CLAUDE_API_KEY='')
     def test_verify_returns_none_without_key(self):
         from inpa.insurances.verify import verify_extraction
-        # 키 없으면 ci 접근 전에 None 반환(파싱 결과 안 깨뜨림 — 격리 보장)
-        self.assertIsNone(verify_extraction(["삼성생명 종합보험"], None))
+        # 키 없으면 ci 접근 전에 (None, None) 반환(파싱 결과 안 깨뜨림 — 격리 보장)
+        result, usage = verify_extraction(["삼성생명 종합보험"], None)
+        self.assertIsNone(result)
+        self.assertIsNone(usage)
+
+    @override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test')
+    def test_verify_returns_real_usage_on_success(self):
+        """★ 프리런치 #17 회귀 — verify_extraction 이 msg.usage 를 실제로 반환(과거 폐기 버그)."""
+        from unittest import mock
+
+        import anthropic
+
+        from inpa.insurances.verify import verify_extraction
+
+        fake_block = mock.Mock()
+        fake_block.text = '{"confidence":"high","issues":[],"missing":[],"note":"ok"}'
+        fake_usage = mock.Mock(input_tokens=100, output_tokens=20,
+                               cache_read_input_tokens=0, cache_creation_input_tokens=0)
+        fake_msg = mock.Mock()
+        fake_msg.content = [fake_block]
+        fake_msg.usage = fake_usage
+        fake_client = mock.Mock()
+        fake_client.messages.create.return_value = fake_msg
+
+        with mock.patch.object(anthropic, 'Anthropic', return_value=fake_client):
+            result, usage = verify_extraction(["삼성생명 종합보험"], mock.Mock(case_list=mock.Mock(all=lambda: [])))
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['confidence'], 'high')
+        self.assertIs(usage, fake_usage)
+        self.assertEqual(usage.input_tokens, 100)
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -1174,6 +1174,107 @@ class AdminUsageView(APIView):
         })
 
 
+class AdminClaudeCostView(APIView):
+    """Claude 호출당 비용·파싱결과 계측 — GET /api/v1/admin/claude-cost/?days=30 (IsAdmin).
+
+    ★ 프리런치 리뷰 #17. billing.ClaudeApiLog(호출 1건=1행, PII-safe: 토큰수·추정비용·
+    outcome enum·회사코드 int·매칭/미매칭 건수만)를 창(days) 내 집계한다.
+    cost_krw 는 어드민 관측용 **추정치**(billing/pricing.py — 토큰×모델계열단가×환율)이며
+    실제 청구서와 다를 수 있다(§6 정직성 — 판정어 없이 사실 수치만).
+    ★ 데모 계정(@inpa.local)은 제외(AdminUsageView 관례). user=null(예: /d 공개 경로)
+    행은 데모가 아니므로 제외되지 않는다.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from datetime import timedelta
+
+        from django.db.models import Count, Sum
+        from django.db.models.functions import TruncDate
+
+        from inpa.billing.models import ClaudeApiLog
+
+        try:
+            days = int(request.query_params.get('days', 30))
+        except (TypeError, ValueError):
+            days = 30
+
+        qs = ClaudeApiLog.objects.exclude(user__email__iendswith='@inpa.local')
+        if days > 0:
+            qs = qs.filter(created_at__gte=timezone.now() - timedelta(days=days))
+
+        total_calls = qs.count()
+        total_cost_krw = qs.aggregate(s=Sum('cost_krw'))['s'] or 0
+
+        # outcome 분포 + 성공률
+        outcome_counts = {
+            row['parse_outcome']: row['c']
+            for row in qs.values('parse_outcome').annotate(c=Count('id'))
+        }
+        success_count = outcome_counts.get(ClaudeApiLog.OUTCOME_SUCCESS, 0)
+        success_rate = round(success_count / total_calls * 100, 1) if total_calls else None
+
+        # 기능(action)별 호출수·추정비용
+        by_action = [
+            {'action': r['action'], 'calls': r['calls'], 'cost_krw': r['cost'] or 0}
+            for r in (
+                qs.values('action')
+                  .annotate(calls=Count('id'), cost=Sum('cost_krw'))
+                  .order_by('-cost')
+            )
+        ]
+
+        # 일별 추정비용 추이
+        daily = [
+            {
+                'date': r['day'].isoformat() if r['day'] else None,
+                'calls': r['calls'],
+                'cost_krw': r['cost'] or 0,
+            }
+            for r in (
+                qs.annotate(day=TruncDate('created_at'))
+                  .values('day')
+                  .annotate(calls=Count('id'), cost=Sum('cost_krw'))
+                  .order_by('day')
+            )
+        ]
+
+        # 회사별 미매칭율 — carrier_code 미상(null)은 제외, 총 0건(matched+unmatched)도 제외.
+        by_carrier = []
+        for r in (
+            qs.exclude(carrier_code__isnull=True)
+              .values('carrier_code')
+              .annotate(matched=Sum('matched_count'), unmatched=Sum('unmatched_count'))
+        ):
+            matched = r['matched'] or 0
+            unmatched = r['unmatched'] or 0
+            total = matched + unmatched
+            if total == 0:
+                continue
+            by_carrier.append({
+                'carrier_code': r['carrier_code'],
+                'matched': matched,
+                'unmatched': unmatched,
+                'unmatched_rate': round(unmatched / total * 100, 1),
+            })
+        by_carrier.sort(key=lambda x: -x['unmatched_rate'])
+
+        from django.conf import settings as dj_settings
+
+        return Response({
+            'days': days,
+            'total_calls': total_calls,
+            'total_cost_krw': total_cost_krw,
+            'cost_is_estimate': True,  # ★ FE 표기용 — 판정어 아닌 사실 플래그
+            'usd_krw_rate': float(getattr(dj_settings, 'CLAUDE_USD_KRW_RATE', 1400.0)),
+            'success_rate': success_rate,
+            'outcome_counts': outcome_counts,
+            'by_action': by_action,
+            'daily': daily,
+            'by_carrier': by_carrier,
+        })
+
+
 class AdminLogoutView(APIView):
     """POST /api/v1/admin/auth/logout/ — 토큰 폐기."""
     permission_classes = [IsAdmin]

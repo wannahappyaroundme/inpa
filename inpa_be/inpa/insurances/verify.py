@@ -26,19 +26,22 @@ def _serialize_coverages(ci):
 
 
 def verify_extraction(text_lines, ci):
-    """원문 텍스트와 파싱 담보를 Claude로 교차검증. dict 반환 or None(검증 불가/실패).
+    """원문 텍스트와 파싱 담보를 Claude로 교차검증. (result, usage) 튜플 반환.
 
     반환 형태:
-      {checked: True, confidence: 'high'|'medium'|'low',
-       issues: [str], missing: [str], note: str, model: str}
+      result: {checked: True, confidence: 'high'|'medium'|'low',
+               issues: [str], missing: [str], note: str, model: str} | None(검증 불가/실패)
+      usage:  message.usage(호출이 실제로 일어나 응답을 받은 경우) | None(호출 자체가 없었음).
+        ★ 프리런치 #17: 과거엔 usage 를 버렸다(호출자가 log_claude_usage 에 None 을 항상
+          하드코딩해 토큰이 0으로 찍히던 버그) — 이제 실제 usage 를 반환해 정확히 로깅한다.
     """
     api_key = getattr(settings, 'CLAUDE_API_KEY', '') or getattr(settings, 'ANTHROPIC_API_KEY', '')
     if not api_key:
-        return None
+        return None, None
     try:
         import anthropic
     except ImportError:
-        return None
+        return None, None
 
     coverages = _serialize_coverages(ci)
     cov_text = '\n'.join(f'- {name}: {amount}' for name, amount in coverages) or '(파싱된 담보 없음)'
@@ -69,10 +72,11 @@ def verify_extraction(text_lines, ci):
                      'cache_control': {'type': 'ephemeral'}}],
             messages=[{'role': 'user', 'content': user_prompt}],
         )
+        usage = getattr(msg, 'usage', None)
         text = msg.content[0].text.strip()
         result = _parse_json(text)
         if result is None:
-            return None
+            return None, usage
         return {
             'checked': True,
             'confidence': result.get('confidence', 'medium'),
@@ -80,11 +84,11 @@ def verify_extraction(text_lines, ci):
             'missing': result.get('missing', []) or [],
             'note': result.get('note', ''),
             'model': model_id,
-        }
+        }, usage
     except Exception as e:  # 검증 실패는 파싱 결과에 영향 주지 않는다
         # 내용 미포함 로깅(LB#9) — 예외 타입만, 증권/응답 데이터 금지
         logger.warning('증권 교차검증 실패(파싱 결과 영향 없음): %s', type(e).__name__)
-        return None
+        return None, None
 
 
 def _parse_json(text):

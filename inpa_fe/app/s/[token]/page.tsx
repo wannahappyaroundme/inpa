@@ -8,6 +8,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Card, DisclaimerFooter } from "@/components/ui";
 import { ContentProtect, Watermark } from "@/components/content-guard";
+import { SkeletonBar, SkeletonCard, SkeletonRow, TokenLoadingShell } from "@/components/token-skeleton";
 import {
   getShareView,
   postShareEvent,
@@ -27,19 +28,26 @@ function fmtWon(val: number | null | undefined): string {
 
 function ShareSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-md min-h-dvh flex flex-col bg-surface2 animate-pulse">
-      <div className="h-12 bg-accent-tint" />
-      <div className="px-5 pt-6 space-y-3">
-        <div className="h-4 w-32 rounded bg-line" />
-        <div className="h-9 w-56 rounded bg-line" />
-        <div className="mt-4 grid grid-cols-2 gap-2.5">
-          {[1, 2].map((i) => <div key={i} className="h-16 rounded-2xl bg-line" />)}
-        </div>
-        <div className="mt-4 space-y-2">
-          {[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-12 rounded-2xl bg-line" />)}
-        </div>
+    <TokenLoadingShell headerLabel="인파">
+      <SkeletonBar w="w-32" h="h-4" />
+      <SkeletonBar w="w-56" h="h-9" />
+      <div className="grid grid-cols-2 gap-2.5">
+        <SkeletonCard className="h-16" />
+        <SkeletonCard className="h-16" />
       </div>
-    </div>
+      <div className="space-y-2">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <SkeletonRow key={i} className="rounded-2xl" />
+        ))}
+      </div>
+      {/* 하단 고정 CTA 자리 */}
+      <div
+        className="sticky bottom-0 -mx-5 mt-2 px-5 pt-3 bg-surface/95 border-t border-line"
+        style={{ paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}
+      >
+        <SkeletonBar h="h-[52px]" className="rounded-2xl" />
+      </div>
+    </TokenLoadingShell>
   );
 }
 

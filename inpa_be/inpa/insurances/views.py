@@ -409,19 +409,30 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
             return _credit_exhausted_response(exc, request.user)
 
         # ── 6) Claude 파싱 (정규화 훅 주입) ──
-        ocr_data = claude_parse(lines, normalizer=_build_normalizer())
+        claude_meta = {}
+        ocr_data = claude_parse(lines, normalizer=_build_normalizer(), meta=claude_meta)
+
+        # ── 6.1) Claude usage → ClaudeApiLog (성공·실패 모두 1건 — 관리자 비용/결과 로깅) ──
+        #    ★ 실패(ocr_data is None)여도 outcome(json_invalid/api_error/timeout/...)이 신호이므로
+        #    아래 실패 응답보다 먼저 기록한다(프리런치 #17). claude_parse 를 직접 mock 하는
+        #    기존 테스트는 meta 를 채우지 않으므로 ocr_data 유무로 안전한 fallback 을 둔다.
+        outcome = claude_meta.get('outcome') or ('success' if ocr_data is not None else 'api_error')
+        log_claude_usage(
+            action='ocr_parse',
+            model=claude_meta.get('model') or getattr(settings, 'CLAUDE_MODEL_PARSE', ''),
+            usage=claude_meta.get('usage'),
+            user=request.user,
+            outcome=outcome,
+            carrier_code=claude_meta.get('carrier_code'),
+            matched=claude_meta.get('matched_count'),
+            unmatched=claude_meta.get('unmatched_count'),
+        )
+
         if ocr_data is None:
             return Response(
                 {'code': 'PARSE_FAILED',
                  'detail': '증권을 인식하지 못했습니다. 직접 입력해 주세요.'},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-
-        # ── 6.1) Claude usage → ClaudeApiLog (관리자 비용 로깅) ──
-        log_claude_usage(
-            action='ocr_parse',
-            model=getattr(ocr_data, '_claude_model', ''),
-            usage=getattr(ocr_data, '_claude_usage', None),
-        )
 
         # ── 7) 포트폴리오 + 담보 생성 (트랜잭션) + 계산 엔진 ──
         with transaction.atomic():
@@ -430,11 +441,19 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
         # ── 7.1) 정확도 다중검사 — Claude 교차검증(원문↔파싱). 실패는 격리. ──
         if getattr(settings, 'OCR_VERIFY_ENABLED', False):
             from inpa.insurances.verify import verify_extraction
-            verification = verify_extraction(lines, ci)
+            verification, verify_usage = verify_extraction(lines, ci)
             if verification is not None:
                 ci.verification = verification
                 ci.save(update_fields=['verification', 'updated_at'])
-                log_claude_usage('ocr_verify', getattr(settings, 'CLAUDE_MODEL_PARSE', ''), None)
+            # ★ FIX(프리런치 #17): 과거 usage=None 하드코딩으로 토큰이 항상 0으로 찍히던 버그.
+            #   실제 msg.usage 를 verify_extraction 이 반환하도록 고쳤다. 실패도 1건 기록.
+            log_claude_usage(
+                'ocr_verify',
+                getattr(settings, 'CLAUDE_MODEL_PARSE', ''),
+                verify_usage,
+                user=request.user,
+                outcome='success' if verification is not None else 'api_error',
+            )
 
         data = CustomerInsuranceSerializerForDetail(ci).data
         return Response(

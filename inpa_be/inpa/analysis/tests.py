@@ -1135,6 +1135,140 @@ class ClaudeParserLogRedactionTests(TestCase):
         self.assertNotIn('증권원문내용', joined)
 
 
+# ════════════════════════════════════════════════════════════════════════
+# Claude 호출당 비용·파싱 결과 계측 (프리런치 리뷰 #17)
+# claude_parse(meta=...) out-param — 성공·실패 모든 경로 outcome 스탬프 + PII 레드라인
+# ════════════════════════════════════════════════════════════════════════
+class ClaudeParseMetaOutcomeTests(TestCase):
+    """claude_parse 의 meta out-param — 호출자가 성공·실패 모두 단일 지점에서 로깅할 수 있게
+    outcome/usage/carrier_code/matched·unmatched_count 를 스탬프한다."""
+
+    @override_settings(CLAUDE_API_KEY='')
+    def test_no_key_outcome(self):
+        from inpa.core.ocr.claude_parser import claude_parse
+        meta = {}
+        result = claude_parse(['텍스트'], meta=meta)
+        self.assertIsNone(result)
+        self.assertEqual(meta['outcome'], 'no_key')
+        self.assertIsNone(meta['usage'])
+        self.assertIn('model', meta)  # no_key 여도 model 은 알 수 있음
+
+    @override_settings(CLAUDE_API_KEY='test-key')
+    def test_json_invalid_outcome_still_carries_usage(self):
+        """JSON 파싱 실패해도 호출 자체는 성공했으므로 usage 는 채워진다(토큰 낭비 관측용)."""
+        from inpa.core.ocr.claude_parser import claude_parse
+
+        fake_msg = mock.MagicMock()
+        fake_msg.content = [mock.MagicMock(text='이건 JSON이 아님')]
+        fake_msg.usage = mock.Mock(input_tokens=50, output_tokens=5,
+                                   cache_read_input_tokens=0, cache_creation_input_tokens=0)
+        fake_client = mock.MagicMock()
+        fake_client.messages.create.return_value = fake_msg
+
+        meta = {}
+        with mock.patch('anthropic.Anthropic', return_value=fake_client):
+            result = claude_parse(['텍스트'], meta=meta)
+        self.assertIsNone(result)
+        self.assertEqual(meta['outcome'], 'json_invalid')
+        self.assertIsNotNone(meta['usage'])
+        self.assertEqual(meta['usage'].input_tokens, 50)
+
+    @override_settings(CLAUDE_API_KEY='test-key')
+    def test_timeout_outcome(self):
+        import anthropic
+
+        from inpa.core.ocr.claude_parser import claude_parse
+
+        fake_client = mock.MagicMock()
+        fake_client.messages.create.side_effect = anthropic.APITimeoutError(request=mock.Mock())
+
+        meta = {}
+        with mock.patch('anthropic.Anthropic', return_value=fake_client):
+            result = claude_parse(['텍스트'], meta=meta)
+        self.assertIsNone(result)
+        self.assertEqual(meta['outcome'], 'timeout')
+        self.assertIsNone(meta['usage'])
+
+    @override_settings(CLAUDE_API_KEY='test-key')
+    def test_api_error_outcome(self):
+        from inpa.core.ocr.claude_parser import claude_parse
+
+        fake_client = mock.MagicMock()
+        fake_client.messages.create.side_effect = RuntimeError('boom')
+
+        meta = {}
+        with mock.patch('anthropic.Anthropic', return_value=fake_client):
+            result = claude_parse(['텍스트'], meta=meta)
+        self.assertIsNone(result)
+        self.assertEqual(meta['outcome'], 'api_error')
+        self.assertIsNone(meta['usage'])
+
+    @override_settings(CLAUDE_API_KEY='test-key')
+    def test_meta_none_has_no_side_effect(self):
+        """meta 미전달 시 기존 동작과 완전히 동일 — 기존 호출부/테스트 하위호환 회귀."""
+        from inpa.core.ocr.claude_parser import claude_parse
+
+        fake_msg = mock.MagicMock()
+        fake_msg.content = [mock.MagicMock(text='이것도 JSON 아님')]
+        fake_client = mock.MagicMock()
+        fake_client.messages.create.return_value = fake_msg
+
+        with mock.patch('anthropic.Anthropic', return_value=fake_client):
+            result = claude_parse(['텍스트'])  # meta 없음 — 에러 없이 그대로 동작해야 함
+        self.assertIsNone(result)
+
+    @override_settings(CLAUDE_API_KEY='test-key')
+    def test_success_meta_carries_only_counts_no_raw_names(self):
+        """★ PII 레드라인 회귀 — meta 에 담기는 값은 정수/enum 뿐, 담보 원문명이 새지 않는다."""
+        import json as _json
+
+        from inpa.core.ocr.claude_parser import claude_parse
+
+        fake_json = _json.dumps({
+            'insurance_type': 'loss', 'company_name': '삼성화재',
+            'coverages': [{
+                'name': '민감정보-홍길동-유출금지-XYZ', 'category': '진단비',
+                'subcategory': '암', 'detail_name': '일반암',
+                'amount': 10000000, 'premium': 1000,
+            }],
+            'unmatched_coverages': ['비밀상품명-ABC'],
+        })
+        fake_block = mock.MagicMock(text=fake_json)
+        fake_msg = mock.MagicMock(content=[fake_block], usage=mock.Mock(
+            input_tokens=10, output_tokens=5,
+            cache_read_input_tokens=0, cache_creation_input_tokens=0))
+        fake_client = mock.MagicMock()
+        fake_client.messages.create.return_value = fake_msg
+
+        meta = {}
+        with mock.patch('anthropic.Anthropic', return_value=fake_client):
+            claude_parse(['텍스트'], meta=meta)
+
+        self.assertEqual(meta['outcome'], 'success')
+        self.assertIsInstance(meta['carrier_code'], int)
+        self.assertIsInstance(meta['matched_count'], int)
+        self.assertIsInstance(meta['unmatched_count'], int)
+        for value in meta.values():
+            self.assertNotIn('민감정보', str(value))
+            self.assertNotIn('비밀상품명', str(value))
+
+
+class ClaudeApiLogPIISafetyTests(TestCase):
+    """★ 프리런치 #17 PII 레드라인 — ClaudeApiLog 는 증권 원문·응답 본문·상품/고객명을
+    담을 수 있는 자유 텍스트 필드를 가지면 안 된다. 스키마 자체가 방어선(회귀 시 즉시 실패)."""
+
+    def test_schema_has_only_pii_safe_fields(self):
+        from inpa.billing.models import ClaudeApiLog
+        allowed = {
+            'id', 'action', 'model', 'input_tokens', 'output_tokens',
+            'cache_read_input_tokens', 'cache_creation_input_tokens',
+            'user', 'cost_krw', 'parse_outcome', 'carrier_code',
+            'matched_count', 'unmatched_count', 'created_at',
+        }
+        actual = {f.name for f in ClaudeApiLog._meta.get_fields()}
+        self.assertEqual(actual, allowed)
+
+
 # ═══ 담보 사전 피드백 루프 — 설계사 플래그 API (2026-07-09) ═══════════════════
 
 class CoverageCasesTests(TestCase):

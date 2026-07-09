@@ -12,9 +12,13 @@ kind ∈ {'ocr', 'ai_compare', 'analysis', 'promotion'} (정본 4종, dev/02 §1
 
 share_link / customer_add = 이 함수 호출 대상이 아님(북극성 차단 금지 — dev/23 §1.2).
 """
+import logging
+
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 class LimitExceeded(Exception):
@@ -127,20 +131,31 @@ def _get_free_plan():
         )
 
 
-def log_claude_usage(action: str, model: str, usage) -> None:
-    """Claude 호출 후 usage 를 ClaudeApiLog 에 1건 기록 (관리자 전용 비용 로깅).
+def log_claude_usage(action: str, model: str, usage, *, user=None, outcome='success',
+                      carrier_code=None, matched=None, unmatched=None) -> None:
+    """Claude 호출 후 1건을 ClaudeApiLog 에 기록 (관리자 전용 비용·결과 로깅, 프리런치 #17).
+
+    ★ 성공·실패 모두 기록한다 — outcome 이 신호다(usage=None 이면 토큰 0, 그래도 1건).
+    ★ PII-safe: user 는 FK(id)만, model/action/토큰수/outcome enum/carrier_code(int)/
+      matched·unmatched 건수만 저장한다. 증권 원문·응답 본문·상품/고객명은 절대 넣지 않는다
+      (claude_parser.py:29 레드라인과 동일 원칙).
 
     Anthropic SDK message.usage 객체(또는 dict)를 받아 토큰 필드를 안전 추출한다.
     로깅 실패가 본 기능(OCR/비교/메시지)을 깨뜨리지 않도록 모든 예외를 격리한다.
 
     Args:
-        action: 'ocr_parse' | 'compare_guide' | 'message_gen' 등.
-        model:  실제 호출된 모델 ID (settings 정본).
+        action: 'ocr_parse' | 'ocr_verify' | 'compare_guide' | 'self_diagnosis' 등.
+        model:  실제 호출된 모델 ID (settings 정본, 하드코딩 금지).
         usage:  message.usage (input_tokens/output_tokens/
-                cache_read_input_tokens/cache_creation_input_tokens).
+                cache_read_input_tokens/cache_creation_input_tokens) 또는 None(실패).
+        user:   호출을 발생시킨 설계사(request.user) 또는 None(/d 공개 경로).
+        outcome: ClaudeApiLog.OUTCOME_CHOICES 중 하나(기본 'success').
+        carrier_code: 보험사 코드(int, UnmatchedLog 규약) 또는 None(미상).
+        matched / unmatched: 이 호출에서 매칭/미매칭된 담보 건수(정수, 원문 미포함).
     """
     try:
         from .models import ClaudeApiLog  # 순환 import 방지
+        from .pricing import estimate_cost_krw
 
         def _g(name):
             if usage is None:
@@ -161,6 +176,12 @@ def log_claude_usage(action: str, model: str, usage) -> None:
             output_tokens=_g('output_tokens'),
             cache_read_input_tokens=_g('cache_read_input_tokens'),
             cache_creation_input_tokens=_g('cache_creation_input_tokens'),
+            user=user,
+            cost_krw=estimate_cost_krw(model, usage),
+            parse_outcome=outcome,
+            carrier_code=carrier_code,
+            matched_count=matched or 0,
+            unmatched_count=unmatched or 0,
         )
-    except Exception as exc:  # 로깅 실패는 본 기능을 막지 않는다
-        print(f'[billing] log_claude_usage failed: {exc}')
+    except Exception as exc:  # 로깅 실패는 본 기능을 막지 않는다. 예외 타입만(내용 미포함).
+        logger.warning('[billing] log_claude_usage failed: %s', type(exc).__name__)

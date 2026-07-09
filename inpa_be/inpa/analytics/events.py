@@ -7,9 +7,12 @@
 - is_bot_ua: 카톡 인앱 프리뷰 봇·크롤러 UA → share_view 제외(별도 raw 로그만, dev/13 §3.3).
 """
 import hashlib
+import logging
 from datetime import timedelta
 
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 # 카톡 OG 프리뷰·크롤러 봇 UA 토큰 (소문자 비교). dev/13 §3.3 ②③.
 # 카톡으로 링크 보내면 카톡 서버가 OG 프리뷰용으로 먼저 1회 긁는다 → share_view 오염.
@@ -82,5 +85,5 @@ def log_event(event_type, *, customer=None, sender=None, share_token=None,
             payload=payload or {},
         )
     except Exception as exc:  # 계측 실패가 응답을 깨뜨리지 않도록 격리
-        print(f'[analytics] log_event failed: {exc}')
+        logger.warning('[analytics] log_event failed: %s', type(exc).__name__)
         return None

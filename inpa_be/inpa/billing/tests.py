@@ -13,6 +13,7 @@
   추가   공개 GET /billing/plans/ — 비인증 접근 허용
   추가   /billing/usage/ — 비인증 401, 관리자 엔드포인트 비관리자 403
 """
+from decimal import Decimal
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
@@ -714,3 +715,148 @@ class CouponRedeemTests(TestCase):
             check_and_consume(self.user, 'ocr')
         with self.assertRaises(LimitExceeded):
             check_and_consume(self.user, 'ocr')
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Claude 호출당 비용·파싱 결과 계측 (프리런치 리뷰 #17)
+# ──────────────────────────────────────────────────────────────────────
+class ClaudePricingTests(TestCase):
+    """billing/pricing.py::estimate_cost_krw — 모델 계열 단가·환율·prompt caching 배율 단위 계산."""
+
+    def test_usage_none_returns_zero(self):
+        from .pricing import estimate_cost_krw
+        self.assertEqual(estimate_cost_krw('claude-opus-4-8', None), Decimal('0'))
+
+    @override_settings(CLAUDE_USD_KRW_RATE=1000.0)
+    def test_opus_pricing_family_resolved_by_substring(self):
+        """Opus: in $5/out $25 per MTok. 100만 입력 + 10만 출력 토큰, 환율 1000원."""
+        from .pricing import estimate_cost_krw
+        usage = {'input_tokens': 1_000_000, 'output_tokens': 100_000,
+                  'cache_read_input_tokens': 0, 'cache_creation_input_tokens': 0}
+        cost = estimate_cost_krw('claude-opus-4-8', usage)
+        # ($5 + $2.5) * 1000 = $7.5 * 1000 = 7500원
+        self.assertEqual(cost, Decimal('7500.00'))
+
+    @override_settings(CLAUDE_USD_KRW_RATE=1000.0)
+    def test_haiku_pricing_cheaper_than_opus(self):
+        """Haiku: in $1/out $5 per MTok — 같은 토큰수면 opus보다 저렴해야 한다."""
+        from .pricing import estimate_cost_krw
+        usage = {'input_tokens': 1_000_000, 'output_tokens': 100_000,
+                  'cache_read_input_tokens': 0, 'cache_creation_input_tokens': 0}
+        cost = estimate_cost_krw('claude-haiku-4-5', usage)
+        # ($1 + $0.5) * 1000 = 1500원
+        self.assertEqual(cost, Decimal('1500.00'))
+        opus_cost = estimate_cost_krw('claude-opus-4-8', usage)
+        self.assertLess(cost, opus_cost)
+
+    @override_settings(CLAUDE_USD_KRW_RATE=1000.0)
+    def test_unknown_model_falls_back_to_opus_pricing(self):
+        """모델 계열 판별 실패 → 보수적(opus) fallback. 추측 금지, 과소추정 방지."""
+        from .pricing import estimate_cost_krw
+        usage = {'input_tokens': 1_000_000, 'output_tokens': 0,
+                  'cache_read_input_tokens': 0, 'cache_creation_input_tokens': 0}
+        self.assertEqual(
+            estimate_cost_krw('claude-mystery-9', usage),
+            estimate_cost_krw('claude-opus-4-8', usage),
+        )
+
+    @override_settings(CLAUDE_USD_KRW_RATE=1000.0)
+    def test_cache_read_and_write_multipliers(self):
+        """cache_read=입력단가×0.1 / cache_creation=입력단가×1.25."""
+        from .pricing import estimate_cost_krw
+        usage = {'input_tokens': 0, 'output_tokens': 0,
+                  'cache_read_input_tokens': 1_000_000, 'cache_creation_input_tokens': 0}
+        cost_read = estimate_cost_krw('claude-sonnet-4-5', usage)
+        # sonnet in=$3 * 0.1 = $0.3 * 1000 = 300원
+        self.assertEqual(cost_read, Decimal('300.00'))
+
+        usage2 = {'input_tokens': 0, 'output_tokens': 0,
+                   'cache_read_input_tokens': 0, 'cache_creation_input_tokens': 1_000_000}
+        cost_write = estimate_cost_krw('claude-sonnet-4-5', usage2)
+        # sonnet in=$3 * 1.25 = $3.75 * 1000 = 3750원
+        self.assertEqual(cost_write, Decimal('3750.00'))
+
+    @override_settings(CLAUDE_USD_KRW_RATE=1400.0)
+    def test_fx_rate_env_override_changes_cost(self):
+        """CLAUDE_USD_KRW_RATE override 가 실제로 비용 계산에 반영된다."""
+        from .pricing import estimate_cost_krw
+        usage = {'input_tokens': 1_000_000, 'output_tokens': 0,
+                  'cache_read_input_tokens': 0, 'cache_creation_input_tokens': 0}
+        cost_1400 = estimate_cost_krw('claude-opus-4-8', usage)
+        self.assertEqual(cost_1400, Decimal('7000.00'))  # $5 * 1400
+        with override_settings(CLAUDE_USD_KRW_RATE=1000.0):
+            cost_1000 = estimate_cost_krw('claude-opus-4-8', usage)
+        self.assertEqual(cost_1000, Decimal('5000.00'))
+        self.assertNotEqual(cost_1400, cost_1000)
+
+    def test_object_style_usage_supported(self):
+        """dict 뿐 아니라 SDK usage 객체(속성 접근)도 지원."""
+        from .pricing import estimate_cost_krw
+
+        class _Usage:
+            input_tokens = 500_000
+            output_tokens = 0
+            cache_read_input_tokens = 0
+            cache_creation_input_tokens = 0
+
+        with override_settings(CLAUDE_USD_KRW_RATE=1000.0):
+            cost = estimate_cost_krw('claude-opus-4-8', _Usage())
+        self.assertEqual(cost, Decimal('2500.00'))  # $5/2 * 1000
+
+
+class LogClaudeUsageExtendedTests(TestCase):
+    """credit.py::log_claude_usage 확장 — user/cost_krw/outcome/carrier/matched·unmatched 기록."""
+
+    def setUp(self):
+        self.user, _ = _make_user('claudelog@test.com')
+
+    def test_creates_row_with_all_new_fields(self):
+        from .credit import log_claude_usage
+        from .models import ClaudeApiLog
+
+        with override_settings(CLAUDE_USD_KRW_RATE=1000.0):
+            log_claude_usage(
+                'ocr_parse', 'claude-opus-4-8',
+                {'input_tokens': 1_000_000, 'output_tokens': 0,
+                 'cache_read_input_tokens': 0, 'cache_creation_input_tokens': 0},
+                user=self.user, outcome='success', carrier_code=2, matched=5, unmatched=1,
+            )
+        log = ClaudeApiLog.objects.get()
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertEqual(log.cost_krw, Decimal('5000.00'))
+        self.assertEqual(log.parse_outcome, 'success')
+        self.assertEqual(log.carrier_code, 2)
+        self.assertEqual(log.matched_count, 5)
+        self.assertEqual(log.unmatched_count, 1)
+
+    def test_backward_compatible_three_positional_args(self):
+        """기존 3-인자 호출(user/outcome 등 미지정)도 그대로 동작 — 하위호환."""
+        from .credit import log_claude_usage
+        from .models import ClaudeApiLog
+
+        log_claude_usage('compare_guide', 'claude-opus-4-8', None)
+        log = ClaudeApiLog.objects.get()
+        self.assertIsNone(log.user)
+        self.assertEqual(log.parse_outcome, 'success')  # 모델 default
+        self.assertEqual(log.cost_krw, Decimal('0'))
+        self.assertEqual(log.matched_count, 0)
+        self.assertEqual(log.unmatched_count, 0)
+
+    def test_failure_outcome_recorded_even_with_no_usage(self):
+        """usage=None(실패) 이어도 outcome 은 1건 기록된다 — 실패율 관측이 목적."""
+        from .credit import log_claude_usage
+        from .models import ClaudeApiLog
+
+        log_claude_usage('ocr_parse', 'claude-opus-4-8', None,
+                         outcome='timeout', user=self.user)
+        log = ClaudeApiLog.objects.get()
+        self.assertEqual(log.parse_outcome, 'timeout')
+        self.assertEqual(log.input_tokens, 0)
+        self.assertEqual(log.cost_krw, Decimal('0'))
+
+    def test_logging_failure_is_isolated(self):
+        """ClaudeApiLog.objects.create 자체가 실패해도 예외가 호출자로 새지 않는다."""
+        from .credit import log_claude_usage
+        with patch('inpa.billing.models.ClaudeApiLog.objects.create',
+                   side_effect=RuntimeError('db down')):
+            log_claude_usage('ocr_parse', 'claude-opus-4-8', None)  # 예외 없이 통과해야 함
