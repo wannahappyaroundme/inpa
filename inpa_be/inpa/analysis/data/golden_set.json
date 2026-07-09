@@ -77,6 +77,34 @@
       "expected_std_leaf": "상해후유장해",
       "source": "anchor",
       "note": "고빈도 후유장해 대표 매핑. 질병후유장해·사망 경로로 새면 회귀."
+    },
+    {
+      "company": 1,
+      "raw_name": "재해사망보험금",
+      "expected_std_leaf": "재해사망",
+      "source": "anchor",
+      "note": "2026-07-09 사망 오분류 수정. '사망보험금'(범용, 5자)이 '재해사망'(4자)보다 길어 일반사망으로 새던 버그. 구체 복합어 추가로 교정 — 일반사망으로 새면 회귀."
+    },
+    {
+      "company": 1,
+      "raw_name": "질병사망보험금",
+      "expected_std_leaf": "질병사망",
+      "source": "anchor",
+      "note": "사망 세분류(질병). 일반사망으로 뭉개지면 회귀."
+    },
+    {
+      "company": 1,
+      "raw_name": "상해사망보험금",
+      "expected_std_leaf": "상해사망",
+      "source": "anchor",
+      "note": "사망 세분류(상해). 일반사망으로 뭉개지면 회귀."
+    },
+    {
+      "company": 1,
+      "raw_name": "일반사망보험금",
+      "expected_std_leaf": "일반사망",
+      "source": "anchor",
+      "note": "회귀 감시: 사망 세분류 수정이 기본 사망까지 잘못 옮기지 않는지 고정(일반사망 유지)."
     }
   ]
 }

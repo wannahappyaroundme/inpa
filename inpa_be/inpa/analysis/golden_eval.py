@@ -38,7 +38,13 @@ from inpa.insurances.coverage_bridge import resolve_std_detail
 DATA_PATH = Path(__file__).resolve().parent / 'data' / 'golden_set.json'
 
 # ── 정확도 회귀 방지선(ratchet) ──
-# 2026-07-09 실측(시드 DB, seed_dict + anchor 11건 = 238건, dedup 후): 0.6176 (147/238).
+# 2026-07-09b 실측(사망 세분류 오분류 (d) 수정 후): 0.6569 (157/239). 앵커 15건.
+#   → 사망 복합어(재해/질병/상해 사망보험금·보장)가 '사망보험금' tail-substring 에 먹혀
+#     일반사망으로 새던 10건 교정.
+#   ※ 입원일당(c)은 '건드리지 않음': _match_coverage 가 base 입원일당을 의도적으로 None(미매칭)
+#     처리하고 prod 는 Claude _CATEGORY_MAP 으로 배치한다(실손 오염 방지 백스톱, 회귀테스트로 고정).
+#     키워드 이동은 그 설계를 깨므로 반려. 세분류(b)(e)는 도메인 판단(PM) 대기.
+# 2026-07-09a 최초 실측(seed_dict + anchor 11건 = 238건, dedup 후): 0.6176 (147/238).
 # ★ 이 aggregate 는 '대충 무너지지 않는지'만 보는 gross 바닥선이고, 실제 세밀 회귀 감시는
 #   11개 회귀 앵커(§7 함정 5 + 3대 진단비/후유장해 대표 매핑 6, 100% 하드 게이트)가 담당한다.
 #   단일 시드 항목 회귀는 aggregate 를 0.4%p 만 움직여 바닥선을 못 건드릴 수 있으므로,
@@ -52,9 +58,12 @@ DATA_PATH = Path(__file__).resolve().parent / 'data' / 'golden_set.json'
 # 범용 키워드가 '재해사망보험금'/'질병사망보장' 등 구체 복합어의 tail-substring 으로 먼저
 # 매칭(§7 substring 트랩과 동일 계열), (e) '특정(소액)암진단비'처럼 괄호 삽입어가 키워드
 # 연속성을 끊어 구체 키워드 대신 범용 '암진단' 으로 흡수.
-# (a)(b)는 설계상 admin_verified 승격을 기다리는 데이터 자산 갭(버그 아님), (c)(d)(e)는
-# 코드 개선 여지가 있는 실제 매처 한계 — 이번 스프린트 범위 밖, 후속 리포트 대상.
-GOLDEN_SET_MIN_ACCURACY = 0.60
+# (a) 기저 수술·처치는 2026-05-12 PM 정책 '진단 금액만 진단비 버킷'으로 의도적 미매칭(버그 아님).
+# (c) 입원일당은 키워드 매처가 의도적 None(prod는 Claude 카테고리로 배치, 위 참조) — 건드리지 않음.
+# (d)는 2026-07-09 수정 완료. (b)(e) 세분류(소액암/갑상선암/특정암/질병·고도후유장해)는
+# 상위 카테고리로 접는 설계 vs 세분류 인식 = PM 도메인 판단 대기(leaf는 존재, 파서 경로 추가만 하면 됨).
+# 임계값은 실측(0.6569)보다 살짝 낮게 고정(NORMALIZATION_V0 증가 흡수 + 개선분 잠금).
+GOLDEN_SET_MIN_ACCURACY = 0.65
 
 
 def load_golden_set():
