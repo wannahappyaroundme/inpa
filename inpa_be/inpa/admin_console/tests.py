@@ -42,9 +42,11 @@
   [요금제 설정]
   P1   PATCH /api/v1/admin/settings/plans/:code/ — 한도 변경
 """
+from datetime import timedelta
 from decimal import Decimal
 
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from inpa.accounts.models import Profile, User
@@ -53,6 +55,7 @@ from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCa
 from inpa.billing.models import Plan, Subscription
 from inpa.boards.models import Inquiry, InquiryReply, Notice, Post, Report
 from inpa.customers.models import ConsentLog, Customer
+from inpa.insurances.models import CustomerInsurance
 from inpa.notifications.models import Notification
 from inpa.promotion.models import PromotionOrder, PromotionOrderStatusLog, PromotionSample
 
@@ -1007,3 +1010,146 @@ class AdminClaudeCostTest(TestCase):
         """CC7: days=0 → 기간 제한 없이 전체(데모 제외 3건)."""
         res = self.client_admin.get('/api/v1/admin/claude-cost/?days=0')
         self.assertEqual(res.json()['total_calls'], 3)
+
+
+# ─── AF: 활성화 퍼널 (spec 2026-07-08, 프리런치 #16) ─────────────────────
+
+class AdminActivationFunnelTest(TestCase):
+    """GET /api/v1/admin/activation-funnel/?days= — 코호트 퍼널 + UTM 분해 + 7일 활성화 창."""
+
+    def setUp(self):
+        self.admin = _make_user('admin_funnel@inpa.kr', is_admin=True)
+        self.planner = _make_user('planner_funnel@test.kr', is_admin=False)
+        # admin/planner 본인도 User라 코호트에 잡힌다 — 테스트 코호트(a/b/c) 오염 방지 위해
+        # 아주 예전 가입으로 백데이팅(days 윈도우 어떤 값을 써도 절대 안 잡히게).
+        far_past = timezone.now() - timedelta(days=3650)
+        User.objects.filter(pk__in=[self.admin.pk, self.planner.pk]).update(date_joined=far_past)
+        self.client_admin = _auth_client(self.admin)
+        self.client_planner = _auth_client(self.planner)
+
+        # user_a: 10일 전 가입, 인증, 6일째 활성화 조건 충족(분석·공유 둘 다 창 안) → activates.
+        self.user_a = self._cohort_user(
+            'a@test.com', signup_days_ago=10, verified=True,
+            analysis_offset_days=2, share_offset_days=6, utm_source='naver')
+        # user_b: 10일 전 가입, 인증, 분석은 창 안(2일)인데 공유가 8일 뒤(창 밖) → 활성화 안 됨.
+        self.user_b = self._cohort_user(
+            'b@test.com', signup_days_ago=10, verified=True,
+            analysis_offset_days=2, share_offset_days=8, utm_source='')
+        # user_c: 5일 전 가입, 미인증, 고객·분석·공유 전부 없음.
+        self.user_c = self._cohort_user(
+            'c@test.com', signup_days_ago=5, verified=False, utm_source='google')
+        # 데모 계정 — 뭘 다 갖춰도 코호트에서 완전 제외돼야 함.
+        self.demo = self._cohort_user(
+            'demo_funnel@inpa.local', signup_days_ago=1, verified=True,
+            analysis_offset_days=0, share_offset_days=0, utm_source='naver')
+
+    def _cohort_user(self, email, signup_days_ago, verified=False,
+                     analysis_offset_days=None, share_offset_days=None, utm_source=''):
+        user = User.objects.create_user(email=email, password='inpaPass123!')
+        user.is_active = True
+        user.save(update_fields=['is_active'])
+        joined = timezone.now() - timedelta(days=signup_days_ago)
+        User.objects.filter(pk=user.pk).update(date_joined=joined)
+        Profile.objects.create(
+            user=user, email_verified_at=(joined if verified else None), utm_source=utm_source)
+
+        if analysis_offset_days is not None or share_offset_days is not None:
+            cust = Customer.objects.create(owner=user, name=f'고객-{email}')
+            Customer.objects.filter(pk=cust.pk).update(
+                created_at=joined + timedelta(days=1))
+            if share_offset_days is not None:
+                # 첫 공유 = 불변 NorthStarEvent.SHARE_CREATED(sender=설계사) 최초 시각 기준.
+                from inpa.analytics.models import NorthStarEvent
+                ev = NorthStarEvent.objects.create(
+                    event_type=NorthStarEvent.SHARE_CREATED, sender=user, customer=cust)
+                NorthStarEvent.objects.filter(pk=ev.pk).update(
+                    created_at=joined + timedelta(days=share_offset_days))
+            if analysis_offset_days is not None:
+                ins = CustomerInsurance.objects.create(customer=cust, portfolio_type=1, name='암보험')
+                CustomerInsurance.objects.filter(pk=ins.pk).update(
+                    created_at=joined + timedelta(days=analysis_offset_days))
+        return user
+
+    def test_AF1_non_admin_403_anon_401(self):
+        """AF1: 설계사 → 403, 비인증 → 401."""
+        self.assertEqual(
+            self.client_planner.get('/api/v1/admin/activation-funnel/').status_code, 403)
+        self.assertEqual(
+            APIClient().get('/api/v1/admin/activation-funnel/').status_code, 401)
+
+    def test_AF2_demo_account_excluded_from_cohort(self):
+        """AF2: @inpa.local은 무엇을 갖춰도 코호트에서 완전 제외(가입수에도 안 잡힘)."""
+        res = self.client_admin.get('/api/v1/admin/activation-funnel/?days=30')
+        data = res.json()
+        self.assertEqual(data['signup_count'], 3)  # a, b, c만 — demo 제외
+        sources = {row['source'] for row in data['utm_sources']}
+        # demo 의 naver 유입이 섞였다면 naver signups가 2가 됨 — 1이어야 함(=a만).
+        naver = next(r for r in data['utm_sources'] if r['source'] == 'naver')
+        self.assertEqual(naver['signups'], 1)
+
+    def test_AF3_step_counts_and_conversion_rates(self):
+        """AF3: 단계별 인원 + 직전 단계 대비 전환율(%) — a·b만 인증·고객·분석·공유 보유."""
+        res = self.client_admin.get('/api/v1/admin/activation-funnel/?days=30')
+        data = res.json()
+        by_step = {s['step']: s for s in data['steps']}
+        self.assertEqual(by_step['signup']['count'], 3)
+        self.assertEqual(by_step['verified']['count'], 2)
+        self.assertEqual(by_step['first_customer']['count'], 2)
+        self.assertEqual(by_step['first_analysis']['count'], 2)
+        self.assertEqual(by_step['first_share']['count'], 2)
+        self.assertAlmostEqual(by_step['verified']['conversion_rate'], 66.7, places=1)
+        self.assertEqual(by_step['first_customer']['conversion_rate'], 100.0)
+
+    def test_AF4_activation_7day_boundary(self):
+        """AF4: 6일째 첫분석+공유 완료(둘 다 창 안) → 활성. 8일째 공유는 창 밖 → 비활성."""
+        res = self.client_admin.get('/api/v1/admin/activation-funnel/?days=30')
+        data = res.json()
+        by_step = {s['step']: s for s in data['steps']}
+        self.assertEqual(by_step['activated']['count'], 1)  # user_a만
+        self.assertEqual(data['avg_days_to_activation'], 6.0)
+
+    def test_AF4b_activation_exactly_7days_is_inclusive(self):
+        """AF4b: 정확히 7일째 분석·공유 완료도 활성(<= 창, 경계 포함)."""
+        self._cohort_user(
+            'edge7@test.com', signup_days_ago=10, verified=True,
+            analysis_offset_days=7, share_offset_days=7, utm_source='edge')
+        res = self.client_admin.get('/api/v1/admin/activation-funnel/?days=30')
+        by_step = {s['step']: s for s in res.json()['steps']}
+        self.assertEqual(by_step['activated']['count'], 2)  # user_a + edge7
+
+    def test_AF4c_activation_share_uses_immutable_event_not_share_sent_at(self):
+        """AF4c(리뷰 blocker 회귀): 공유 재발급으로 share_sent_at 이 나중 시각으로 덮여도
+        첫 공유는 불변 SHARE_CREATED 최초 시각을 쓰므로 활성화가 뒤집히지 않는다."""
+        from inpa.customers.models import Customer as C
+        cust = C.objects.filter(owner=self.user_a).first()
+        # 20일 뒤(창 밖)로 share_sent_at 을 덮어써도 activated 는 여전히 1(user_a).
+        C.objects.filter(pk=cust.pk).update(share_sent_at=timezone.now())
+        res = self.client_admin.get('/api/v1/admin/activation-funnel/?days=30')
+        by_step = {s['step']: s for s in res.json()['steps']}
+        self.assertEqual(by_step['activated']['count'], 1)
+
+    def test_AF5_utm_breakdown(self):
+        """AF5: utm_source별 가입·활성화 — 빈 값은 'direct'로 집계."""
+        res = self.client_admin.get('/api/v1/admin/activation-funnel/?days=30')
+        rows = {r['source']: r for r in res.json()['utm_sources']}
+        self.assertEqual(rows['naver']['signups'], 1)
+        self.assertEqual(rows['naver']['activated'], 1)
+        self.assertEqual(rows['direct']['signups'], 1)  # user_b (utm_source='')
+        self.assertEqual(rows['direct']['activated'], 0)
+        self.assertEqual(rows['google']['signups'], 1)  # user_c
+        self.assertEqual(rows['google']['activated'], 0)
+
+    def test_AF6_no_judgment_words(self):
+        """AF6: 응답 키/문자열에 판정어 없음 — 사실 카운트·비율만(§6)."""
+        res = self.client_admin.get('/api/v1/admin/activation-funnel/?days=30')
+        data = res.json()
+        judgment_words = ['위험', '낮음', '부족', '경고', '주의', 'bad', 'risk', 'low']
+        response_str = str(data).lower()
+        for word in judgment_words:
+            self.assertNotIn(word.lower(), response_str, f"응답에 판정어 '{word}' 발견")
+
+    def test_AF7_days_window_narrows_cohort(self):
+        """AF7: days 창을 좁히면(3일) 10일 전 가입한 a·b는 코호트에서 빠진다."""
+        res = self.client_admin.get('/api/v1/admin/activation-funnel/?days=3')
+        data = res.json()
+        self.assertEqual(data['signup_count'], 0)  # a·b(10일 전)·c(5일 전) 전부 창 밖

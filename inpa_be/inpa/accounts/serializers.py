@@ -24,6 +24,25 @@ class RegisterSerializer(serializers.Serializer):
     agent_type = serializers.IntegerField(required=False, allow_null=True)
     # 팀 초대 토큰(#24, 선택) — 무효/만료여도 가입은 성공(토큰만 무시). 검증에서 절대 실패시키지 않는다.
     invite_token = serializers.CharField(required=False, allow_blank=True)
+    # UTM/유입 캡처(#16, 선택) — FE 첫터치 sessionStorage에서 옴. PII 아님(캠페인 태그).
+    # 값 검증 실패로 가입을 막지 않는다(위험문자만 제거) — invite_token과 동일한 관용 원칙.
+    utm_source = serializers.CharField(required=False, allow_blank=True)
+    utm_medium = serializers.CharField(required=False, allow_blank=True)
+    utm_campaign = serializers.CharField(required=False, allow_blank=True)
+
+    def _clean_utm(self, value):
+        # 영숫자·-_.만 허용(로그·표시 안전) + 60자 절단(모델 max_length와 동일).
+        v = re.sub(r'[^A-Za-z0-9._-]', '', (value or ''))
+        return v[:60]
+
+    def validate_utm_source(self, value):
+        return self._clean_utm(value)
+
+    def validate_utm_medium(self, value):
+        return self._clean_utm(value)
+
+    def validate_utm_campaign(self, value):
+        return self._clean_utm(value)
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
@@ -79,6 +98,9 @@ class RegisterSerializer(serializers.Serializer):
             title=(data.get('title') or ''),
             license_no=(data.get('license_no') or None),
             manager=manager,
+            utm_source=(data.get('utm_source') or ''),
+            utm_medium=(data.get('utm_medium') or ''),
+            utm_campaign=(data.get('utm_campaign') or ''),
         )
         return user
 

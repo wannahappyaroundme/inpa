@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { register, getInviteInfo, tokenStore, ApiError, type InviteInfo } from "@/lib/api";
+import { readCapturedUtm } from "@/lib/useUtmCapture";
 import { GoogleSignInButton } from "@/components/google-signin-button";
 
 function Logo() {
@@ -66,6 +67,7 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
+      const utm = readCapturedUtm(); // 첫터치 sessionStorage + 현재 URL 쿼리(#16)
       await register({
         email,
         password,
@@ -77,6 +79,9 @@ export default function RegisterPage() {
         title: title.trim() || undefined,
         license_no: licenseNo || undefined,
         invite_token: inviteToken || undefined,
+        utm_source: utm.utm_source || undefined,
+        utm_medium: utm.utm_medium || undefined,
+        utm_campaign: utm.utm_campaign || undefined,
       });
       setSuccess(true);
     } catch (err) {

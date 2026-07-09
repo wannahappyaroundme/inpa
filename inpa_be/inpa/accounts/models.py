@@ -127,6 +127,13 @@ class Profile(models.Model):
     # 비면 이니셜/로고 아바타 폴백. (Pillow 필요 — 이미 의존성에 포함)
     profile_image = models.ImageField('프로필 사진', upload_to='planners/', null=True, blank=True)
 
+    # ── UTM/유입 캡처 (활성화 퍼널 #16) ─────────────────────────────────
+    # 가입 시점 첫터치 캡처(FE sessionStorage 'inpa_utm' → register payload). PII 아님(캠페인 태그).
+    # 빈 값 = 'direct'(퍼널 집계에서 폴백). 위험문자 제거는 serializer에서(영숫자·-_.만 허용, 60자 절단).
+    utm_source = models.CharField('유입 소스', max_length=60, blank=True, default='')
+    utm_medium = models.CharField('유입 매체', max_length=60, blank=True, default='')
+    utm_campaign = models.CharField('유입 캠페인', max_length=60, blank=True, default='')
+
     # ── 구글 연동 ────────────────────────────────────────────────────────
     # google_sub = 구글 계정 고유 id(병행 로그인 링크 키). unique+null → 비구글 계정 다수 NULL 허용.
     google_sub = models.CharField('구글 sub', max_length=255, unique=True, null=True, blank=True)

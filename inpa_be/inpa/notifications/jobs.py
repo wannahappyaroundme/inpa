@@ -21,11 +21,13 @@ import datetime as dt
 import logging
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from inpa.accounts.models import Profile
 from inpa.analysis.models import SeedMarker
 from inpa.booking.models import Meeting
 from inpa.customers.models import Customer
@@ -321,6 +323,49 @@ def produce_share_unread(today):
     return created
 
 
+# ─── 데드맨 알람 — 가입은 있는데 이메일 인증이 멈췄을 때 (spec 2026-07-08, 프리런치 #16) ──
+
+def check_signup_verification_flatline(today):
+    """최근 창(기본 1일=오늘, KST) 신규 가입 ≥ 임계인데 같은 창 이메일 인증이 0건이면
+    관리자 전원에게 알림 1건(하루 1회 멱등, `_create_once` target_date=today 재사용).
+
+    프로드 사고(2026-07-07, Resend SMTP 실패로 가입은 되는데 인증메일이 안 감) 재발을
+    조기 감지하기 위한 스위치 — 인증 파이프라인이 막히면 신규 설계사가 전원 이탈한다.
+    ACTIVATION_FLATLINE_LOOKBACK_DAYS(기본 1)·ACTIVATION_FLATLINE_MIN_SIGNUPS(기본 3) env.
+    """
+    lookback = max(1, int(getattr(settings, 'ACTIVATION_FLATLINE_LOOKBACK_DAYS', 1) or 1))
+    min_signups = int(getattr(settings, 'ACTIVATION_FLATLINE_MIN_SIGNUPS', 3) or 3)
+    window_start = _kst_day_start(today - dt.timedelta(days=lookback - 1))
+    window_end = _kst_day_start(today + dt.timedelta(days=1))
+
+    # ★ 데모 계정(@inpa.local) 제외 — seed_demo 는 is_active+email_verified_at 를 동시에
+    #   세팅하므로, 실제 인증 장애 중 Render Shell 에서 seed_demo 를 돌리면 이 알람이
+    #   거짓으로 억제된다(리뷰 major). 다른 집계(AdminUsageView/퍼널)와 동일 관례.
+    User = get_user_model()
+    signups = (User.objects
+               .exclude(email__iendswith='@inpa.local')
+               .filter(date_joined__gte=window_start, date_joined__lt=window_end).count())
+    if signups < min_signups:
+        return 0
+    verifications = (Profile.objects
+                     .exclude(user__email__iendswith='@inpa.local')
+                     .filter(email_verified_at__gte=window_start,
+                             email_verified_at__lt=window_end).count())
+    if verifications > 0:
+        return 0
+
+    created = 0
+    for admin_id in User.objects.filter(profile__is_admin=True).values_list('id', flat=True):
+        created += _create_once(
+            owner_id=admin_id, notif_type=NotifType.SIGNUP_VERIFY_FLATLINE,
+            title='이메일 인증 멈춤 감지',
+            body=f'최근 신규 가입이 {signups}명 있었는데 이메일 인증 완료가 0건이에요. '
+                 f'인증 메일 발송 경로를 확인해 보세요.',
+            target_date=today,
+        )
+    return created
+
+
 # ─── 정리 단계 — 인바운드 리드 보유기간 자동 파기 (spec 2026-07-04 Part1 §5) ──
 
 def cleanup_expired_leads(today):
@@ -403,6 +448,8 @@ PRODUCERS = (
     (NotifType.CONSULT_REMINDER.value, produce_consult_reminder),
     (NotifType.TASK_DUE.value, produce_task_due),
     (NotifType.SHARE_UNREAD.value, produce_share_unread),
+    # 알림 생산자는 아니지만 같은 (today)→int 계약 + 실패 격리·하트비트 보존이 그대로 맞아 재사용(#16).
+    (NotifType.SIGNUP_VERIFY_FLATLINE.value, check_signup_verification_flatline),
 )
 
 

@@ -104,6 +104,34 @@ class AuthFlowTests(TestCase):
                             {**self.reg, 'license_no': bad}, format='json')
             self.assertEqual(r.status_code, 400, bad)
 
+    def test_register_saves_utm_fields(self):
+        """가입 시 utm_source/medium/campaign이 Profile에 그대로 저장(활성화 퍼널 #16 유입 캡처)."""
+        payload = {**self.reg, 'utm_source': 'naver', 'utm_medium': 'cpc', 'utm_campaign': 'summer2026'}
+        r = self.c.post('/api/v1/auth/register/', payload, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        p = Profile.objects.get(user__email=self.reg['email'])
+        self.assertEqual(p.utm_source, 'naver')
+        self.assertEqual(p.utm_medium, 'cpc')
+        self.assertEqual(p.utm_campaign, 'summer2026')
+
+    def test_register_without_utm_defaults_to_blank(self):
+        """utm_* 미전달 시 빈 값 저장(퍼널 집계에서 'direct'로 폴백하는 쪽은 admin_console 책임)."""
+        r = self._register()
+        self.assertEqual(r.status_code, 201, r.content)
+        p = Profile.objects.get(user__email=self.reg['email'])
+        self.assertEqual(p.utm_source, '')
+        self.assertEqual(p.utm_medium, '')
+        self.assertEqual(p.utm_campaign, '')
+
+    def test_register_sanitizes_utm_value(self):
+        """위험문자 제거(영숫자·-_.만 허용) + 60자 절단 — 가입을 막지 않고 값만 다듬는다."""
+        payload = {**self.reg, 'utm_source': '<script>alert(1)</script>;drop table' + 'x' * 60}
+        r = self.c.post('/api/v1/auth/register/', payload, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        p = Profile.objects.get(user__email=self.reg['email'])
+        self.assertLessEqual(len(p.utm_source), 60)
+        self.assertRegex(p.utm_source, r'^[A-Za-z0-9._-]*$')
+
     def test_register_succeeds_even_if_email_send_fails(self):
         """메일 발송 실패가 가입을 500으로 만들지 않는다(2026-07-07 프로드 사고 회귀).
 
