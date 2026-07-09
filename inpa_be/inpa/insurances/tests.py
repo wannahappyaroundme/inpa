@@ -494,6 +494,147 @@ class AnthropicClientMockTests(TestCase):
         self.assertEqual(case.detail.name, '일반암')
 
 
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
+class CoverageSubtypeSplitLiveTests(TestCase):
+    """2026-07-09 담보 세분류 개별 인식 — LIVE 경로(anthropic.Anthropic SDK mock) 회귀.
+
+    _CATEGORY_MAP(priority 1) + _COVERAGE_CATEGORIES 프롬프트 + ocrdata.py 트리를 함께
+    바꿨으므로, Claude가 구조화 응답에서 subcategory/detail_name 을 세분류로 채웠을 때
+    실제로 표준 leaf(소액암진단비/특정암진단비/질병후유장해)까지 연결되는지 SDK 경계만
+    mock 하고 나머지는 실 파이프라인(_convert_to_ocr_data→_add_coverage→persist bridge)을
+    태워 증명한다. 대조군(회귀)으로 세분류 키워드가 없는 평범한 유사암/일반암/상해후유장애가
+    여전히 그 부모 leaf 로 가는지도 같이 고정한다 — 이번 프롬프트 편집이 콜래터럴 없이
+    5종만 정확히 갈라냈는지의 핵심 증거.
+    """
+
+    def setUp(self):
+        import importlib.util
+        if importlib.util.find_spec('anthropic') is None:
+            self.skipTest('anthropic 미설치 — SDK mock 테스트 skip(실 호출 0)')
+
+        from django.core.management import call_command
+        call_command('seed_normalization')  # [표준] 트리 적재(멱등) — 세분류 leaf 포함
+
+        self.user, self.client = _make_planner('subtype-split@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='세분류고객', birth_day='1988.04.01')
+        _grant_overseas(self.customer)
+
+    def _std(self, name):
+        return AnalysisDetail.objects.get(
+            name=name, sub_category__category__name__startswith='[표준]')
+
+    def _upload_with_coverages(self, coverages):
+        import json as _json
+        fake_json = _json.dumps({
+            'insurance_type': 'loss', 'company_name': '삼성화재',
+            'product_name': '무배당 종합보험', 'contractor': '김철수', 'insured': '김철수',
+            'is_same_insured': True, 'payment_period': 20, 'warranty_period': 100,
+            'warranty_period_unit': '세', 'contract_date': '2021.02.01', 'expiry_date': '',
+            'monthly_premium': 60000, 'monthly_guarantee_premium': 60000,
+            'coverages': coverages,
+            'unmatched_coverages': [],
+        })
+        fake_block = mock.Mock()
+        fake_block.text = fake_json
+        fake_msg = mock.Mock()
+        fake_msg.content = [fake_block]
+        fake_client = mock.Mock()
+        fake_client.messages.create.return_value = fake_msg
+
+        import anthropic
+        with mock.patch.object(anthropic, 'Anthropic', return_value=fake_client), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['삼성화재 무배당 종합보험 담보'], None)):
+            return self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+
+    @staticmethod
+    def _cov(name, category, subcategory, detail_name, amount):
+        return {
+            'name': name, 'category': category, 'subcategory': subcategory,
+            'detail_name': detail_name, 'amount': amount, 'premium': 3000,
+            'payment_period': 20, 'payment_period_type': 1,
+            'warranty_period': 100, 'warranty_period_type': 1,
+            'is_renewal': False, 'renewal_period': 0,
+        }
+
+    def test_subtypes_persist_to_own_standard_leaf_not_collapsed(self):
+        """소액암/특정암/질병후유장해 구조화 응답 → 각각의 전용 표준 leaf에 연결(부모로 뭉개지지 않음)."""
+        r = self._upload_with_coverages([
+            self._cov('소액암진단급여금', '진단비', '암', '소액암', 10000000),
+            self._cov('특정암진단비', '진단비', '암', '특정암', 20000000),
+            self._cov('질병후유장해(3~100%)', '상해', '질병', '질병후유장해', 30000000),
+        ])
+        self.assertEqual(r.status_code, 201, r.content)
+
+        cases = {c.detail.name: c for c in CustomerInsuranceDetail.objects.all()}
+        self.assertEqual(set(cases.keys()), {'소액암', '특정암', '질병후유장해'})
+
+        std_small = self._std('소액암진단비')
+        std_specific = self._std('특정암진단비')
+        std_disease_disability = self._std('질병후유장해')
+
+        self.assertIn(std_small.id,
+                      cases['소액암'].detail.analysis_detail.values_list('id', flat=True))
+        self.assertIn(std_specific.id,
+                      cases['특정암'].detail.analysis_detail.values_list('id', flat=True))
+        self.assertIn(std_disease_disability.id,
+                      cases['질병후유장해'].detail.analysis_detail.values_list('id', flat=True))
+
+        # 콜래터럴 없음: 유사암/일반암/상해후유장해(부모) leaf 에는 이번 케이스가 안 붙음
+        self.assertNotIn('유사암', cases)
+        self.assertNotIn('일반암', cases)
+        self.assertNotIn('상해후유장애', cases)
+
+    def test_thyroid_and_severe_disability_subtypes_also_persist_separately(self):
+        """갑상선암·고도후유장해도 각각의 전용 표준 leaf에 연결된다."""
+        r = self._upload_with_coverages([
+            self._cov('갑상선암진단급여금', '진단비', '암', '갑상선암', 5000000),
+            self._cov('고도후유장해(80%이상)', '상해', '상해', '고도후유장해', 100000000),
+        ])
+        self.assertEqual(r.status_code, 201, r.content)
+
+        cases = {c.detail.name: c for c in CustomerInsuranceDetail.objects.all()}
+        self.assertEqual(set(cases.keys()), {'갑상선암', '고도후유장해'})
+
+        std_thyroid = self._std('갑상선암진단비')
+        std_severe = self._std('고도후유장해')
+        self.assertIn(std_thyroid.id,
+                      cases['갑상선암'].detail.analysis_detail.values_list('id', flat=True))
+        self.assertIn(std_severe.id,
+                      cases['고도후유장해'].detail.analysis_detail.values_list('id', flat=True))
+
+    def test_plain_parent_coverages_still_land_in_parent_leaf(self):
+        """회귀: 세분류 키워드가 없는 평범한 유사암/일반암/상해후유장애는 여전히 부모 leaf로 간다."""
+        r = self._upload_with_coverages([
+            self._cov('유사암진단비', '진단비', '암', '유사암', 10000000),
+            self._cov('일반암진단비', '진단비', '암', '일반암', 50000000),
+            self._cov('상해후유장해급여금', '상해', '상해', '상해후유장애', 100000000),
+        ])
+        self.assertEqual(r.status_code, 201, r.content)
+
+        cases = {c.detail.name: c for c in CustomerInsuranceDetail.objects.all()}
+        self.assertEqual(set(cases.keys()), {'유사암', '일반암', '상해후유장애'})
+
+        std_similar = self._std('유사암진단비')
+        std_general = self._std('일반암진단비')
+        std_injury_disability = self._std('상해후유장해')
+        self.assertIn(std_similar.id,
+                      cases['유사암'].detail.analysis_detail.values_list('id', flat=True))
+        self.assertIn(std_general.id,
+                      cases['일반암'].detail.analysis_detail.values_list('id', flat=True))
+        self.assertIn(std_injury_disability.id,
+                      cases['상해후유장애'].detail.analysis_detail.values_list('id', flat=True))
+
+        # 콜래터럴 없음: 새 세분류 leaf 에는 이번 케이스가 안 붙음
+        self.assertNotIn('소액암', cases)
+        self.assertNotIn('갑상선암', cases)
+        self.assertNotIn('특정암', cases)
+        self.assertNotIn('질병후유장해', cases)
+        self.assertNotIn('고도후유장해', cases)
+
+
 @override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test',
                     OCR_VERIFY_ENABLED=False, CLAUDE_USD_KRW_RATE=1000.0)
 class ClaudeApiLogWiringTests(TestCase):
