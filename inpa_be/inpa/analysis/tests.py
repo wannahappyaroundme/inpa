@@ -1290,3 +1290,92 @@ class CoverageFlagCreateTests(TestCase):
             }, format='json')
             self.assertEqual(r.status_code, 201)
         self.assertEqual(CoverageFlag.objects.count(), 2)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 골든셋 정규화 정확도 기준선 (프리런치 리뷰 #18, 2026-07-09)
+# ═══════════════════════════════════════════════════════════════════════
+from inpa.analysis.golden_eval import (  # noqa: E402
+    GOLDEN_SET_MIN_ACCURACY, evaluate_golden_set, find_golden_expected, load_golden_set,
+)
+
+
+class GoldenEvalUnitTests(TestCase):
+    """evaluate_golden_set 유닛: 앵커 통과, 주입한 오답 포착, accuracy 계산 정확."""
+
+    def setUp(self):
+        call_command('seed_normalization', stdout=StringIO())
+
+    def test_anchors_all_pass_on_seeded_db(self):
+        result = evaluate_golden_set()
+        self.assertEqual(result['anchor_failures'], [])
+        self.assertEqual(result['anchor_passed'], result['anchor_total'])
+        self.assertGreater(result['anchor_total'], 0)
+
+    def test_injected_wrong_entry_is_captured_as_failure(self):
+        """정답이 명백히 틀린 엔트리를 주입하면 failures 에 잡혀야 한다."""
+        entries = [
+            {'company': 1, 'raw_name': '일반사망보험금',
+             'expected_std_leaf': '존재하지않는담보', 'source': 'anchor'},
+        ]
+        result = evaluate_golden_set(entries=entries)
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['passed'], 0)
+        self.assertEqual(result['accuracy'], 0.0)
+        self.assertEqual(len(result['failures']), 1)
+        self.assertEqual(result['failures'][0]['expected'], '존재하지않는담보')
+        self.assertEqual(result['failures'][0]['got'], '일반사망')
+
+    def test_accuracy_matches_passed_over_total(self):
+        result = evaluate_golden_set()
+        self.assertAlmostEqual(
+            result['accuracy'], result['passed'] / result['total'], places=6)
+        self.assertEqual(result['failed'], result['total'] - result['passed'])
+
+    def test_load_golden_set_tags_seed_dict_and_anchor(self):
+        entries = load_golden_set()
+        sources = {e['source'] for e in entries}
+        self.assertEqual(sources, {'seed_dict', 'anchor'})
+        self.assertTrue(any(e['source'] == 'anchor' for e in entries))
+
+    def test_find_golden_expected_lookup(self):
+        expected = find_golden_expected(2, '상피내암진단비')
+        self.assertEqual(expected, '유사암진단비')
+        self.assertIsNone(find_golden_expected(999, '존재하지않는원문'))
+
+    def test_no_duplicate_company_rawname_keys(self):
+        """dedup: 앵커가 시드와 겹쳐도 (company, raw_name)은 코퍼스에 한 번만 — 중복 카운트 방지."""
+        entries = load_golden_set()
+        keys = [(e['company'], e['raw_name']) for e in entries]
+        self.assertEqual(len(keys), len(set(keys)))
+        # 시드에도 있는 원문을 앵커로 승격한 경우 source 는 anchor 로 덮여야 함
+        by_key = {(e['company'], e['raw_name']): e for e in entries}
+        promoted = by_key.get((1, '일반암진단급여금'))
+        self.assertIsNotNone(promoted)
+        self.assertEqual(promoted['source'], 'anchor')
+
+    def test_eval_normalization_command_runs(self):
+        """관리자 리포트 커맨드가 예외 없이 실행되고 정확도 라인을 출력한다."""
+        out = StringIO()
+        call_command('eval_normalization', stdout=out)
+        self.assertIn('정확도', out.getvalue())
+
+
+class GoldenSetGateTests(TestCase):
+    """CI 게이트 — 정확도 회귀 방지선 + 앵커 100% 통과 (스펙 §3)."""
+
+    def setUp(self):
+        call_command('seed_normalization', stdout=StringIO())
+
+    def test_accuracy_above_ratchet(self):
+        result = evaluate_golden_set()
+        self.assertGreaterEqual(
+            result['accuracy'], GOLDEN_SET_MIN_ACCURACY,
+            f"정확도 {result['accuracy']:.4f} 가 기준선 {GOLDEN_SET_MIN_ACCURACY} 미만 — "
+            f"회귀 확인 필요 (실패 {result['failed']}/{result['total']}건).")
+
+    def test_all_anchors_pass(self):
+        result = evaluate_golden_set()
+        self.assertEqual(
+            result['anchor_failures'], [],
+            f"함정 앵커 실패: {result['anchor_failures']} — 반드시 100% 통과해야 함.")

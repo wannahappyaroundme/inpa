@@ -686,6 +686,79 @@ class AdminCoverageFlagTest(TestCase):
         norm = NormalizationDict.objects.get(std_detail=self.new_leaf, company=2)
         self.assertEqual(len(norm.raw_name), 120)
 
+    def test_F11_accept_golden_set_mismatch_warns(self):
+        """골든셋 앵커와 다른 leaf 로 승인하면 비차단 경고(트랜잭션 밖·전체 재채점 없음)."""
+        from inpa.analysis.models import CoverageFlag
+        # 골든셋 앵커: company=2, raw_name='상피내암진단비' → 기대 '유사암진단비'.
+        # old_leaf 는 이름이 '일반암'이라 기대와 다름 → 경고가 떠야 한다.
+        flag = CoverageFlag.objects.create(
+            owner=self.planner, customer=self.customer,
+            analysis_detail=self.old_leaf, raw_name_snapshot='상피내암진단비',
+            company=2, note='골든셋 불일치 테스트')
+        res = self.client_admin.post(self._resolve_url(flag.id), {
+            'action': 'accept', 'std_detail_id': self.old_leaf.id,
+        }, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        self.assertTrue(any('골든셋' in w and '유사암진단비' in w for w in body['warnings']))
+        # 승인 응답은 전체 재채점을 하지 않는다(성능) — 정확도는 전용 카드에서 조회.
+        self.assertNotIn('golden_accuracy', body)
+
+    def test_F12_accept_golden_set_match_no_warning(self):
+        """골든셋 기대와 같은 leaf 로 승인하면 골든셋 경고가 없다."""
+        from inpa.analysis.models import AnalysisDetail, CoverageFlag
+        # new_leaf 이름을 골든셋 기대값('유사암진단비')과 맞춘다.
+        AnalysisDetail.objects.filter(pk=self.new_leaf.pk).update(name='유사암진단비')
+        self.new_leaf.refresh_from_db()
+        flag = CoverageFlag.objects.create(
+            owner=self.planner, customer=self.customer,
+            analysis_detail=self.old_leaf, raw_name_snapshot='상피내암진단비',
+            company=2, note='골든셋 일치 테스트')
+        res = self.client_admin.post(self._resolve_url(flag.id), {
+            'action': 'accept', 'std_detail_id': self.new_leaf.id,
+        }, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        self.assertFalse(any('골든셋' in w for w in body['warnings']))
+
+
+# ─── M: 골든셋 정규화 정확도 기준선 (프리런치 리뷰 #18) ────────────────
+
+class AdminNormalizationAccuracyTest(TestCase):
+    """GET /admin/normalization/accuracy/ — admin 전용, 사실 수치 shape."""
+
+    def setUp(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        call_command('seed_normalization', stdout=StringIO())
+        self.admin = _make_user('admin@inpa.kr', is_admin=True)
+        self.client_admin = _auth_client(self.admin)
+        self.planner = _make_user('planner@inpa.kr')
+        self.client_planner = _auth_client(self.planner)
+
+    def test_M1_admin_gets_accuracy_shape(self):
+        from inpa.analysis.golden_eval import GOLDEN_SET_MIN_ACCURACY
+
+        res = self.client_admin.get('/api/v1/admin/normalization/accuracy/')
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertIn('accuracy', body)
+        self.assertIn('total', body)
+        self.assertIn('passed', body)
+        self.assertIn('anchor_total', body)
+        self.assertIn('anchor_passed', body)
+        self.assertIn('sample_failures', body)
+        self.assertEqual(body['min_accuracy'], GOLDEN_SET_MIN_ACCURACY)
+        # 앵커는 100% 통과해야 한다(시드 DB 기준).
+        self.assertEqual(body['anchor_passed'], body['anchor_total'])
+        self.assertLessEqual(len(body['sample_failures']), 20)
+
+    def test_M2_planner_forbidden(self):
+        res = self.client_planner.get('/api/v1/admin/normalization/accuracy/')
+        self.assertEqual(res.status_code, 403)
+
 
 # ─── N: 공지사항 ─────────────────────────────────────────────────────
 

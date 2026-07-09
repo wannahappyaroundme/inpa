@@ -20,13 +20,118 @@ import {
   adminListNormalizationLeaves,
   adminListCoverageFlags,
   adminResolveCoverageFlag,
+  adminGetNormalizationAccuracy,
   type UnmatchedLogItem,
   type NormalizationDictItem,
   type NormalizationLeaf,
   type CoverageFlagItem,
   type CoverageFlagResolveResult,
+  type NormalizationAccuracy,
 } from "@/lib/adminApi";
 import { Card } from "@/components/ui";
+
+// ── 골든셋 정확도 기준선 카드 (프리런치 리뷰 #18) ───────────────────────────
+function AccuracyCard() {
+  const [data, setData] = useState<NormalizationAccuracy | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adminGetNormalizationAccuracy()
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <Card className="p-5 mb-5">
+        <div className="text-[13px] text-ink3">정확도 기준선을 불러오는 중...</div>
+      </Card>
+    );
+  }
+  if (!data) {
+    return (
+      <Card className="p-5 mb-5">
+        <div className="text-[13px] text-ink3">
+          정확도 기준선을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.
+        </div>
+      </Card>
+    );
+  }
+
+  const pct = (data.accuracy * 100).toFixed(1);
+  const anchorsOk = data.anchor_passed === data.anchor_total;
+
+  return (
+    <Card className="p-5 mb-5">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-[14px] font-bold text-ink">키워드 매처 재현율 기준선</h2>
+        <span className="text-[11px] text-ink3">
+          골든셋(자체 사전 + 회귀 앵커) 대비 키워드 자동매칭 재현율
+        </span>
+      </div>
+      <p className="text-[11px] text-ink3 mb-3 leading-relaxed">
+        실제 증권 분석은 AI(Claude)와 검수 사전까지 함께 써서 이 수치보다 정확합니다.
+        이 값은 키워드 자동매칭만 따로 떼어 사전·매처를 바꿀 때 정확도가 떨어지는지
+        감시하는 회귀 지표입니다. 낮게 보이는 항목 상당수는 세분류 담보라 키워드만으로는
+        구분이 어려운 경우이며(회귀 앵커는 반드시 통과), 실제 분석에는 영향이 없습니다.
+      </p>
+      <div className="flex flex-wrap items-center gap-6">
+        <div>
+          <div className="text-[28px] font-extrabold text-ink tnum">{pct}%</div>
+          <div className="text-[11px] text-ink3 tnum">
+            {data.passed} / {data.total}건 일치 · 기준선 {(data.min_accuracy * 100).toFixed(0)}%
+          </div>
+        </div>
+        <div
+          className={`text-[12px] font-semibold rounded-full px-3 py-1.5 ${
+            anchorsOk
+              ? "bg-emerald-50 text-emerald-700"
+              : "bg-rose-50 text-rose-700"
+          }`}
+        >
+          회귀 앵커 {data.anchor_passed} / {data.anchor_total}건 통과
+        </div>
+      </div>
+      {data.sample_failures.length > 0 && (
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="text-[12px] font-semibold text-brand"
+          >
+            {expanded ? "일치하지 않는 항목 접기" : `일치하지 않는 항목 보기 (${data.sample_failures.length}건)`}
+          </button>
+          {expanded && (
+            <div className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-line divide-y divide-line">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="border-b border-line text-ink3">
+                    <th className="text-left px-3 py-2 font-semibold">회사</th>
+                    <th className="text-left px-3 py-2 font-semibold">원문</th>
+                    <th className="text-left px-3 py-2 font-semibold">기대 표준 담보</th>
+                    <th className="text-left px-3 py-2 font-semibold">실제 매칭</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {data.sample_failures.map((f, i) => (
+                    <tr key={i}>
+                      <td className="px-3 py-2 text-ink3">{companyLabel(f.company)}</td>
+                      <td className="px-3 py-2 text-ink font-medium">{f.raw_name}</td>
+                      <td className="px-3 py-2 text-ink3">{f.expected}</td>
+                      <td className="px-3 py-2 text-ink3">{f.got ?? "매칭 안 됨"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
 
 // ── 보험사 코드 → 라벨 (core/ocr/ocrdata.py index 기준: 손해 0~, 생명 200+) ──
 const LOSS_COMPANIES = [
@@ -290,6 +395,8 @@ export default function AdminNormalizationPage() {
       <p className="text-[12px] text-ink3 mb-5">
         증권에서 읽은 담보명을 표준 담보로 매핑합니다. 매핑 후 다음 분석부터 자동 적용됩니다.
       </p>
+
+      <AccuracyCard />
 
       {/* 탭 */}
       <div className="flex gap-2 mb-5">

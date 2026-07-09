@@ -495,6 +495,25 @@ class AdminNormalizationDictSerializer(serializers.ModelSerializer):
         return obj.verified_by.email if obj.verified_by else None
 
 
+class NormalizationAccuracyFailureSerializer(serializers.Serializer):
+    """골든셋 실패 항목 1건 (사실만 — 판정어 없음)."""
+    company = serializers.IntegerField()
+    raw_name = serializers.CharField()
+    expected = serializers.CharField()
+    got = serializers.CharField(allow_null=True)
+
+
+class NormalizationAccuracySerializer(serializers.Serializer):
+    """골든셋 정규화 정확도 기준선 응답 (프리런치 리뷰 #18) — 사실 수치만, 판정어 금지."""
+    accuracy = serializers.FloatField()
+    total = serializers.IntegerField()
+    passed = serializers.IntegerField()
+    anchor_passed = serializers.IntegerField()
+    anchor_total = serializers.IntegerField()
+    min_accuracy = serializers.FloatField()
+    sample_failures = NormalizationAccuracyFailureSerializer(many=True)
+
+
 class AdminCoverageFlagSerializer(serializers.ModelSerializer):
     """담보 위치 확인 요청 목록/처리 결과 (admin 검수용).
 

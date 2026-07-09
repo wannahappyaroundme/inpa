@@ -1,0 +1,82 @@
+{
+  "_provenance": "인파 자체 큐레이션 회귀 앵커. 보험사 원본 문서·samples/·benchmark/ 미참조 — CLAUDE.md §7(개발 함정)에 이미 기록된 정규화 substring 트랩을 손으로 옮겨 적은 것. 신규 항목은 #26(담보 위치 확인 요청) 어드민 승인 별칭에서 유래(de-identified)하되, 골든셋은 CI 게이트라 자동 증식하지 않고 리뷰 후 수기 반영한다.",
+  "anchors": [
+    {
+      "company": 2,
+      "raw_name": "상피내암진단비",
+      "expected_std_leaf": "유사암진단비",
+      "source": "anchor",
+      "note": "상피내암은 '암진단'을 서브스트링으로 포함하지만(§7 substring 트랩) 더 긴 키워드 '상피내암'이 먼저 매칭되어 유사암 그룹으로 간다. 일반암으로 오분류되면 회귀."
+    },
+    {
+      "company": 1,
+      "raw_name": "질병중환자실입원일당",
+      "expected_std_leaf": "질병중환자실입원일당",
+      "source": "anchor",
+      "note": "'중환자실입원일당'(특수입원, 별개 leaf)의 서브스트링이지만 자기 자신이 더 긴 키워드라 우선 매칭되어 자기 고유 leaf로 간다. 특수입원 쪽으로 오분류되면 회귀."
+    },
+    {
+      "company": 12,
+      "raw_name": "조혈모세포이식수술비",
+      "expected_std_leaf": "조혈모세포이식수술비",
+      "source": "anchor",
+      "note": "이식·수술 등 처치성 토큰을 포함하지만 수술 표준경로(특수수술)로 정확히 매칭되어야 한다. 진단비 경로로 새면 회귀."
+    },
+    {
+      "company": 11,
+      "raw_name": "환경성질환입원일당",
+      "expected_std_leaf": "환경성질환입원일당",
+      "source": "anchor",
+      "note": "정액형 입원(일당) 담보는 실손 입원의료비 경로가 아니라 입원 표준경로(특수입원)로 가야 한다. 실손 경로로 새면 회귀."
+    },
+    {
+      "company": 1,
+      "raw_name": "암(4대유사암제외)진단비",
+      "expected_std_leaf": "일반암진단비",
+      "source": "anchor",
+      "note": "배제 괄호 '(...제외)'는 통째로 제거된 뒤 매칭되어야 한다('암진단비' → 암진단 → 일반암). 배제 처리가 깨지면 회귀."
+    },
+    {
+      "company": 1,
+      "raw_name": "일반암진단급여금",
+      "expected_std_leaf": "일반암진단비",
+      "source": "anchor",
+      "note": "3대 진단비 핵심 담보(암). 고빈도라 개별 하드 게이트로 승격 — 키워드 매처가 이 대표 매핑을 놓치면 회귀."
+    },
+    {
+      "company": 1,
+      "raw_name": "유사암진단급여금",
+      "expected_std_leaf": "유사암진단비",
+      "source": "anchor",
+      "note": "유사암 대표 매핑(상피내암 앵커와 같은 leaf, 다른 원문). 일반암으로 새면 회귀."
+    },
+    {
+      "company": 1,
+      "raw_name": "뇌졸중진단급여금",
+      "expected_std_leaf": "뇌졸중진단비",
+      "source": "anchor",
+      "note": "3대 진단비 핵심 담보(뇌). 뇌출혈·뇌혈관과 구분되어야 함."
+    },
+    {
+      "company": 1,
+      "raw_name": "뇌출혈진단급여금",
+      "expected_std_leaf": "뇌출혈진단비",
+      "source": "anchor",
+      "note": "뇌 진단비 세분류. 뇌졸중·뇌혈관으로 뭉개지면 회귀."
+    },
+    {
+      "company": 1,
+      "raw_name": "급성심근경색증진단급여금",
+      "expected_std_leaf": "급성심근경색진단비",
+      "source": "anchor",
+      "note": "3대 진단비 핵심 담보(심장). 허혈성심장질환과 구분되어야 함."
+    },
+    {
+      "company": 1,
+      "raw_name": "상해후유장해급여금",
+      "expected_std_leaf": "상해후유장해",
+      "source": "anchor",
+      "note": "고빈도 후유장해 대표 매핑. 질병후유장해·사망 경로로 새면 회귀."
+    }
+  ]
+}
