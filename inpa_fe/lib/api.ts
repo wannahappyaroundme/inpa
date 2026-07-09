@@ -12,7 +12,7 @@ if (typeof window !== "undefined" &&
     API_BASE.includes("localhost") &&
     !window.location.hostname.match(/^(localhost|127\.0\.0\.1)$/)) {
   console.error(
-    "[인파] NEXT_PUBLIC_API_BASE 미설정 — API가 localhost를 가리킵니다. " +
+    "[인파] NEXT_PUBLIC_API_BASE 미설정: API가 localhost를 가리킵니다. " +
     "Vercel 환경변수에 백엔드 URL을 넣고 재배포하세요."
   );
 }
