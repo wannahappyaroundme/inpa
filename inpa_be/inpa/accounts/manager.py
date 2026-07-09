@@ -9,12 +9,15 @@
 """
 import datetime
 
+from django.conf import settings
+from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from inpa.accounts.models import Profile
 from inpa.analytics.models import NorthStarEvent
+from inpa.billing.credit import user_can_use_team
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer
 from inpa.dashboard.aggregation import (
@@ -24,6 +27,13 @@ from inpa.dashboard.aggregation import (
 from inpa.insurances.churn import _assess
 from inpa.insurances.models import CustomerInsurance
 
+# 팀 기능 게이트(MANAGER_PLAN_GATE_ENABLED, spec 2026-07-09) 응답 — accounts/invite.py와 동일 shape.
+MANAGER_PLAN_REQUIRED_BODY = {
+    'detail': '팀 관리는 Manager 요금제에서 이용할 수 있어요.',
+    'code': 'manager_plan_required',
+    'plan': 'manager',
+}
+
 
 def _mask(label):
     if not label:
@@ -32,10 +42,17 @@ def _mask(label):
 
 
 class ManagerDashboardView(APIView):
-    """매니저 본인에게 KPI 공유 동의한 소속 설계사들의 집계."""
+    """매니저 본인에게 KPI 공유 동의한 소속 설계사들의 집계.
+
+    ★ settings.MANAGER_PLAN_GATE_ENABLED=True(유료 전환 후)면 Manager 요금제
+      (billing.Plan.can_use_team=True) 활성 구독자만 접근 가능 — 402 manager_plan_required.
+      기본 False(dormant)라 현재는 인증 설계사 누구나 이용 가능(현행 유지).
+    """
     permission_classes = [IsAuthenticated, IsEmailVerified]
 
     def get(self, request):
+        if getattr(settings, 'MANAGER_PLAN_GATE_ENABLED', False) and not user_can_use_team(request.user):
+            return Response(MANAGER_PLAN_REQUIRED_BODY, status=status.HTTP_402_PAYMENT_REQUIRED)
         me = request.user
         today = datetime.date.today()
         this_ym = today.strftime('%Y-%m')

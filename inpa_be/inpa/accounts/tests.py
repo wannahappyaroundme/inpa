@@ -1,4 +1,5 @@
 """계정 도메인 happy-path + 핵심 게이트 테스트."""
+from datetime import timedelta
 from unittest import mock
 
 from django.core import mail
@@ -431,6 +432,74 @@ class TeamInviteTests(TestCase):
         self.assertEqual(r.status_code, 201, r.content)
         p = Profile.objects.get(user__email='newbie@test.com')
         self.assertIsNone(p.manager_id)
+
+
+class ManagerPlanGateTests(TestCase):
+    """팀 기능 권한 게이트(MANAGER_PLAN_GATE_ENABLED, spec 2026-07-09) — 대시보드 + 초대 링크.
+
+    ★ 기본 OFF(dormant) — 게이트 없이도 현행 동작(인증 설계사 누구나 이용)이 그대로 보존돼야 한다.
+      ON일 때만 Manager 요금제(billing.Plan.can_use_team=True) 활성·미만료 구독 여부로 402를 가른다.
+    """
+
+    def setUp(self):
+        from inpa.billing.models import Plan, Subscription
+        self.Plan = Plan
+        self.Subscription = Subscription
+        self.user, self.client = _verified_planner('gate-agent@test.com')
+        self.free_plan, _ = Plan.objects.get_or_create(
+            code='free', defaults={'display_name': '무료', 'price_krw': 0})
+        self.manager_plan, _ = Plan.objects.get_or_create(
+            code='manager', defaults={
+                'display_name': 'Manager', 'price_krw': 19900, 'can_use_team': True,
+            })
+        if not self.manager_plan.can_use_team:  # 필드가 나중에 도입된 기존 행 보정(시드와 동일 로직)
+            self.manager_plan.can_use_team = True
+            self.manager_plan.save(update_fields=['can_use_team'])
+
+    def _subscribe(self, plan, expires_at=None):
+        self.Subscription.objects.filter(user=self.user).delete()
+        return self.Subscription.objects.create(
+            user=self.user, plan=plan, status='active', expires_at=expires_at)
+
+    def test_gate_off_default_preserves_current_behavior(self):
+        """기본값(게이트 OFF) — 구독이 없어도(free조차 아니어도) 대시보드·초대 링크 200."""
+        self.Subscription.objects.filter(user=self.user).delete()
+        r1 = self.client.get('/api/v1/manager/dashboard/')
+        self.assertEqual(r1.status_code, 200, r1.content)
+        r2 = self.client.post('/api/v1/manager/invite-link/')
+        self.assertEqual(r2.status_code, 200, r2.content)
+
+    @override_settings(MANAGER_PLAN_GATE_ENABLED=True)
+    def test_gate_on_without_manager_plan_blocks_402(self):
+        self._subscribe(self.free_plan)
+        r1 = self.client.get('/api/v1/manager/dashboard/')
+        self.assertEqual(r1.status_code, 402, r1.content)
+        self.assertEqual(r1.json()['code'], 'manager_plan_required')
+        r2 = self.client.post('/api/v1/manager/invite-link/')
+        self.assertEqual(r2.status_code, 402, r2.content)
+        self.assertEqual(r2.json()['code'], 'manager_plan_required')
+
+    @override_settings(MANAGER_PLAN_GATE_ENABLED=True)
+    def test_gate_on_with_active_manager_subscription_allows(self):
+        self._subscribe(self.manager_plan)
+        r1 = self.client.get('/api/v1/manager/dashboard/')
+        self.assertEqual(r1.status_code, 200, r1.content)
+        r2 = self.client.post('/api/v1/manager/invite-link/')
+        self.assertEqual(r2.status_code, 200, r2.content)
+
+    @override_settings(MANAGER_PLAN_GATE_ENABLED=True)
+    def test_gate_on_with_expired_manager_subscription_blocks_402(self):
+        self._subscribe(self.manager_plan, expires_at=timezone.now() - timedelta(days=1))
+        r1 = self.client.get('/api/v1/manager/dashboard/')
+        self.assertEqual(r1.status_code, 402, r1.content)
+        self.assertEqual(r1.json()['code'], 'manager_plan_required')
+
+    @override_settings(MANAGER_PLAN_GATE_ENABLED=True)
+    def test_invite_info_stays_public_regardless_of_gate(self):
+        """GET invite-info는 공개(AllowAny) — 게이트와 무관, 무효 토큰이면 그냥 404(게이트 402 아님)."""
+        public = APIClient()
+        r = public.get('/api/v1/manager/invite-info/', {'token': 'garbage-token'})
+        self.assertEqual(r.status_code, 404)
 
 
 class ProfilePhoneTests(TestCase):

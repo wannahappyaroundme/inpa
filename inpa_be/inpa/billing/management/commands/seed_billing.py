@@ -60,8 +60,16 @@ class Command(BaseCommand):
                 'description': MANAGER_DESCRIPTION,
                 'limit_ocr': 200, 'limit_ai_compare': 100,
                 'limit_analysis': 200, 'limit_promotion': 100,
+                'can_use_team': True,  # 팀 기능 게이트(spec 2026-07-09) — manager 전용 capability
             },
         )
+        # get_or_create의 defaults는 신규 생성 시에만 적용된다. can_use_team 필드가 나중에
+        # 도입됐으므로(2026-07-09) 이미 존재하는 manager 행은 기본값 False로 남아있을 수 있다.
+        # 다른 필드(가격·한도)는 관리자 수정값을 보존하지만, 이 필드만은 "manager=팀 가능"이
+        # 항상 참이어야 하므로 재시드 시 명시적으로 보정한다.
+        if not manager.can_use_team:
+            manager.can_use_team = True
+            manager.save(update_fields=['can_use_team'])
         superp, super_created = Plan.objects.get_or_create(
             code='super',
             defaults={

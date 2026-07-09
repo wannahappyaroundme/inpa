@@ -229,6 +229,14 @@ LOGGING = {
 # 환경변수 FREE_TIER_UNLIMITED=true/false 로 런타임 제어.
 FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
 
+# ── 팀(매니저) 기능 권한 게이트 (Manager 요금제, spec 2026-07-09) ─────────────
+# ★ 기본 False(dormant) — 베타 중엔 Manager 결제자가 없으므로 켜면 팀 기능이 전원 잠긴다.
+#   COMPARE_AI_ENABLED와 동일 관례: ship dormant, 유료 전환 시점에 env로만 flip(재배포 무관).
+#   True면 /manager 대시보드·팀 초대 링크가 Plan.can_use_team=True인 활성 구독자(Manager 요금제)
+#   전용이 되고, 그 외는 402 {code:'manager_plan_required'}. FREE_TIER_UNLIMITED(쿼터 우회)과는
+#   독립된 capability 게이트다.
+MANAGER_PLAN_GATE_ENABLED = env.bool('MANAGER_PLAN_GATE_ENABLED', default=False)
+
 # ── 인바운드 리드 보유기간 자동 파기 (PIPA 보유기간, PM 확정 180일) ─────────
 # 셀프진단(/d)·소개카드(/p)로 유입된 잠재고객 중 상담으로 이어지지 않은 리드를
 # 마지막 활동일(last_contacted_at, 없으면 created_at)부터 N일 경과 시 daily job에서 파기.
