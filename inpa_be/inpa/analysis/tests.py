@@ -1121,6 +1121,76 @@ class DeathCoverageRoutingTests(TestCase):
         self.assertEqual(self._path('사망후유장해'), ('사망', '일반', '일반사망'))
 
 
+class CancerSubtypeRoutingTests(TestCase):
+    """암 담보 세분류 개별 인식(2026-07-09, PM 확정) — _match_by_keywords 직접 호출(§7 회귀 관례).
+
+    설계: 유사암 경로에 뭉쳐 있던 '소액암'·'갑상선암', 일반암 경로에 뭉쳐 있던 '특정암'을
+    표준 트리에 이미 존재하는 전용 leaf(소액암진단비/갑상선암진단비/특정암진단비)로 분리.
+    §8 무관(leaf 기존 존재, 순수 라우팅) — 사망 세분류 수정(DeathCoverageRoutingTests)과 동형.
+    """
+
+    def _path(self, name):
+        from inpa.core.ocr.claude_parser import _match_by_keywords
+        return _match_by_keywords(name)
+
+    def test_small_amount_cancer_routes_to_own_leaf(self):
+        self.assertEqual(self._path('소액암진단급여금'), ('진단비', '암', '소액암'))
+        self.assertEqual(self._path('소액암진단비'), ('진단비', '암', '소액암'))
+        self.assertEqual(self._path('소액암진단비(갑상선 등)'), ('진단비', '암', '소액암'))
+        # tie-break 트랩: 괄호로 '유사암'이 동반 표기돼도 더 긴 복합어로 소액암이 이겨야 함.
+        self.assertEqual(self._path('소액암(유사암)진단보험금'), ('진단비', '암', '소액암'))
+
+    def test_thyroid_cancer_routes_to_own_leaf(self):
+        self.assertEqual(self._path('갑상선암진단급여금'), ('진단비', '암', '갑상선암'))
+        self.assertEqual(self._path('갑상선암진단비'), ('진단비', '암', '갑상선암'))
+        self.assertEqual(self._path('갑상선암진단금'), ('진단비', '암', '갑상선암'))
+
+    def test_specific_cancer_routes_to_own_leaf(self):
+        self.assertEqual(self._path('특정암진단비'), ('진단비', '암', '특정암'))
+
+    def test_similar_and_general_cancer_unchanged_no_regression(self):
+        # 유사암(부모) 자체·나머지 유사암군은 그대로 유사암 유지.
+        self.assertEqual(self._path('유사암진단급여금'), ('진단비', '암', '유사암'))
+        self.assertEqual(self._path('상피내암진단비'), ('진단비', '암', '유사암'))
+        self.assertEqual(self._path('제자리암진단비'), ('진단비', '암', '유사암'))
+        # 회귀 가드: '갑상선'만 있고 '암'이 바로 붙지 않으면 갑상선암으로 오분류되지 않는다.
+        self.assertEqual(self._path('유사암진단비(갑상선·경계성)'), ('진단비', '암', '유사암'))
+        # 일반암(부모)도 그대로 유지.
+        self.assertEqual(self._path('일반암진단급여금'), ('진단비', '암', '일반암'))
+        self.assertEqual(self._path('일반암진단비'), ('진단비', '암', '일반암'))
+        self.assertEqual(self._path('16대특정암진단비'), ('진단비', '암', '일반암'))
+
+
+class DisabilitySubtypeRoutingTests(TestCase):
+    """후유장해 담보 세분류 개별 인식(2026-07-09, PM 확정) — _match_by_keywords 직접 호출.
+
+    설계: 상해후유장애(=상해후유장해) 경로에 뭉쳐 있던 '질병후유장해'(원인=질병)·
+    '고도/80%이상후유장해'(중증도=고도)를 표준 트리 전용 leaf로 분리. 일반 상해후유장해는
+    그대로 유지(§7 substring 트랩 회피 — 복합어 추가로 longest-first 보정).
+    """
+
+    def _path(self, name):
+        from inpa.core.ocr.claude_parser import _match_by_keywords
+        return _match_by_keywords(name)
+
+    def test_disease_disability_routes_to_own_leaf(self):
+        self.assertEqual(self._path('질병후유장해'), ('상해', '질병', '질병후유장해'))
+        self.assertEqual(self._path('질병후유장해(3~100%)'), ('상해', '질병', '질병후유장해'))
+        self.assertEqual(self._path('질병후유장해급여(3~100%)'), ('상해', '질병', '질병후유장해'))
+
+    def test_severe_disability_routes_to_own_leaf(self):
+        self.assertEqual(self._path('고도후유장해'), ('상해', '상해', '고도후유장해'))
+        self.assertEqual(self._path('상해80%이상후유장해'), ('상해', '상해', '고도후유장해'))
+        self.assertEqual(self._path('고도후유장해(80%이상)'), ('상해', '상해', '고도후유장해'))
+
+    def test_general_disability_unchanged_no_regression(self):
+        self.assertEqual(self._path('상해후유장해급여금'), ('상해', '상해', '상해후유장애'))
+        self.assertEqual(self._path('상해후유장해(3~100%)'), ('상해', '상해', '상해후유장애'))
+        self.assertEqual(self._path('상해후유장해(3%~100%)'), ('상해', '상해', '상해후유장애'))
+        self.assertEqual(self._path('상해후유장해보험금(3~100%)'), ('상해', '상해', '상해후유장애'))
+        self.assertEqual(self._path('재해후유장해급여금(3~100%)'), ('상해', '상해', '상해후유장애'))
+
+
 class ClaudeParserLogRedactionTests(TestCase):
     def test_normalizer_error_log_excludes_coverage_content(self):
         """normalizer 훅 예외 로그에 담보 원문명·예외 메시지 내용이 새지 않는다."""
