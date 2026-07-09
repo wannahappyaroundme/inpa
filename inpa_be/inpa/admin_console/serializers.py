@@ -597,6 +597,7 @@ class AdminPlanSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'code', 'display_name', 'price_krw', 'description',
             'limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
+            'limit_customer',
             'is_active', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'code', 'created_at']
@@ -609,6 +610,7 @@ class AdminPlanUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'display_name', 'price_krw', 'description',
             'limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
+            'limit_customer',
             'is_active',
         ]
 

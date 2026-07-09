@@ -489,6 +489,7 @@ export interface AdminPlan {
   limit_ai_compare: number | null;
   limit_analysis: number | null;
   limit_promotion: number | null;
+  limit_customer: number | null;
   is_active: boolean;
 }
 

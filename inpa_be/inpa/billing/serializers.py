@@ -25,6 +25,7 @@ class PlanSerializer(serializers.ModelSerializer):
             'limit_ai_compare',
             'limit_analysis',
             'limit_promotion',
+            'limit_customer',
             'is_active',
         ]
         read_only_fields = fields

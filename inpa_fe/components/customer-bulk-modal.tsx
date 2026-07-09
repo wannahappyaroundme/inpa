@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import {
-  createCustomersBulk, searchJobs, LEAD_SOURCES,
+  createCustomersBulk, searchJobs, LEAD_SOURCES, ApiError,
   type BulkCustomerRow, type JobMatch,
 } from "@/lib/api";
 import { AVATAR_PALETTE, CustomerAvatar } from "@/components/ui";
@@ -182,8 +182,13 @@ export function CustomerBulkModal({ onClose, onCreated }: { onClose: () => void;
     }));
     try {
       setDone(await createCustomersBulk(payload));
-    } catch {
-      setError("등록 중 오류가 났어요. 잠시 후 다시 시도해 주세요.");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 402) {
+        // 고객 추가 한도 도달(유료 전환 후에만 발생) → 긍정 업그레이드 안내.
+        setError("이번 달 고객 추가 한도를 넘어서 등록할 수 없었어요. 요금제를 올리면 더 등록할 수 있어요.");
+      } else {
+        setError("등록 중 오류가 났어요. 잠시 후 다시 시도해 주세요.");
+      }
       setSaving(false);
     }
   }

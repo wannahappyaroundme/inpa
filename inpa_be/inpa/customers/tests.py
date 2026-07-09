@@ -14,6 +14,7 @@ from rest_framework.test import APIClient
 from django.test import TestCase, override_settings
 
 from inpa.accounts.models import Profile, User
+from inpa.billing.models import Plan, Subscription, UsageMeter
 from inpa.insurances.models import CustomerInsurance
 
 from .consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
@@ -1186,3 +1187,159 @@ class DailyCallListTests(TestCase):
         reasons = body['results'][0]['reasons']
         self.assertTrue(all('만기' not in x and '생일' not in x for x in reasons))
         self.assertEqual(body['total_candidates'], 1)
+
+
+# ─── 신규 고객 추가 한도 (spec 2026-07-09 pricing-limits-align) ───────────────
+
+
+def _consume_customer_quota(user, n):
+    """billing UsageMeter('customer') 카운터를 n으로 직접 세팅(billing/tests.py::_consume_n과 동일 패턴)."""
+    ym = UsageMeter.current_month()
+    meter, _ = UsageMeter.objects.get_or_create(
+        user=user, action='customer', year_month=ym, defaults={'count': 0})
+    meter.count = n
+    meter.save(update_fields=['count', 'updated_at'])
+
+
+def _subscribe_free(user, limit_customer=5):
+    """테스트 전용 free Plan(원하는 limit_customer)에 구독시킨다."""
+    free_plan, created = Plan.objects.get_or_create(
+        code='free',
+        defaults={'display_name': '무료', 'price_krw': 0, 'limit_customer': limit_customer},
+    )
+    if not created and free_plan.limit_customer != limit_customer:
+        free_plan.limit_customer = limit_customer
+        free_plan.save(update_fields=['limit_customer'])
+    Subscription.objects.update_or_create(
+        user=user, defaults={'plan': free_plan, 'status': 'active'})
+    return free_plan
+
+
+@override_settings(FREE_TIER_UNLIMITED=False)
+class CustomerQuotaEnforcementTests(TestCase):
+    """CustomerViewSet 단건·일괄 등록 — 신규 고객 추가 한도(kind='customer') 강제.
+
+    ★ FREE_TIER_UNLIMITED=False(유료 전환 후)에서만 발동 — 베타 dormant는
+    CustomerQuotaBetaDormantTests 로 별도 검증한다.
+    """
+
+    def setUp(self):
+        self.user, self.client = _make_planner('quota@test.com')
+        _subscribe_free(self.user, limit_customer=5)
+
+    def test_sixth_single_create_returns_402_credit_exhausted(self):
+        _consume_customer_quota(self.user, 5)
+        r = self.client.post('/api/v1/customers/', {'name': '고객6'}, format='json')
+        self.assertEqual(r.status_code, 402, r.data)
+        self.assertEqual(r.json()['code'], 'credit_exhausted')
+        self.assertEqual(r.json()['kind'], 'customer')
+        self.assertFalse(Customer.objects.filter(owner=self.user, name='고객6').exists())
+
+    def test_fifth_single_create_passes(self):
+        _consume_customer_quota(self.user, 4)
+        r = self.client.post('/api/v1/customers/', {'name': '고객5'}, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertTrue(Customer.objects.filter(owner=self.user, name='고객5').exists())
+
+    def test_bulk_batch_larger_than_remaining_returns_402_no_partial_create(self):
+        """잔여 0(5/5 소진)인데 2건 일괄 등록 시도 → 402, 아무도 생성되지 않는다."""
+        _consume_customer_quota(self.user, 5)
+        body = {'customers': [{'name': '벌크1'}, {'name': '벌크2'}]}
+        r = self.client.post('/api/v1/customers/bulk/', body, format='json')
+        self.assertEqual(r.status_code, 402, r.data)
+        self.assertEqual(r.json()['kind'], 'customer')
+        self.assertEqual(
+            Customer.objects.filter(owner=self.user, name__startswith='벌크').count(), 0)
+
+    def test_bulk_partial_remaining_rejects_whole_batch_not_partial(self):
+        """잔여 2(5-3)인데 3건 요청 → 전량 402(부분 생성 없음 — 2건만 만들고 끝내지 않는다)."""
+        _consume_customer_quota(self.user, 3)
+        body = {'customers': [{'name': 'A'}, {'name': 'B'}, {'name': 'C'}]}
+        r = self.client.post('/api/v1/customers/bulk/', body, format='json')
+        self.assertEqual(r.status_code, 402, r.data)
+        self.assertEqual(
+            Customer.objects.filter(owner=self.user, name__in=['A', 'B', 'C']).count(), 0)
+
+    def test_bulk_within_remaining_creates_all(self):
+        """잔여 2인데 2건 요청 → 통과, 2건 모두 생성."""
+        _consume_customer_quota(self.user, 3)
+        body = {'customers': [{'name': 'D'}, {'name': 'E'}]}
+        r = self.client.post('/api/v1/customers/bulk/', body, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.json()['created'], 2)
+        self.assertEqual(
+            Customer.objects.filter(owner=self.user, name__in=['D', 'E']).count(), 2)
+
+
+class CustomerQuotaBetaDormantTests(TestCase):
+    """★ FREE_TIER_UNLIMITED=True(기본, 베타) → 고객 추가 한도는 dormant.
+
+    지금 베타 사용자에게는 어떤 영향도 없어야 한다 — Free 한도(5)를 넘겨도 계속 생성된다.
+    (default_settings에서 FREE_TIER_UNLIMITED 를 override 하지 않음 = 실제 배포 기본값과 동일)
+    """
+
+    def setUp(self):
+        self.user, self.client = _make_planner('betaquota@test.com')
+        _subscribe_free(self.user, limit_customer=5)
+
+    def test_single_create_beyond_free_limit_still_succeeds(self):
+        _consume_customer_quota(self.user, 999)
+        r = self.client.post('/api/v1/customers/', {'name': '베타무제한'}, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+
+    def test_bulk_beyond_free_limit_still_succeeds(self):
+        body = {'customers': [{'name': f'베타{i}'} for i in range(10)]}
+        r = self.client.post('/api/v1/customers/bulk/', body, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.json()['created'], 10)
+
+
+class InboundLeadQuotaExclusionTests(TestCase):
+    """★ 회귀(spec 2026-07-09): 인바운드 자동 리드(셀프진단 /d, 소개카드 /p)는 설계사의
+    '신규 고객 추가' 한도를 소비하지 않는다 — 두 뷰 모두 Customer.objects.create()를 직접
+    호출해 CustomerViewSet(perform_create/bulk_create)를 거치지 않기 때문이다. 한도가 이미
+    완전히 소진된 설계사라도 잠재고객의 셀프진단·상담신청은 계속 성공해야 한다(그렇지 않으면
+    고객이 셀프진단했다는 이유로 설계사의 한도가 깎이는 불합리가 생긴다).
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()  # ScopedRateThrottle('self_diagnosis') 카운터 격리
+
+    @override_settings(FREE_TIER_UNLIMITED=False)
+    def test_self_diagnosis_lead_does_not_consume_customer_quota(self):
+        planner, _ = _make_planner('inbound-diag@test.com')
+        _subscribe_free(planner, limit_customer=5)
+        _consume_customer_quota(planner, 5)  # 설계사 능동 한도 완전 소진
+
+        public = APIClient()
+        ref = planner.profile.ref_code
+        r = public.post(f'/api/v1/d/{ref}/', {
+            'name': '셀프진단고객', 'phone': '01099998888',
+            'birth': '1990-01-01', 'gender': '1', 'consent_share': 'true',
+        }, format='multipart')
+        self.assertEqual(r.status_code, 201, r.data)  # 한도 소진과 무관하게 리드는 성공
+        self.assertTrue(Customer.objects.filter(
+            owner=planner, lead_source='self_diagnosis', name='셀프진단고객').exists())
+        # UsageMeter('customer')는 여전히 5 — 인바운드 리드로 증가하지 않는다.
+        ym = UsageMeter.current_month()
+        meter = UsageMeter.objects.get(user=planner, action='customer', year_month=ym)
+        self.assertEqual(meter.count, 5)
+
+    @override_settings(FREE_TIER_UNLIMITED=False)
+    def test_introduction_card_lead_does_not_consume_customer_quota(self):
+        planner, _ = _make_planner('inbound-intro@test.com')
+        _subscribe_free(planner, limit_customer=5)
+        _consume_customer_quota(planner, 5)
+
+        public = APIClient()
+        ref = planner.profile.ref_code
+        r = public.post(f'/api/v1/p/{ref}/',
+                        {'name': '소개고객', 'phone': '010-2222-3333', 'agreed': True},
+                        format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertTrue(Customer.objects.filter(
+            owner=planner, lead_source='introduction', name='소개고객').exists())
+        ym = UsageMeter.current_month()
+        meter = UsageMeter.objects.get(user=planner, action='customer', year_month=ym)
+        self.assertEqual(meter.count, 5)

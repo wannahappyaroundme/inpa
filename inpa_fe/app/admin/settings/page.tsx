@@ -137,7 +137,7 @@ export default function AdminSettingsPage() {
                       <span className="text-[12px] text-ink3">{p.display_name}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      {(["limit_ocr", "limit_ai_compare", "limit_analysis", "limit_promotion"] as const).map((field) => (
+                      {(["limit_ocr", "limit_ai_compare", "limit_analysis", "limit_promotion", "limit_customer"] as const).map((field) => (
                         <div key={field}>
                           <label className="block text-[11px] font-semibold text-ink3 mb-1">{field} (null=무제한)</label>
                           <input
@@ -179,7 +179,7 @@ export default function AdminSettingsPage() {
                         <span className="text-[12px] text-ink3 tnum">{p.price_krw.toLocaleString()}원</span>
                       </div>
                       <div className="text-[12px] text-ink3">
-                        OCR {p.limit_ocr ?? "∞"} · AI비교 {p.limit_ai_compare ?? "∞"} · 분석 {p.limit_analysis ?? "∞"} · 판촉 {p.limit_promotion ?? "∞"}
+                        OCR {p.limit_ocr ?? "∞"} · AI비교 {p.limit_ai_compare ?? "∞"} · 분석 {p.limit_analysis ?? "∞"} · 고객추가 {p.limit_customer ?? "∞"} · 판촉 {p.limit_promotion ?? "∞"}
                       </div>
                     </div>
                     <button

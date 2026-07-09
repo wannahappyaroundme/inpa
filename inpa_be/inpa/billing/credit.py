@@ -4,13 +4,15 @@
   check_and_consume(user, kind)  → 성공 dict 반환 or LimitExceeded raise
   LimitExceeded                  → 한도 초과 예외 (뷰에서 402 로 변환)
 
-kind ∈ {'ocr', 'ai_compare', 'analysis', 'promotion'} (정본 4종, dev/02 §16)
+kind ∈ {'ocr', 'ai_compare', 'analysis', 'promotion', 'customer'} (정본 5종 — 'customer'는
+  spec 2026-07-09 pricing-limits-align으로 신설. 신규 고객 추가는 설계사 능동 등록만 집계
+  — 셀프진단(/d)·소개카드(/p) 인바운드 리드는 Customer.objects.create() 직접 호출이라 미집계)
 
 베타 스위치:
   settings.FREE_TIER_UNLIMITED=True → 한도 체크 전부 우회(무차감 통과)
   settings.FREE_TIER_UNLIMITED=False → 정상 집계
 
-share_link / customer_add = 이 함수 호출 대상이 아님(북극성 차단 금지 — dev/23 §1.2).
+share_link = 이 함수 호출 대상이 아님(북극성 차단 금지 — dev/23 §1.2).
 """
 import logging
 
@@ -46,8 +48,8 @@ def free_tier_unlimited() -> bool:
         return bool(getattr(settings, 'FREE_TIER_UNLIMITED', True))
 
 
-# 허용된 kind 목록 (정본 4종 — dev/02 §16)
-_ALLOWED_KINDS = frozenset({'ocr', 'ai_compare', 'analysis', 'promotion'})
+# 허용된 kind 목록 (정본 5종 — dev/02 §16 + spec 2026-07-09 'customer')
+_ALLOWED_KINDS = frozenset({'ocr', 'ai_compare', 'analysis', 'promotion', 'customer'})
 
 
 def check_and_consume(user, kind: str) -> dict:
@@ -65,8 +67,30 @@ def check_and_consume(user, kind: str) -> dict:
 
     Args:
         user: django.contrib.auth User 인스턴스 (request.user)
-        kind: 정본 4종 중 하나. 그 외는 ValueError raise.
+        kind: 정본 5종 중 하나. 그 외는 ValueError raise.
     """
+    return _consume(user, kind, 1)
+
+
+def check_and_consume_n(user, kind: str, n: int) -> dict:
+    """N건을 한 번에 소비 — 일괄 등록(bulk) 전용 (spec 2026-07-09 pricing-limits-align).
+
+    잔여 한도가 n보다 적으면 LimitExceeded를 raise한다 — **부분 소비 없음**(전량 거부,
+    호출부가 실제로 만들 행을 하나도 만들지 않도록 트랜잭션 밖에서 먼저 체크해야 한다).
+    n<=0 이면 아무 것도 하지 않고 무제한 sentinel 모양의 dict 를 반환한다(호출부 방어).
+
+    Args:
+        user: django.contrib.auth User 인스턴스 (request.user)
+        kind: 정본 5종 중 하나. 그 외는 ValueError raise.
+        n: 이번에 한 번에 소비할 건수(예: 일괄 등록 행 수).
+    """
+    if n <= 0:
+        return {'action': kind, 'count': 0, 'limit': None, 'remaining': None}
+    return _consume(user, kind, n)
+
+
+def _consume(user, kind: str, n: int) -> dict:
+    """check_and_consume / check_and_consume_n 공용 내부 구현. n건을 한 번에 소비."""
     if kind not in _ALLOWED_KINDS:
         raise ValueError(
             f'kind는 {sorted(_ALLOWED_KINDS)} 중 하나여야 합니다. 받은 값: {kind!r}'
@@ -104,10 +128,11 @@ def check_and_consume(user, kind: str) -> dict:
             defaults={'count': 0},
         )
 
-        if lim is not None and meter.count >= lim:
+        if lim is not None and meter.count + n > lim:
+            # current = 소비 시도 이전 값 — 부분 반영 없이 전량 거부.
             raise LimitExceeded(action=kind, current=meter.count, limit=lim)
 
-        meter.count += 1
+        meter.count += n
         meter.save(update_fields=['count', 'updated_at'])
 
     remaining = (lim - meter.count) if lim is not None else None

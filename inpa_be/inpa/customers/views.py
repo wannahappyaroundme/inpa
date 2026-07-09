@@ -18,6 +18,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from inpa.billing.credit import LimitExceeded, check_and_consume, check_and_consume_n
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.insurances.models import CustomerInsurance
@@ -47,6 +48,27 @@ def _to_int(v):
         return int(str(v).strip())
     except (TypeError, ValueError):
         return None
+
+
+def _credit_exhausted_response(exc: LimitExceeded, user) -> Response:
+    """LimitExceeded → 402 Payment Required (dev/02 §16 shape, insurances/views.py와 동일 패턴).
+
+    FE는 402 + code='credit_exhausted' 수신 시 UpgradeGuideModal 표시(kind='customer').
+    """
+    from inpa.billing.models import Subscription
+    sub = Subscription.objects.select_related('plan').filter(user=user).first()
+    membership = sub.plan.code if sub else 'free'
+    return Response(
+        {
+            'detail': f'이번 달 한도({exc.limit}건)를 모두 사용했어요.',
+            'code': 'credit_exhausted',
+            'kind': exc.action,
+            'membership': membership,
+            'limit': exc.limit,
+            'used': exc.current,
+        },
+        status=status.HTTP_402_PAYMENT_REQUIRED,
+    )
 
 
 class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
@@ -83,6 +105,26 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             serializer.save(last_contacted_at=timezone.now())
         else:
             serializer.save()
+
+    def create(self, request, *args, **kwargs):
+        """단건 등록 — 신규 고객 추가 한도 강제(spec 2026-07-09 pricing-limits-align).
+
+        ★ FREE_TIER_UNLIMITED(베타 바이패스)이면 check_and_consume이 내부에서 우회 —
+          베타 기간에는 지금과 동일하게 무제한(dormant), 유료 전환(False) 시에만 발동한다.
+        ★ 인바운드 자동 리드(셀프진단 /d, 소개카드 /p)는 Customer.objects.create()를 직접
+          호출해 이 create()를 거치지 않으므로 이 한도와 무관하다(설계사 능동 등록만 집계).
+        검증(serializer.is_valid) 통과 후에만 한도를 소비한다 — 잘못된 요청으로 소비되지 않도록
+        (DRF CreateModelMixin.create()와 동일 순서, 사이에 한도 체크만 끼워 넣는다).
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            check_and_consume(request.user, 'customer')
+        except LimitExceeded as exc:
+            return _credit_exhausted_response(exc, request.user)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @action(detail=False, methods=['post'], url_path='bulk')
     def bulk_create(self, request):
@@ -156,6 +198,13 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
                 lead_source=lead,
             ))
         if to_create:
+            # ★ 신규 고객 추가 한도(spec 2026-07-09) — 실제로 만들 건수(중복·빈 행 제외한
+            #   len(to_create))만큼 잔여 한도를 확인한다. 잔여 < N이면 전량 402(부분 생성 없음)
+            #   — bulk_create 자체를 아예 호출하지 않는다. 베타(FREE_TIER_UNLIMITED)는 dormant.
+            try:
+                check_and_consume_n(owner, 'customer', len(to_create))
+            except LimitExceeded as exc:
+                return _credit_exhausted_response(exc, owner)
             Customer.objects.bulk_create(to_create)
         return Response({'created': len(to_create), 'skipped': skipped},
                         status=status.HTTP_201_CREATED)

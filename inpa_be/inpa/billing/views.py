@@ -40,8 +40,9 @@ _ACTION_LABELS = {
     'ai_compare': 'AI 비교안내서',
     'analysis': 'AI 분析·메시지',
     'promotion': '판촉물 주문',
+    'customer': '고객 추가',
 }
-_ACTION_ORDER = ['ocr', 'ai_compare', 'analysis', 'promotion']
+_ACTION_ORDER = ['ocr', 'ai_compare', 'analysis', 'promotion', 'customer']
 
 
 def _build_usage_response(user) -> dict:
