@@ -19,6 +19,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.throttling import ScopedRateThrottle
 
+from inpa.analysis.golden_eval import (
+    GOLDEN_SET_MIN_ACCURACY, evaluate_golden_set, find_golden_expected,
+)
 from inpa.analysis.models import AnalysisDetail, CoverageFlag, NormalizationDict, UnmatchedLog
 from inpa.billing.models import Plan, Subscription, UsageMeter
 from inpa.boards.models import (
@@ -62,6 +65,7 @@ from .serializers import (
     AdminUserDetailSerializer,
     AdminUserListSerializer,
     DashboardSerializer,
+    NormalizationAccuracySerializer,
     FeatureFlagsSerializer,
     PolicyVersionSerializer,
     PolicyVersionWriteSerializer,
@@ -696,6 +700,27 @@ class AdminNormalizationLeavesView(APIView):
         ])
 
 
+class AdminNormalizationAccuracyView(APIView):
+    """GET /api/v1/admin/normalization/accuracy/
+    골든셋(NORMALIZATION_V0 + 함정 앵커, 프리런치 리뷰 #18) 대비 정규화 키워드 매처
+    정확도 기준선. 사실 수치만 — 판정어 없음.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        result = evaluate_golden_set()
+        data = {
+            'accuracy': result['accuracy'],
+            'total': result['total'],
+            'passed': result['passed'],
+            'anchor_passed': result['anchor_passed'],
+            'anchor_total': result['anchor_total'],
+            'min_accuracy': GOLDEN_SET_MIN_ACCURACY,
+            'sample_failures': result['failures'][:20],
+        }
+        return Response(NormalizationAccuracySerializer(data).data)
+
+
 class AdminCoverageFlagListView(APIView):
     """GET /api/v1/admin/normalization/flags/?status=
     담보 위치 확인 요청 목록. 기본 open(대기)만, status=all 로 전체.
@@ -835,6 +860,20 @@ class AdminCoverageFlagResolveView(APIView):
             flag.resolved_by = request.user
             flag.resolution_memo = memo
             flag.save(update_fields=['status', 'resolved_by', 'resolution_memo', 'updated_at'])
+
+        # 골든셋(프리런치 리뷰 #18) 관점 경고 — 이 승인이 기존 골든셋 앵커/시드 기대와 다른
+        # leaf 로 가면 비차단 경고. ★ 트랜잭션 밖 + try/except: 코퍼스 파일 부재 등으로 예외가
+        # 나도 이미 커밋된 accept(사전 등록·연결 정정)를 절대 되돌리지 않는다. 전체 재채점은
+        # 하지 않는다(238건 조회 = 매 승인마다 과부하) — 정확도는 전용 카드에서 on-demand 조회.
+        if raw_name and flag.company is not None and flag.company >= 0:
+            try:
+                golden_expected = find_golden_expected(flag.company, raw_name)
+                if golden_expected is not None and golden_expected != std_detail.name:
+                    warnings.append(
+                        f'골든셋 기대와 다른 매핑입니다(기대: {golden_expected}). '
+                        '의도한 매핑이 맞는지 다시 확인해 주세요.')
+            except Exception:
+                pass
 
         return Response({
             'flag': AdminCoverageFlagSerializer(flag).data,

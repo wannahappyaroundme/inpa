@@ -150,6 +150,13 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 ## 11. Changelog (newest first — condensed; the durable detail lives in the sections above)
 
+- **2026-07-08 (공유(/s) 스냅샷 보관 — 프리런치 #27, Phase 2 로드맵 ②, PR #71 DEPLOYED):** 고객에게 공유 링크를 보낸 시점의 `/s` 화면을 그대로 박제해 §97 승환 분쟁 증거로 보관. **PM 확정: 보존 180일**(리드 파기와 동일). **설계 결정: 비교(갈아타기) 공유가 §97로 존재하지 않아 → 한눈표 공유(/s)를 발급 시점에 스냅샷**(원 스코프 '비교 스냅샷'의 실현). 구현 sonnet / 리뷰 opus / 픽스 Opus 오케스트레이터. BE **625 tests**.
+  - *모델:* `analytics.ShareSnapshot`(append-only, `owner`/`customer` **CASCADE**=고객 삭제 시 PII 동반 파기, `payload` JSONField=`_build_share_payload` 결과 그대로 복제=표준트리 FK 0=불변, `consent_overseas`/`consent_doc_version`/`consent_scopes`/`dict_version`(SeedMarker live)/`insurance_count`/`captured_at`/`retention_expires_at` db_index). 마이그레이션 analytics 0002(additive).
+  - *캡처:* `CustomerShareCreateView.post` 토큰 회전 후 `_build_share_payload(customer)` 재사용해 create. **try/except + `transaction.atomic()` savepoint 격리** → 캡처 실패해도 링크 201 정상 발급, 예외는 타입명만 로그(`logger.error` exc_info 없음, §7 PII 로그 레드라인).
+  - *파기 3경로:* ① TTL — `notifications/jobs.py::cleanup_expired_share_snapshots(now)` + `run_daily_jobs` 단계(08:00 KST). **0 이하 = 파기 중단 안전 스위치**(cleanup_expired_leads 동형; 캡처 stamp도 0 이하 시 180 폴백). ② `public_consent.py::_apply_revocations`가 `personal_info` 철회 시 그 고객 스냅샷 전량 삭제. ③ 고객 삭제 = FK CASCADE.
+  - *조회:* owner-scoped `GET customers/<id>/share-snapshots/`(목록 경량, payload 제외) + `.../<snap_id>/`(상세 payload, 소유 격리 404). FE `components/share-snapshot-panel.tsx`(고객 상세 '공유 기록' 패널, 그 시점 화면 읽기전용 재구성, light 고정).
+  - *컴플라이언스:* 스냅샷=/s 미러 → 추가 PII 0(이름 마스킹·birth_year·전화/메모/병력 없음·verdict/switch_warnings 미포함, 회귀 고정). 유한 보존+3경로 파기 = '증권 원본 미보관' PIPA 자산 유지(Seo/Dr. Im 조건). privacy 처리방침 보관 고지 1줄. 고객 대면(/s·/d·/c·/b) 무변경.
+  - *리뷰 반영:* 보존 0 이하 안전 스위치가 문서와 반대로 즉시 삭제하던 결함(파기 가드+stamp 폴백) 수정, 캡처 로그 exc_info 제거, savepoint 격리. Spec `docs/superpowers/specs/2026-07-08-share-snapshot-archive.md`.
 - **2026-07-08 (담보 사전 피드백 루프 — 프리런치 #26, Phase 2 로드맵 ①, PR #70 DEPLOYED):** 설계사가 보장 한눈표에서 잘못 잡힌 담보를 알리면 → 어드민 검수 → `NormalizationDict(admin_verified)` 반영 → 다음 분석부터 자동 교정(데이터 복리). 구현/리뷰/픽스 파이프라인은 Fable 5 서브에이전트(구현 중단→Opus 오케스트레이터가 리뷰 픽스 검증·잔여 테스트 3건 보강). BE **605 tests**.
   - *BE:* `analysis/models.py::CoverageFlag`(owner/customer SET_NULL/analysis_detail SET_NULL/case FK/raw_name_snapshot/company/note/status open·accepted·rejected/resolved_by/memo, status index) + `analysis/flags.py` 설계사 API(`GET customers/<id>/coverage-cases/?detail_id=` 소유격리 + `POST customers/<id>/coverage-flags/` **owner_only=True**(어드민 write 우회 차단) + `_notify_admins` fan-out). 신규 `NotifType.COVERAGE_FLAG_REQUESTED` → `ADMIN_NOTIF_TYPES` 등록(어드민 벨 배지 자동).
   - *어드민:* `admin_console` `AdminCoverageFlagListView`(?status=, 기본 open, page20) · `AdminCoverageFlagResolveView`(accept = 사전 upsert(admin_verified) + `InsuranceDetail.analysis_detail.set([std])` 전역 정정 + 부분문자열 충돌 경고(차단 없음) + 120자 절단 경고 / reject = status+memo, 409 재-resolve) · `AdminNormalizationLeavesView`([표준] 스코프 leaf 피커). 대시보드 `open_flags`.
@@ -257,7 +264,8 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 ## 12. Pending backlog (also memory `qa-audit-backlog`)
 
 - ✅ **담보 사전 피드백 루프(#26) DEPLOYED 2026-07-08** (PR #70). 이제 어드민 검수→admin_verified 별칭이 파싱 룩업에 즉시 반영. 후속: 골든셋 자동 채점(#18)이 붙으면 별칭 승인 전 substring 오라우팅을 사전 차단(현재는 충돌 경고만).
-- **Phase 2 로드맵 남은 순서:** ② #27 비교 스냅샷 보관(진행) → ③ #29 유지율(13/25회차) 모듈 → ④ #18 골든셋 평가 → ⑤ #17 비용 텔레메트리 / #14 스켈레톤.
+- ✅ **공유(/s) 스냅샷 보관(#27) DEPLOYED 2026-07-08** (PR #71). 발급 시점 /s 화면 불변 기록 + 180일 자동 파기.
+- **Phase 2 로드맵 남은 후보(PM과 순서 재확인 필요):** #18 골든셋 평가(사전 정확도 기준선, #26 substring 하드게이트 선행조건 — 지금 가장 전략적) · #14 스켈레톤/로딩 UX · #17 비용 텔레메트리 · #16 활성화 계측. **⚠️ #29 유지율(13/25회차)은 패널이 'deferred'로 판정**(유지 회차 타이머가 연체/미납을 일부러 뺐는데 유지율 공표는 보험사 전산과 충돌해 정직성 해자 훼손 우려 — features.md §Deferred #29). 빌드 전 재검토 필수. #28(추천 쿠폰)은 유료 모드 라이브 종속, #30(판촉물 실사진)은 deferred.
 - ⬜ OCR remaining: 종합보험 17-22 unmatched coverages — **needs §8 표준 담보 트리 확장 decision** (deferred). Life 변액 company-unknown now classified `'life'` (2026-07-02, no wrong-company guess). 미매칭은 `UnmatchedLog`로 적재되고 어드민 `/admin/normalization` 미매칭 큐에서 수동 매핑 가능(#26). See memory `ocr-coverage-sections`.
 - ⬜ At launch: flipping `FREE_TIER_UNLIMITED=False` activates 402 + the upgrade modal (built) + **coupon (built 2026-07-02; `credit.py` expiry-aware)** — verify upgrade-modal copy first.
 - ✅ Booking: legacy manual `MeetingSlot` **API removed** (2026-07-02; model + `Meeting.slot` FK + admin kept). The public booking `start_at` flow is automated-test-verified but not browser-smoke-tested.

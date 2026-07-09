@@ -423,7 +423,7 @@ export interface CoverageFlagResolveResult {
   dict_id?: number | null;
   /** 교정된 카탈로그 연결 수(0|1) */
   relinked?: number;
-  /** 부분 문자열 충돌 경고(차단 없음) */
+  /** 부분 문자열 충돌 경고 + 골든셋 불일치 경고(차단 없음) */
   warnings?: string[];
 }
 
@@ -450,6 +450,33 @@ export async function adminResolveCoverageFlag(
     `/admin/normalization/flags/${id}/resolve/`,
     payload
   );
+}
+
+// ─── 골든셋 정규화 정확도 기준선 (프리런치 리뷰 #18) ──────────────────────────
+// 사전(NormalizationDict)의 유일한 데이터 자산 정확도를 인파 자체 큐레이션 사전
+// (NORMALIZATION_V0) + 손으로 옮겨 적은 함정 앵커로 측정한다. 사실 수치만 — 판정어 없음.
+
+export interface NormalizationAccuracyFailure {
+  company: number;
+  raw_name: string;
+  expected: string;
+  got: string | null;
+}
+
+export interface NormalizationAccuracy {
+  accuracy: number;
+  total: number;
+  passed: number;
+  anchor_passed: number;
+  anchor_total: number;
+  min_accuracy: number;
+  /** 최대 20건 — 판정어 없이 기대/실제 표준 담보명만 */
+  sample_failures: NormalizationAccuracyFailure[];
+}
+
+/** GET /api/v1/admin/normalization/accuracy/ — 정규화 사전 정확도 기준선 */
+export async function adminGetNormalizationAccuracy(): Promise<NormalizationAccuracy> {
+  return req<NormalizationAccuracy>("GET", "/admin/normalization/accuracy/");
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
