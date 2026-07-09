@@ -3,12 +3,13 @@
 // ════════════════════════════════════════════════════════════════════════════
 // 고객 1명 중심 상세 셸 — ★ 한 동선 IA 복원 (docs/dev/12 §12 고객상세·탭 IA)
 //
-// 발굴 → 보장분석 → 갈아타기 제안을 한 고객 화면에서 탭으로 연결한다.
-// 탭: 분석(히트맵 + 증권 OCR 입구) / 비교 분석(§97 컴플라이언스 게이트) / 정보 / 계약 / 이력.
+// 발굴 → 보장분석 → 비교(나란히 정리)를 한 고객 화면에서 탭으로 연결한다.
+// 탭: 분석(히트맵 + 증권 OCR 입구) / 비교 분석(중립 시각화, §97 컴플라이언스 게이트) / 정보 / 계약 / 이력.
 //
 // 정직성 레드라인:
 //  - 분석 판정은 BE 권위(neutral/graded). neutral 이면 부족/충분 단정 금지.
-//  - 비교 분석(갈아타기)은 §97 법무 게이트 → 가짜 데이터 금지, 게이트 사유 명시.
+//  - 비교 분석은 판정(KEEP/SWITCH)을 산출하지 않는다(2026-07-09 재정의) — §97 법무 게이트로
+//    AI 안내서(guide_draft)만 별도 통제, 가짜 데이터 금지·게이트 사유 명시.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback, Suspense, type ChangeEvent } from "react";
@@ -166,7 +167,9 @@ function CustomerDetailInner() {
   const customerId = Number(params.id);
   const idValid = Number.isFinite(customerId) && customerId > 0;
 
-  // 위촉 형태 — 전속(1)이면 갈아타기(다사) 탭 숨김 + 공백 탭을 자사 업셀로 분기.
+  // 위촉 형태 — 전속(1)이면 비교 분석(다사 갈아타기 전제) 탭 숨김 + 공백 탭을 자사 업셀로 분기.
+  // ★ 2026-07-09 재정의 노트: 비교가 중립 시각화(제안 vs 제안 등)로 넓어지면서 전속 설계사도
+  //   쓸모가 있을 수 있음 — 이번 라운드는 리스크 최소화를 위해 기존 숨김 동작 그대로 유지(PM 확인 후 재검토).
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   useEffect(() => {
     getProfile().then(setProfile).catch(() => setProfile(null));
@@ -1286,7 +1289,8 @@ function AnalysisTab({
   );
 }
 
-// ── 갈아타기 탭 ── compareCustomer 실연결. 정직성 레드라인 전면 적용 ──────────
+// ── 비교 분석 탭 ── compareCustomer 실연결. 2026-07-09 재정의: 판정(KEEP/SWITCH) 없이
+// 두 보험을 나란히 정리해 보여주는 중립 시각화. 정직성 레드라인 전면 적용 ──────────
 function SwitchTab({ customerId }: { customerId: number }) {
   const [data, setData] = useState<CompareResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1320,7 +1324,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
     setError(null);
     setUpgradeInfo(undefined);
     setUpgradeOpen(false);
-    compareCustomer(customerId, { currentIds: [...curSel], proposedIds: [...propSel] })
+    compareCustomer(customerId, { sideAIds: [...curSel], sideBIds: [...propSel] })
       .then((d) => setData(d))
       .catch((e: unknown) => {
         if (e instanceof ApiError && e.status === 402) {
@@ -1417,12 +1421,12 @@ function SwitchTab({ customerId }: { customerId: number }) {
 
   return (
     <div>
-      {/* 비교할 보험 고르기 — 보유(현재) 선택 / 제안 선택·추가. 고르면 그 보험만 총합·비교 — PM 06.29 */}
+      {/* 비교할 보험 고르기 — 왼쪽/오른쪽 선택·추가. 고르면 그 보험만 총합·비교(나란히 정리, 판단은 설계사) */}
       <div className="mb-4 grid sm:grid-cols-2 gap-3">
-        {/* 보유(현재) */}
+        {/* A안 (왼쪽) · 보유 보험 */}
         <div className="rounded-2xl border border-line bg-surface2 p-3.5">
           <div className="text-[13px] font-bold text-ink mb-2">
-            보유 보험 (현재) <span className="text-ink3 tnum">{curSel.size}/{held.length}</span>
+            왼쪽 · 보유 보험 <span className="text-ink3 tnum">{curSel.size}/{held.length}</span>
           </div>
           {held.length === 0 ? (
             <p className="text-[12px] text-ink3 leading-5">분석 탭에서 증권을 등록하면 여기에서 고를 수 있어요.</p>
@@ -1434,11 +1438,11 @@ function SwitchTab({ customerId }: { customerId: number }) {
             </div>
           )}
         </div>
-        {/* 제안 */}
+        {/* B안 (오른쪽) · 제안 보험 */}
         <div className="rounded-2xl border border-line bg-surface2 p-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <div className="text-[13px] font-bold text-ink">
-              제안 보험 <span className="text-ink3 tnum">{propSel.size}/{proposed.length}</span>
+              오른쪽 · 제안 보험 <span className="text-ink3 tnum">{propSel.size}/{proposed.length}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <OcrUploadButton customerId={customerId} phase={propOcr.phase} onFileChange={propOcr.onFileChange} inputId="proposal-ocr-input" label="제안서 업로드" />
@@ -1484,51 +1488,36 @@ function SwitchTab({ customerId }: { customerId: number }) {
         </p>
       </div>
 
-      {/* ── 갈아타기 판정 (★ 설계사 내부 의사결정 근거 — 고객에게 노출되지 않음) ── */}
-      {data.verdict && (() => {
-        const v = data.verdict;
-        const map = {
-          KEEP: { label: "유지가 유리 (추정)", cls: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "🟢" },
-          SWITCH: { label: "전환 검토", cls: "bg-blue-50 border-blue-200 text-blue-900", dot: "🔵" },
-          NEUTRAL: { label: "중립(상황 판단)", cls: "bg-surface2 border-line text-ink2", dot: "⚪" },
-        } as const;
-        const m = map[v.decision] ?? map.NEUTRAL;
-        const net = v.customer_net_benefit_estimate;
-        return (
-          <div className={`rounded-xl border px-4 py-3.5 mb-4 ${m.cls}`}>
-            <div className="flex items-center gap-2">
-              <span className="text-[14px] font-extrabold">{m.dot} {m.label}</span>
-              <span className="ml-auto text-[10px] font-semibold rounded-full bg-white/60 px-2 py-0.5">
-                설계사 검토용 · 비공개
-              </span>
-            </div>
-            <p className="mt-1.5 text-[13px] leading-5">{v.reason}</p>
-            {net !== null && (
-              <p className="mt-1 text-[12px] tnum font-semibold">
-                1년 기준 추정 순손익: {net >= 0 ? "+" : ""}
-                {new Intl.NumberFormat("ko-KR").format(net)}원
-              </p>
-            )}
-            {data.switch_warnings && data.switch_warnings.length > 0 && (
-              <ul className="mt-2.5 space-y-1 border-t border-black/10 pt-2">
-                {data.switch_warnings.map((w, i) => (
-                  <li key={i} className="text-[12px] leading-5 flex gap-1.5">
-                    <span>⚠️</span>
-                    <span>
-                      <b className="font-semibold">{w.label}</b>
-                      {w.amount !== null && (
-                        <> · {new Intl.NumberFormat("ko-KR").format(w.amount)}원</>
-                      )}
-                      <span className="opacity-80">: {w.detail}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="mt-2 text-[10.5px] leading-4 opacity-70">{v.disclaimer}</p>
+      {/* ── 확인해야 할 사항 (중립 사실 — 판정 아님, 설계사 내부 전용) ──────────────
+          2026-07-09 재정의: 인파는 KEEP/SWITCH 를 정하지 않는다. 해지환급 손실 추정 등
+          설계사가 검토할 사실만 나란히 정리해 보여주고, 판단은 설계사가 한다. */}
+      {data.switch_warnings && data.switch_warnings.length > 0 && (
+        <div className="rounded-xl border border-line bg-surface2 px-4 py-3.5 mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-bold text-ink">확인해야 할 사항</span>
+            <span className="ml-auto text-[10px] font-semibold rounded-full bg-surface px-2 py-0.5 text-ink3">
+              설계사 검토용 · 비공개
+            </span>
           </div>
-        );
-      })()}
+          <ul className="mt-2 space-y-1.5">
+            {data.switch_warnings.map((w, i) => (
+              <li key={i} className="text-[12px] leading-5 flex gap-1.5 text-ink2">
+                <span className="text-ink3">·</span>
+                <span>
+                  <b className="font-semibold text-ink">{w.label}</b>
+                  {w.amount !== null && (
+                    <> · {new Intl.NumberFormat("ko-KR").format(w.amount)}원</>
+                  )}
+                  <span className="opacity-80">: {w.detail}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] leading-4 text-ink3">
+            나란히 정리한 참고 사실이에요. 어느 쪽이 나을지는 고객 상황에 맞춰 설계사님이 판단해 주세요.
+          </p>
+        </div>
+      )}
 
       {/* 보험료 요약 */}
       <div className="grid grid-cols-2 gap-3 mb-4">
@@ -1665,7 +1654,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
               AI 비교안내서는 법무 검토 완료 후 활성화됩니다
             </p>
             <p className="mt-1.5 text-[12px] text-amber-700 leading-5">
-              비교 분석 안내는 부당승환 관련 법적 요건이 확정되어야 제공돼요.
+              법무 검토가 끝나면 두 보험을 나란히 정리한 안내 초안을 받아보실 수 있어요.
               가짜 데이터로 화면을 채우지 않습니다(정직성 레드라인).
             </p>
           </div>

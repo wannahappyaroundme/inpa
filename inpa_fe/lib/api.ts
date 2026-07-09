@@ -2426,7 +2426,8 @@ export async function getShareView(token: string): Promise<ShareViewResponse> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 갈아타기(비교) — GET/POST /api/v1/customers/<id>/compare/
+// 비교 분석(나란히 정리) — GET/POST /api/v1/customers/<id>/compare/
+// 2026-07-09 재정의: 인파는 KEEP/SWITCH 판정을 산출하지 않는다(응답에 verdict 키 없음).
 // 정직성 레드라인:
 //  - publishable 은 BE 권위. FE 는 절대 true 로 위조하지 않는다.
 //  - guide_enabled=false 면 guide_draft 를 표시하지 않는다(가짜 데이터 금지).
@@ -2452,7 +2453,7 @@ export interface CompareSide {
   insurances: InsuranceFee[];
 }
 
-/** 갈아타기 유의사항(설계사 내부면 전용). amount=null 이면 정성 경고. */
+/** 확인해야 할 사항(중립 사실, 설계사 내부면 전용) — 판정 아님. amount=null 이면 정성 항목. */
 export interface SwitchWarning {
   type: "cancellation_loss" | "exemption_reset" | "rate_change" | string;
   label: string;
@@ -2460,22 +2461,18 @@ export interface SwitchWarning {
   amount: number | null;
 }
 
-/** KEEP/SWITCH/NEUTRAL 판정 — ★ 설계사 내부 의사결정 근거. 고객에게 노출 금지(§97). */
-export interface SwitchVerdict {
-  decision: "KEEP" | "SWITCH" | "NEUTRAL";
-  reason: string;
-  /** 1년 기준 추정 순손익(원). 양수=이득, 음수=손해, null=계산 불가 */
-  customer_net_benefit_estimate: number | null;
-  disclaimer: string;
-}
-
 export interface CompareResponse {
   mode: "neutral" | "graded";
+  /** A안(왼쪽) 집계 — side_a_ids 로 고른 세트, 미지정 시 보유(하위호환) */
   current: CompareSide;
+  /** B안(오른쪽) 집계 — side_b_ids 로 고른 세트, 미지정 시 제안(하위호환) */
   proposed: CompareSide;
   rows: CompareRow[];
-  /** ★ 설계사 내부 전용 — 고객 공유뷰에는 BE가 절대 전송하지 않음(누수 회귀 테스트로 강제) */
-  verdict: SwitchVerdict;
+  /**
+   * 확인해야 할 사항(중립 사실 — 해지환급 손실 추정·면책 리셋·이율 변동). ★ 판정 아님.
+   * 2026-07-09: 인파는 KEEP/SWITCH 판정을 만들지 않는다(BE 응답에 verdict 키 자체가 없음).
+   * 설계사 내부 전용 — 고객 공유뷰에는 BE가 절대 전송하지 않음(누수 회귀 테스트로 강제).
+   */
   switch_warnings: SwitchWarning[];
   guide_draft: string | null;
   guide_enabled: boolean;
@@ -2485,15 +2482,32 @@ export interface CompareResponse {
   disclaimer: string;
 }
 
-/** GET/POST /api/v1/customers/<id>/compare/ — 선택 비교: 보험 id를 주면 그 보험만 비교(없으면 전체) */
+/**
+ * GET/POST /api/v1/customers/<id>/compare/ — A/B 두 세트를 나란히 정리(중립 시각화, 판정 없음).
+ * sideAIds/sideBIds(신규): 고객 소유 보험 임의 두 집합(제안 vs 제안·증권 vs 증권도 가능).
+ * currentIds/proposedIds(하위호환): sideAIds/sideBIds 없을 때만 적용(보유/제안 분리 유지).
+ */
 export async function compareCustomer(
   id: number,
-  opts?: { currentIds?: number[]; proposedIds?: number[] }
+  opts?: {
+    currentIds?: number[];
+    proposedIds?: number[];
+    sideAIds?: number[];
+    sideBIds?: number[];
+  }
 ): Promise<CompareResponse> {
-  if (!opts || (opts.currentIds === undefined && opts.proposedIds === undefined)) {
+  if (
+    !opts ||
+    (opts.currentIds === undefined &&
+      opts.proposedIds === undefined &&
+      opts.sideAIds === undefined &&
+      opts.sideBIds === undefined)
+  ) {
     return request<CompareResponse>("GET", `/customers/${id}/compare/`, undefined, true);
   }
   const body: Record<string, number[]> = {};
+  if (opts.sideAIds !== undefined) body.side_a_ids = opts.sideAIds;
+  if (opts.sideBIds !== undefined) body.side_b_ids = opts.sideBIds;
   if (opts.currentIds !== undefined) body.current_ids = opts.currentIds;
   if (opts.proposedIds !== undefined) body.proposed_ids = opts.proposedIds;
   return request<CompareResponse>("POST", `/customers/${id}/compare/`, body, true);
