@@ -13,6 +13,8 @@ import logging
 
 from django.conf import settings
 
+from inpa.core.ocr.pii_mask import _strip_identity
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +47,9 @@ def verify_extraction(text_lines, ci):
 
     coverages = _serialize_coverages(ci)
     cov_text = '\n'.join(f'- {name}: {amount}' for name, amount in coverages) or '(파싱된 담보 없음)'
-    source_text = '\n'.join(text_lines)[:12000]  # 토큰 보호 상한
+    # ★ 2026-07-09 PM 지시: Claude 교차검증에도 동일 마스킹 적용(신원정보 국외 미전송).
+    #   cov_text(담보명/금액)엔 애초에 신원 PII 가 없으므로 대상 아님 — source_text(원문)만.
+    source_text = _strip_identity('\n'.join(text_lines))[:12000]  # 토큰 보호 상한
 
     system_prompt = (
         '당신은 보험증권 파싱 결과의 정확도를 검수하는 QA 도구입니다.\n'

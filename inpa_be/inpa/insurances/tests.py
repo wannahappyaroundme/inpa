@@ -494,6 +494,198 @@ class AnthropicClientMockTests(TestCase):
         self.assertEqual(case.detail.name, '일반암')
 
 
+class PiiMaskUnitTests(TestCase):
+    """2026-07-09 PII 마스킹(core/ocr/pii_mask.py::_strip_identity, spec
+    docs/superpowers/specs/2026-07-09-ai-pii-masking.md) 유닛 테스트.
+
+    ★ 이 기능의 최대 리스크 = 과다 마스킹으로 담보 데이터(담보명/금액/회사명/날짜/
+    보험기간)가 손상돼 담보 인식이 깨지는 것 — 아래 테스트 절반은 "마스킹된다"가
+    아니라 "마스킹되지 않는다"(담보 데이터 불변)를 고정하는 회귀다.
+    """
+
+    def test_rrn_masked_full_and_partial(self):
+        from inpa.core.ocr.pii_mask import _strip_identity
+        self.assertEqual(_strip_identity('690913-2123456'), '******-*******')
+        self.assertEqual(_strip_identity('690913 - 2******'), '******-*******')
+
+    def test_phone_masked(self):
+        from inpa.core.ocr.pii_mask import _strip_identity
+        for raw in ['010-1234-5678', '01012345678', '010.1234.5678']:
+            self.assertEqual(_strip_identity(raw), '010-****-****')
+
+    def test_email_masked(self):
+        from inpa.core.ocr.pii_mask import _strip_identity
+        self.assertEqual(_strip_identity('test@example.com'), '***@***')
+
+    def test_real_shape_contractor_line_masks_name_and_rrn(self):
+        """spec 원문 실사례: '계약자\\n박진희 (690913 - 2******)' → 이름+주민번호 마스킹."""
+        from inpa.core.ocr.pii_mask import _strip_identity
+        text = '계약자\n박진희 (690913 - 2******)'
+        masked = _strip_identity(text)
+        self.assertNotIn('박진희', masked)
+        self.assertNotIn('690913', masked)
+        self.assertIn('******-*******', masked)
+        self.assertTrue(masked.startswith('계약자\n'))  # 라벨·줄바꿈 구조는 보존
+
+    def test_label_adjacent_names_masked(self):
+        from inpa.core.ocr.pii_mask import _strip_identity
+        for label in ['계약자', '피보험자', '피보험자명', '수익자', '성명', '가입자']:
+            text = f'{label}\n김철수'
+            masked = _strip_identity(text)
+            self.assertNotIn('김철수', masked, f'{label} 근접 이름이 안 지워짐')
+
+    def test_standalone_korean_word_without_label_not_masked(self):
+        """★ 라벨이 없으면 한글 2~4자 단어(담보명 등)는 절대 마스킹 대상이 아니다."""
+        from inpa.core.ocr.pii_mask import _strip_identity
+        self.assertEqual(_strip_identity('뇌출혈진단비 500만원'), '뇌출혈진단비 500만원')
+
+    def test_coverage_amount_company_date_period_unchanged(self):
+        """★ 최대 리스크 방어 — 담보명/금액/회사명/날짜/보험기간은 절대 미변경."""
+        from inpa.core.ocr.pii_mask import _strip_identity
+        lines = [
+            '일반암진단비 10,000,000원',
+            '유사암진단비 1000만원',
+            '삼성화재',
+            '2024.01.01',
+            '보험기간 20년',
+        ]
+        text = '\n'.join(lines)
+        self.assertEqual(_strip_identity(text), text)
+
+    def test_not_names_guard_prevents_overmasking_structural_words(self):
+        """라벨 바로 뒤에 구조어(주민번호 등)가 와도 이름으로 오인해 지우지 않는다."""
+        from inpa.core.ocr.pii_mask import _strip_identity
+        text = '계약자    주민번호    660011-1234567'
+        masked = _strip_identity(text)
+        self.assertIn('주민번호', masked)   # 구조어(NOT_NAMES) 보존 — 오탐 방지
+        self.assertNotIn('660011', masked)  # 실제 RRN 은 별도 패턴으로 정상 마스킹
+
+    def test_representative_coverage_heavy_text_only_identity_lines_change(self):
+        """★ '담보 인식 불변' 증거: 담보/회사/기간 라인은 마스킹 전후 byte-identical
+        (줄 수·줄 순서도 보존 — 구분자를 지우지 않고 이름 토큰만 치환하기 때문)."""
+        from inpa.core.ocr.pii_mask import _strip_identity
+        lines = [
+            '삼성화재 무배당 종합보험',
+            '계약자',
+            '박진희 (690913 - 2******)',
+            '일반암진단비 30,000,000원',
+            '유사암진단비 5,000,000원',
+            '뇌출혈진단비 10,000,000원',
+            '보험기간 2024.01.01 ~ 2054.01.01',
+        ]
+        masked_lines = _strip_identity('\n'.join(lines)).split('\n')
+        self.assertEqual(len(masked_lines), len(lines))  # 줄 수 보존
+        self.assertEqual(masked_lines[0], lines[0])  # 회사명+상품명
+        self.assertEqual(masked_lines[1], lines[1])  # '계약자' 라벨 자체는 불변
+        self.assertEqual(masked_lines[3], lines[3])  # 일반암진단비 라인
+        self.assertEqual(masked_lines[4], lines[4])  # 유사암진단비 라인
+        self.assertEqual(masked_lines[5], lines[5])  # 뇌출혈진단비 라인
+        self.assertEqual(masked_lines[6], lines[6])  # 보험기간 라인
+        # 신원 라인만 변경
+        self.assertNotEqual(masked_lines[2], lines[2])
+        self.assertNotIn('박진희', masked_lines[2])
+
+
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
+class PiiMaskingClaudeSendTests(TestCase):
+    """2026-07-09 PII 마스킹 — SDK mock 으로 Claude 에 실제 전송되는 프롬프트를
+    가로채 (a) 신원정보는 마스킹된 채 전송되는지 (b) 담보명·금액·회사명·날짜는
+    그대로 전송되는지 (c) 계약자/피보험자 이름은 (마스킹으로 Claude 응답을 더는
+    신뢰할 수 없으므로) 원본 text_lines 에서 로컬 정규식으로 백필돼 우리 DB엔
+    정확히 남는지를 함께 증명한다. AnthropicClientMockTests 와 동일한 SDK 경계
+    mock 패턴(anthropic.Anthropic 자체를 대체) — 실 네트워크 호출 0.
+    """
+
+    def setUp(self):
+        import importlib.util
+        if importlib.util.find_spec('anthropic') is None:
+            self.skipTest('anthropic 미설치 — SDK mock 테스트 skip(실 호출 0)')
+        self.user, self.client = _make_planner('piimask@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='마스킹고객', birth_day='1990.06.01')
+        _grant_overseas(self.customer)
+
+    def test_masked_prompt_reaches_claude_and_coverage_survives(self):
+        import json as _json
+
+        raw_lines = [
+            '삼성화재 무배당 종합보험',
+            '계약자',
+            '박진희 (690913 - 2******)',
+            '피보험자',
+            '박진희',
+            '연락처 010-1234-5678',
+            '이메일 test@example.com',
+            '일반암진단비 30,000,000원',
+            '유사암진단비 5,000,000원',
+            '보험기간 2024.01.01 ~ 2054.01.01',
+        ]
+
+        fake_json = _json.dumps({
+            'insurance_type': 'loss', 'company_name': '삼성화재',
+            'product_name': '무배당 종합보험',
+            # Claude 는 마스킹된 텍스트만 보므로 실명을 모른다 — 마스킹 표식이 그대로
+            # 응답에 반영된 상황을 흉내(로컬 백필이 이를 정확한 실명으로 덮어써야 함).
+            'contractor': '***', 'insured': '***', 'is_same_insured': True,
+            'payment_period': 20, 'warranty_period': 100, 'monthly_premium': 60000,
+            'coverages': [{
+                'name': '일반암진단비', 'category': '진단비', 'subcategory': '암',
+                'detail_name': '일반암', 'amount': 30000000, 'premium': 8000,
+                'payment_period': 20, 'payment_period_type': 1,
+                'warranty_period': 100, 'warranty_period_type': 1,
+                'is_renewal': False, 'renewal_period': 0,
+            }],
+            'unmatched_coverages': [],
+        })
+        fake_block = mock.Mock()
+        fake_block.text = fake_json
+        fake_msg = mock.Mock()
+        fake_msg.content = [fake_block]
+        fake_client = mock.Mock()
+        fake_client.messages.create.return_value = fake_msg
+
+        import anthropic
+        with mock.patch.object(anthropic, 'Anthropic', return_value=fake_client), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(raw_lines, None)):
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+
+        self.assertEqual(r.status_code, 201, r.content)
+
+        # ── SDK 로 실제 전송된 user prompt 를 가로채 검증 ──
+        _, call_kwargs = fake_client.messages.create.call_args
+        sent_prompt = call_kwargs['messages'][0]['content']
+
+        # 신원정보는 마스킹되어 전송됨(원문 그대로 나가지 않음)
+        self.assertNotIn('박진희', sent_prompt)
+        self.assertNotIn('690913', sent_prompt)
+        self.assertNotIn('010-1234-5678', sent_prompt)
+        self.assertNotIn('test@example.com', sent_prompt)
+        self.assertIn('******-*******', sent_prompt)
+        self.assertIn('010-****-****', sent_prompt)
+        self.assertIn('***@***', sent_prompt)
+
+        # 담보 데이터는 그대로 전송됨(과다 마스킹 없음 — #1 리스크 방어 실증)
+        self.assertIn('일반암진단비', sent_prompt)
+        self.assertIn('유사암진단비', sent_prompt)
+        self.assertIn('30,000,000', sent_prompt)
+        self.assertIn('삼성화재', sent_prompt)
+        self.assertIn('2024.01.01', sent_prompt)
+        self.assertIn('보험기간', sent_prompt)
+
+        # 계약자/피보험자명은 Claude 응답('***')이 아니라 로컬 정규식 백필로
+        # 원본 text_lines 에서 직접 추출한 실명이 저장됨(AI 미개입, 정확도 유지)
+        ci = CustomerInsurance.objects.get()
+        self.assertEqual(ci.contractor_name, '박진희')
+        self.assertEqual(ci.insured_name, '박진희')
+
+        # 담보 결과는 정상 persist(마스킹이 담보 인식 파이프라인을 깨지 않음)
+        case = CustomerInsuranceDetail.objects.get()
+        self.assertEqual(case.assurance_amount, 30000000)
+        self.assertEqual(case.detail.name, '일반암')
+
+
 @override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
 class CoverageSubtypeSplitLiveTests(TestCase):
     """2026-07-09 담보 세분류 개별 인식 — LIVE 경로(anthropic.Anthropic SDK mock) 회귀.
@@ -1260,6 +1452,35 @@ class VerifyUnitTests(TestCase):
         self.assertEqual(result['confidence'], 'high')
         self.assertIs(usage, fake_usage)
         self.assertEqual(usage.input_tokens, 100)
+
+    @override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test')
+    def test_verify_sends_masked_source_text(self):
+        """2026-07-09 PII 마스킹 — verify_extraction 도 교차검증 원문에서 신원정보를
+        마스킹해 전송(담보명은 그대로 전송, 과다 마스킹 없음)."""
+        from unittest import mock
+
+        import anthropic
+
+        from inpa.insurances.verify import verify_extraction
+
+        fake_block = mock.Mock()
+        fake_block.text = '{"confidence":"high","issues":[],"missing":[],"note":"ok"}'
+        fake_msg = mock.Mock()
+        fake_msg.content = [fake_block]
+        fake_msg.usage = mock.Mock(input_tokens=10, output_tokens=5,
+                                   cache_read_input_tokens=0, cache_creation_input_tokens=0)
+        fake_client = mock.Mock()
+        fake_client.messages.create.return_value = fake_msg
+
+        text_lines = ['계약자\n박진희 (690913 - 2******)', '일반암진단비 30,000,000원']
+        with mock.patch.object(anthropic, 'Anthropic', return_value=fake_client):
+            verify_extraction(text_lines, mock.Mock(case_list=mock.Mock(all=lambda: [])))
+
+        _, call_kwargs = fake_client.messages.create.call_args
+        sent_prompt = call_kwargs['messages'][0]['content']
+        self.assertNotIn('박진희', sent_prompt)
+        self.assertNotIn('690913', sent_prompt)
+        self.assertIn('일반암진단비', sent_prompt)  # 담보명은 그대로 전송
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -22,9 +22,10 @@ from django.conf import settings
 
 from inpa.core.ocr.ocrdata import Ocr_Data
 from inpa.core.ocr.ocrparsing import (
-    COVERAGE_KEYWORDS, _is_fixed_benefit_inpatient, is_keyword_excluded,
-    strip_exclusion_parens,
+    COVERAGE_KEYWORDS, _extract_person_name, _is_fixed_benefit_inpatient,
+    is_keyword_excluded, strip_exclusion_parens,
 )
+from inpa.core.ocr.pii_mask import _strip_identity
 
 # ★ PII 로그 레드라인(LB#9): 이 로거로 증권 원문·응답 본문·고객/상품명을 절대 찍지 않는다.
 #   허용 수준 = 회사 코드(정수)·건수·문자열 길이·예외 타입. print() 사용 금지(로깅으로만).
@@ -616,7 +617,11 @@ def claude_parse(text_lines, is_proposal=False, normalizer=None, meta=None):
         return None
 
     # 텍스트 합치기 (최대 30000자 - 보험증권 20-30페이지 대응)
-    full_text = '\n'.join(text_lines)
+    # ★ 2026-07-09 PM 지시(privacy-by-design, 국외이전 개인정보 최소화): Claude 로
+    #   보내는 사본만 신원식별정보(주민번호/전화/이메일/라벨-근접 성명)를 마스킹한다.
+    #   담보명·금액·회사명·날짜·보험기간 등 분석 데이터는 절대 마스킹되지 않는다
+    #   (core/ocr/pii_mask.py 참조). 원본 text_lines·우리 DB 레코드는 무변경.
+    full_text = _strip_identity('\n'.join(text_lines))
     if len(full_text) > 30000:
         full_text = full_text[:30000]
 
@@ -664,6 +669,18 @@ def claude_parse(text_lines, is_proposal=False, normalizer=None, meta=None):
                            '(response length=%d chars)', len(response_text))
             _set_meta(outcome='json_invalid', usage=usage)
             return None
+
+        # ★ 신원 마스킹(위 full_text)으로 Claude 는 실명을 보지 못하므로, 계약자/
+        #   피보험자 이름은 원본 text_lines 에서 로컬 정규식(레거시 정규식 폴백 경로
+        #   regex_fallback_parse 와 동일한 _extract_person_name)으로 직접 채운다.
+        #   AI 미개입 — 신원정보는 서버 로컬 처리를 벗어나지 않는다. 못 찾으면(빈
+        #   문자열) Claude 응답값을 그대로 둔다(기존 동작 보존, 결과가 나빠지지 않음).
+        local_contractor = _extract_person_name(text_lines, r'계약자[명]?')
+        local_insured = _extract_person_name(text_lines, r'(?:주\s*)?피보험자[명]?')
+        if local_contractor:
+            parsed['contractor'] = local_contractor
+        if local_insured:
+            parsed['insured'] = local_insured
 
         # JSON → Ocr_Data 변환
         ocr_data = _convert_to_ocr_data(parsed, normalizer=normalizer)
