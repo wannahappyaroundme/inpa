@@ -1571,6 +1571,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
           </ul>
           <p className="mt-2 text-[11px] leading-4 text-ink3">
             나란히 정리한 참고 사실이에요. 어느 쪽이 나을지는 고객 상황에 맞춰 설계사님이 판단해 주세요.
+            갈아타기(승환)라면 이 불리사항(해지손실·면책기간·이율 변동 등)은 고객에게 따로 안내해 주세요.
           </p>
         </div>
       )}
@@ -1702,6 +1703,9 @@ function SwitchTab({ customerId }: { customerId: number }) {
           ? <span className="text-[12px] text-ink3">{copyMsg}</span>
           : !canExport && <span className="text-[12px] text-ink3">A안·B안에 보험을 하나씩 배정하면 복사할 수 있어요.</span>}
       </div>
+      <p className="mt-2 text-[11px] leading-4 text-ink3">
+        복사되는 내용에는 해지손실·면책 같은 불리사항이 들어가지 않아요. 갈아타기라면 불리사항은 고객에게 따로 안내해 주세요.
+      </p>
 
       {/* AI 비교안내서 — guide_enabled=false 면 법무 게이트 안내만 */}
       <div className="mt-5">
