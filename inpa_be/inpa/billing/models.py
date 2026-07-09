@@ -60,6 +60,14 @@ class Plan(models.Model):
     )
     # share_link / customer_add = 절대 차단 금지 → 필드 없음 (dev/23 §1.2)
 
+    # ★ capability 필드(월 액션 한도와 별개) — 관리자가 Django Admin에서 재배포 없이 다른
+    # 플랜에도 부여 가능. seed_billing이 manager 플랜만 True로 시드(spec 2026-07-09 manager-plan-gate).
+    can_use_team = models.BooleanField(
+        '팀 관리 기능 사용 가능', default=False,
+        help_text='True면 /manager 대시보드·팀 초대 링크를 사용할 수 있어요. '
+                   'settings.MANAGER_PLAN_GATE_ENABLED=True일 때만 실제로 게이트가 적용됩니다(기본 False=미적용).'
+    )
+
     is_active = models.BooleanField('활성', default=True,
                                     help_text='False 시 신규 Subscription 생성 불가.')
     created_at = models.DateTimeField(auto_now_add=True)

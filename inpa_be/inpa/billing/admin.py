@@ -35,12 +35,12 @@ class PlanAdmin(admin.ModelAdmin):
         'code', 'display_name', 'price_krw',
         'limit_ocr', 'limit_ai_compare',
         'limit_analysis', 'limit_promotion',
-        'is_active', 'updated_at',
+        'can_use_team', 'is_active', 'updated_at',
     ]
     list_editable = [
         'limit_ocr', 'limit_ai_compare',
         'limit_analysis', 'limit_promotion',
-        'price_krw', 'is_active',
+        'price_krw', 'can_use_team', 'is_active',
     ]
     readonly_fields = ['created_at', 'updated_at']
     ordering = ['price_krw']

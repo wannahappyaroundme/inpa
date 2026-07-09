@@ -26,6 +26,12 @@ interface UpgradeModalProps {
   open: boolean;
   onClose: () => void;
   info?: UpgradeModalInfo;
+  /**
+   * 표시 맥락. 기본(미지정)="credit_exhausted"=한도 초과 안내.
+   * "manager_required"=팀 기능은 Manager 요금제 전용(자격 게이트, 한도 초과 아님) — 헤드라인·
+   * 요금제 안내·요금제 토글이 Manager 하나로 바뀐다. (spec 2026-07-09 manager-plan-gate)
+   */
+  reason?: "credit_exhausted" | "manager_required";
 }
 
 /** kind → 사용자용 한국어 기능 라벨 */
@@ -61,22 +67,32 @@ function kindShort(kind: string | undefined): string {
 }
 
 // 확정 가격(2026-07-07). base = VAT 별도 월 이용료, vat = 10%, total = 최종 입금액.
+// manager(2026-07-09 팀 기능 게이트) = Plus와 동일가, 팀 관리 capability 전용.
 const PLAN_PRICING = {
   plus: { name: "플러스", base: "19,900원", vat: "1,990원", total: "21,890원" },
+  manager: { name: "Manager", base: "19,900원", vat: "1,990원", total: "21,890원" },
   super: { name: "슈퍼", base: "39,900원", vat: "3,990원", total: "43,890원" },
 } as const;
 
 const BANK_ACCOUNT_NUMBER = "459001-04-503030";
 const BANK_ACCOUNT_DISPLAY = "국민은행 459001-04-503030 (예금주: 핀고)";
 
-export function UpgradeModal({ open, onClose, info }: UpgradeModalProps) {
-  const [payPlan, setPayPlan] = useState<keyof typeof PLAN_PRICING>("plus");
+export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" }: UpgradeModalProps) {
+  const isManagerGate = reason === "manager_required";
+  const [payPlan, setPayPlan] = useState<keyof typeof PLAN_PRICING>(
+    isManagerGate ? "manager" : "plus"
+  );
   const [copied, setCopied] = useState(false);
 
   if (!open) return null;
 
   const hasNumbers =
+    !isManagerGate &&
     typeof info?.used === "number" && typeof info?.limit === "number" && info.limit !== null;
+
+  const visiblePlanCodes: (keyof typeof PLAN_PRICING)[] = isManagerGate
+    ? ["manager"]
+    : ["plus", "super"];
 
   const pricing = PLAN_PRICING[payPlan];
 
@@ -108,7 +124,9 @@ export function UpgradeModal({ open, onClose, info }: UpgradeModalProps) {
             id="upgrade-modal-title"
             className="text-[18px] font-extrabold text-ink leading-snug"
           >
-            이번 달 {kindLabel(info?.kind)} 한도를 다 쓰셨어요
+            {isManagerGate
+              ? "Manager 요금제에서 팀을 관리할 수 있어요"
+              : `이번 달 ${kindLabel(info?.kind)} 한도를 다 쓰셨어요`}
           </h2>
           <button
             onClick={onClose}
@@ -130,20 +148,38 @@ export function UpgradeModal({ open, onClose, info }: UpgradeModalProps) {
         )}
 
         {/* 본문 */}
-        <p className="mt-4 text-[14px] text-ink2 leading-6">
-          무료 요금제의 이번 달{" "}
-          <b className="font-semibold text-ink">{kindShort(info?.kind)}</b> 한도를 모두
-          활용하셨어요.
-          <br />
-          이만큼 쓰시는 설계사님에게는 플러스 요금제가 딱 맞아요.
-        </p>
+        {isManagerGate ? (
+          <p className="mt-4 text-[14px] text-ink2 leading-6">
+            팀원 인사 관리, 팀원 개별 실적 관리, 팀 전체 실적 관리를 한 화면에서 확인할 수
+            있어요.
+            <br />
+            팀을 이끄는 설계사님에게는 Manager 요금제가 딱 맞아요.
+          </p>
+        ) : (
+          <p className="mt-4 text-[14px] text-ink2 leading-6">
+            무료 요금제의 이번 달{" "}
+            <b className="font-semibold text-ink">{kindShort(info?.kind)}</b> 한도를 모두
+            활용하셨어요.
+            <br />
+            이만큼 쓰시는 설계사님에게는 플러스 요금제가 딱 맞아요.
+          </p>
+        )}
 
         {/* 요금제 소개 — 표시 규칙: VAT 별도 금액만 */}
         <div className="mt-4 rounded-xl border border-line bg-surface2 px-4 py-3">
           <p className="text-[13px] font-bold text-ink">요금제 안내</p>
           <ul className="mt-1.5 space-y-1 text-[13px] text-ink2 leading-5">
-            <li>플러스 월 19,900원 (VAT 별도)</li>
-            <li>슈퍼 월 39,900원 (VAT 별도) · 한도 무제한</li>
+            {isManagerGate ? (
+              <>
+                <li>Manager 월 19,900원 (VAT 별도) · 팀장·지점장·지사장 등 관리자 전용</li>
+                <li>Plus 전체 기능 · 팀원 인사·개별 실적·전체 실적 관리</li>
+              </>
+            ) : (
+              <>
+                <li>플러스 월 19,900원 (VAT 별도)</li>
+                <li>슈퍼 월 39,900원 (VAT 별도) · 한도 무제한</li>
+              </>
+            )}
           </ul>
         </div>
 
@@ -151,24 +187,30 @@ export function UpgradeModal({ open, onClose, info }: UpgradeModalProps) {
         <div className="mt-3 rounded-xl border border-line px-4 py-3">
           <p className="text-[13px] font-bold text-ink">계좌이체로 시작하기</p>
 
-          {/* 요금제 선택 토글 */}
-          <div className="mt-2 grid grid-cols-2 gap-1.5" role="group" aria-label="요금제 선택">
-            {(Object.keys(PLAN_PRICING) as (keyof typeof PLAN_PRICING)[]).map((code) => (
-              <button
-                key={code}
-                type="button"
-                onClick={() => setPayPlan(code)}
-                aria-pressed={payPlan === code}
-                className={`rounded-lg border px-3 py-2 text-[13px] font-semibold transition ${
-                  payPlan === code
-                    ? "border-brand text-brand bg-brand-soft"
-                    : "border-line text-ink3 hover:text-ink"
-                }`}
-              >
-                {PLAN_PRICING[code].name}
-              </button>
-            ))}
-          </div>
+          {/* 요금제 선택 토글 — manager_required는 Manager 하나뿐이라 토글 없이 이름만 표시 */}
+          {visiblePlanCodes.length > 1 ? (
+            <div className="mt-2 grid grid-cols-2 gap-1.5" role="group" aria-label="요금제 선택">
+              {visiblePlanCodes.map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => setPayPlan(code)}
+                  aria-pressed={payPlan === code}
+                  className={`rounded-lg border px-3 py-2 text-[13px] font-semibold transition ${
+                    payPlan === code
+                      ? "border-brand text-brand bg-brand-soft"
+                      : "border-line text-ink3 hover:text-ink"
+                  }`}
+                >
+                  {PLAN_PRICING[code].name}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-[13px] font-semibold text-brand">
+              {PLAN_PRICING[payPlan].name} 요금제
+            </p>
+          )}
 
           {/* 금액 분해 */}
           <dl className="mt-3 space-y-1 text-[13px]">
@@ -208,8 +250,9 @@ export function UpgradeModal({ open, onClose, info }: UpgradeModalProps) {
 
         {/* 안내 텍스트 */}
         <p className="mt-3 text-[12px] text-ink3 leading-5">
-          한도는 매월 1일 초기화돼요. 쿠폰이 있다면 설정 &gt; 계정에서 등록해 바로 이어갈 수
-          있어요.
+          {isManagerGate
+            ? "쿠폰이 있다면 설정 > 계정에서 등록해 바로 이어갈 수 있어요."
+            : "한도는 매월 1일 초기화돼요. 쿠폰이 있다면 설정 > 계정에서 등록해 바로 이어갈 수 있어요."}
         </p>
 
         {/* 버튼 영역 */}

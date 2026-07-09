@@ -8,12 +8,14 @@ import { Wallet, UserPlus, Users, AlertTriangle, Link2 } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { Card, StatCard, SectionTitle } from "@/components/ui";
 import { BarChart } from "@/components/charts";
+import { UpgradeModal } from "@/components/upgrade-modal";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   getManagerDashboard,
   createTeamInviteLink,
   SALES_STAGES,
   funnelConversion,
+  ApiError,
   type ManagerDashboardResponse,
   type ManagerAgentKpi,
 } from "@/lib/api";
@@ -141,8 +143,13 @@ function TeamInviteCard() {
       const r = await createTeamInviteLink();
       setLink(r.url);
       if (r.ttl_days) setTtlDays(r.ttl_days);
-    } catch {
-      setError("링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
+    } catch (e: unknown) {
+      // 팀 게이트가 그 사이 켜지거나 구독이 만료된 경우(드문 레이스) 업그레이드 쪽으로 안내.
+      if (e instanceof ApiError && e.code === "manager_plan_required") {
+        setError("팀 초대는 Manager 요금제에서 만들 수 있어요.");
+      } else {
+        setError("링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
+      }
     } finally {
       setBusy(false);
     }
@@ -197,17 +204,52 @@ function TeamInviteCard() {
   );
 }
 
+// Manager 요금제 팀 기능 게이트(spec 2026-07-09) — 대시보드 대신 안내 카드.
+// ★ 게이트는 기본 꺼져 있어(MANAGER_PLAN_GATE_ENABLED=False) 지금은 이 카드가 뜨지 않는다.
+//   유료 전환 시 BE에서 켜면, Manager 요금제가 없는 설계사에게만 이 안내가 보인다.
+function ManagerPlanRequiredCard({ onUpgrade }: { onUpgrade: () => void }) {
+  return (
+    <Card className="mt-4 px-6 py-10 text-center">
+      <div className="mx-auto w-12 h-12 rounded-2xl bg-brand-soft text-brand grid place-items-center">
+        <Users size={22} />
+      </div>
+      <h2 className="mt-4 text-[17px] font-extrabold text-ink">
+        팀을 한 화면에서 관리하는 관리자용 요금제
+      </h2>
+      <p className="mx-auto mt-2 max-w-sm text-[13px] text-ink3 leading-6">
+        팀원 인사 관리, 팀원 개별 실적 관리, 팀 전체 실적 관리를 Manager 요금제에서
+        이용할 수 있어요.
+      </p>
+      <button
+        onClick={onUpgrade}
+        className="mt-5 rounded-2xl bg-brand text-white text-[14px] font-bold px-5 py-3 active:scale-[0.98] transition"
+      >
+        내 상황에 맞는지 먼저 확인해보세요
+      </button>
+    </Card>
+  );
+}
+
 export default function ManagerPage() {
   const ready = useAuthGuard();
   const [data, setData] = useState<ManagerDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 팀 기능 게이트(spec 2026-07-09): dashboard가 402 manager_plan_required면 대시보드 대신 안내 카드.
+  const [planGated, setPlanGated] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
   useEffect(() => {
     if (!ready) return;
     getManagerDashboard()
       .then(setData)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "불러오지 못했어요."))
+      .catch((e: unknown) => {
+        if (e instanceof ApiError && e.code === "manager_plan_required") {
+          setPlanGated(true);
+          return;
+        }
+        setError(e instanceof Error ? e.message : "불러오지 못했어요.");
+      })
       .finally(() => setLoading(false));
   }, [ready]);
 
@@ -232,6 +274,11 @@ export default function ManagerPage() {
           월말 취합 엑셀은 그만. 성과 공유에 <b>동의한</b> 소속 설계사의 집계를 실시간으로 봐요. 개별 고객 정보는 표시되지 않아요(프라이버시). 성과 수치는 추정이에요.
         </p>
 
+        {/* 팀 기능 게이트(spec 2026-07-09, 기본 OFF): dashboard가 402면 안내 카드만 노출 */}
+        {planGated && <ManagerPlanRequiredCard onUpgrade={() => setUpgradeOpen(true)} />}
+
+        {!planGated && (
+        <>
         {/* 팀 초대 링크 — 팀이 아직 없어도 항상 노출(팀을 만드는 첫 행동) */}
         <TeamInviteCard />
 
@@ -360,6 +407,14 @@ export default function ManagerPage() {
             </Card>
           </>
         )}
+        </>
+        )}
+
+        <UpgradeModal
+          open={upgradeOpen}
+          onClose={() => setUpgradeOpen(false)}
+          reason="manager_required"
+        />
       </main>
     </div>
   );

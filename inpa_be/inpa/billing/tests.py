@@ -509,6 +509,69 @@ class SeedBillingCommandTests(TestCase):
         call_command('seed_billing')  # 멱등
         self.assertEqual(Plan.objects.filter(code='manager').count(), 1)
 
+    def test_seeds_manager_can_use_team_others_false(self):
+        """팀 기능 게이트(spec 2026-07-09) capability: manager만 can_use_team=True."""
+        from django.core.management import call_command
+
+        call_command('seed_billing')
+        self.assertTrue(Plan.objects.get(code='manager').can_use_team)
+        for code in ('free', 'plus', 'super'):
+            self.assertFalse(Plan.objects.get(code=code).can_use_team, code)
+
+    def test_seed_corrects_can_use_team_on_pre_existing_manager_row(self):
+        """can_use_team 필드 도입 전에 만들어진 manager 행(default False)도 재시드로 True 보정."""
+        from django.core.management import call_command
+
+        Plan.objects.create(code='manager', display_name='Manager', price_krw=19900)
+        self.assertFalse(Plan.objects.get(code='manager').can_use_team)
+        call_command('seed_billing')
+        self.assertTrue(Plan.objects.get(code='manager').can_use_team)
+
+
+class UserCanUseTeamTests(TestCase):
+    """billing/credit.py::user_can_use_team — 팀 기능 게이트 단위 판별(spec 2026-07-09).
+
+    ★ 순수 판별 함수 — 실제로 막을지는 뷰가 settings.MANAGER_PLAN_GATE_ENABLED와 함께 결정한다.
+    """
+
+    def setUp(self):
+        self.free_plan, self.plus_plan = _get_or_create_plans()
+        self.manager_plan, _ = Plan.objects.get_or_create(
+            code='manager',
+            defaults={'display_name': 'Manager', 'price_krw': 19900, 'can_use_team': True,
+                      'limit_ocr': 200, 'limit_ai_compare': 100,
+                      'limit_analysis': 200, 'limit_promotion': 100},
+        )
+        if not self.manager_plan.can_use_team:
+            self.manager_plan.can_use_team = True
+            self.manager_plan.save(update_fields=['can_use_team'])
+
+    def test_active_manager_subscription_true(self):
+        from .credit import user_can_use_team
+        user, _ = _make_user('team-mgr-sub@test.com')
+        _subscribe(user, self.manager_plan)
+        self.assertTrue(user_can_use_team(user))
+
+    def test_plus_subscription_false(self):
+        from .credit import user_can_use_team
+        user, _ = _make_user('team-plus-sub@test.com')
+        _subscribe(user, self.plus_plan)
+        self.assertFalse(user_can_use_team(user))
+
+    def test_expired_manager_subscription_false(self):
+        from .credit import user_can_use_team
+        user, _ = _make_user('team-mgr-expired@test.com')
+        sub = _subscribe(user, self.manager_plan)
+        sub.expires_at = timezone.now() - timedelta(days=1)
+        sub.save(update_fields=['expires_at'])
+        self.assertFalse(user_can_use_team(user))
+
+    def test_no_subscription_false(self):
+        from .credit import user_can_use_team
+        user, _ = _make_user('team-nosub@test.com')
+        Subscription.objects.filter(user=user).delete()
+        self.assertFalse(user_can_use_team(user))
+
 
 class PlusPriceDataMigrationTests(TestCase):
     """migrations/0005 — plus placeholder(29000)일 때만 19900 전환(조건부, spec B-2)."""

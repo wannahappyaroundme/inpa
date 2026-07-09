@@ -119,6 +119,25 @@ def check_and_consume(user, kind: str) -> dict:
     }
 
 
+def user_can_use_team(user) -> bool:
+    """Manager 요금제 팀 기능 캐퍼빌리티 게이트 (spec 2026-07-09 manager-plan-gate).
+
+    활성(status='active')·미만료(expires_at) 구독이면서 그 plan.can_use_team=True 일 때만 True.
+    구독이 없거나, 비활성/만료 구독이거나, plan.can_use_team=False(예: free/plus/super)면 False.
+
+    ★ 이 함수는 순수 판별만 한다 — 실제로 막을지는 호출부(뷰)가
+      settings.MANAGER_PLAN_GATE_ENABLED 를 함께 확인해서 결정한다(기본 False=게이트 미적용).
+    """
+    from .models import Subscription
+
+    sub = Subscription.objects.select_related('plan').filter(user=user).first()
+    if sub is None or sub.status != 'active':
+        return False
+    if sub.expires_at is not None and sub.expires_at <= timezone.now():
+        return False
+    return bool(sub.plan.can_use_team)
+
+
 def _get_free_plan():
     """Free Plan 조회. 시드 데이터가 없으면 RuntimeError."""
     from .models import Plan  # 순환 import 방지

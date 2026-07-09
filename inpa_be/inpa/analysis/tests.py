@@ -1095,6 +1095,32 @@ from inpa.core.ocr.claude_parser import _add_coverage  # noqa: E402
 from inpa.core.ocr.ocrdata import Ocr_Data  # noqa: E402
 
 
+class DeathCoverageRoutingTests(TestCase):
+    """사망 세분류 오분류 수정(2026-07-09) — _match_by_keywords 직접 호출(§7 회귀 관례).
+
+    버그: 범용 '사망보험금'(5자)이 구체 '재해사망/질병사망'(4자)보다 길어 longest-first 로
+    먼저 매칭되어 전부 일반사망으로 샜다. 구체 복합어 추가로 교정.
+    """
+
+    def _path(self, name):
+        from inpa.core.ocr.claude_parser import _match_by_keywords
+        return _match_by_keywords(name)
+
+    def test_specific_death_routes_to_own_leaf(self):
+        self.assertEqual(self._path('재해사망보험금'), ('사망', '재해', '재해사망'))
+        self.assertEqual(self._path('질병사망보험금'), ('사망', '질병', '질병사망'))
+        self.assertEqual(self._path('상해사망보험금'), ('사망', '상해', '상해사망'))
+        self.assertEqual(self._path('재해사망보장'), ('사망', '재해', '재해사망'))
+        self.assertEqual(self._path('질병사망보장'), ('사망', '질병', '질병사망'))
+
+    def test_general_death_unchanged_no_regression(self):
+        # 기본 사망·정책상 일반사망 취급 항목은 그대로 일반사망 유지.
+        self.assertEqual(self._path('일반사망보험금'), ('사망', '일반', '일반사망'))
+        self.assertEqual(self._path('일반사망'), ('사망', '일반', '일반사망'))
+        self.assertEqual(self._path('보통약관(상해사망)'), ('사망', '일반', '일반사망'))
+        self.assertEqual(self._path('사망후유장해'), ('사망', '일반', '일반사망'))
+
+
 class ClaudeParserLogRedactionTests(TestCase):
     def test_normalizer_error_log_excludes_coverage_content(self):
         """normalizer 훅 예외 로그에 담보 원문명·예외 메시지 내용이 새지 않는다."""
