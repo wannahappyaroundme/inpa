@@ -213,7 +213,11 @@ export function CinemaLanding() {
           {scene.beats.slice(0, beatIdx + 1).map((b, i) => (
             <p key={`${scene.id}-${i}`}
               className={`text-center leading-relaxed ${b.mono ? "font-mono tracking-wide" : "font-bold"} ${
-                scene.instant ? "text-[30px] sm:text-[48px]" : "text-[20px] sm:text-[32px]"} ${
+                scene.instant
+                  ? (i === 0 && scene.beats.length > 1
+                      ? "text-[23px] sm:text-[36px] text-[var(--ink-3)]" // 도입(질문) 줄: 살짝 회색 + 75% 크기 (PM)
+                      : "text-[30px] sm:text-[48px]")
+                  : "text-[20px] sm:text-[32px]"} ${
                 i > 0 ? "mt-5 font-extrabold" : ""} ${i > 0 && i === beatIdx && scene.instant ? "line-rise" : ""}`}>
               {i < beatIdx ? b.text : scene.instant ? (
                 i === 0 ? <span className="line-pop">{b.text}</span> : b.text
