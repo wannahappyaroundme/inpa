@@ -58,7 +58,16 @@ class Plan(models.Model):
         '판촉물 한도(월)', null=True, blank=True, default=5,
         help_text='null=무제한. Free 기본 5건.'
     )
-    # share_link / customer_add = 절대 차단 금지 → 필드 없음 (dev/23 §1.2)
+    # ★ 신규 고객 추가 한도(spec 2026-07-09 pricing-limits-align) — 랜딩 요금표 4한도 정합.
+    #   설계사가 능동으로 추가하는 고객(단건·일괄 등록)만 집계한다. 셀프진단(/d)·소개카드(/p) 같은
+    #   인바운드 자동 리드는 Customer.objects.create()를 직접 호출해 이 한도를 거치지 않는다
+    #   (고객이 셀프진단했다고 설계사 한도가 깎이면 불합리하므로 의도적 설계).
+    limit_customer = models.PositiveIntegerField(
+        '신규 고객 추가 한도(월)', null=True, blank=True, default=5,
+        help_text='null=무제한. Free 기본 5명(월). 설계사가 능동으로 추가하는 고객만 집계'
+                   '(셀프진단·소개 카드 인바운드 리드는 미집계).'
+    )
+    # share_link / customer_add(레거시 명칭, 이 필드와 무관) = 절대 차단 금지 → 필드 없음 (dev/23 §1.2)
 
     # ★ capability 필드(월 액션 한도와 별개) — 관리자가 Django Admin에서 재배포 없이 다른
     # 플랜에도 부여 가능. seed_billing이 manager 플랜만 True로 시드(spec 2026-07-09 manager-plan-gate).
@@ -150,6 +159,7 @@ class UsageMeter(models.Model):
         ('ai_compare', 'AI 비교안내서'),
         ('analysis', 'AI 분析·메시지'),
         ('promotion', '판촉물 주문'),
+        ('customer', '고객 추가'),
     )
 
     # action label 한글 매핑 (GET /billing/usage/ 응답용)
@@ -158,6 +168,7 @@ class UsageMeter(models.Model):
         'ai_compare': 'AI 비교안내서',
         'analysis': 'AI 분析·메시지',
         'promotion': '판촉물 주문',
+        'customer': '고객 추가',
     }
 
     user = models.ForeignKey(

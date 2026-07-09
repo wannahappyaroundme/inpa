@@ -49,7 +49,11 @@ def _make_user(email, is_admin=False, activate=True):
 
 
 def _get_or_create_plans():
-    """Free / Plus Plan 조회(픽스처 없을 때 생성)."""
+    """Free / Plus Plan 조회(픽스처 없을 때 생성).
+
+    ★ 이 헬퍼의 한도 값은 일반 한도 로직(경합·리셋·게이팅 등) 테스트용 임의값이다 —
+    seed_billing.py 의 실제 랜딩 정합 숫자와는 별개(그쪽은 SeedBillingCommandTests가 검증).
+    """
     free_plan, _ = Plan.objects.get_or_create(
         code='free',
         defaults={
@@ -59,6 +63,7 @@ def _get_or_create_plans():
             'limit_ai_compare': 5,
             'limit_analysis': 10,
             'limit_promotion': 5,
+            'limit_customer': 5,
         },
     )
     plus_plan, _ = Plan.objects.get_or_create(
@@ -70,6 +75,7 @@ def _get_or_create_plans():
             'limit_ai_compare': 100,
             'limit_analysis': 200,
             'limit_promotion': 100,
+            'limit_customer': 30,
         },
     )
     return free_plan, plus_plan
@@ -177,6 +183,73 @@ class LimitEnforcementTests(TestCase):
         _consume_n(self.free_user, 'promotion', 5)
         with self.assertRaises(LimitExceeded):
             check_and_consume(self.free_user, 'promotion')
+
+    def test_free_customer_limit_5(self):
+        """spec 2026-07-09: 'customer' kind — Free 5건 소진 후 초과."""
+        _consume_n(self.free_user, 'customer', 5)
+        with self.assertRaises(LimitExceeded) as ctx:
+            check_and_consume(self.free_user, 'customer')
+        self.assertEqual(ctx.exception.limit, 5)
+        self.assertEqual(ctx.exception.action, 'customer')
+
+    def test_plus_customer_limit_30_passes_then_exceeds(self):
+        """spec 2026-07-09: Plus customer 30건까지 통과, 31번째 초과."""
+        _consume_n(self.plus_user, 'customer', 29)
+        result = check_and_consume(self.plus_user, 'customer')
+        self.assertEqual(result['count'], 30)
+        with self.assertRaises(LimitExceeded):
+            check_and_consume(self.plus_user, 'customer')
+
+    def test_get_limit_customer_matches_plan_field(self):
+        """Plan.get_limit('customer') == limit_customer 필드값 (제네릭 getattr 경로 확인)."""
+        self.assertEqual(self.free_plan.get_limit('customer'), 5)
+        self.assertEqual(self.plus_plan.get_limit('customer'), 30)
+
+
+# ─── 'customer' kind — 일괄(N건) 소비 (spec 2026-07-09 pricing-limits-align) ─────
+
+
+@override_settings(FREE_TIER_UNLIMITED=False)
+class BulkCustomerQuotaTests(TestCase):
+    """check_and_consume_n — 신규 고객 추가 한도의 일괄(bulk) 소비 전용 경로."""
+
+    def setUp(self):
+        self.free_plan, self.plus_plan = _get_or_create_plans()
+        self.free_user, _ = _make_user('bulkquota_free@test.com')
+        _subscribe(self.free_user, self.free_plan)
+
+    def test_n_within_remaining_consumes_all_at_once(self):
+        from .credit import check_and_consume_n
+        result = check_and_consume_n(self.free_user, 'customer', 5)
+        self.assertEqual(result['count'], 5)
+        self.assertEqual(result['remaining'], 0)
+
+    def test_n_exceeding_remaining_raises_and_does_not_partially_consume(self):
+        """잔여 3(5-2)인데 4건 요청 → LimitExceeded, count는 2 그대로(부분 소비 없음)."""
+        from .credit import check_and_consume_n
+        _consume_n(self.free_user, 'customer', 2)
+        with self.assertRaises(LimitExceeded) as ctx:
+            check_and_consume_n(self.free_user, 'customer', 4)
+        self.assertEqual(ctx.exception.limit, 5)
+        self.assertEqual(ctx.exception.current, 2)
+        # 부분 반영 없음 — meter.count 는 여전히 2.
+        ym = UsageMeter.current_month()
+        meter = UsageMeter.objects.get(user=self.free_user, action='customer', year_month=ym)
+        self.assertEqual(meter.count, 2)
+
+    def test_n_zero_is_noop(self):
+        from .credit import check_and_consume_n
+        result = check_and_consume_n(self.free_user, 'customer', 0)
+        self.assertEqual(result['count'], 0)
+        self.assertIsNone(result['limit'])
+
+    @override_settings(FREE_TIER_UNLIMITED=True)
+    def test_bulk_bypassed_when_free_tier_unlimited(self):
+        """베타 스위치 — n이 한도를 넘어도 무차감 통과(dormant)."""
+        from .credit import check_and_consume_n
+        result = check_and_consume_n(self.free_user, 'customer', 999)
+        self.assertIsNone(result['limit'])
+        self.assertIsNone(result['remaining'])
 
 
 # ─── AC-B4 ───────────────────────────────────────────────────────
@@ -474,12 +547,84 @@ class SeedBillingCommandTests(TestCase):
         self.assertEqual(superp.display_name, 'Super')
         self.assertEqual(superp.price_krw, 39900)
         self.assertIn('VAT 별도', superp.description)
-        for field in ('limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion'):
+        for field in ('limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
+                      'limit_customer'):
             self.assertIsNone(getattr(superp, field), field)
 
         # 멱등 — 재실행해도 super 1행 유지.
         call_command('seed_billing')
         self.assertEqual(Plan.objects.filter(code='super').count(), 1)
+
+    def test_seeds_landing_aligned_quota_numbers(self):
+        """spec 2026-07-09 pricing-limits-align — 랜딩 요금표와 정확히 일치하는 4한도.
+
+        Free: ocr5/ai_compare1/analysis5/customer5. Plus·Manager: ocr100/ai_compare50/
+        analysis50/customer30. Super: 전부 None(무제한). promotion은 이번 정합 대상 아님
+        (기존 값 유지 — free5/plus·manager100/super None, seed defaults 그대로).
+        """
+        from django.core.management import call_command
+
+        call_command('seed_billing')
+
+        free = Plan.objects.get(code='free')
+        self.assertEqual(free.limit_ocr, 5)
+        self.assertEqual(free.limit_ai_compare, 1)
+        self.assertEqual(free.limit_analysis, 5)
+        self.assertEqual(free.limit_customer, 5)
+        self.assertEqual(free.limit_promotion, 5)  # 랜딩 미표기, 현행 유지
+
+        for code in ('plus', 'manager'):
+            plan = Plan.objects.get(code=code)
+            self.assertEqual(plan.limit_ocr, 100, code)
+            self.assertEqual(plan.limit_ai_compare, 50, code)
+            self.assertEqual(plan.limit_analysis, 50, code)
+            self.assertEqual(plan.limit_customer, 30, code)
+            self.assertEqual(plan.limit_promotion, 100, code)  # 현행 유지
+
+        superp = Plan.objects.get(code='super')
+        self.assertIsNone(superp.limit_customer)
+
+    def test_seed_corrects_quota_limits_on_pre_existing_rows(self):
+        """★ CREATE-only 원칙의 명시적 예외 — 랜딩 정합 목적으로 기존 행의 4한도(ocr/
+        ai_compare/analysis/customer)를 재시드가 덮어쓴다. price/display_name/description/
+        limit_promotion은 손대지 않는다(관리자 값 보존)."""
+        from django.core.management import call_command
+
+        # 구버전(재배포 전) 한도로 이미 존재하는 free/plus 행 재현.
+        Plan.objects.create(
+            code='free', display_name='무료', price_krw=0, description='관리자 메모',
+            limit_ocr=10, limit_ai_compare=5, limit_analysis=10, limit_promotion=5,
+            limit_customer=5,  # 신규 컬럼 기본값과 우연히 같아도 무방 — ocr/ai_compare/analysis로 검증
+        )
+        Plan.objects.create(
+            code='plus', display_name='Plus', price_krw=19900, description='관리자 메모',
+            limit_ocr=200, limit_ai_compare=100, limit_analysis=200, limit_promotion=100,
+            limit_customer=999,
+        )
+
+        call_command('seed_billing')
+
+        free = Plan.objects.get(code='free')
+        self.assertEqual(free.limit_ocr, 5)
+        self.assertEqual(free.limit_ai_compare, 1)
+        self.assertEqual(free.limit_analysis, 5)
+        self.assertEqual(free.display_name, '무료')       # 불변
+        self.assertEqual(free.description, '관리자 메모')  # 불변
+        self.assertEqual(free.limit_promotion, 5)          # 불변(이번 정합 대상 아님)
+
+        plus = Plan.objects.get(code='plus')
+        self.assertEqual(plus.limit_ocr, 100)
+        self.assertEqual(plus.limit_ai_compare, 50)
+        self.assertEqual(plus.limit_analysis, 50)
+        self.assertEqual(plus.limit_customer, 30)
+        self.assertEqual(plus.price_krw, 19900)            # 불변
+        self.assertEqual(plus.description, '관리자 메모')   # 불변
+        self.assertEqual(plus.limit_promotion, 100)         # 불변(이번 정합 대상 아님)
+
+        # 멱등 — 재실행해도 값 그대로.
+        call_command('seed_billing')
+        plus.refresh_from_db()
+        self.assertEqual(plus.limit_customer, 30)
 
     def test_seed_preserves_admin_modified_plus(self):
         """이미 존재하는 plus 행(관리자 수정값)은 재실행이 덮지 않는다(CREATE 기본값만)."""
@@ -504,7 +649,8 @@ class SeedBillingCommandTests(TestCase):
         self.assertIn('VAT 별도', manager.description)
         self.assertIn('관리자', manager.description)
         plus = Plan.objects.get(code='plus')
-        for field in ('limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion'):
+        for field in ('limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
+                      'limit_customer'):
             self.assertEqual(getattr(manager, field), getattr(plus, field))
         call_command('seed_billing')  # 멱등
         self.assertEqual(Plan.objects.filter(code='manager').count(), 1)

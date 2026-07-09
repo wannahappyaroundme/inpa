@@ -125,9 +125,14 @@ export function CustomerCreateModal({
       });
       onCreated(c);
     } catch (e) {
-      setError(
-        e instanceof ApiError ? e.message : "등록 중 오류가 발생했어요. 다시 시도해 주세요."
-      );
+      if (e instanceof ApiError && e.status === 402) {
+        // 고객 추가 한도 도달(유료 전환 후에만 발생) → 긍정 업그레이드 안내.
+        setError("이번 달 고객 추가 한도에 도달했어요. 요금제를 올리면 더 등록할 수 있어요.");
+      } else {
+        setError(
+          e instanceof ApiError ? e.message : "등록 중 오류가 발생했어요. 다시 시도해 주세요."
+        );
+      }
     } finally {
       setSaving(false);
     }

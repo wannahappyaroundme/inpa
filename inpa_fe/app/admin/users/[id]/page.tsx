@@ -27,8 +27,9 @@ const USAGE_LABELS: Record<string, string> = {
   ai_compare: "AI 비교안내서",
   analysis: "AI 분석·메시지",
   promotion: "판촉물 주문",
+  customer: "고객 추가",
 };
-const USAGE_ORDER = ["ocr", "ai_compare", "analysis", "promotion"];
+const USAGE_ORDER = ["ocr", "ai_compare", "analysis", "promotion", "customer"];
 
 export default function AdminUserDetailPage() {
   const ready = useAdminGuard();

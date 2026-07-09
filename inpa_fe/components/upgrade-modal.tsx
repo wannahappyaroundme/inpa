@@ -45,6 +45,8 @@ function kindLabel(kind: string | undefined): string {
       return "AI 비교안내서";
     case "promotion":
       return "판촉물 주문";
+    case "customer":
+      return "고객 추가";
     default:
       return "이 기능";
   }
@@ -61,6 +63,8 @@ function kindShort(kind: string | undefined): string {
       return "AI 비교안내서";
     case "promotion":
       return "판촉물 주문";
+    case "customer":
+      return "고객 추가";
     default:
       return "이 기능";
   }
