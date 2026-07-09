@@ -342,16 +342,18 @@ class CompareFactsTests(TestCase):
         self.assertIsNone(r2.json()['proposed']['monthly_premiums'])
 
     def test_contract_shape_and_disclaimer(self):
-        """계약 키 전부 존재 + publishable 항상 false + 면책 고정."""
+        """계약 키 전부 존재 + publishable 항상 false + 면책 고정 + verdict 키 없음(판정 제거)."""
         _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1)
         body = self._get().json()
         for key in ('mode', 'current', 'proposed', 'rows', 'guide_draft',
-                    'guide_enabled', 'publishable', 'publish_blocked_reason',
-                    'disclaimer'):
+                    'guide_enabled', 'switch_warnings', 'publishable',
+                    'publish_blocked_reason', 'disclaimer'):
             self.assertIn(key, body)
         self.assertFalse(body['publishable'])
         self.assertEqual(body['publish_blocked_reason'], '법무 검토 완료 전 발행 금지')
         self.assertIn('AI', body['disclaimer'])
+        # ★ 2026-07-09 재정의: 인파는 KEEP/SWITCH 판정을 산출하지 않는다 → verdict 키 부재.
+        self.assertNotIn('verdict', body)
 
     @override_settings(COMPARE_AI_ENABLED=False)
     def test_ai_disabled_guide_null(self):
@@ -362,37 +364,105 @@ class CompareFactsTests(TestCase):
         self.assertIsNone(body['guide_draft'])
         self.assertFalse(body['guide_enabled'])
 
-    # ── 갈아타기 KEEP/SWITCH 판정 (설계사 내부면 전용, 결정론) ──
-    def test_verdict_keys_present(self):
-        """verdict + switch_warnings 키 존재 + decision 은 3값 중 하나."""
+    # ── 확인해야 할 사항(switch_warnings, 중립 사실 — 판정 아님) ──────────────
+    # ★ 2026-07-09 재정의(PM 지시, §97 리스크 축소): 인파는 KEEP/SWITCH/NEUTRAL 판정을
+    #   산출하지 않는다. 응답에는 verdict 키가 없고, switch_warnings 만 남는다.
+    def test_verdict_key_removed_switch_warnings_present(self):
+        """verdict 키는 응답에 없고, switch_warnings(중립 사실) 키는 존재."""
         _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1, monthly=40000)
         _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2, monthly=60000)
         body = self._get().json()
-        self.assertIn('verdict', body)
+        self.assertNotIn('verdict', body)
         self.assertIn('switch_warnings', body)
-        for k in ('decision', 'reason', 'customer_net_benefit_estimate', 'disclaimer'):
-            self.assertIn(k, body['verdict'])
-        self.assertIn(body['verdict']['decision'], ('KEEP', 'SWITCH', 'NEUTRAL'))
+        self.assertIsInstance(body['switch_warnings'], list)
 
-    def test_verdict_neutral_when_no_proposed(self):
-        """제안(갈아타기 대상) 없음 → NEUTRAL."""
+    def test_switch_warnings_empty_when_no_proposed(self):
+        """비교 대상(B측)이 없으면 면책/이율 유의사항이 생기지 않는다(정성 항목은 has_proposed 조건)."""
         _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1)
         body = self._get().json()
-        self.assertEqual(body['verdict']['decision'], 'NEUTRAL')
+        types = {w['type'] for w in body['switch_warnings']}
+        self.assertNotIn('exemption_reset', types)
+        self.assertNotIn('rate_change', types)
 
-    def test_verdict_switch_when_cheaper_and_improved(self):
-        """더 싸고(월6만→4만) 보장 개선(5천만→1억) → SWITCH 검토."""
-        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1, monthly=60000)
-        _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2, monthly=40000)
-        body = self._get().json()
-        self.assertEqual(body['verdict']['decision'], 'SWITCH')
-
-    def test_verdict_keep_when_pricier_no_improvement(self):
-        """더 비싸고(월4만→8만) 보장 동일 → KEEP(유지 유리)."""
+    def test_switch_warnings_present_when_both_sides(self):
+        """양측 다 있으면 면책 리셋·이율 변동 유의사항이 뜬다(사실 나열, 판정 아님)."""
         _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1, monthly=40000)
-        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=2, monthly=80000)
+        _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2, monthly=60000)
         body = self._get().json()
-        self.assertEqual(body['verdict']['decision'], 'KEEP')
+        types = {w['type'] for w in body['switch_warnings']}
+        self.assertIn('exemption_reset', types)
+        self.assertIn('rate_change', types)
+        for w in body['switch_warnings']:
+            for k in ('type', 'label', 'detail', 'amount'):
+                self.assertIn(k, w)
+
+    # ── A/B 자유 비교(side_a_ids/side_b_ids) — portfolio_type 무관 ─────────────
+    def test_side_ab_ids_compare_two_proposals(self):
+        """제안 vs 제안(둘 다 portfolio_type=2)도 side_a_ids/side_b_ids 로 비교 가능."""
+        p1 = _make_portfolio_typed(self.customer, self.idet, 40000000, portfolio_type=2, monthly=30000)
+        p2 = _make_portfolio_typed(self.customer, self.idet, 90000000, portfolio_type=2, monthly=55000)
+        r = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {'side_a_ids': [p1.id], 'side_b_ids': [p2.id]}, format='json')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body['current']['monthly_premiums'], 30000)
+        self.assertEqual(body['proposed']['monthly_premiums'], 55000)
+        row = next(x for x in body['rows'] if x['coverage'] == '사망보장')
+        self.assertEqual(row['current_amount'], 40000000)
+        self.assertEqual(row['proposed_amount'], 90000000)
+        self.assertEqual(row['delta'], 50000000)
+
+    def test_proposal_vs_proposal_no_replacement_warnings(self):
+        """제안 vs 제안(교체 아님)엔 면책 리셋·이율 변동 유의사항이 뜨지 않는다(리뷰 major).
+
+        '기존 계약 → 신규 계약 교체'가 아닌데 '면책 다시 시작' 안내가 뜨면 오해를 준다.
+        """
+        p1 = _make_portfolio_typed(self.customer, self.idet, 40000000, portfolio_type=2, monthly=30000)
+        p2 = _make_portfolio_typed(self.customer, self.idet, 90000000, portfolio_type=2, monthly=55000)
+        r = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {'side_a_ids': [p1.id], 'side_b_ids': [p2.id]}, format='json')
+        types = {w['type'] for w in r.json()['switch_warnings']}
+        self.assertNotIn('exemption_reset', types)
+        self.assertNotIn('rate_change', types)
+
+    def test_side_ab_ids_owner_isolation(self):
+        """다른 설계사 고객의 보험 id를 side_a_ids/side_b_ids 에 넣어도 무시된다(소유 격리)."""
+        from inpa.accounts.models import Profile, User
+        other = User.objects.create_user(email='other-cmp@test.com', password='inpaPass123!')
+        other.is_active = True
+        other.save(update_fields=['is_active'])
+        Profile.objects.get_or_create(user=other)
+        other_cust = Customer.objects.create(owner=other, name='남의고객')
+        foreign = _make_portfolio_typed(other_cust, self.idet, 77000000, portfolio_type=2, monthly=99000)
+        mine = _make_portfolio_typed(self.customer, self.idet, 40000000, portfolio_type=2, monthly=30000)
+        r = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {'side_a_ids': [mine.id, foreign.id], 'side_b_ids': []}, format='json')
+        self.assertEqual(r.status_code, 200)
+        # 남의 보험(월 9.9만)은 집계에서 빠지고 내 것(월 3만)만 잡힌다.
+        self.assertEqual(r.json()['current']['monthly_premiums'], 30000)
+
+    def test_side_ab_ids_take_priority_over_legacy_params(self):
+        """side_a_ids/side_b_ids 가 오면 current_ids/proposed_ids 는 무시된다(신규 우선)."""
+        h1 = _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1, monthly=40000)
+        p1 = _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2, monthly=60000)
+        r = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {'side_a_ids': [p1.id], 'side_b_ids': [], 'current_ids': [h1.id]}, format='json')
+        body = r.json()
+        # side_a=p1(제안, 월 6만) → current 자리에 실린다. current_ids(h1)는 무시.
+        self.assertEqual(body['current']['monthly_premiums'], 60000)
+        self.assertIsNone(body['proposed']['monthly_premiums'])
+
+    def test_no_side_params_backward_compat_portfolio_split(self):
+        """side_a_ids/side_b_ids 도, current_ids/proposed_ids 도 없으면 기존 동작(보유/제안 분리)."""
+        _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1, monthly=40000)
+        _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2, monthly=60000)
+        body = self._get().json()
+        self.assertEqual(body['current']['monthly_premiums'], 40000)
+        self.assertEqual(body['proposed']['monthly_premiums'], 60000)
 
 
 class CompareAiGateTests(TestCase):

@@ -1,13 +1,20 @@
-"""갈아타기 KEEP/SWITCH 판정 — 설계사 내부 의사결정 근거(planner_internal 전용).
+"""비교 확인 사항(switch_warnings) 산출 — 설계사 내부 참고 사실(planner_internal 전용).
+
+★ 2026-07-09 재정의(PM 지시, §97 부당승환 리스크 축소): 인파는 더 이상 KEEP/SWITCH/NEUTRAL
+  판정을 산출하지 않는다. `compute_verdict`/`_coverage_change`(아래)는 과거 판정 로직으로
+  파일에는 남아 있지만 `compare.py` 응답 경로에서 더 이상 호출되지 않는다(내부 로깅 등에
+  쓸 수도 있어 삭제하지 않고 보존 — 다른 곳에서 import 하지 않음, 2026-07-09 grep 확인).
+  실제로 비교 응답에 실리는 건 `compute_switch_warnings` 뿐이다 — 이건 판정이 아니라
+  해지환급 손실 추정·면책기간 리셋·이율 변동 같은 '중립 사실'이며, 어느 쪽을 택할지는
+  설계사가 정한다.
 
 ★ 절대 규칙(§97 부당승환 · dev/09 중개금지 · dev/14 노출면 분류):
-  - 이 산출물(verdict, switch_warnings)은 '설계사 내부면'에만 노출한다.
-    고객 공유뷰(analytics._build_share_payload)에는 절대 포함하지 않는다(누수 회귀 테스트로 강제).
+  - switch_warnings 는 '설계사 내부면'에만 노출한다. 고객 공유뷰(analytics._build_share_payload)
+    에는 절대 포함하지 않는다(누수 회귀 테스트로 강제).
   - 인파의 '권유·단정'이 아니라 '설계사가 검토할 사실 기반 근거'다. 카피는 단정 금지.
   - 결정론적 계산 — Claude 호출 없음(국외이전·AI가드레일·COMPARE_AI_ENABLED 무관). 금액은 모두 '추정'.
-  - 보수적 편향: 불확실하면 KEEP(유지) — 부당승환을 '막는' 방향이 안전(§97 방어).
 
-입력은 갈아타기 비교의 보유(portfolio_type=1)/제안(portfolio_type=2) CustomerInsurance 리스트.
+입력은 비교 대상 두 세트(A/B, 과거 표현으로는 보유/제안) CustomerInsurance 리스트.
 손실 계산식은 vendored calculate.py 의 정의(기납입 - 해약환급금)와 동일하되, 그 파일은
 핵심 자산 보존을 위해 건드리지 않고 여기서 최소 재현한다.
 """
@@ -51,8 +58,14 @@ def _cancellation_loss_for(ci, today=None):
     return max(0, prepaid - refund)
 
 
-def compute_switch_warnings(current_list, has_proposed, today=None):
-    """보유계약 리스트 → (switch_warnings 리스트, 합산 해지손실 or None)."""
+def compute_switch_warnings(current_list, proposed_list, today=None):
+    """비교 두 세트 → (확인해야 할 사항 리스트, 합산 해지손실 or None).
+
+    ★ 2026-07-09: 면책 리셋·이율 변동은 '기존 보유계약 → 신규 제안계약 교체' 상황에만
+      의미가 있다. 제안 vs 제안·증권 vs 증권(교체 아님)엔 뜨지 않는다(오해 방지, 리뷰 major).
+      = A측(current)에 보유(portfolio_type==1)가 있고 B측(proposed)에 제안(portfolio_type==2)이
+      있는 실제 교체일 때만.
+    """
     warnings = []
     loss_total = 0
     loss_known = False
@@ -69,7 +82,11 @@ def compute_switch_warnings(current_list, has_proposed, today=None):
             'detail': '기존 계약 해지 시 기납입액 대비 환급금이 적어 발생하는 손실 추정치',
             'amount': loss_total,
         })
-    if has_proposed:
+    is_replacement = (
+        any(getattr(ci, 'portfolio_type', None) == 1 for ci in current_list)
+        and any(getattr(ci, 'portfolio_type', None) == 2 for ci in proposed_list)
+    )
+    if is_replacement:
         warnings.append({
             'type': 'exemption_reset',
             'label': '면책기간 리셋',
@@ -85,8 +102,13 @@ def compute_switch_warnings(current_list, has_proposed, today=None):
     return warnings, (loss_total if loss_known else None)
 
 
+# ── 아래 두 함수(_coverage_change, compute_verdict)는 2026-07-09부로 미사용이다 ──
+# compare.py 가 더 이상 판정(verdict)을 호출·응답하지 않는다(모듈 docstring 참고).
+# 삭제하지 않고 보존(내부 로깅 등 잠재 용도 + import 부작용 회피).
+
+
 def _coverage_change(rows):
-    """비교표 rows → (보장 개선 여부, 보장 축소/탈락 여부)."""
+    """비교표 rows → (보장 개선 여부, 보장 축소/탈락 여부). ★ 2026-07-09부로 미사용(보존)."""
     improved = False
     reduced = False
     for r in rows:
@@ -100,12 +122,12 @@ def _coverage_change(rows):
 
 
 def compute_verdict(current_list, proposed_list, current_summary, proposed_summary, rows, today=None):
-    """KEEP/SWITCH/NEUTRAL 결정론 판정 + 근거. planner_internal 전용 산출.
+    """KEEP/SWITCH/NEUTRAL 결정론 판정 + 근거. ★ 2026-07-09부로 미사용(compare.py 미호출, 보존).
 
     Returns dict: {decision, reason, customer_net_benefit_estimate, switch_warnings, disclaimer}
     """
     has_proposed = bool(proposed_list)
-    warnings, cancellation_loss = compute_switch_warnings(current_list, has_proposed, today=today)
+    warnings, cancellation_loss = compute_switch_warnings(current_list, proposed_list, today=today)
 
     if not has_proposed:
         return {

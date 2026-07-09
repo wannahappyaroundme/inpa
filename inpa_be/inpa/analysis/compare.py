@@ -1,4 +1,10 @@
-"""갈아타기(승환) 비교 — 보유(portfolio_type=1) vs 제안(portfolio_type=2) 담보별 비교표.
+"""비교 분석 — 담보별로 두 세트를 나란히 정리하는 중립 시각화(사실 비교표).
+
+★ 2026-07-09 재정의(PM 지시, §97 부당승환 리스크 축소): 인파는 KEEP/SWITCH 판정을
+  산출하지 않는다. 이 파일은 사실(rows/summary)만 계산해 응답하고, 어느 쪽이 나은지는
+  설계사가 정한다. 비교 대상도 더 이상 '보유(portfolio_type=1) vs 제안(portfolio_type=2)'
+  로 고정되지 않는다 — side_a_ids/side_b_ids 로 고객이 가진 임의의 두 세트(제안 vs 제안,
+  증권 vs 증권 포함)를 자유롭게 비교할 수 있다(§ 하위호환 섹션 참고).
 
 엔드포인트 (config/urls.py → /api/v1/ 마운트, analysis/urls.py 배선):
   GET/POST /api/v1/customers/<customer_pk>/compare/        CustomerCompareView
@@ -31,7 +37,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from inpa.analysis.switch_verdict import compute_verdict
+from inpa.analysis.switch_verdict import compute_switch_warnings
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer, PlannerBaseline
@@ -75,6 +81,8 @@ def _selected_ids(request, key):
     """비교에 포함할 보험 id 집합. 콤마구분 문자열(GET) 또는 배열(POST body) 허용.
 
     값이 없으면 None → '전체'(기존 동작, 하위호환). 값이 있으면 그 보험만 비교 대상.
+    current_ids/proposed_ids(하위호환)와 side_a_ids/side_b_ids(신규, A/B 자유 비교) 모두
+    이 헬퍼로 파싱한다.
     """
     raw = None
     data = getattr(request, 'data', None)
@@ -282,7 +290,7 @@ class _CustomerScopedCompareMixin:
 
 
 class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
-    """갈아타기 비교표 + (게이트 시) AI 비교안내서 초안.
+    """비교표(나란히 정리) + (게이트 시) AI 비교안내서 초안.
 
     GET/POST /api/v1/customers/<customer_pk>/compare/
 
@@ -291,11 +299,23 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
         mode, current:{monthly_premiums, total_premiums},
         proposed:{monthly_premiums, total_premiums},
         rows:[{coverage, current_amount, proposed_amount, delta}],
-        verdict:{decision(KEEP|SWITCH|NEUTRAL), reason, customer_net_benefit_estimate, disclaimer},
         switch_warnings:[{type, label, detail, amount}],   # ★ 설계사 내부 전용(공유뷰 누수 금지)
+                                                            #   판정 아님 — 중립 확인 사항(해지
+                                                            #   손실 추정·면책 리셋·이율 변동)
         guide_draft, guide_enabled, publishable(=false),
         publish_blocked_reason, disclaimer
       }
+
+    ★ 2026-07-09: 응답에 `verdict`(KEEP/SWITCH/NEUTRAL) 키가 없다 — 인파는 판정을 산출하지
+      않는다. 어느 쪽이 나은지는 설계사가 정한다(§97 리스크 축소, PM 지시).
+
+    비교 대상 선택 파라미터(둘 다 GET 쿼리 또는 POST body, 콤마구분/배열 허용):
+      - side_a_ids / side_b_ids (신규): 고객 소유 CustomerInsurance id 임의 두 집합.
+        portfolio_type 무관 — 제안 vs 제안, 증권 vs 증권도 가능. 응답의 current=A측,
+        proposed=B측(키는 하위호환 위해 유지, 의미는 'A측/B측').
+      - current_ids / proposed_ids (하위호환): side_a_ids/side_b_ids 가 전혀 없을 때만
+        적용 — 보유(portfolio_type=1)/제안(portfolio_type=2) 중 선택한 것만 비교.
+      - 아무 파라미터도 없으면 기존 동작 그대로: 보유 전체=A측, 제안 전체=B측.
     """
 
     def _respond(self, request, customer_pk):
@@ -305,17 +325,29 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
             customer.customer_insurance_list
             .prefetch_related('case_list__detail__analysis_detail')
         )
-        current_list = [ci for ci in base_qs if ci.portfolio_type == 1]
-        proposed_list = [ci for ci in base_qs if ci.portfolio_type == 2]
+        all_list = list(base_qs)
 
-        # ── 보험 선택 비교(PM 06.29): current_ids / proposed_ids 가 오면 그 보험만 비교. ──
-        #    값이 없으면 None → 전체(하위호환).
-        cur_sel = _selected_ids(request, 'current_ids')
-        prop_sel = _selected_ids(request, 'proposed_ids')
-        if cur_sel is not None:
-            current_list = [ci for ci in current_list if ci.id in cur_sel]
-        if prop_sel is not None:
-            proposed_list = [ci for ci in proposed_list if ci.id in prop_sel]
+        # ── A/B 사이드 구성(PM 07.09 재정의) ──────────────────────────────────
+        # side_a_ids/side_b_ids 가 오면 portfolio_type 무관하게 고객 소유 보험 중
+        # 임의의 두 집합을 A/B 로 비교(제안 vs 제안·증권 vs 증권 등 자유 비교).
+        # 없으면 하위호환: 보유(portfolio_type=1)/제안(portfolio_type=2) 분리 +
+        # current_ids/proposed_ids 선택(PM 06.29, 기존 동작 그대로).
+        side_a_sel = _selected_ids(request, 'side_a_ids')
+        side_b_sel = _selected_ids(request, 'side_b_ids')
+        if side_a_sel is not None or side_b_sel is not None:
+            by_id = {ci.id: ci for ci in all_list}
+            current_list = [by_id[i] for i in (side_a_sel or set()) if i in by_id]
+            proposed_list = [by_id[i] for i in (side_b_sel or set()) if i in by_id]
+        else:
+            current_list = [ci for ci in all_list if ci.portfolio_type == 1]
+            proposed_list = [ci for ci in all_list if ci.portfolio_type == 2]
+
+            cur_sel = _selected_ids(request, 'current_ids')
+            prop_sel = _selected_ids(request, 'proposed_ids')
+            if cur_sel is not None:
+                current_list = [ci for ci in current_list if ci.id in cur_sel]
+            if prop_sel is not None:
+                proposed_list = [ci for ci in proposed_list if ci.id in prop_sel]
 
         current_summary, current_amounts = _aggregate_side(current_list)
         proposed_summary, proposed_amounts = _aggregate_side(proposed_list)
@@ -328,10 +360,11 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
         rows = _build_rows(current_amounts, proposed_amounts)
         mode = _mode_for_customer(customer)
 
-        # ── 갈아타기 KEEP/SWITCH 판정 (★ 설계사 내부면 전용 — 고객 공유뷰엔 절대 미노출) ──
-        # 결정론 계산(Claude 호출 없음). switch_warnings(해지손실 등) + 보수적 verdict.
-        verdict = compute_verdict(
-            current_list, proposed_list, current_summary, proposed_summary, rows)
+        # ── 확인해야 할 사항 (★ 설계사 내부면 전용 — 고객 공유뷰엔 절대 미노출) ──────
+        # 판정(KEEP/SWITCH)이 아니라 중립 사실(해지환급 손실 추정·면책 리셋·이율 변동)만
+        # 계산한다(Claude 호출 없음, 결정론). 2026-07-09: verdict 산출·응답 포함은 제거.
+        switch_warnings, _cancellation_loss = compute_switch_warnings(
+            current_list, proposed_list)
 
         # ── AI 비교안내서 초안 — COMPARE_AI_ENABLED=True 일 때만 ────────────
         guide_draft = None
@@ -368,14 +401,10 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
             'rows': rows,
             'guide_draft': guide_draft,
             'guide_enabled': guide_enabled,
-            # ── 설계사 내부 판정(planner_internal) — 공유뷰 누수 금지 ──
-            'verdict': {
-                'decision': verdict['decision'],
-                'reason': verdict['reason'],
-                'customer_net_benefit_estimate': verdict['customer_net_benefit_estimate'],
-                'disclaimer': verdict['disclaimer'],
-            },
-            'switch_warnings': verdict['switch_warnings'],
+            # ── 확인해야 할 사항(중립 사실, planner_internal) — 공유뷰 누수 금지 ──
+            # ★ 2026-07-09: verdict(판정) 키는 응답에서 완전히 제거됐다. 인파는 KEEP/SWITCH
+            #   를 산출하지 않는다 — 남는 것은 설계사가 검토할 중립 사실뿐이다.
+            'switch_warnings': switch_warnings,
             # ★ 발행은 항상 차단 — 고객 발송 하드블록(§97 법무 확정 전).
             'publishable': False,
             'publish_blocked_reason': PUBLISH_BLOCKED_REASON,
