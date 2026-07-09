@@ -2569,6 +2569,44 @@ export async function createShareLink(customerId: number): Promise<ShareLinkResp
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// 공유 기록 — GET /api/v1/customers/<id>/share-snapshots/[/<snap_id>/]
+// 공유 링크를 만든 순간 고객에게 보여준 화면을 그대로 남긴 기록(설계사 내부 전용).
+// 목록은 경량(payload 없음), 상세는 그때 그 화면(payload)을 포함한다.
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface ShareSnapshotListItem {
+  id: number;
+  captured_at: string;
+  retention_expires_at: string;
+  insurance_count: number;
+  consent_overseas: boolean;
+  consent_doc_version: string;
+  dict_version: string;
+}
+
+export interface ShareSnapshotDetail extends ShareSnapshotListItem {
+  consent_scopes: string[];
+  payload: ShareViewResponse;
+}
+
+/** GET /api/v1/customers/<id>/share-snapshots/ — 공유 기록 목록(최신순, 경량). */
+export async function listShareSnapshots(
+  customerId: number
+): Promise<ShareSnapshotListItem[]> {
+  return request<ShareSnapshotListItem[]>(
+    "GET", `/customers/${customerId}/share-snapshots/`, undefined, true);
+}
+
+/** GET /api/v1/customers/<id>/share-snapshots/<snap_id>/ — 그때 보여드린 화면(상세). */
+export async function getShareSnapshot(
+  customerId: number,
+  snapId: number
+): Promise<ShareSnapshotDetail> {
+  return request<ShareSnapshotDetail>(
+    "GET", `/customers/${customerId}/share-snapshots/${snapId}/`, undefined, true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // 환수 레이더(A/S) — GET /api/v1/churn-radar/  ·  PATCH /api/v1/insurances/<id>/churn/
 // ★ 보유 정책만 / owner 전용 / 수기입력 추정. 정확액은 보험사·회사 전산 권위.
 // ════════════════════════════════════════════════════════════════════════════

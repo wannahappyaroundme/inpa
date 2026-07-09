@@ -1004,6 +1004,44 @@ class ConsentRevokeTests(TestCase):
         self.assertEqual(r.json()['consents']['marketing']['status'], 'revoked')
         self.assertEqual(r.json()['marketing_consent'], 'revoked')
 
+    def _make_snapshot(self, customer):
+        from inpa.analytics.models import ShareSnapshot
+        return ShareSnapshot.objects.create(
+            owner=self.user, customer=customer,
+            payload={'tree': [], 'summary': {}, 'disclaimer': 'x',
+                     'customer': {'name_masked': '김**'}, 'mode': 'neutral'},
+            retention_expires_at=timezone.now() + datetime.timedelta(days=180))
+
+    def test_personal_info_revoke_purges_this_customers_share_snapshots(self):
+        """개인정보(personal_info) 철회 = 그 고객의 공유(/s) 기록 전량 즉시 파기(spec 2026-07-08)."""
+        from inpa.analytics.models import ShareSnapshot
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_PERSONAL_INFO,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        self._make_snapshot(self.customer)
+        other_customer = Customer.objects.create(owner=self.user, name='다른고객')
+        other_snap = self._make_snapshot(other_customer)
+
+        tok = self._token(['personal_info'])
+        r = self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['personal_info']},
+                           format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(ShareSnapshot.objects.filter(customer=self.customer).exists())
+        # 다른 고객의 스냅샷은 무관 — 보존
+        self.assertTrue(ShareSnapshot.objects.filter(pk=other_snap.pk).exists())
+
+    def test_marketing_revoke_does_not_touch_share_snapshots(self):
+        """personal_info 이외 scope 철회는 공유 기록과 무관(보존)."""
+        from inpa.analytics.models import ShareSnapshot
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_MARKETING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        snap = self._make_snapshot(self.customer)
+        tok = self._token(['marketing'])
+        r = self.anon.post(f'/api/v1/c/{tok}/', {'revoked': ['marketing']}, format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(ShareSnapshot.objects.filter(pk=snap.pk).exists())
+
 
 class DailyCallListTests(TestCase):
     """오늘 전화 리스트(call-list) — 랭킹·격리·캡·안전성 (spec 2026-07-05)."""

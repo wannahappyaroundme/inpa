@@ -231,6 +231,11 @@ FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
 # 0 이하로 설정하면 파기 스킵(안전 스위치). 설계사 직접 등록 고객은 절대 대상 아님.
 LEAD_RETENTION_DAYS = env.int('LEAD_RETENTION_DAYS', default=180)
 
+# ── 공유(/s) 스냅샷 보유기간 (PM 확정 180일, 프리런치 #27) ──────────────
+# 공유 링크 발급 시점의 /s 화면(ShareSnapshot)을 그대로 기록. N일 경과 시 daily job에서
+# 파기(notifications/jobs.py::cleanup_expired_share_snapshots). 0 이하 = 파기 스킵.
+SHARE_SNAPSHOT_RETENTION_DAYS = env.int('SHARE_SNAPSHOT_RETENTION_DAYS', default=180)
+
 # ── 갈아타기(승환) 비교 게이트 (dev/09 중개금지 · dev/02 §16 · §97) ──────
 # ★ 컴플라이언스 게이트 — 우회 금지. 둘 다 기본 False (보수적 기본값).
 #   COMPARE_AI_ENABLED=True 여야만 AI 비교안내서 초안 생성(check_and_consume+Claude).

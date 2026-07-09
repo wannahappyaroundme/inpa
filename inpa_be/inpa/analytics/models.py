@@ -89,3 +89,57 @@ class NorthStarEvent(models.Model):
 
     def __str__(self):
         return f'{self.event_type}@{self.created_at:%Y-%m-%d %H:%M}'
+
+
+class ShareSnapshot(models.Model):
+    """공유(/s) 스냅샷 — 공유 링크 발급 시점의 화면을 그대로 기록 (✦ 2026-07-08, 프리런치 #27).
+
+    append-only(생성 후 수정 없음). `payload`는 그 순간 `_build_share_payload(customer)`가
+    반환한 값을 표준트리 FK 없이 통째로 복제한 것 — 이후 표준 담보 트리·정규화 사전이
+    바뀌어도 이 기록은 그때 그 화면 그대로 남는다(불변 = FK 미보유).
+
+    `customer`는 CASCADE(ConsentLog의 SET_NULL과 다름): 스냅샷은 비정규화 PII(마스킹된
+    이름·생년·담보명·금액)를 그대로 들고 있으므로, 고객이 삭제되면 함께 파기돼야
+    "증권 원본 미보관" PIPA 자산이 유지된다.
+
+    파기 경로 2개(+FK 1개):
+      ① 보유기간(SHARE_SNAPSHOT_RETENTION_DAYS, 기본 180일) 경과 → daily job
+         (notifications/jobs.py::cleanup_expired_share_snapshots).
+      ② 고객 본인 개인정보(personal_info) 동의 철회 → 즉시 전량 삭제
+         (customers/public_consent.py::_apply_revocations).
+      ③ 고객 삭제 → CASCADE로 자동 파기.
+    """
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='share_snapshots', verbose_name='설계사')
+    customer = models.ForeignKey(
+        'customers.Customer', on_delete=models.CASCADE,
+        related_name='share_snapshots', verbose_name='대상 고객')
+
+    share_token = models.UUIDField('캡처 시점 공유 토큰', null=True, blank=True)
+    payload = models.JSONField('공유뷰 페이로드(그때 그 화면, 값 복제)', default=dict, blank=True)
+
+    # 캡처 시점 동의/사전 버전 스탬프(감사용) — 값 복제, 이후 실제 상태 변화와 무관.
+    consent_overseas = models.BooleanField('캡처 시점 국외이전 동의', default=False)
+    consent_doc_version = models.CharField(
+        '캡처 시점 동의문 버전', max_length=40, default='', blank=True)
+    consent_scopes = models.JSONField('캡처 시점 유효 동의 범위', default=list, blank=True)
+    dict_version = models.CharField(
+        '캡처 시점 정규화 사전 버전', max_length=40, default='', blank=True)
+    insurance_count = models.SmallIntegerField('캡처 시점 보유 보험 수', default=0)
+
+    captured_at = models.DateTimeField('캡처 시각', auto_now_add=True, db_index=True)
+    retention_expires_at = models.DateTimeField('자동 삭제 예정일', db_index=True)
+
+    class Meta:
+        db_table = 'share_snapshot'
+        verbose_name = '공유 기록'
+        verbose_name_plural = '공유 기록'
+        ordering = ['-captured_at']
+        indexes = [
+            models.Index(fields=['owner', 'customer']),
+            models.Index(fields=['retention_expires_at']),
+        ]
+
+    def __str__(self):
+        return f'share-snapshot#{self.pk}@{self.captured_at:%Y-%m-%d %H:%M}'

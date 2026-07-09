@@ -554,3 +554,161 @@ class AdviceCopyGuardTests(TestCase):
         with self.assertNoLogs('inpa.core.copyguard', level='ERROR'):
             payload = _build_share_payload(customer)
         self.assertIn('disclaimer', payload)
+
+
+# ─── 공유(/s) 스냅샷 보관 — spec 2026-07-08, 프리런치 #27 ─────────────────
+
+from datetime import timedelta as _timedelta  # noqa: E402
+
+from inpa.analytics.models import ShareSnapshot  # noqa: E402
+
+
+class ShareSnapshotCaptureTests(TestCase):
+    """공유 생성 시 스냅샷 캡처 — payload 일치, 동의/사전 버전 스탬프, 보존기간 계산."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('snap-capture@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='홍길동', birth_day='1985.05.05', gender=1)
+        self.det = _build_std_tree()
+        self.idet = _catalog_detail_linked_to(self.det)
+        _make_portfolio(self.customer, self.idet, assurance_amount=20000000)
+
+    def test_share_creates_exactly_one_snapshot(self):
+        r = self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(
+            ShareSnapshot.objects.filter(customer=self.customer).count(), 1)
+
+    def test_snapshot_payload_matches_build_share_payload(self):
+        from inpa.analytics.views import _build_share_payload
+        self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
+        snap = ShareSnapshot.objects.get(customer=self.customer)
+        self.assertEqual(snap.payload, _build_share_payload(self.customer))
+
+    def test_snapshot_stamps_consent_dict_and_insurance_count(self):
+        from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
+        from inpa.customers.models import ConsentLog
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF, doc_version=CONSENT_TEXTS_VERSION)
+        self.customer.consent_overseas_at = timezone.now()
+        self.customer.save(update_fields=['consent_overseas_at'])
+        self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
+        snap = ShareSnapshot.objects.get(customer=self.customer)
+        self.assertTrue(snap.consent_overseas)
+        self.assertEqual(snap.consent_doc_version, CONSENT_TEXTS_VERSION)
+        self.assertIn('overseas_medical', snap.consent_scopes)
+        self.assertEqual(snap.insurance_count, 1)
+        self.assertTrue(snap.dict_version)  # SeedMarker 부재 시 코드 SEED_VERSION 폴백
+
+    def test_retention_expires_at_180_days_from_capture(self):
+        self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
+        snap = ShareSnapshot.objects.get(customer=self.customer)
+        expected = snap.captured_at + _timedelta(days=180)
+        self.assertLess(abs((snap.retention_expires_at - expected).total_seconds()), 5)
+
+    def test_std_tree_change_after_capture_does_not_alter_stored_payload(self):
+        """불변/무FK — 캡처 후 표준트리 이름이 바뀌어도 저장된 payload는 그대로."""
+        self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
+        snap = ShareSnapshot.objects.get(customer=self.customer)
+        original_name = snap.payload['tree'][0]['sub_categories'][0]['details'][0]['name']
+        self.det.name = '완전히 다른 이름'
+        self.det.save(update_fields=['name'])
+        snap.refresh_from_db()
+        stored_name = snap.payload['tree'][0]['sub_categories'][0]['details'][0]['name']
+        self.assertEqual(stored_name, original_name)
+        self.assertNotEqual(stored_name, '완전히 다른 이름')
+
+    def test_snapshot_payload_excludes_planner_verdict_and_pii(self):
+        """★ 회귀 가드(§97) — 공유뷰와 동일하게 verdict/switch_warnings/전화/메모 등 누수 금지."""
+        import json
+        self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
+        snap = ShareSnapshot.objects.get(customer=self.customer)
+        raw = json.dumps(snap.payload, ensure_ascii=False)
+        self.assertNotIn('verdict', raw)
+        self.assertNotIn('switch_warnings', raw)
+        self.assertNotIn('mobile_phone_number', raw)
+        self.assertNotIn('memo', raw)
+        self.assertEqual(snap.payload['customer']['name_masked'], '홍**')
+        self.assertEqual(snap.payload['customer']['birth_year'], 1985)
+
+    def test_capture_failure_does_not_block_share_link_issuance(self):
+        """_build_share_payload 예외 → 공유 링크는 그대로 201, 스냅샷만 스킵."""
+        with mock.patch('inpa.analytics.views._build_share_payload',
+                        side_effect=RuntimeError('boom')):
+            r = self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
+        self.assertEqual(r.status_code, 201)
+        self.assertIn('share_token', r.json())
+        self.assertEqual(ShareSnapshot.objects.filter(customer=self.customer).count(), 0)
+
+    def test_customer_delete_cascades_share_snapshots(self):
+        """고객 삭제 → ShareSnapshot도 함께 삭제(CASCADE, PII 동반 파기)."""
+        self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
+        self.assertEqual(ShareSnapshot.objects.filter(customer=self.customer).count(), 1)
+        self.customer.delete()
+        self.assertEqual(ShareSnapshot.objects.count(), 0)
+
+
+class ShareSnapshotReadApiTests(TestCase):
+    """GET .../share-snapshots/ (목록·경량) · .../share-snapshots/<id>/ (상세·payload)."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('snap-read@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='공유기록고객')
+
+    def _create_snapshot(self, customer=None, owner=None):
+        now = timezone.now()
+        return ShareSnapshot.objects.create(
+            owner=owner or self.user, customer=customer or self.customer,
+            share_token=None, payload={'tree': [], 'summary': {}, 'disclaimer': 'x',
+                                       'customer': {'name_masked': '공**'}, 'mode': 'neutral'},
+            consent_overseas=False, consent_doc_version='v2-2026-07-04',
+            consent_scopes=[], dict_version='v1', insurance_count=0,
+            retention_expires_at=now + _timedelta(days=180))
+
+    def test_list_is_newest_first_and_excludes_payload(self):
+        s1 = self._create_snapshot()
+        s2 = self._create_snapshot()
+        r = self.client.get(f'/api/v1/customers/{self.customer.id}/share-snapshots/')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual([item['id'] for item in body], [s2.id, s1.id])
+        for item in body:
+            self.assertNotIn('payload', item)
+
+    def test_detail_includes_payload(self):
+        snap = self._create_snapshot()
+        r = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/share-snapshots/{snap.id}/')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('payload', r.json())
+        self.assertEqual(r.json()['payload']['customer']['name_masked'], '공**')
+
+    def test_list_owner_isolation_404(self):
+        """타 설계사 고객의 스냅샷 목록 조회 → 404(존재 은폐)."""
+        self._create_snapshot()
+        _, client_b = _make_planner('snap-read-b@test.com')
+        r = client_b.get(f'/api/v1/customers/{self.customer.id}/share-snapshots/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_detail_owner_isolation_404(self):
+        snap = self._create_snapshot()
+        _, client_b = _make_planner('snap-read-b2@test.com')
+        r = client_b.get(
+            f'/api/v1/customers/{self.customer.id}/share-snapshots/{snap.id}/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_detail_snapshot_belonging_to_another_customer_404(self):
+        """스냅샷 id는 존재하지만 URL의 고객과 다른 고객 소속 → 404."""
+        other = Customer.objects.create(owner=self.user, name='다른고객')
+        other_snap = self._create_snapshot(customer=other)
+        r = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/share-snapshots/{other_snap.id}/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_requires_auth(self):
+        from rest_framework.test import APIClient
+        anon = APIClient()
+        r = anon.get(f'/api/v1/customers/{self.customer.id}/share-snapshots/')
+        self.assertEqual(r.status_code, 401)

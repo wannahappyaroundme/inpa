@@ -150,6 +150,13 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 ## 11. Changelog (newest first — condensed; the durable detail lives in the sections above)
 
+- **2026-07-08 (담보 사전 피드백 루프 — 프리런치 #26, Phase 2 로드맵 ①, PR #70 DEPLOYED):** 설계사가 보장 한눈표에서 잘못 잡힌 담보를 알리면 → 어드민 검수 → `NormalizationDict(admin_verified)` 반영 → 다음 분석부터 자동 교정(데이터 복리). 구현/리뷰/픽스 파이프라인은 Fable 5 서브에이전트(구현 중단→Opus 오케스트레이터가 리뷰 픽스 검증·잔여 테스트 3건 보강). BE **605 tests**.
+  - *BE:* `analysis/models.py::CoverageFlag`(owner/customer SET_NULL/analysis_detail SET_NULL/case FK/raw_name_snapshot/company/note/status open·accepted·rejected/resolved_by/memo, status index) + `analysis/flags.py` 설계사 API(`GET customers/<id>/coverage-cases/?detail_id=` 소유격리 + `POST customers/<id>/coverage-flags/` **owner_only=True**(어드민 write 우회 차단) + `_notify_admins` fan-out). 신규 `NotifType.COVERAGE_FLAG_REQUESTED` → `ADMIN_NOTIF_TYPES` 등록(어드민 벨 배지 자동).
+  - *어드민:* `admin_console` `AdminCoverageFlagListView`(?status=, 기본 open, page20) · `AdminCoverageFlagResolveView`(accept = 사전 upsert(admin_verified) + `InsuranceDetail.analysis_detail.set([std])` 전역 정정 + 부분문자열 충돌 경고(차단 없음) + 120자 절단 경고 / reject = status+memo, 409 재-resolve) · `AdminNormalizationLeavesView`([표준] 스코프 leaf 피커). 대시보드 `open_flags`.
+  - *원문 저장:* `CustomerInsuranceDetail.raw_name`(200) + `CustomerInsurance.company`(SmallInt null) — `_persist_ocr`이 저장, **생명 = 200+index 오프셋**(claude_parser normalizer 호출·UnmatchedLog 적재·플래그 스냅샷 3면 정합; seed_normalization 코드 공간 규약과 일치). 직접입력 경로는 빈 값.
+  - *어드민 정규화 매핑 버그 수정:* 기존 FE `adminMapNormalization`이 `{unmatched_id, standard_name}`(잘못) → BE 규격 `{unmatched_log_id, std_detail_id, confidence}`으로 정정(실제로 등록이 안 되던 상태였음) + 타입 필드 `company/occurrence/std_detail_name` 정합 + leaf 피커 도입.
+  - *FE:* `components/heatmap.tsx` HeatCell 조용한 깃발 어포던스(데스크탑 hover/focus, 터치 상시; aria "담보 위치가 이상해요") + `components/coverage-flag-modal.tsx`(케이스 선택·메모 300자·긍정 완료 카피). `/admin/normalization` '이상 신고' 탭(원문·회사·메모·설계사·현재 매핑 → 승인/반려 + relink 수·경고 표시) + `app/admin` 대기 카드 `?tab=flags` 딥링크.
+  - *리뷰 반영(적대 리뷰 실결함 3):* ① 생명 코드 200+오프셋 일관화(엉뚱한 손보 사전 오염·seed 행 덮어쓰기 차단, 블로커) ② `company<0`(미감지) 승인 시 죽은 사전 행 생성 생략(연결 정정만) ③ `_get_or_create_detail`의 브리지 `.add()`를 **링크 0개 행 한정**(어드민 정정이 다음 업로드에 안 되돌려지고 한눈표 이중 계산 차단). 마이그레이션 3(insurances 0005 / analysis 0003 / notifications 0008, 전부 additive). 고객 대면(/s·/d·/c·/b) 무변경. Spec `docs/superpowers/specs/2026-07-08-coverage-dict-feedback-loop.md`.
 - **2026-07-07 (최후순위 묶음 완결 — 법정 표시·가격·결제 데스크·Sentry, PR PENDING):**
   - *법정 표시(H-6 완결):* 약관·개인정보처리방침·랜딩 푸터에 (주)서울엘엔에스금융컨설팅(브랜드 핀고)·대표 황희철·사업자 109-86-17632·통신판매업 2021-서울구로-1990·주소·이메일, 시행일 2026-07-07, **CPO 황예진**. 플레이스홀더('예비창업'·'확정 후 기재'·legal.tsx 초안 배너) 전면 제거.
   - *가격·Super(billing 0005):* Plus **19,900원(VAT 별도)**(placeholder 29,000 조건부 데이터 마이그레이션, 관리자 수정값 보존) + **Super 신설 39,900원(VAT 별도), 한도 무제한(null)**. `seed_billing` super 포함. 랜딩 요금표 3열.
@@ -249,7 +256,9 @@ Normalization SSOT: `core/ocr/ocrparsing.py::COVERAGE_KEYWORDS` — ONE dict sha
 
 ## 12. Pending backlog (also memory `qa-audit-backlog`)
 
-- ⬜ OCR remaining: 종합보험 17-22 unmatched coverages — **needs §8 표준 담보 트리 확장 decision** (deferred). Life 변액 company-unknown now classified `'life'` (2026-07-02, no wrong-company guess). See memory `ocr-coverage-sections`.
+- ✅ **담보 사전 피드백 루프(#26) DEPLOYED 2026-07-08** (PR #70). 이제 어드민 검수→admin_verified 별칭이 파싱 룩업에 즉시 반영. 후속: 골든셋 자동 채점(#18)이 붙으면 별칭 승인 전 substring 오라우팅을 사전 차단(현재는 충돌 경고만).
+- **Phase 2 로드맵 남은 순서:** ② #27 비교 스냅샷 보관(진행) → ③ #29 유지율(13/25회차) 모듈 → ④ #18 골든셋 평가 → ⑤ #17 비용 텔레메트리 / #14 스켈레톤.
+- ⬜ OCR remaining: 종합보험 17-22 unmatched coverages — **needs §8 표준 담보 트리 확장 decision** (deferred). Life 변액 company-unknown now classified `'life'` (2026-07-02, no wrong-company guess). 미매칭은 `UnmatchedLog`로 적재되고 어드민 `/admin/normalization` 미매칭 큐에서 수동 매핑 가능(#26). See memory `ocr-coverage-sections`.
 - ⬜ At launch: flipping `FREE_TIER_UNLIMITED=False` activates 402 + the upgrade modal (built) + **coupon (built 2026-07-02; `credit.py` expiry-aware)** — verify upgrade-modal copy first.
 - ✅ Booking: legacy manual `MeetingSlot` **API removed** (2026-07-02; model + `Meeting.slot` FK + admin kept). The public booking `start_at` flow is automated-test-verified but not browser-smoke-tested.
 - ✅ 비교 분석 selection DONE: `compare.py::_respond` accepts `current_ids`/`proposed_ids` (GET query or POST body via `_selected_ids`; absent=all, present-empty=none) → planner checks which 보유/제안 to compare in SwitchTab (`SelectInsRow`, re-compares on toggle), aggregate + 추가/삭제/변경 reflect the selection. `compareCustomer(id, {currentIds, proposedIds})` POSTs when a selection is given.

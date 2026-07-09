@@ -17,7 +17,10 @@
   - 만료/회수/없는 토큰 → 데이터 0 (404).
   - 크레딧 차감 없음(비인증 공개 열람자).
 """
+import logging
+
 from rest_framework import status
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.response import Response
@@ -32,12 +35,15 @@ from inpa.booking.models import WorkHour
 from inpa.booking.tokens import make_booking_token
 from inpa.core.copyguard import warn_if_advice_words
 from inpa.core.permissions import IsEmailVerified
+from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
 from inpa.customers.models import Customer
 
 from .events import (
     is_bot_ua, is_dedup_view, log_event, viewer_fingerprint,
 )
-from .models import NorthStarEvent
+from .models import NorthStarEvent, ShareSnapshot
+
+logger = logging.getLogger(__name__)
 
 # 공유뷰 면책 고지 (dev/13 §1.3 · 정직성 레드라인 — "심의완료/안전" 금지, AI 면책 고정).
 SHARE_DISCLAIMER = (
@@ -273,6 +279,32 @@ def _build_share_payload(customer):
     return payload
 
 
+def _current_consent_scopes(customer):
+    """캡처 시점 유효(미철회) 고객 본인(customer_self) 동의 scope 목록 — 스냅샷 감사용."""
+    from inpa.customers.models import ConsentLog
+    return list(
+        ConsentLog.objects.filter(
+            customer=customer,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+            revoked_at__isnull=True,
+        ).values_list('scope', flat=True).distinct()
+    )
+
+
+def _current_dict_version():
+    """정규화 사전 버전 — SeedMarker(seed_normalization) 라이브 값 우선, 없으면 코드 SEED_VERSION."""
+    from inpa.analysis.models import SeedMarker
+    live = (SeedMarker.objects.filter(key='seed_normalization')
+            .values_list('version', flat=True).first())
+    if live:
+        return live
+    try:
+        from inpa.analysis.management.commands.seed_normalization import SEED_VERSION
+        return SEED_VERSION
+    except Exception:  # noqa: BLE001 — 임포트 실패해도 스냅샷 캡처는 계속돼야 함
+        return ''
+
+
 class ShareEventView(_NoIndexMixin, APIView):
     """공유뷰 행동 적재 — POST /api/v1/s/<token>/event/ (AllowAny).
 
@@ -396,6 +428,8 @@ class CustomerShareCreateView(APIView):
         import uuid
         from datetime import timedelta
 
+        from django.db import transaction
+
         customer = self._get_customer(customer_pk)
 
         # rotate — 새 UUID 발급(구 token 즉시 무효) + TTL 설정 + 발송 시각 기록
@@ -414,9 +448,102 @@ class CustomerShareCreateView(APIView):
             payload={'customer_id': customer.id, 'ttl_days': self.SHARE_TTL_DAYS},
         )
 
+        # ── 공유(/s) 스냅샷 캡처 (spec 2026-07-08, 프리런치 #27) ──────────────
+        # 그 순간 고객이 실제로 받을 /s 화면을 그대로 기록(§97 분쟁 시 "그때 무엇을
+        # 보여줬는가" 증거). ★ 캡처 실패가 공유 링크 발급을 절대 막지 않는다 — 예외는
+        # 타입만 로그(PII 로그 레드라인, §7) 하고 링크는 정상 201로 발급된다.
+        try:
+            # 보유기간 stamp: 0 이하(파기 중단 스위치)면 기본 180일로 stamp 해 과거시각
+            # 저장을 피한다(파기 재개 시 정상 수명으로 복귀; 파기 자체는 jobs 가드가 막음).
+            retention_days = settings.SHARE_SNAPSHOT_RETENTION_DAYS
+            if retention_days <= 0:
+                retention_days = 180
+            with transaction.atomic():  # savepoint — 캡처 DB오류가 토큰 회전을 오염시키지 않도록
+                snapshot_payload = _build_share_payload(customer)
+                ShareSnapshot.objects.create(
+                    owner=request.user,
+                    customer=customer,
+                    share_token=customer.share_token,
+                    payload=snapshot_payload,
+                    consent_overseas=has_current_overseas_consent(customer),
+                    consent_doc_version=CONSENT_TEXTS_VERSION,
+                    consent_scopes=_current_consent_scopes(customer),
+                    dict_version=_current_dict_version(),
+                    insurance_count=customer.customer_insurance_list.count(),
+                    retention_expires_at=timezone.now() + timedelta(days=retention_days),
+                )
+        except Exception as exc:  # noqa: BLE001 — 격리(링크 발급 우선), 내용 없이 타입만 로그
+            # logger.error(exc_info 없음): §7 PII 로그 레드라인 — 예외 타입명만 남긴다.
+            logger.error('share snapshot capture failed: %s', type(exc).__name__)
+
         return Response({
             'customer_id': customer.id,
             'share_token': str(customer.share_token),
             'share_expires_at': customer.share_expires_at.isoformat(),
             'share_url': f'/s/{customer.share_token}',
         }, status=status.HTTP_201_CREATED)
+
+
+class _ShareSnapshotScopedView(APIView):
+    """owner 스코프 Customer 확보 공통 — analysis/flags.py::_CustomerScopedView 패턴 복제.
+
+    쓰기가 없는 조회 전용 API라 어드민 read 우회를 허용한다(기존 히트맵/이력 관례).
+    """
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+
+    def _is_admin(self):
+        profile = getattr(self.request.user, 'profile', None)
+        return bool(getattr(profile, 'is_admin', False))
+
+    def _get_customer(self, customer_pk):
+        qs = Customer.objects.all()
+        if not self._is_admin():
+            qs = qs.filter(owner=self.request.user)
+        try:
+            return qs.get(pk=customer_pk)
+        except Customer.DoesNotExist:
+            raise NotFound('고객을 찾을 수 없습니다.')
+
+
+def _snapshot_list_item(snap):
+    """목록 응답 — payload 미포함(경량, dev/08 스펙)."""
+    return {
+        'id': snap.id,
+        'captured_at': snap.captured_at.isoformat(),
+        'retention_expires_at': snap.retention_expires_at.isoformat(),
+        'insurance_count': snap.insurance_count,
+        'consent_overseas': snap.consent_overseas,
+        'consent_doc_version': snap.consent_doc_version,
+        'dict_version': snap.dict_version,
+    }
+
+
+class CustomerShareSnapshotListView(_ShareSnapshotScopedView):
+    """GET /api/v1/customers/<customer_pk>/share-snapshots/ — 공유 기록 목록(최신순, 경량).
+
+    ★ owner 격리: 본인 고객이 아니면 404(존재 은폐).
+    """
+
+    def get(self, request, customer_pk):
+        customer = self._get_customer(customer_pk)
+        qs = ShareSnapshot.objects.filter(customer=customer).order_by('-captured_at')
+        return Response([_snapshot_list_item(s) for s in qs])
+
+
+class CustomerShareSnapshotDetailView(_ShareSnapshotScopedView):
+    """GET /api/v1/customers/<customer_pk>/share-snapshots/<snap_id>/ — 단건 상세(payload 포함).
+
+    ★ owner 격리: 고객·스냅샷 둘 다 본인 소유여야 함(customer=customer 필터로 타 고객
+    소속 스냅샷 id는 자동 404 — 존재 은폐).
+    """
+
+    def get(self, request, customer_pk, snap_id):
+        customer = self._get_customer(customer_pk)
+        try:
+            snap = ShareSnapshot.objects.get(pk=snap_id, customer=customer)
+        except ShareSnapshot.DoesNotExist:
+            raise NotFound('공유 기록을 찾을 수 없습니다.')
+        item = _snapshot_list_item(snap)
+        item['payload'] = snap.payload
+        item['consent_scopes'] = snap.consent_scopes
+        return Response(item)
