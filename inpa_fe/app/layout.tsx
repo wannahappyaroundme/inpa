@@ -18,8 +18,10 @@ const DESCRIPTION =
   "새 고객 발굴 → 증권 분석 → 보장 한눈에 → 비교 분석까지 한 동선으로. 보험설계사의 AI 영업 파트너, 인파(Inpa).";
 
 // 검색엔진 소유확인 메타(네이버 서치어드바이저·구글 서치콘솔). 값이 있을 때만 태그 출력.
-// 빌드타임 env(NEXT_PUBLIC_*) — 콘솔에서 받은 코드를 Vercel 환경변수에 넣고 재배포하면 적용.
-const NAVER_VERIFY = process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION;
+// 소유확인 코드는 공개값(모두에게 노출되는 meta) → 기본값 하드코딩 안전, env(NEXT_PUBLIC_*)로 덮어쓸 수 있음.
+// 네이버: 2026-07-12 서치어드바이저 등록 코드. 구글: 도메인 인증 완료라 메타 불필요(env 있으면 출력).
+const NAVER_VERIFY =
+  process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION ?? "ad315da3b384a8c4181960a66835f38ab93bf60a";
 const GOOGLE_VERIFY = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION;
 const verification: Metadata["verification"] = {
   ...(GOOGLE_VERIFY ? { google: GOOGLE_VERIFY } : {}),
