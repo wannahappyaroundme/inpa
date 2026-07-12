@@ -32,10 +32,10 @@ const SCENES: Scene[] = [
     { text: "오늘도 흩어진 고객 명단, 엑셀, 메모장, 카톡 사이를 헤매고 있나요?" },
     { text: "보험설계사의 업무는 늘 人波 속에 있습니다." },
   ]},
-  { id: "reveal", bg: "black", beats: [{ text: "INPA : Insure Partner", mono: true }] },
+  { id: "reveal", bg: "black", beats: [{ text: "INPA : Insurance Partner", mono: true }] },
   { id: "bridge", bg: "black", beats: [{ text: "人波 속에서 INPA가...", mono: true }] },
   { id: "crowd", bg: "crowd", instant: true, beats: [{ text: "수많은 인파 속, 흔들림 없는 안내" }] },
-  { id: "promise", bg: "blue", instant: true, beats: [{ text: "오직 당신만을 위한 인슈어 파트너가 되어드립니다" }] },
+  { id: "promise", bg: "blue", instant: true, beats: [{ text: "오직 당신만을 위한 인슈어런스 파트너가 되어드립니다" }] },
 ];
 
 const BG_IMAGES = ["/landing-new/scatter-bg.webp", "/landing-new/crowd-dark.webp"];
