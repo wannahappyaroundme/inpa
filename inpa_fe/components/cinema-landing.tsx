@@ -35,7 +35,7 @@ const SCENES: Scene[] = [
   { id: "reveal", bg: "black", beats: [{ text: "INPA : Insurance Partner", mono: true }] },
   { id: "bridge", bg: "black", beats: [{ text: "人波 속에서 INPA가...", mono: true }] },
   { id: "crowd", bg: "crowd", instant: true, beats: [{ text: "수많은 인파 속, 흔들림 없는 안내" }] },
-  { id: "promise", bg: "blue", instant: true, beats: [{ text: "오직 당신만을 위한 인슈어런스 파트너가 되어드립니다" }] },
+  { id: "promise", bg: "blue", instant: true, beats: [{ text: "오직 당신만을 위한 인슈어 파트너가 되어드립니다" }] },
 ];
 
 const BG_IMAGES = ["/landing-new/scatter-bg.webp", "/landing-new/crowd-dark.webp"];

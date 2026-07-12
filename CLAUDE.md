@@ -1,6 +1,6 @@
 # Inpa — Agent Guide (CLAUDE.md)
 
-> **Inpa (인파) = Insurance + Partner** (2026-07-10 PM: 'Insure' 표기 폐기, 렌더 카피는 'Insurance Partner'/'인슈어런스 파트너'). AI sales-support web app for individually-contracted insurance planners (원수사/GA 위촉직). Code ported/reused from `~/Desktop/foliio` (Foliio analysis edition).
+> **Inpa (인파) = Insurance + Partner.** Brand naming rule (PM 2026-07-10): English copy = 'Insurance Partner' (never 'Insure Partner'); Korean copy = '인슈어 파트너' (합성어 관례, 인슈어테크처럼 — NOT '인슈어런스 파트너'). AI sales-support web app for individually-contracted insurance planners (원수사/GA 위촉직). Code ported/reused from `~/Desktop/foliio` (Foliio analysis edition).
 > **This file is the development SSOT, written for the AI coding agent.** The human PM does NOT read it — they read `README.md` (Korean, PM-facing). Keep this file English + dense + current; keep README Korean + plain. PM communicates in Korean → reply to the PM in Korean even though this guide is English.
 
 ---
