@@ -34,9 +34,10 @@ export function LandingHeader() {
           <InpaMark size={30} />
           <span className="font-extrabold text-[var(--brand-ink)] text-[18px] tracking-tight">인파</span>
         </Link>
-        <div className="flex items-center gap-2">
-          <Link href="/login" className="px-4 py-2 rounded-xl text-[var(--ink-2)] text-[14px] font-semibold min-h-[44px] flex items-center hover:bg-[var(--surface-2)] transition">로그인</Link>
-          <Link href="/register" className="px-4 py-2 rounded-xl bg-[var(--brand)] text-white text-[14px] font-semibold min-h-[44px] flex items-center hover:opacity-90 transition">무료로 시작하기</Link>
+        <div className="flex items-center gap-1 sm:gap-2">
+          <Link href="/blog" className="px-3 sm:px-4 py-2 rounded-xl text-[var(--ink-2)] text-[14px] font-semibold min-h-[44px] flex items-center hover:bg-[var(--surface-2)] transition">블로그</Link>
+          <Link href="/login" className="px-3 sm:px-4 py-2 rounded-xl text-[var(--ink-2)] text-[14px] font-semibold min-h-[44px] flex items-center hover:bg-[var(--surface-2)] transition">로그인</Link>
+          <Link href="/register" className="px-3 sm:px-4 py-2 rounded-xl bg-[var(--brand)] text-white text-[14px] font-semibold min-h-[44px] flex items-center hover:opacity-90 transition">무료로 시작하기</Link>
         </div>
       </div>
     </header>
@@ -426,7 +427,7 @@ export function LandingFooter() {
             <p className="text-[13px] text-white/55 max-w-xs leading-relaxed">보험설계사의 AI 영업 파트너. 발굴부터 보장분석, 비교 분석까지.</p>
           </div>
           <div className="flex flex-col gap-2.5 text-[13px]">
-            <Link href="/blog" className="text-white/70 hover:text-white transition">인파 노트</Link>
+            <Link href="/blog" className="text-white/70 hover:text-white transition">블로그</Link>
             <Link href="/faq" className="text-white/70 hover:text-white transition">자주 묻는 질문</Link>
             <Link href="/legal/terms" className="text-white/70 hover:text-white transition">이용약관</Link>
             <Link href="/legal/privacy" className="text-white/70 hover:text-white transition">개인정보처리방침</Link>

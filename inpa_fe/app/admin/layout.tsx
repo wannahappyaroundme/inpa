@@ -11,7 +11,7 @@ const NAV = [
   { href: "/admin/users",        label: "설계사 관리",     icon: "👤" },
   { href: "/admin/board",        label: "게시판 모더레이션", icon: "📋" },
   { href: "/admin/announcements",label: "공지사항",        icon: "📢" },
-  { href: "/admin/blog",         label: "인파 노트",       icon: "📝" },
+  { href: "/admin/blog",         label: "블로그",          icon: "📝" },
   { href: "/admin/faq",          label: "FAQ",            icon: "❓" },
   { href: "/admin/inquiries",    label: "1:1 문의",        icon: "💬" },
   { href: "/admin/orders",       label: "판촉물 주문",     icon: "📦" },
