@@ -135,7 +135,7 @@ export function PersonaSection() {
     <section className="py-20 md:py-28 bg-[var(--surface-2)] text-center">
       <div className="mx-auto max-w-5xl px-6">
         <Reveal>
-          <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] tracking-tight">모두를 위한 인슈어런스 파트너, 인파</h2>
+          <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] tracking-tight">모두를 위한 인슈어 파트너, 인파</h2>
           <p className="mt-3 text-[15px] sm:text-[17px] text-[var(--ink-3)]">설계사, 관리자, 가입자 도움이 필요한 모두에게 든든한 파트너가 되어드립니다</p>
         </Reveal>
         <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-6">
