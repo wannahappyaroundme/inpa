@@ -588,6 +588,20 @@ class AdminFaqWriteSerializer(serializers.ModelSerializer):
         fields = ['category', 'question', 'answer', 'order', 'is_published']
 
 
+# ─── 인파 노트(BlogPost) ────────────────────────────────────────────────
+
+from inpa.boards.serializers import BlogPostAdminSerializer  # noqa: E402
+
+
+class AdminBlogPostSerializer(BlogPostAdminSerializer):
+    """인파 노트 admin CRUD — boards.BlogPostAdminSerializer 재사용.
+
+    슬러그 자동 생성·유니크 보장·전체 readback 은 부모가 담당. 게시 시 카피 검사
+    (core.copyguard.scan_blog_content)는 뷰에서 비차단 경고로 수행한다.
+    """
+    pass
+
+
 # ─── 요금제/설정 ───────────────────────────────────────────────────────
 
 class AdminPlanSerializer(serializers.ModelSerializer):

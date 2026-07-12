@@ -2,6 +2,7 @@
 from django.contrib import admin
 
 from .models import (
+    BlogPost,
     Comment,
     Faq,
     Inquiry,
@@ -88,3 +89,12 @@ class InquiryAdmin(admin.ModelAdmin):
 @admin.register(InquiryReply)
 class InquiryReplyAdmin(admin.ModelAdmin):
     list_display = ['id', 'inquiry', 'author', 'created_at']
+
+
+@admin.register(BlogPost)
+class BlogPostAdmin(admin.ModelAdmin):
+    list_display = ['id', 'title', 'category', 'is_published', 'published_at', 'view_count', 'author', 'created_at']
+    list_filter = ['category', 'is_published', 'is_noindex']
+    search_fields = ['title', 'body', 'excerpt', 'tags', 'slug']
+    prepopulated_fields = {'slug': ('title',)}
+    readonly_fields = ['view_count', 'created_at', 'updated_at']

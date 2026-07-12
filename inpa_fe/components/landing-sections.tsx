@@ -426,6 +426,7 @@ export function LandingFooter() {
             <p className="text-[13px] text-white/55 max-w-xs leading-relaxed">보험설계사의 AI 영업 파트너. 발굴부터 보장분석, 비교 분석까지.</p>
           </div>
           <div className="flex flex-col gap-2.5 text-[13px]">
+            <Link href="/blog" className="text-white/70 hover:text-white transition">인파 노트</Link>
             <Link href="/faq" className="text-white/70 hover:text-white transition">자주 묻는 질문</Link>
             <Link href="/legal/terms" className="text-white/70 hover:text-white transition">이용약관</Link>
             <Link href="/legal/privacy" className="text-white/70 hover:text-white transition">개인정보처리방침</Link>

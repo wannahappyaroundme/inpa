@@ -10,8 +10,18 @@
 """
 import base64
 
-from rest_framework.pagination import CursorPagination
+from rest_framework.pagination import CursorPagination, PageNumberPagination
 from rest_framework.response import Response
+
+
+class BlogPostPagination(PageNumberPagination):
+    """인파 노트 공개 목록 페이지네이션 — page_size 12.
+
+    응답: {count, next, previous, results} (DRF PageNumberPagination 기본형).
+    """
+    page_size = 12
+    page_size_query_param = 'page_size'
+    max_page_size = 50
 
 
 class PostCursorPagination(CursorPagination):
