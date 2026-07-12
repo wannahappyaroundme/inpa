@@ -380,3 +380,84 @@ class InquiryReply(models.Model):
 
     def __str__(self):
         return f'InquiryReply({self.id}) for Inquiry({self.inquiry_id})'
+
+
+# ─── 10. BlogPost (인파 노트 — 공개읽기 + 관리자쓰기) ──────────────────
+
+class BlogPost(models.Model):
+    """인파 노트(블로그) 글 — 비로그인 포함 공개 읽기, 관리자만 작성·수정·삭제.
+
+    ★ GLOBAL/SHARED 콘텐츠 (Notice/Faq 동형). owner FK 없음 → OwnedQuerySetMixin
+      절대 미적용. boards 공유 예외군에 합류.
+    is_published=False = 임시저장(초안): 공개 목록/상세에서 제외, 관리자만 열람.
+    """
+    CATEGORY_SALES = 'sales'
+    CATEGORY_COVERAGE = 'coverage'
+    CATEGORY_SAFETY = 'safety'
+    CATEGORY_STORY = 'story'
+    CATEGORY_CHOICES = [
+        (CATEGORY_SALES, '고객 늘리기'),
+        (CATEGORY_COVERAGE, '보장분석'),
+        (CATEGORY_SAFETY, '안심 가이드'),
+        (CATEGORY_STORY, '설계사 이야기'),
+    ]
+
+    title = models.CharField('제목', max_length=200)
+    # allow_unicode=True → 한글 슬러그 허용. unique+db_index 로 slug 조회 최적화.
+    slug = models.SlugField('슬러그', max_length=200, unique=True, allow_unicode=True)
+    body = models.TextField('본문(마크다운)')
+    excerpt = models.CharField('요약', max_length=300, blank=True, default='')
+    cover_image = models.ImageField('커버 이미지', upload_to='blog/', null=True, blank=True)
+    category = models.CharField(
+        '카테고리', max_length=30, choices=CATEGORY_CHOICES, default=CATEGORY_SALES,
+    )
+    tags = models.CharField('태그(쉼표 구분)', max_length=200, blank=True, default='')
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='blog_posts',
+        verbose_name='작성자',
+    )
+    is_published = models.BooleanField('게시됨', default=False)
+    published_at = models.DateTimeField('게시 시각', null=True, blank=True)
+    seo_title = models.CharField('SEO 제목', max_length=60, blank=True, default='')
+    seo_description = models.CharField('SEO 설명', max_length=160, blank=True, default='')
+    is_noindex = models.BooleanField('검색 제외(noindex)', default=False)
+    view_count = models.PositiveIntegerField('조회수', default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'board_blog_post'
+        verbose_name = '인파 노트 글'
+        verbose_name_plural = '인파 노트 글'
+        ordering = ['-published_at', '-created_at']
+        indexes = [
+            models.Index(fields=['is_published', '-published_at']),
+            models.Index(fields=['category', 'is_published']),
+        ]
+
+    def __str__(self):
+        return f'BlogPost({self.id}) {self.title}'
+
+    @classmethod
+    def generate_unique_slug(cls, raw, exclude_pk=None):
+        """제목/입력 슬러그에서 유니크 슬러그 생성 (한글 허용).
+
+        충돌 시 -2, -3 ... 접미. 빈 값이면 'post' 폴백.
+        """
+        from django.utils.text import slugify
+        # ★ SlugField(max_length=200) — 접미(-2/-3)까지 붙여도 200을 넘지 않게 base 를 190으로 컷.
+        #   (긴 제목 2건이 같은 slug 로 충돌하면 base+'-2'=202자 → 프로드 Postgres 500. SQLite 는 못 잡음.)
+        base = (slugify(raw or '', allow_unicode=True) or 'post')[:190]
+        slug = base
+        n = 2
+        qs = cls.objects.all()
+        if exclude_pk is not None:
+            qs = qs.exclude(pk=exclude_pk)
+        while qs.filter(slug=slug).exists():
+            slug = f'{base}-{n}'
+            n += 1
+        return slug

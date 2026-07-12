@@ -41,6 +41,7 @@ from inpa.accounts.models import Profile, User
 from inpa.notifications.models import Notification
 
 from .models import (
+    BlogPost,
     Comment,
     Faq,
     Inquiry,
@@ -714,3 +715,230 @@ class BoardNotificationTests(TestCase):
         # 알림은 좋아요 생성 1건만 (취소 시 추가 알림 없음)
         notifs = Notification.objects.filter(owner=self.user_a, notif_type='board_like')
         self.assertEqual(notifs.count(), 1)
+
+
+# ─── 인파 노트(BlogPost) — 공개읽기 + 관리자쓰기 (shared/global) ──────
+
+def _make_blog(**kwargs):
+    """BlogPost 팩토리 — is_published 기본 True(게시)."""
+    defaults = dict(
+        title='보험 증권 보는 법',
+        slug=None,
+        body='본문 마크다운 내용입니다.',
+        category=BlogPost.CATEGORY_COVERAGE,
+        is_published=True,
+    )
+    defaults.update(kwargs)
+    if not defaults.get('slug'):
+        defaults['slug'] = BlogPost.generate_unique_slug(defaults['title'])
+    return BlogPost.objects.create(**defaults)
+
+
+class BlogPublicReadTests(TestCase):
+    """공개 목록/상세 — 게시글만 노출, slug 조회, 조회수 증가."""
+
+    def setUp(self):
+        self.anon = APIClient()
+        self.user, self.client = _make_planner('reader@test.com')
+        self.admin, self.admin_client = _make_planner('bloadmin@test.com', is_admin=True)
+
+    def test_public_list_published_only(self):
+        """공개 목록: 게시글만, 초안 제외 (비로그인 + 일반 설계사)."""
+        pub = _make_blog(title='게시된 글', is_published=True)
+        draft = _make_blog(title='초안 글', is_published=False)
+
+        for c in (self.anon, self.client):
+            r = c.get('/api/v1/board/blog/')
+            self.assertEqual(r.status_code, 200)
+            ids = [p['id'] for p in r.json()['results']]
+            self.assertIn(pub.id, ids)
+            self.assertNotIn(draft.id, ids)
+
+    def test_list_paginated_shape(self):
+        """목록 응답 = {count, next, previous, results} + body 미포함."""
+        _make_blog(title='한 편')
+        r = self.anon.get('/api/v1/board/blog/')
+        data = r.json()
+        for key in ('count', 'next', 'previous', 'results'):
+            self.assertIn(key, data)
+        row = data['results'][0]
+        self.assertNotIn('body', row)
+        self.assertIn('category_label', row)
+        self.assertIsInstance(row['tags'], list)
+
+    def test_category_filter(self):
+        """?category= 필터."""
+        _make_blog(title='영업 글', category=BlogPost.CATEGORY_SALES)
+        _make_blog(title='보장 글', category=BlogPost.CATEGORY_COVERAGE)
+        r = self.anon.get('/api/v1/board/blog/?category=sales')
+        for p in r.json()['results']:
+            self.assertEqual(p['category'], 'sales')
+
+    def test_retrieve_by_slug_published(self):
+        """게시글 slug 조회 → 200 + body 포함."""
+        post = _make_blog(title='슬러그 조회', slug='slug-test')
+        r = self.anon.get('/api/v1/board/blog/slug-test/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['id'], post.id)
+        self.assertIn('body', r.json())
+
+    def test_draft_404_for_anon_200_for_admin(self):
+        """초안: 비로그인/일반 404, 관리자 200."""
+        draft = _make_blog(title='비공개 초안', slug='draft-1', is_published=False)
+        self.assertEqual(self.anon.get('/api/v1/board/blog/draft-1/').status_code, 404)
+        self.assertEqual(self.client.get('/api/v1/board/blog/draft-1/').status_code, 404)
+        r = self.admin_client.get('/api/v1/board/blog/draft-1/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['id'], draft.id)
+
+    def test_view_count_increments_on_public_retrieve(self):
+        """공개 조회마다 view_count 증가."""
+        post = _make_blog(title='조회수', slug='vc')
+        self.anon.get('/api/v1/board/blog/vc/')
+        self.anon.get('/api/v1/board/blog/vc/')
+        post.refresh_from_db()
+        self.assertEqual(post.view_count, 2)
+
+    def test_admin_view_does_not_increment(self):
+        """관리자 조회는 view_count 미증가(공개 조회수만 집계)."""
+        post = _make_blog(title='관리자 조회', slug='av')
+        self.admin_client.get('/api/v1/board/blog/av/')
+        post.refresh_from_db()
+        self.assertEqual(post.view_count, 0)
+
+    def test_sitemap_published_only(self):
+        """sitemap: 게시글 slug만."""
+        _make_blog(title='게시', slug='pub-a', is_published=True)
+        _make_blog(title='초안', slug='draft-a', is_published=False)
+        r = self.anon.get('/api/v1/board/blog/sitemap/')
+        self.assertEqual(r.status_code, 200)
+        slugs = [row['slug'] for row in r.json()]
+        self.assertIn('pub-a', slugs)
+        self.assertNotIn('draft-a', slugs)
+        self.assertIn('updated_at', r.json()[0])
+
+
+class BlogAdminCrudTests(TestCase):
+    """admin CRUD — IsAdmin, 자동 슬러그, published_at 스탬프, 권한."""
+
+    def setUp(self):
+        self.admin, self.admin_client = _make_planner('badmin@test.com', is_admin=True)
+        self.user, self.client = _make_planner('normal@test.com')
+        self.anon = APIClient()
+
+    def test_create_autoslug_and_published_at(self):
+        """게시 상태로 생성 → slug 자동 + published_at 스탬프."""
+        r = self.admin_client.post(
+            '/api/v1/admin/blog/',
+            {'title': '3대 진단비 기초', 'body': '본문', 'category': 'coverage',
+             'is_published': True},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 201)
+        data = r.json()
+        self.assertTrue(data['slug'])
+        self.assertIsNotNone(data['published_at'])
+        self.assertEqual(data['category_label'], '보장분석')
+
+    def test_create_draft_no_published_at(self):
+        """초안 생성 → published_at null."""
+        r = self.admin_client.post(
+            '/api/v1/admin/blog/',
+            {'title': '초안 저장', 'body': '본문', 'is_published': False},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 201)
+        self.assertIsNone(r.json()['published_at'])
+
+    def test_slug_uniqueness_on_collision(self):
+        """같은 제목 두 번 → slug 충돌 회피(-2 접미)."""
+        r1 = self.admin_client.post(
+            '/api/v1/admin/blog/', {'title': '보험 이야기', 'body': 'a'}, format='json')
+        r2 = self.admin_client.post(
+            '/api/v1/admin/blog/', {'title': '보험 이야기', 'body': 'b'}, format='json')
+        self.assertNotEqual(r1.json()['slug'], r2.json()['slug'])
+
+    def test_admin_lists_drafts(self):
+        """관리자 목록 = 초안 포함, ?status=draft 필터."""
+        _make_blog(title='게시글', is_published=True)
+        draft = _make_blog(title='초안글', is_published=False)
+        r = self.admin_client.get('/api/v1/admin/blog/?status=draft')
+        self.assertEqual(r.status_code, 200)
+        ids = [p['id'] for p in r.json()['results']]
+        self.assertIn(draft.id, ids)
+
+    def test_patch_publish_stamps_published_at(self):
+        """초안 → 게시 전환 시 published_at 최초 스탬프."""
+        draft = _make_blog(title='나중 게시', is_published=False, published_at=None)
+        self.assertIsNone(draft.published_at)
+        r = self.admin_client.patch(
+            f'/api/v1/admin/blog/{draft.id}/', {'is_published': True}, format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNotNone(r.json()['published_at'])
+
+    def test_delete_is_soft(self):
+        """삭제 = 소프트(is_published=False), DB 보존."""
+        post = _make_blog(title='삭제 대상', is_published=True)
+        r = self.admin_client.delete(f'/api/v1/admin/blog/{post.id}/')
+        self.assertEqual(r.status_code, 200)
+        post.refresh_from_db()
+        self.assertFalse(post.is_published)
+        self.assertTrue(BlogPost.objects.filter(pk=post.id).exists())
+
+    def test_non_admin_cannot_write(self):
+        """일반 설계사 = 403, 비로그인 = 401 (create/update/delete)."""
+        post = _make_blog(title='보호 대상')
+        # 일반 설계사
+        self.assertEqual(
+            self.client.post('/api/v1/admin/blog/', {'title': 'x', 'body': 'y'}, format='json').status_code, 403)
+        self.assertEqual(
+            self.client.patch(f'/api/v1/admin/blog/{post.id}/', {'title': 'z'}, format='json').status_code, 403)
+        self.assertEqual(
+            self.client.delete(f'/api/v1/admin/blog/{post.id}/').status_code, 403)
+        # 비로그인
+        self.assertEqual(
+            self.anon.post('/api/v1/admin/blog/', {'title': 'x', 'body': 'y'}, format='json').status_code, 401)
+
+
+class BlogCopyGuardTests(TestCase):
+    """게시 시 카피 검사 — em-dash + 권유 단어 경고(비차단)."""
+
+    def setUp(self):
+        self.admin, self.admin_client = _make_planner('cadmin@test.com', is_admin=True)
+
+    def test_publish_flags_emdash_and_advice_nonblocking(self):
+        """게시 생성 시 em-dash·권유어 경고 반환하되 저장은 성공(201)."""
+        r = self.admin_client.post(
+            '/api/v1/admin/blog/',
+            {'title': '보험 정리 — 핵심만', 'body': '이 상품을 추천합니다.',
+             'is_published': True},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 201)  # 비차단 = 저장 성공
+        warnings = r.json()['warnings']
+        issues = {w['issue'] for w in warnings}
+        self.assertIn('em_dash', issues)
+        self.assertIn('advice_word', issues)
+        # 실제로 저장됐는지 확인
+        self.assertTrue(BlogPost.objects.filter(title='보험 정리 — 핵심만').exists())
+
+    def test_clean_publish_no_warnings(self):
+        """깨끗한 카피 = 경고 없음."""
+        r = self.admin_client.post(
+            '/api/v1/admin/blog/',
+            {'title': '보장분석 기초 가이드', 'body': '보험 증권을 차분히 살펴봅니다.',
+             'is_published': True},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()['warnings'], [])
+
+    def test_draft_not_scanned(self):
+        """초안(미게시)은 카피 검사 미수행."""
+        r = self.admin_client.post(
+            '/api/v1/admin/blog/',
+            {'title': '초안 — 추천 문구', 'body': '가입하세요', 'is_published': False},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()['warnings'], [])

@@ -19,6 +19,7 @@ from rest_framework import serializers
 
 from .models import (
     ALLOWED_MIME_TYPES,
+    BlogPost,
     Comment,
     Faq,
     Inquiry,
@@ -30,6 +31,18 @@ from .models import (
 )
 
 _BODY_PREVIEW_LEN = 150
+
+
+def _split_tags(raw):
+    """'a, b ,c' → ['a', 'b', 'c'] (빈 토큰 제거)."""
+    return [t.strip() for t in (raw or '').split(',') if t.strip()]
+
+
+def _author_display(author):
+    """작성자 표시명 — 탈퇴/미지정이면 '인파 운영팀'."""
+    if author is None:
+        return '인파 운영팀'
+    return author.email.split('@')[0]
 
 
 # ─── 공통 헬퍼 ─────────────────────────────────────────────────────
@@ -377,3 +390,101 @@ class InquiryReplyWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = InquiryReply
         fields = ['body']
+
+
+# ─── BlogPost (인파 노트) ──────────────────────────────────────────────
+
+class BlogPostListSerializer(serializers.ModelSerializer):
+    """인파 노트 목록 — 본문(body) 제외, cover_image 는 절대 URL (context request 필요)."""
+    category_label = serializers.CharField(source='get_category_display', read_only=True)
+    tags = serializers.SerializerMethodField()
+    author_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BlogPost
+        fields = [
+            'id', 'title', 'slug', 'excerpt', 'cover_image', 'category',
+            'category_label', 'tags', 'author_name', 'published_at', 'view_count',
+        ]
+        read_only_fields = fields
+
+    def get_tags(self, obj):
+        return _split_tags(obj.tags)
+
+    def get_author_name(self, obj):
+        return _author_display(obj.author)
+
+
+class BlogPostDetailSerializer(serializers.ModelSerializer):
+    """인파 노트 상세 — 본문 + SEO 필드 포함."""
+    category_label = serializers.CharField(source='get_category_display', read_only=True)
+    tags = serializers.SerializerMethodField()
+    author_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BlogPost
+        fields = [
+            'id', 'title', 'slug', 'excerpt', 'body', 'cover_image', 'category',
+            'category_label', 'tags', 'author_name', 'published_at', 'updated_at',
+            'created_at', 'view_count', 'seo_title', 'seo_description', 'is_noindex',
+        ]
+        read_only_fields = fields
+
+    def get_tags(self, obj):
+        return _split_tags(obj.tags)
+
+    def get_author_name(self, obj):
+        return _author_display(obj.author)
+
+
+class BlogPostAdminSerializer(serializers.ModelSerializer):
+    """인파 노트 작성/수정 (admin용) — 슬러그 자동 생성 + 전체 readback.
+
+    slug 는 CharField 로 선언(SlugField 유니코드 검증 우회) → create/update 에서
+    generate_unique_slug 로 정규화·유니크 보장. 빈 값이면 제목에서 자동 생성.
+    카피 검사(scan_blog_content)는 뷰에서 비차단 경고로 수행.
+    """
+    slug = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    category_label = serializers.CharField(source='get_category_display', read_only=True)
+    author_name = serializers.SerializerMethodField()
+    author_email = serializers.SerializerMethodField()
+    tags_list = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BlogPost
+        fields = [
+            'id', 'title', 'slug', 'body', 'excerpt', 'cover_image', 'category',
+            'category_label', 'tags', 'tags_list', 'is_published', 'published_at',
+            'seo_title', 'seo_description', 'is_noindex', 'view_count',
+            'author_name', 'author_email', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'published_at', 'view_count', 'created_at', 'updated_at']
+        extra_kwargs = {
+            'excerpt': {'required': False, 'allow_blank': True},
+            'cover_image': {'required': False, 'allow_null': True},
+            'tags': {'required': False, 'allow_blank': True},
+            'seo_title': {'required': False, 'allow_blank': True},
+            'seo_description': {'required': False, 'allow_blank': True},
+            'is_published': {'required': False},
+            'is_noindex': {'required': False},
+        }
+
+    def get_author_name(self, obj):
+        return _author_display(obj.author)
+
+    def get_author_email(self, obj):
+        return obj.author.email if obj.author_id else None
+
+    def get_tags_list(self, obj):
+        return _split_tags(obj.tags)
+
+    def create(self, validated_data):
+        raw = (validated_data.get('slug') or '').strip() or validated_data.get('title', '')
+        validated_data['slug'] = BlogPost.generate_unique_slug(raw)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if 'slug' in validated_data:
+            raw = (validated_data.get('slug') or '').strip() or validated_data.get('title', instance.title)
+            validated_data['slug'] = BlogPost.generate_unique_slug(raw, exclude_pk=instance.pk)
+        return super().update(instance, validated_data)

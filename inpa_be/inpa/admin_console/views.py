@@ -25,6 +25,7 @@ from inpa.analysis.golden_eval import (
 from inpa.analysis.models import AnalysisDetail, CoverageFlag, NormalizationDict, UnmatchedLog
 from inpa.billing.models import Plan, Subscription, UsageMeter
 from inpa.boards.models import (
+    BlogPost,
     Comment,
     Faq,
     Inquiry,
@@ -33,6 +34,7 @@ from inpa.boards.models import (
     Post,
     Report,
 )
+from inpa.core.copyguard import scan_blog_content
 from inpa.core.permissions import IsAdmin
 from inpa.customers.models import ConsentLog, Customer
 from inpa.notifications.models import Notification, NotifType
@@ -40,6 +42,7 @@ from inpa.promotion.models import PromotionOrder
 
 from .models import PolicyVersion
 from .serializers import (
+    AdminBlogPostSerializer,
     AdminConsentLogSerializer,
     AdminCoverageFlagSerializer,
     AdminCustomerListSerializer,
@@ -974,6 +977,89 @@ class AdminFaqDetailView(APIView):
         faq = get_object_or_404(Faq, pk=faq_id)
         faq.delete()
         return Response({'deleted': True, 'id': faq_id})
+
+
+# ─── F. 인파 노트(BlogPost) ──────────────────────────────────────────
+
+def _blog_copy_warnings(post):
+    """게시(is_published=True) 상태일 때만 카피 검사 경고 반환(비차단)."""
+    if not post.is_published:
+        return []
+    return scan_blog_content({
+        'title': post.title,
+        'body': post.body,
+        'excerpt': post.excerpt,
+    })
+
+
+class AdminBlogPostListView(APIView):
+    """GET /api/v1/admin/blog/ — admin 전체 목록 (초안 포함, ?status=/?category=)
+    POST /api/v1/admin/blog/ — 인파 노트 작성 (multipart = 커버 업로드 지원)
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from rest_framework.pagination import PageNumberPagination
+        qs = BlogPost.objects.select_related('author')
+        status_param = request.query_params.get('status')
+        if status_param == 'published':
+            qs = qs.filter(is_published=True)
+        elif status_param == 'draft':
+            qs = qs.filter(is_published=False)
+        category = request.query_params.get('category')
+        if category:
+            qs = qs.filter(category=category)
+        qs = qs.order_by('-created_at')
+        paginator = PageNumberPagination()
+        paginator.page_size = 20
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(
+            AdminBlogPostSerializer(page, many=True, context={'request': request}).data)
+
+    def post(self, request):
+        serializer = AdminBlogPostSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        post = serializer.save(author=request.user)
+        # 게시 상태로 생성되면 게시 시각 스탬프.
+        if post.is_published and post.published_at is None:
+            post.published_at = timezone.now()
+            post.save(update_fields=['published_at'])
+        data = AdminBlogPostSerializer(post, context={'request': request}).data
+        data['warnings'] = _blog_copy_warnings(post)  # 비차단 카피 경고
+        return Response(data, status=status.HTTP_201_CREATED)
+
+
+class AdminBlogPostDetailView(APIView):
+    """GET /api/v1/admin/blog/:id/ — 상세 (초안 포함)
+    PATCH /api/v1/admin/blog/:id/ — 수정 (multipart = 커버 업로드 지원)
+    DELETE /api/v1/admin/blog/:id/ — 소프트 삭제(is_published=False, DB 보존)
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request, post_id):
+        post = get_object_or_404(BlogPost, pk=post_id)
+        return Response(AdminBlogPostSerializer(post, context={'request': request}).data)
+
+    def patch(self, request, post_id):
+        post = get_object_or_404(BlogPost, pk=post_id)
+        serializer = AdminBlogPostSerializer(
+            post, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        # 처음 게시로 전환되는 시점에만 게시 시각 스탬프(재게시는 보존).
+        if post.is_published and post.published_at is None:
+            post.published_at = timezone.now()
+            post.save(update_fields=['published_at'])
+        data = AdminBlogPostSerializer(post, context={'request': request}).data
+        data['warnings'] = _blog_copy_warnings(post)  # 비차단 카피 경고
+        return Response(data)
+
+    def delete(self, request, post_id):
+        post = get_object_or_404(BlogPost, pk=post_id)
+        # 소프트 삭제 — 공개 화면에서만 숨김, DB 보존 (Notice 삭제 규약 동형).
+        post.is_published = False
+        post.save(update_fields=['is_published', 'updated_at'])
+        return Response({'deleted': True, 'id': post_id})
 
 
 # ─── J. 운영 설정 — 요금제 한도 ────────────────────────────────────

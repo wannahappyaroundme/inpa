@@ -14,6 +14,7 @@ import {
   type FaqItem,
   type PromotionOrderStatus,
   type PromotionOrderDetail,
+  type BlogCategory,
 } from "@/lib/api";
 
 // ─── re-export frequently used admin functions from api.ts ──────────────────
@@ -642,4 +643,157 @@ export interface AdminActivationFunnelResponse {
 /** GET /api/v1/admin/activation-funnel/?days= — 가입→인증→첫고객→첫분석→첫공유→활성화 코호트 퍼널(데모 제외) */
 export async function adminGetActivationFunnel(days = 30): Promise<AdminActivationFunnelResponse> {
   return req<AdminActivationFunnelResponse>("GET", `/admin/activation-funnel/?days=${days}`);
+}
+
+// ─── 인파 노트 (BlogPost CRUD — IsAdmin) ──────────────────────────────────────
+// ⚠️ 공개 직렬화는 tags 를 배열로, 어드민은 RAW 콤마 문자열(tags) + tags_list 배열 둘 다 준다.
+// 저장(create/update)은 커버 파일이 있으면 multipart, 없으면 JSON. 응답 = BlogAdmin + warnings[].
+
+export interface BlogAdmin {
+  id: number;
+  title: string;
+  slug: string;
+  body: string;
+  excerpt: string;
+  cover_image: string | null;
+  category: BlogCategory;
+  category_label: string;
+  tags: string;         // RAW 콤마 문자열(입력 편집용)
+  tags_list: string[];  // 파싱된 배열(표시용)
+  is_published: boolean;
+  published_at: string | null;
+  seo_title: string;
+  seo_description: string;
+  is_noindex: boolean;
+  view_count: number;
+  author_name: string;
+  author_email: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 게시 상태에서 저장할 때만 반환되는 비차단 카피 경고(고객 대면 문구 주의). */
+export interface CopyWarning {
+  field: "title" | "body" | "excerpt";
+  issue: "em_dash" | "advice_word";
+  match: string;
+}
+
+/** create/update 응답 = BlogAdmin 에 warnings 배열이 얹혀 온다. */
+export type BlogAdminSaveResult = BlogAdmin & { warnings: CopyWarning[] };
+
+export interface BlogWritePayload {
+  title?: string;
+  body?: string;
+  slug?: string;
+  excerpt?: string;
+  category?: BlogCategory;
+  tags?: string;              // 콤마 구분 문자열
+  is_published?: boolean;
+  seo_title?: string;
+  seo_description?: string;
+  is_noindex?: boolean;
+  cover_image?: string | null; // null = 커버 제거(수정 시 명시 전송, JSON 경로). 파일 교체는 coverFile 인자로.
+}
+
+/** 오류 본문 → 메시지. detail/message 우선, 없으면 DRF 필드 배열({slug:["..."]})의 첫 메시지(슬러그 중복 등). */
+function extractBlogDetail(data: Record<string, unknown>, statusText: string): string {
+  const direct = (data["detail"] as string) ?? (data["message"] as string);
+  if (direct) return direct;
+  for (const v of Object.values(data)) {
+    if (Array.isArray(v) && typeof v[0] === "string") return v[0];
+  }
+  return statusText;
+}
+
+/** 저장 요청(create/update) — 커버 파일 유무로 multipart/JSON 분기. 응답에 warnings 포함. */
+async function reqBlogWrite(
+  method: "POST" | "PATCH",
+  path: string,
+  payload: BlogWritePayload,
+  coverFile?: File | null
+): Promise<BlogAdminSaveResult> {
+  const headers: Record<string, string> = {};
+  const tok = tokenStore.get();
+  if (tok) headers["Authorization"] = `Token ${tok}`;
+
+  let body: BodyInit;
+  if (coverFile) {
+    // multipart — Content-Type 은 브라우저가 boundary 와 함께 설정하므로 지정하지 않는다.
+    const form = new FormData();
+    for (const [k, v] of Object.entries(payload)) {
+      if (v === undefined || v === null) continue;
+      form.append(k, typeof v === "boolean" ? String(v) : String(v));
+    }
+    form.append("cover_image", coverFile);
+    body = form;
+  } else {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(payload);
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, { method, headers, body });
+  let data: Record<string, unknown> = {};
+  try { data = await res.json(); } catch { /* empty */ }
+  if (!res.ok) {
+    const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
+    throw new ApiError(res.status, code, extractBlogDetail(data, res.statusText));
+  }
+  return data as unknown as BlogAdminSaveResult;
+}
+
+/** GET /api/v1/admin/blog/?status=&category=&page= — 초안 포함 목록(page_size 20). */
+export async function adminListBlogPosts(
+  params: { status?: "published" | "draft"; category?: BlogCategory | string; page?: number } = {}
+): Promise<PaginatedResult<BlogAdmin>> {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.category) qs.set("category", params.category);
+  if (params.page) qs.set("page", String(params.page));
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return req<PaginatedResult<BlogAdmin>>("GET", `/admin/blog/${query}`);
+}
+
+/** GET /api/v1/admin/blog/<id>/ — 상세(초안 포함). */
+export async function adminGetBlogPost(id: number): Promise<BlogAdmin> {
+  return req<BlogAdmin>("GET", `/admin/blog/${id}/`);
+}
+
+/** POST /api/v1/admin/blog/ — 작성. coverFile 있으면 multipart. */
+export async function adminCreateBlogPost(
+  payload: BlogWritePayload,
+  coverFile?: File | null
+): Promise<BlogAdminSaveResult> {
+  return reqBlogWrite("POST", "/admin/blog/", payload, coverFile);
+}
+
+/** PATCH /api/v1/admin/blog/<id>/ — 수정. coverFile 있으면 multipart. */
+export async function adminUpdateBlogPost(
+  id: number,
+  payload: BlogWritePayload,
+  coverFile?: File | null
+): Promise<BlogAdminSaveResult> {
+  return reqBlogWrite("PATCH", `/admin/blog/${id}/`, payload, coverFile);
+}
+
+/** DELETE /api/v1/admin/blog/<id>/ — 소프트 삭제(공개에서만 숨김, DB 보존). */
+export async function adminDeleteBlogPost(id: number): Promise<{ deleted: boolean; id: number }> {
+  return req<{ deleted: boolean; id: number }>("DELETE", `/admin/blog/${id}/`);
+}
+
+/** PATCH /api/v1/admin/blog/<id>/ (커버만 multipart) — 편집 중 즉시 R2 업로드 + 미리보기 URL 확보. */
+export async function uploadBlogCover(id: number, file: File): Promise<BlogAdmin> {
+  const form = new FormData();
+  form.append("cover_image", file);
+  const headers: Record<string, string> = {};
+  const tok = tokenStore.get();
+  if (tok) headers["Authorization"] = `Token ${tok}`;
+  const res = await fetch(`${API_BASE}/admin/blog/${id}/`, { method: "PATCH", headers, body: form });
+  let data: Record<string, unknown> = {};
+  try { data = await res.json(); } catch { /* empty */ }
+  if (!res.ok) {
+    const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
+    throw new ApiError(res.status, code, extractBlogDetail(data, res.statusText));
+  }
+  return data as unknown as BlogAdmin;
 }

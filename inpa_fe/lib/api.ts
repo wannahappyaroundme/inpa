@@ -1336,6 +1336,82 @@ export async function listFaqs(
   return request<FaqItem[]>("GET", `/board/faqs/${query}`, undefined, false);
 }
 
+// ── 인파 노트 (BlogPost — AllowAny GET, 읽기 전용) ──────────────────────────
+// 공개 직렬화는 tags 를 문자열 배열로 준다(어드민만 RAW 콤마 문자열 + tags_list).
+// 서버 컴포넌트(app/blog)에서 그대로 호출한다 — request()는 auth=false 라 토큰 불필요.
+
+/** 카테고리 코드 → 공개 라벨. 라벨은 API(category_label)가 SSOT지만 탭 렌더용 정적 목록으로 재사용. */
+export type BlogCategory = "sales" | "coverage" | "safety" | "story";
+export const BLOG_CATEGORIES: { code: BlogCategory; label: string }[] = [
+  { code: "sales", label: "고객 늘리기" },
+  { code: "coverage", label: "보장분석" },
+  { code: "safety", label: "안심 가이드" },
+  { code: "story", label: "설계사 이야기" },
+];
+
+/** 목록 아이템(본문 없음). */
+export interface BlogListItem {
+  id: number;
+  title: string;
+  slug: string;
+  excerpt: string;
+  cover_image: string | null; // 절대 URL(R2) 또는 null
+  category: BlogCategory;
+  category_label: string;
+  tags: string[];
+  author_name: string;
+  published_at: string | null; // ISO
+  view_count: number;
+}
+
+/** 상세(본문 마크다운 포함). */
+export interface BlogDetail {
+  id: number;
+  title: string;
+  slug: string;
+  excerpt: string;
+  body: string; // 마크다운
+  cover_image: string | null;
+  category: BlogCategory;
+  category_label: string;
+  tags: string[];
+  author_name: string;
+  published_at: string | null;
+  updated_at: string;
+  created_at: string;
+  view_count: number;
+  seo_title: string;
+  seo_description: string;
+  is_noindex: boolean;
+}
+
+/** GET /api/v1/board/blog/?category=&page=&page_size= — 게시글 목록(페이지네이션). */
+export async function listBlogPosts(
+  params: { category?: BlogCategory | string; page?: number; pageSize?: number } = {}
+): Promise<PaginatedResult<BlogListItem>> {
+  const qs = new URLSearchParams();
+  if (params.category) qs.set("category", params.category);
+  if (params.page) qs.set("page", String(params.page));
+  if (params.pageSize) qs.set("page_size", String(params.pageSize));
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return request<PaginatedResult<BlogListItem>>("GET", `/board/blog/${query}`, undefined, false);
+}
+
+/** GET /api/v1/board/blog/<slug>/ — 상세. 공개 조회 시 BE가 조회수 증가. 초안·미존재 = 404(ApiError). */
+export async function getBlogPost(slug: string): Promise<BlogDetail> {
+  return request<BlogDetail>("GET", `/board/blog/${encodeURIComponent(slug)}/`, undefined, false);
+}
+
+/** GET /api/v1/board/blog/sitemap/ — 게시글 {slug, updated_at} 경량 목록(sitemap.xml 구동용). */
+export async function getBlogSitemap(): Promise<{ slug: string; updated_at: string }[]> {
+  return request<{ slug: string; updated_at: string }[]>(
+    "GET",
+    "/board/blog/sitemap/",
+    undefined,
+    false
+  );
+}
+
 // ── 1:1 문의 (Inquiry — 비공개) ─────────────────────────────────────────────
 
 export type InquiryCategory = "feature" | "billing" | "bug" | "other";

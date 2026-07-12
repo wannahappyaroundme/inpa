@@ -77,6 +77,38 @@ export function faqPage(items: { q: string; a: string }[]) {
   };
 }
 
+// BlogPosting 스키마 — 인파 노트 글 1편(app/blog/[slug]). E-E-A-T 를 위해 실명 바이라인(author)·
+// 날짜(datePublished/dateModified)를 명시하고, publisher 는 Organization 을 @id 로 참조(중복 방지).
+// 사실 필드만 담는다(평점·후기 없음 = 정직성 레드라인). cover 없으면 전역 OG 이미지로 폴백.
+export function blogPosting(post: {
+  title: string;
+  slug: string;
+  excerpt?: string;
+  seo_description?: string;
+  cover_image?: string | null;
+  published_at?: string | null;
+  updated_at?: string | null;
+  author_name?: string | null;
+}) {
+  const url = `${SITE_URL}/blog/${post.slug}`;
+  const description = post.seo_description || post.excerpt || DESCRIPTION;
+  return {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: post.title,
+    description,
+    image: post.cover_image || `${SITE_URL}/opengraph-image.jpg`,
+    ...(post.published_at ? { datePublished: post.published_at } : {}),
+    dateModified: post.updated_at || post.published_at || undefined,
+    author: post.author_name
+      ? { "@type": "Person", name: post.author_name }
+      : { "@id": `${SITE_URL}/#organization` },
+    publisher: { "@id": `${SITE_URL}/#organization` },
+    mainEntityOfPage: { "@type": "WebPage", "@id": url },
+    inLanguage: "ko-KR",
+  };
+}
+
 // JSON-LD 스크립트 렌더. data 는 정적 상수(사용자 입력 아님) → dangerouslySetInnerHTML 안전.
 // '<' 만 이스케이프해 스크립트 조기종료/HTML 파싱 사고를 막는다(표준 JSON-LD 관례).
 export function JsonLd({ data }: { data: object | object[] }) {

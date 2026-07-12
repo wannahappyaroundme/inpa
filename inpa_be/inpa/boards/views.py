@@ -30,6 +30,7 @@ from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 
 from .models import (
+    BlogPost,
     Comment,
     Faq,
     Inquiry,
@@ -40,10 +41,12 @@ from .models import (
     PostLike,
     Report,
 )
-from .pagination import PostCursorPagination
+from .pagination import BlogPostPagination, PostCursorPagination
 from .permissions import IsAdminOnly, IsAuthorOrAdmin
 from .serializers import (
     AttachmentSerializer,
+    BlogPostDetailSerializer,
+    BlogPostListSerializer,
     CommentSerializer,
     CommentUpdateSerializer,
     FaqSerializer,
@@ -575,3 +578,57 @@ class InquiryReplyViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(InquiryReplySerializer(reply).data)
+
+
+# ─── BlogPostViewSet (인파 노트 — 공개읽기) ──────────────────────────
+
+class BlogPostViewSet(viewsets.GenericViewSet):
+    """인파 노트 — GET AllowAny (게시글만), slug 조회, 관리자는 초안도 열람.
+
+    공유/글로벌 콘텐츠: OwnedQuerySetMixin 미적용 (Notice/Faq 동형).
+    쓰기(CRUD)는 admin_console (/api/v1/admin/blog/) — 여기는 읽기 전용.
+    """
+    permission_classes = [AllowAny]
+    pagination_class = BlogPostPagination
+
+    def get_queryset(self):
+        from inpa.core.permissions import _is_admin
+        qs = BlogPost.objects.select_related('author')
+        user = self.request.user
+        # 비로그인·일반 설계사: 게시된 글만. 관리자: 초안 포함.
+        if not (user and user.is_authenticated and _is_admin(user)):
+            qs = qs.filter(is_published=True)
+        return qs
+
+    # ── GET /board/blog/ ─────────────────────────────────────────
+    def list(self, request):
+        """목록 — ?category= 필터 + 페이지네이션 (page_size 12)."""
+        qs = self.get_queryset()
+        category = request.query_params.get('category')
+        if category:
+            qs = qs.filter(category=category)
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        serializer = BlogPostListSerializer(page, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
+
+    # ── GET /board/blog/:slug/ ──────────────────────────────────
+    def retrieve(self, request, slug=None):
+        """상세 — slug 조회. 공개 조회 시 조회수 F() 원자 증가(초안·관리자 제외)."""
+        from django.shortcuts import get_object_or_404
+        from inpa.core.permissions import _is_admin
+        post = get_object_or_404(self.get_queryset(), slug=slug)
+        user = request.user
+        is_admin = bool(user and user.is_authenticated and _is_admin(user))
+        if post.is_published and not is_admin:
+            BlogPost.objects.filter(pk=post.pk).update(view_count=F('view_count') + 1)
+            post.refresh_from_db(fields=['view_count'])
+        return Response(BlogPostDetailSerializer(post, context={'request': request}).data)
+
+    # ── GET /board/blog/sitemap/ ────────────────────────────────
+    def sitemap(self, request):
+        """게시된 글의 {slug, updated_at} 경량 목록 (비페이지네이션, sitemap.xml 구동용)."""
+        rows = BlogPost.objects.filter(is_published=True).order_by(
+            '-published_at', '-created_at'
+        ).values('slug', 'updated_at')
+        return Response([{'slug': r['slug'], 'updated_at': r['updated_at']} for r in rows])

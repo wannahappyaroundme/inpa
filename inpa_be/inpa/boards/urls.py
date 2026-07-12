@@ -44,6 +44,7 @@ from django.urls import include, path
 
 from .views import (
     AttachmentViewSet,
+    BlogPostViewSet,
     CommentViewSet,
     FaqViewSet,
     InquiryReplyViewSet,
@@ -78,6 +79,12 @@ notice_detail = NoticeViewSet.as_view({'get': 'retrieve', 'patch': 'partial_upda
 faq_list = FaqViewSet.as_view({'get': 'list', 'post': 'create'})
 faq_detail = FaqViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update', 'delete': 'destroy'})
 
+# ── 인파 노트 (BlogPost — AllowAny GET, 읽기 전용; 쓰기는 /admin/blog/) ──
+
+blog_list = BlogPostViewSet.as_view({'get': 'list'})
+blog_sitemap = BlogPostViewSet.as_view({'get': 'sitemap'})
+blog_detail = BlogPostViewSet.as_view({'get': 'retrieve'})
+
 # ── 1:1 문의 ──────────────────────────────────────────────────────
 
 inquiry_list = InquiryViewSet.as_view({'get': 'list', 'post': 'create'})
@@ -103,6 +110,11 @@ urlpatterns = [
     # FAQ
     path('board/faqs/', faq_list, name='faq-list'),
     path('board/faqs/<int:pk>/', faq_detail, name='faq-detail'),
+
+    # 인파 노트 (BlogPost) — sitemap 은 <str:slug> 보다 먼저 매칭돼야 함
+    path('board/blog/', blog_list, name='blog-list'),
+    path('board/blog/sitemap/', blog_sitemap, name='blog-sitemap'),
+    path('board/blog/<str:slug>/', blog_detail, name='blog-detail'),
 
     # 1:1 문의
     path('board/inquiries/', inquiry_list, name='inquiry-list'),

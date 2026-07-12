@@ -102,6 +102,24 @@
   }
 }
 
+/* 어드민(다크) 안에서도 인파 노트 에디터의 본문 미리보기는 실제 공개 화면(라이트 고정)과
+   같게 보여야 한다 → 라이트 토큰을 다시 선언하는 스코프 클래스(미리보기 컨테이너 전용).
+   서비스 페이지 라이트 고정 규칙과 별개이며, 기존 토큰 값을 바꾸지 않는다(그대로 미러). */
+.theme-light {
+  color-scheme: light;
+  --surface: #FFFFFF; --surface-2: #F4F6FA; --canvas: #F3F5F9;
+  --ink: #14171F; --ink-2: #475569; --ink-3: #6B7280; --muted: #9CA3AF;
+  --line: #E6E9EF; --line-2: #CDD3DD;
+  --brand: #2F58DC; --brand-ink: #22409E;
+  --accent-blue: #2F58DC; --accent-tint: #E9EEFC;
+  --success: #6AAC72; --warning: #E7B23E; --danger: #C73E38;
+  --danger-tint: #FBEAE9; --danger-ink: #9A2D28;
+  --warning-tint: #FBF1DC; --warning-ink: #8A6418;
+  --success-tint: #E7F1E9; --success-ink: #3F7A48;
+  background: var(--surface);
+  color: var(--ink);
+}
+
 @theme inline {
   --color-brand: var(--brand);
   --color-brand-ink: var(--brand-ink);

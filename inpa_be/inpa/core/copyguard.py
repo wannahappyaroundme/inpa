@@ -47,3 +47,34 @@ def warn_if_advice_words(fields, where):
                 '권유 단어 가드: 고객 대면 고정 카피에 금지어 감지 — where=%s field=%s word=%r '
                 '(§97·금소법, 화면은 유지·카피 수정 필요)', where, name, matched)
     return hits
+
+
+# ─── 블로그(인파 노트) 게시 전 카피 검사 (비차단 경고) ──────────────
+
+# em-dash(U+2014) — PM 규칙상 사용자 대면 카피 금지("AI 티가 난다"). 콤마/마침표/괄호로.
+EM_DASH = '—'
+
+
+def scan_blog_content(fields):
+    """PM 작성 블로그 콘텐츠 게시 전 카피 검사 — 비차단 경고 리스트 반환.
+
+    인파 최초로 카피 가드가 'DB에 저장되는 PM 작성 콘텐츠'에 닿는 지점.
+    저장을 막지 않고(경고만) 게시 응답에 함께 실어 편집자가 다듬도록 돕는다.
+
+    Args:
+        fields: {필드명: 문자열} — 보통 title/body/excerpt.
+
+    Returns:
+        [{'field': str, 'issue': 'em_dash'|'advice_word', 'match': str}, ...]
+        (비어 있으면 문제 없음)
+    """
+    warnings = []
+    for name, text in fields.items():
+        if not text:
+            continue
+        if EM_DASH in text:
+            warnings.append({'field': name, 'issue': 'em_dash', 'match': EM_DASH})
+        matched = contains_advice_words(text)
+        if matched:
+            warnings.append({'field': name, 'issue': 'advice_word', 'match': matched})
+    return warnings

@@ -5,6 +5,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { PwaRegister } from "@/components/pwa-register";
 import { GlobalContentGuard } from "@/components/content-guard";
+import { UtmCapture } from "@/components/utm-capture";
 
 // 구글 소셜 로그인(GIS) — 클라이언트 ID가 설정된 경우에만 로드(미설정=미로드).
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
@@ -84,6 +85,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <GlobalContentGuard />
         <PwaRegister />
+        <UtmCapture />
         {GOOGLE_CLIENT_ID && (
           <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
         )}
