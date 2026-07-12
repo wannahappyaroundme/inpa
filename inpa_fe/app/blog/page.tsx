@@ -3,18 +3,18 @@ import Link from "next/link";
 import { InpaMark } from "@/components/inpa-logo";
 import { listBlogPosts, BLOG_CATEGORIES, type BlogListItem } from "@/lib/api";
 
-// 인파 노트 목록 — 서버 컴포넌트, 라이트 고정(서비스 페이지 테마 가드 §6).
+// 블로그 목록 — 서버 컴포넌트, 라이트 고정(서비스 페이지 테마 가드 §6).
 // ★ force-dynamic: 요청 시점 렌더 → 빌드가 BE 를 부르지 않고(빌드 안정), 새 글이 바로 반영된다.
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 12;
 
-const OG_TITLE = "인파 노트 · 인파(Inpa)";
+const OG_TITLE = "블로그 · 인파(Inpa)";
 const OG_DESC =
-  "보험설계사를 위한 인파 노트. 고객 늘리기, 보장분석, 안심 가이드, 설계사 이야기를 쉬운 말로 정리했습니다.";
+  "보험설계사를 위한 블로그. 고객 늘리기, 보장분석, 안심 가이드, 설계사 이야기를 쉬운 말로 정리했습니다.";
 
 export const metadata: Metadata = {
-  title: "인파 노트",
+  title: "블로그",
   description: OG_DESC,
   alternates: { canonical: "/blog" },
   // §7 트랩: 페이지별 openGraph 정의 시 루트 파일컨벤션 이미지가 상속되지 않으므로 명시 참조.
@@ -130,7 +130,7 @@ export default async function BlogListPage({
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2" aria-label="인파 홈으로">
             <InpaMark size={28} />
-            <span className="text-[16px] font-extrabold text-brand-ink">인파 노트</span>
+            <span className="text-[16px] font-extrabold text-brand-ink">블로그</span>
           </Link>
           <Link
             href="/register"
@@ -143,7 +143,7 @@ export default async function BlogListPage({
 
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
         <div className="max-w-2xl">
-          <h1 className="text-[30px] font-extrabold tracking-tight text-brand-ink sm:text-[38px]">인파 노트</h1>
+          <h1 className="text-[30px] font-extrabold tracking-tight text-brand-ink sm:text-[38px]">블로그</h1>
           <p className="mt-3 text-[15px] leading-relaxed text-ink3 sm:text-[16px]">
             현장에서 바로 쓰는 영업 팁부터 보장분석, 규정 안심 가이드까지. 설계사님의 하루를 조금 더 가볍게 만드는 이야기를 모았어요.
           </p>

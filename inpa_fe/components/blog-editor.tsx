@@ -233,7 +233,7 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
       setSaveError("제목과 본문을 채워 주세요.");
       return;
     }
-    if (targetPublished && !confirm("이 글을 공개할까요? 공개하면 인파 노트 목록과 검색에 노출돼요.")) return;
+    if (targetPublished && !confirm("이 글을 공개할까요? 공개하면 블로그 목록과 검색에 노출돼요.")) return;
     if (postId && initialPublished && !targetPublished) {
       if (!confirm("게시를 내리면 공개 화면에서 숨겨져요. 계속할까요?")) return;
     }

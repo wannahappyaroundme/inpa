@@ -46,7 +46,7 @@ export default function AdminBlogListPage() {
       setHasNext(!!res.next);
       setHasPrev(!!res.previous);
     } catch {
-      setError("인파 노트 목록을 불러오지 못했어요.");
+      setError("블로그 목록을 불러오지 못했어요.");
     } finally {
       setLoading(false);
     }
@@ -71,7 +71,7 @@ export default function AdminBlogListPage() {
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-[22px] font-extrabold text-ink">인파 노트</h1>
+        <h1 className="text-[22px] font-extrabold text-ink">블로그</h1>
         <button
           onClick={() => router.push("/admin/blog/new")}
           className="rounded-xl bg-brand px-4 py-2.5 text-[13px] font-bold text-white"

@@ -7,7 +7,7 @@ import { BlogMarkdown } from "@/components/blog-markdown";
 import { JsonLd, blogPosting, ORGANIZATION } from "@/components/structured-data";
 import { getBlogPost, ApiError, type BlogDetail } from "@/lib/api";
 
-// 인파 노트 상세 — 서버 컴포넌트, 라이트 고정(§6 테마 가드).
+// 블로그 상세 — 서버 컴포넌트, 라이트 고정(§6 테마 가드).
 // ★ force-dynamic: 요청 시점 렌더 → 빌드가 BE 를 부르지 않고, 조회수(view_count)는 BE 가 매 조회 증가.
 export const dynamic = "force-dynamic";
 
@@ -112,9 +112,9 @@ export default async function BlogPostPage({
       {/* 헤더 */}
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4 sm:px-6">
-          <Link href="/blog" className="flex items-center gap-2" aria-label="인파 노트 목록으로">
+          <Link href="/blog" className="flex items-center gap-2" aria-label="블로그 목록으로">
             <InpaMark size={26} />
-            <span className="text-[15px] font-extrabold text-brand-ink">인파 노트</span>
+            <span className="text-[15px] font-extrabold text-brand-ink">블로그</span>
           </Link>
           <Link
             href="/register"
@@ -203,7 +203,7 @@ export default async function BlogPostPage({
 
         {/* 관련 링크 */}
         <nav className="mt-10 flex flex-wrap justify-center gap-x-5 gap-y-2 text-[13px] text-ink3">
-          <Link href="/blog" className="transition hover:text-ink">← 인파 노트 목록</Link>
+          <Link href="/blog" className="transition hover:text-ink">← 블로그 목록</Link>
           <Link href="/faq" className="transition hover:text-ink">자주 묻는 질문</Link>
           <Link href="/" className="transition hover:text-ink">홈</Link>
           <Link href="/legal/terms" className="transition hover:text-ink">이용약관</Link>
