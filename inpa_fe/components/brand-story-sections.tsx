@@ -1,12 +1,75 @@
 "use client";
 
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { Check, Users, Phone, BarChart3, CalendarClock, Gift, type LucideIcon } from "lucide-react";
 import { Reveal } from "@/components/reveal";
 import { InpaMark } from "@/components/inpa-logo";
 
-// new.inpa.kr 스크롤 파트 전용 브랜드 섹션. 시안 landing_page.pdf p9~p14.
+// new.inpa.kr 스크롤 파트 전용 브랜드 섹션. 시안 landing_page.pdf p1(포스터)·p9~p14.
 // 카피 레드라인: em-dash 금지, '준비 중' 금지, 가격은 'N원 (VAT 별도)'만.
+
+// 시안 p1(발표용 포스터, 영화 파트 제외분) — 스크롤 랜딩 맨 위에 배치.
+const HERO_ROW: { icon: LucideIcon; label: string; bg: string }[] = [
+  { icon: Users, label: "고객 관리", bg: "#2F58DC" },
+  { icon: Phone, label: "영업 단계별 관리", bg: "#EC4C6B" },
+  { icon: BarChart3, label: "분석 & 리포트", bg: "#D97706" },
+  { icon: CalendarClock, label: "일정 & 예약", bg: "#059669" },
+  { icon: Gift, label: "판촉물 제작", bg: "#8B5CF6" },
+];
+
+// 로고를 중심으로 도는 5개 아이콘(시안의 원형 배치 좌표, 상단부터 시계방향)
+const HERO_ORBIT: { icon: LucideIcon; bg: string; top: string; left: string }[] = [
+  { icon: Users, bg: "#2F58DC", top: "8%", left: "50%" },
+  { icon: BarChart3, bg: "#D97706", top: "37%", left: "90%" },
+  { icon: Gift, bg: "#8B5CF6", top: "84%", left: "75%" },
+  { icon: CalendarClock, bg: "#059669", top: "84%", left: "25%" },
+  { icon: Phone, bg: "#EC4C6B", top: "37%", left: "10%" },
+];
+
+export function HeroPosterSection() {
+  return (
+    <section className="py-20 md:py-28 bg-[var(--surface-2)] overflow-hidden">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8">
+        <div className="flex flex-col md:flex-row md:items-center gap-12 md:gap-16">
+          <Reveal immediate className="flex-1 text-center md:text-left">
+            <span className="inline-block text-[13px] font-bold text-[var(--ink-3)]">내 손안의 인슈어 파트너</span>
+            <h1 className="mt-3 text-[36px] sm:text-[44px] md:text-[40px] lg:text-[52px] font-extrabold text-[var(--ink)] leading-[1.15] tracking-tight break-keep">
+              보험설계사의<br />
+              <span className="text-[var(--brand)]">모든 영업</span>을 한곳에
+            </h1>
+            <div className="mt-9 flex flex-wrap gap-4 sm:gap-6 justify-center md:justify-start">
+              {HERO_ROW.map((f) => (
+                <div key={f.label} className="flex flex-col items-center gap-2 w-[74px]">
+                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" style={{ background: f.bg }}>
+                    <f.icon size={26} color="#fff" strokeWidth={2} aria-hidden />
+                  </div>
+                  <span className="text-[12px] font-semibold text-[var(--ink-2)] text-center leading-tight break-keep">{f.label}</span>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+          <Reveal immediate delay={120} className="flex-1 flex items-center justify-center w-full">
+            <div className="relative w-[280px] h-[280px] sm:w-[340px] sm:h-[340px]" aria-hidden>
+              <div className="absolute inset-[8%] rounded-full border-2 border-dashed border-[var(--line-2)]" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-[46%] h-[46%] rounded-full bg-[var(--accent-tint)]" />
+              </div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <InpaMark size={96} />
+              </div>
+              {HERO_ORBIT.map((n, i) => (
+                <div key={i} className="absolute w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center shadow-card"
+                  style={{ top: n.top, left: n.left, transform: "translate(-50%, -50%)", background: n.bg }}>
+                  <n.icon size={20} color="#fff" strokeWidth={2} />
+                </div>
+              ))}
+            </div>
+          </Reveal>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export function BrandDefinitionSection() {
   return (
