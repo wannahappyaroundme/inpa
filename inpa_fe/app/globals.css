@@ -72,18 +72,18 @@
 .tw-cursor { display: inline-block; width: 0.55em; height: 1.15em; margin-left: 2px; vertical-align: -0.18em; background: currentColor; animation: twBlink 1s steps(1) infinite; }
 @media (prefers-reduced-motion: reduce) { .tw-cursor { animation: none; } }
 
-/* ── 시네마 v2 (/version) 전용 ── */
+/* ── 시네마 랜딩(new.inpa.kr) 추가 연출 ── */
 /* S1 완성 후: 정의부를 가라앉히고 人波만 남긴다 */
-@keyframes cine2Dim { to { opacity: 0.55; } }
-.cine2-dim { display: inline; animation: cine2Dim 0.9s ease-out 0.5s both; }
+@keyframes cineDim { to { opacity: 0.55; } }
+.cine-dim { display: inline; animation: cineDim 0.9s ease-out 0.5s both; }
 /* 파랑 장면 워터마크: 살짝 내려앉으며 등장(위치만 애니메이션 — 부모의 정적 opacity-15를 덮어쓰지 않도록 opacity는 건드리지 않는다) */
-@keyframes cine2Settle { from { transform: translateY(-12px); } to { transform: none; } }
-.cine2-settle { animation: cine2Settle 0.6s ease-out both; }
+@keyframes cineSettle { from { transform: translateY(-12px); } to { transform: none; } }
+.cine-settle { animation: cineSettle 0.6s ease-out both; }
 /* 불 켜짐: 중앙에서 흰빛이 번져 화면을 밀어낸다 */
-@keyframes cine2Iris { from { transform: scale(0); } to { transform: scale(14); } }
-.cine2-iris { animation: cine2Iris 0.9s cubic-bezier(0.4, 0, 0.2, 1) 0.3s both; will-change: transform; }
+@keyframes cineIris { from { transform: scale(0); } to { transform: scale(14); } }
+.cine-iris { animation: cineIris 0.9s cubic-bezier(0.4, 0, 0.2, 1) 0.3s both; will-change: transform; }
 @media (prefers-reduced-motion: reduce) {
-  .cine2-dim, .cine2-settle, .cine2-iris { animation: none; }
+  .cine-dim, .cine-settle, .cine-iris { animation: none; }
 }
 
 /* 시네마 랜딩: 사진·파랑 배경 장면은 줄 단위로 한 번에 등장 (PM: 50% 느리게) */
