@@ -322,8 +322,8 @@ export function CinemaLandingV2() {
         </div>
         <div className={`absolute inset-0 bg-[var(--brand)] transition-opacity duration-700 ${scene.bg === "blue" ? "opacity-100" : "opacity-0"}`} aria-hidden>
           {scene.bg === "blue" && (
-            <div className="absolute inset-0 flex items-center justify-center opacity-20 cine2-settle">
-              <InpaMark size={560} live pColor="#FFFFFF" dotColor="#8D3B72" />
+            <div className="absolute inset-0 flex items-center justify-center opacity-15 cine2-settle">
+              <InpaMark size={560} pColor="#FFFFFF" dotColor="#8D3B72" />
             </div>
           )}
         </div>
