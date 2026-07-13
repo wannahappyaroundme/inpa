@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
-import { Noto_Serif_KR } from "next/font/google";
 import { track } from "@vercel/analytics";
 import { TypewriterSound2 } from "@/lib/typewriter-sound2";
 import { InpaMark } from "@/components/inpa-logo";
@@ -21,21 +20,19 @@ import {
 // 신호등 점 소생 → 타이포 타이틀 승격(명조·혼합 폰트) → "불 켜짐" 엔딩 → 계측/UTM.
 // 협의체 기록: docs/superpowers/specs/2026-07-10-cinema-landing-v2-upgrade-council.md
 
-const serif = Noto_Serif_KR({ weight: ["600", "700"], subsets: ["latin"], display: "swap" });
-
 type Beat = { text: string };
 type Scene = {
   id: string;
   bg: "black" | "scatter" | "crowd" | "blue";
   beats: Beat[];
-  instant?: boolean; // 사진·파랑 배경: 줄 단위 등장 + 큰 글씨
-  serif?: boolean;   // 사전 정의 장면: 명조 활자
-  mono?: boolean;    // 타자기체(영문만 mono, 한글은 Pretendard + tracking)
-  charMs?: number;   // 장면별 타속(리듬 차등)
+  instant?: boolean;   // 사진·파랑 배경: 줄 단위 등장 + 큰 글씨
+  emphasize?: boolean; // 완성 후 '人波'만 밝게 남김
+  mono?: boolean;      // 타자기체(영문만 mono, 한글은 Pretendard + tracking)
+  charMs?: number;     // 장면별 타속(리듬 차등)
 };
 
 const SCENES: Scene[] = [
-  { id: "definition", bg: "black", serif: true, charMs: 85, beats: [{ text: "人波 : 수많은 사람을 이르는 말" }] },
+  { id: "definition", bg: "black", emphasize: true, charMs: 85, beats: [{ text: "人波 : 수많은 사람을 이르는 말" }] },
   { id: "problem", bg: "scatter", instant: true, beats: [
     { text: "오늘도 흩어진 고객 명단, 엑셀, 메모장, 카톡 사이를 헤매고 있나요?" },
     { text: "보험설계사의 업무는 늘 人波 속에 있습니다." },
@@ -314,15 +311,14 @@ export function CinemaLandingV2() {
         aria-label="화면을 누르면 다음 장면으로 넘어갑니다"
         className={`fixed inset-0 z-50 bg-black text-white cursor-pointer select-none overflow-hidden ${mode === "closing" ? "pointer-events-none" : ""}`}>
 
-        {/* 배경 레이어 스택 — 전부 상시 마운트, opacity 크로스 디졸브 */}
+        {/* 배경 레이어 스택 — 전부 상시 마운트, opacity 크로스 디졸브(배경 자체는 v1처럼 정지·원본 그대로) */}
         <div className={`absolute inset-0 transition-opacity duration-700 ${scene.bg === "scatter" && filmVisible ? "opacity-100" : "opacity-0"}`} aria-hidden>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/landing-new/scatter-bg.webp" alt="" className={`w-full h-full object-cover ${scene.bg === "scatter" ? "cine2-drift" : ""}`} />
+          <img src="/landing-new/scatter-bg.webp" alt="" className="w-full h-full object-cover" />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-700 ${scene.bg === "crowd" && filmVisible ? "opacity-90" : "opacity-0"}`} aria-hidden>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/landing-new/crowd-dark.webp" alt="" className={`w-full h-full object-cover ${scene.bg === "crowd" ? "cine2-push" : ""}`} />
-          <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 50% 85%, rgba(0,0,0,0.55) 0%, transparent 60%)" }} />
+          <img src="/landing-new/crowd-dark.webp" alt="" className="w-full h-full object-cover" />
         </div>
         <div className={`absolute inset-0 bg-[var(--brand)] transition-opacity duration-700 ${scene.bg === "blue" ? "opacity-100" : "opacity-0"}`} aria-hidden>
           {scene.bg === "blue" && (
@@ -353,13 +349,13 @@ export function CinemaLandingV2() {
               const sizeCls = scene.instant
                 ? (isLead ? "text-[20px] sm:text-[33px] lg:text-[40px] text-[var(--ink-3)]" : "text-[26px] sm:text-[44px] lg:text-[54px]")
                 : "text-[26px] sm:text-[44px] lg:text-[54px]";
-              const faceCls = scene.serif ? `${serif.className} font-bold` : scene.mono ? "font-semibold" : "font-bold";
+              const faceCls = scene.mono ? "font-semibold" : "font-bold";
               return (
                 <p key={`${scene.id}-${i}`}
                   className={`text-center leading-relaxed ${faceCls} ${sizeCls} ${i > 0 ? "mt-6 font-extrabold" : ""} ${i > 0 && i === beatIdx && scene.instant ? "line-rise" : ""}`}>
                   {i < beatIdx ? b.text : scene.instant ? (
                     i === 0 ? <span className="line-pop">{b.text}</span> : b.text
-                  ) : beatDone && scene.serif ? (
+                  ) : beatDone && scene.emphasize ? (
                     <EmphasizedDefinition text={b.text} />
                   ) : (
                     <TypewriterV2
