@@ -72,6 +72,26 @@
 .tw-cursor { display: inline-block; width: 0.55em; height: 1.15em; margin-left: 2px; vertical-align: -0.18em; background: currentColor; animation: twBlink 1s steps(1) infinite; }
 @media (prefers-reduced-motion: reduce) { .tw-cursor { animation: none; } }
 
+/* ── 시네마 v2 (/version) 전용 ── */
+/* 느린 푸시인(군중): 사진이 '장면'이 되는 다큐 문법 */
+@keyframes cine2Push { from { transform: scale(1.05); } to { transform: scale(1.13); } }
+.cine2-push { animation: cine2Push 18s linear both; will-change: transform; }
+/* 미세 드리프트(일러스트 배경) */
+@keyframes cine2Drift { from { transform: scale(1.04) translateX(0.7%); } to { transform: scale(1.04) translateX(-0.7%); } }
+.cine2-drift { animation: cine2Drift 22s linear both; will-change: transform; }
+/* S1 완성 후: 정의부를 가라앉히고 人波만 남긴다 */
+@keyframes cine2Dim { to { opacity: 0.55; } }
+.cine2-dim { display: inline; animation: cine2Dim 0.9s ease-out 0.5s both; }
+/* 파랑 장면 워터마크: 살짝 내려앉으며 등장 */
+@keyframes cine2Settle { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: none; } }
+.cine2-settle { animation: cine2Settle 0.6s ease-out both; }
+/* 불 켜짐: 중앙에서 흰빛이 번져 화면을 밀어낸다 */
+@keyframes cine2Iris { from { transform: scale(0); } to { transform: scale(14); } }
+.cine2-iris { animation: cine2Iris 0.9s cubic-bezier(0.4, 0, 0.2, 1) 0.3s both; will-change: transform; }
+@media (prefers-reduced-motion: reduce) {
+  .cine2-push, .cine2-drift, .cine2-dim, .cine2-settle, .cine2-iris { animation: none; }
+}
+
 /* 시네마 랜딩: 사진·파랑 배경 장면은 줄 단위로 한 번에 등장 (PM: 50% 느리게) */
 @keyframes linePop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .line-pop { display: inline-block; animation: linePop 0.55s ease-out both; }

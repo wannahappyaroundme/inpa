@@ -19,6 +19,7 @@ export function proxy(request: NextRequest) {
   if (pathname === "/new") {
     return NextResponse.redirect(new URL("/", request.url)); // 중복 주소 정규화
   }
+  if (pathname === "/version") return; // 시네마 v2 미리보기(PM 비교용) 통과
   return NextResponse.redirect(`${MAIN_ORIGIN}${pathname}${search}`);
 }
 
