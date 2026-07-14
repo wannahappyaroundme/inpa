@@ -405,7 +405,7 @@ export function ConsentModal({
           {overseas.body.map((line) => (
             <li key={line}>{line}</li>
           ))}
-          <li>이전 목적: AI 기반 증권 파싱 및 담보 정규화</li>
+          <li>이전 목적: 증권 정보를 자동으로 읽고 담보를 표준 틀로 정리</li>
           <li>{overseas.retention}</li>
         </ul>
 

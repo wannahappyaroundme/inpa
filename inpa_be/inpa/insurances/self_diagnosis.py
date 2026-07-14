@@ -203,7 +203,8 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
         parsed_items = []   # 업로드 순서 보존: {display_name, ocr_data|None, status, message}
         if has_files:
             if not getattr(settings, 'ANTHROPIC_API_KEY', ''):
-                return Response({'code': 'OCR_UNAVAILABLE', 'detail': 'OCR 분석이 현재 비활성화되어 있습니다.'},
+                return Response({'code': 'OCR_UNAVAILABLE',
+                                 'detail': '지금은 증권을 바로 정리하기 어려워요. 담당 설계사가 직접 확인해 도와드릴게요.'},
                                 status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
             # ★ refcode 일일 '파싱 시도' 상한 — 동일 phone 재사용으로 DB 리드수 캡 우회하는
@@ -357,11 +358,11 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                   ref_code=refcode, channel='self_diagnosis',
                   payload={'lead': True, 'analyzed': has_files, 'files': len(parsed_items)})
         try:
-            body = (f'{name} 잠재고객이 셀프진단을 완료했어요. CRM에서 확인하세요.' if has_files
-                    else f'{name} 잠재고객이 상담을 신청했어요(증권 미첨부). 직접 연락해 도와주세요.')
+            body = (f'{name} 고객님이 셀프진단을 완료했어요. 고객 목록에서 확인하세요.' if has_files
+                    else f'{name} 고객님이 상담을 신청했어요(증권 없이). 직접 연락해 도와주세요.')
             Notification.objects.create(
                 owner=planner, notif_type=NotifType.SELF_DIAGNOSIS_LEAD,
-                title='새 셀프진단 리드', body=body, customer=customer)
+                title='새 셀프진단 고객', body=body, customer=customer)
         except Exception:
             pass
 
