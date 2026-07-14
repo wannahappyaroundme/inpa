@@ -472,7 +472,7 @@ export function LandingFooter() {
             <Link href="/data-policy" className="text-white/70 hover:text-white transition">데이터 처리 안내</Link>
           </div>
         </div>
-        <div className="mt-10 pt-6 border-t border-white/15 text-[12px] text-white/40 flex flex-col gap-1">
+        <div className="mt-10 pt-6 border-t border-white/15 text-[12px] text-white/40 flex flex-col items-center gap-1 text-center">
           <p>(주)서울엘엔에스금융컨설팅 · 대표 황희철 · 사업자등록번호 109-86-17632 · 통신판매업신고 2021-서울구로-1990 · 서울특별시 금천구 서부샛길 606, A동 24층 2409호 · hello.fingo.official@gmail.com</p>
           <p className="mt-2 text-white/55">인파는 보험을 중개·권유하지 않는 분석·정리 도구이며, 산출물은 AI가 정리한 참고 자료예요.</p>
           <p className="mt-1">© 2026 Inpa. All rights reserved.</p>
