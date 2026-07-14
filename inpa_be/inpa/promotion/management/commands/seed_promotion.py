@@ -91,13 +91,12 @@ class Command(BaseCommand):
                 defaults={k: v for k, v in spec.items() if k != 'name'},
             )
             # 대표 이미지 1개 보장(멱등) — 시안 미투입이면 404 → FE '이미지 없음' 폴백.
+            # ★ 최초 생성 때만 시드 image_url 을 넣는다. 이미 대표 이미지가 있으면 건드리지 않아
+            #   관리자가 Django Admin 에서 고친 image_url 이 재배포에도 보존된다(전역 시드 규칙).
             primary = sample.images.filter(is_primary=True).order_by('sort_order').first()
             if primary is None:
                 PromotionSampleImage.objects.create(
                     sample=sample, image_url=image, is_primary=True, sort_order=0)
-            elif primary.image_url != image:
-                primary.image_url = image
-                primary.save(update_fields=['image_url'])
             created += 1 if was_created else 0
             updated += 0 if was_created else 1
         self.stdout.write(self.style.SUCCESS(

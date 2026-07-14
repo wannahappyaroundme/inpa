@@ -299,11 +299,11 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
   const slugChangeWarn = !!postId && initialPublished && slug.trim() !== initialSlug;
 
   if (loading) {
-    return <div className="p-6 text-[14px] text-ink3">불러오는 중...</div>;
+    return <div className="text-[14px] text-ink3">불러오는 중...</div>;
   }
   if (loadError) {
     return (
-      <div className="p-6">
+      <div>
         <div className="rounded-xl border border-line bg-danger-tint p-4 text-[13px] text-danger-ink">{loadError}</div>
         <button onClick={() => router.push("/admin/blog")} className="mt-4 text-[13px] font-semibold text-brand hover:underline">
           ← 목록으로
@@ -313,7 +313,7 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
   }
 
   return (
-    <div className="p-6">
+    <div>
       {/* 상단 바 */}
       <div className="mb-5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">

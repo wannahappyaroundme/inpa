@@ -237,10 +237,11 @@ class GoogleLoginView(APIView):
                                      'detail': '이미 다른 구글 계정에 연결된 이메일입니다.'},
                                     status=status.HTTP_409_CONFLICT)
                 # ★ 보안: 선점(미인증) 계정 탈취 방지. 구글이 이메일 소유권을 증명했으므로,
-                #   아직 인증되지 않은(미활성/미인증) 계정이면 활성화 + 인증 도장을 찍고,
-                #   그 계정에 남아 있던 (선점자의) 비번을 무효화한다. 본인은 비밀번호 재설정으로
-                #   언제든 복구 가능. 이미 인증된 계정의 비번은 병행 로그인용으로 보존.
-                unverified = (not user.is_active) or (profile.email_verified_at is None)
+                #   '인증된 적 없는' 계정(email_verified_at 미도장 = 가입 후 미인증)이면 활성화 +
+                #   인증 도장을 찍고, 그 계정에 남아 있던 (선점자의) 비번을 무효화한다. 본인은
+                #   비밀번호 재설정으로 언제든 복구 가능. 이미 인증된 계정의 비번은 병행 로그인용
+                #   으로 보존하고, 관리자가 비활성화(is_active=False)한 인증 계정은 재활성화하지 않는다.
+                unverified = profile.email_verified_at is None
                 with transaction.atomic():
                     if unverified:
                         user_fields = []

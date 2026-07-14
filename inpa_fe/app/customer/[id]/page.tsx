@@ -1408,6 +1408,10 @@ function SwitchTab({ customerId }: { customerId: number }) {
       })
       .catch((e: unknown) => {
         if (compareReqRef.current !== req) return;
+        // 이 배정의 비교가 실패했으니 이전 성공분(data)을 비운다 → 현재 선택과 맞지 않는
+        // 옛 내용이 화면·복사에 남지 않게(고객에게 stale 내용 전송 방지). 표·복사는 data 로
+        // 게이트되므로 data 만 비우면 옛 라벨이 남아도 렌더·복사에 쓰이지 않는다.
+        setData(null);
         if (e instanceof ApiError && e.status === 402) {
           setUpgradeInfo(e.creditBody ?? { kind: "ai_compare" });
           setUpgradeOpen(true);

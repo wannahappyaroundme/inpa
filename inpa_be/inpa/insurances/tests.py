@@ -553,6 +553,20 @@ class PiiMaskUnitTests(TestCase):
             masked = _strip_identity(text)
             self.assertNotIn(name, masked, f'{text!r} 실명이 마스킹되지 않고 샜다')
 
+    def test_structural_word_after_label_not_over_masked(self):
+        """★ 회귀(과잉 마스킹): '성명' 흡수 라벨 뒤에 표 헤더 구조어(생년월일 등)가 오면
+        이름으로 오인해 지우지 않는다. 실명은 여전히 마스킹돼야 한다(누수 방지와 양립)."""
+        from inpa.core.ocr.pii_mask import _strip_identity
+        # 헤더 행 구조어는 보존
+        for text, keep in [
+            ('계약자 성명 생년월일 연락처', '생년월일'),
+            ('계약자 성명 담보내역', '담보내역'),
+            ('수익자 성명 법정상속', '법정상속'),
+        ]:
+            self.assertIn(keep, _strip_identity(text), f'{text!r} 구조어가 과잉 마스킹됨')
+        # 실명은 여전히 마스킹
+        self.assertNotIn('홍길동', _strip_identity('계약자 성명 홍길동'))
+
     def test_standalone_korean_word_without_label_not_masked(self):
         """★ 라벨이 없으면 한글 2~4자 단어(담보명 등)는 절대 마스킹 대상이 아니다."""
         from inpa.core.ocr.pii_mask import _strip_identity
