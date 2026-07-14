@@ -14,7 +14,7 @@ import { AvailabilityShare } from "@/components/availability-share";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listScheduleItems, createScheduleItem, updateScheduleItem, deleteScheduleItem,
-  toggleScheduleDone, listMeetings, listCustomers,
+  toggleScheduleDone, listMeetings, listAllCustomers,
   listPendingMeetings, acceptMeeting, declineMeeting,
   ApiError,
   type ScheduleItem, type ScheduleKind, type ScheduleCategory,
@@ -104,6 +104,8 @@ export default function SchedulePage() {
   const [pending, setPending] = useState<Meeting[]>([]);
   const [customers, setCustomers] = useState<CustomerListItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  // 로더 무음 실패 방지 — 하나라도 실패하면 상단 배너 1개 + 다시 시도(home 페이지와 동일 패턴).
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const now = new Date();
   const [viewY, setViewY] = useState(now.getFullYear());
@@ -116,12 +118,20 @@ export default function SchedulePage() {
 
   const monthStr = `${viewY}-${pad(viewM)}`;
 
+  const loadCustomers = useCallback(() => {
+    listAllCustomers().then((r) => setCustomers(r)).catch(() => { setCustomers([]); setLoadFailed(true); });
+  }, []);
+
   const load = useCallback(() => {
+    setLoadFailed(false);
     listScheduleItems({ month: monthStr })
-      .then((r) => setItems(r.results)).catch(() => setItems([]));
-    listMeetings(true).then((r) => setMeetings(r.results)).catch(() => setMeetings([]));
-    listPendingMeetings().then((r) => setPending(r.results)).catch(() => setPending([]));
+      .then((r) => setItems(r.results)).catch(() => { setItems([]); setLoadFailed(true); });
+    listMeetings(true).then((r) => setMeetings(r.results)).catch(() => { setMeetings([]); setLoadFailed(true); });
+    listPendingMeetings().then((r) => setPending(r.results)).catch(() => { setPending([]); setLoadFailed(true); });
   }, [monthStr]);
+
+  // 다시 시도 = 일정 + 고객을 함께 재로드(고객만 실패한 경우도 회복).
+  const retryAll = useCallback(() => { load(); loadCustomers(); }, [load, loadCustomers]);
 
   const acceptPending = useCallback(async (id: number) => {
     setPending((p) => p.filter((m) => m.id !== id));
@@ -135,8 +145,8 @@ export default function SchedulePage() {
   useEffect(() => { if (ready) load(); }, [ready, load]);
   useEffect(() => {
     if (!ready) return;
-    listCustomers({ page: 1 }).then((r) => setCustomers(r.results)).catch(() => setCustomers([]));
-  }, [ready]);
+    loadCustomers();
+  }, [ready, loadCustomers]);
 
   // 날짜별 일정 맵 (반복 차단은 이 달의 해당 요일에 전개)
   const agenda = useMemo(() => {
@@ -242,10 +252,14 @@ export default function SchedulePage() {
   }
 
   async function toggleDone(s: ScheduleItem) {
-    try { await toggleScheduleDone(s.id); load(); } catch { /* 무시 */ }
+    setErr(null);
+    try { await toggleScheduleDone(s.id); load(); }
+    catch (e) { setErr(e instanceof ApiError ? e.message : "완료 처리에 실패했어요. 잠시 후 다시 시도하세요."); }
   }
   async function remove(id: number) {
-    try { await deleteScheduleItem(id); setModal(null); load(); } catch { /* 무시 */ }
+    setErr(null);
+    try { await deleteScheduleItem(id); setModal(null); load(); }
+    catch (e) { setErr(e instanceof ApiError ? e.message : "삭제에 실패했어요. 잠시 후 다시 시도하세요."); }
   }
 
   if (!ready) return null;
@@ -262,6 +276,23 @@ export default function SchedulePage() {
       <AppNav active="schedule" />
       <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         <h1 className="text-[22px] font-extrabold text-ink mb-4">일정</h1>
+
+        {/* 로더 실패 통합 배너 — 하나라도 못 불러오면 여기 1개 + 다시 시도(빈 캘린더로 오인 방지) */}
+        {loadFailed && (
+          <div
+            role="alert"
+            className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[13px]"
+          >
+            <span className="text-amber-800">일정을 못 불러왔어요.</span>
+            <button
+              type="button"
+              onClick={retryAll}
+              className="shrink-0 rounded-lg bg-surface px-3 py-1.5 text-[12px] font-semibold text-brand border border-line hover:border-brand transition"
+            >
+              다시 시도
+            </button>
+          </div>
+        )}
 
         {/* 예약 요청(대기) — 알림을 놓쳐도 여기서 수락/거절 */}
         {pending.length > 0 && (

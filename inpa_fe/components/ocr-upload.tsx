@@ -93,16 +93,19 @@ export function useOcrUpload(onUploaded?: (customerId: number) => void, portfoli
     [runUpload]
   );
 
-  /** ★ P3c: 설계사 대리동의 폐기 → 고객 본인 동의 요청 링크 생성(설계사는 전달만). */
-  const generateConsentLink = useCallback(async (customerId: number | null) => {
-    if (customerId === null) return;
+  /** ★ P3c: 설계사 대리동의 폐기 → 고객 본인 동의 요청 링크 생성(설계사는 전달만).
+   *  성공/실패를 boolean 으로 돌려줘 모달이 실패 배너를 띄우고 재시도할 수 있게 한다. */
+  const generateConsentLink = useCallback(async (customerId: number | null): Promise<boolean> => {
+    if (customerId === null) return false;
     setConsentLoading(true);
     setError(null);
     try {
       const res = await createConsentRequest(customerId);
       setConsentUrl(res.consent_url);
+      return true;
     } catch {
       setError("동의 링크 생성 중 오류가 발생했어요. 다시 시도해 주세요.");
+      return false;
     } finally {
       setConsentLoading(false);
     }
@@ -328,8 +331,10 @@ export function ConsentModal({
   onDismiss,
   loading,
   reason,
+  error,
 }: {
-  onGenerate: () => void;
+  /** 성공/실패를 boolean 으로 돌려주면 모달이 실패 배너를 띄운다(useOcrUpload.generateConsentLink). */
+  onGenerate: () => void | Promise<unknown>;
   consentUrl: string | null;
   consentCopied: boolean;
   onCopy: () => void;
@@ -337,9 +342,19 @@ export function ConsentModal({
   loading: boolean;
   /** "reconsent" 면 '안내문이 새로워졌어요' 긍정 안내로 분기. */
   reason?: string;
+  /** 훅에서 내려주는 에러(선택). 있으면 그대로 배너에 표시. */
+  error?: string | null;
 }) {
   // 최신 국외이전 고지문을 서버에서 받아 렌더(실패 시 v2 로컬 폴백).
   const [overseas, setOverseas] = useState<ConsentText>(OVERSEAS_FALLBACK);
+  // 링크 생성 실패 배너 — onGenerate 가 false 를 돌려주면 표시(재시도 가능).
+  const [genErr, setGenErr] = useState<string | null>(null);
+  const handleGenerate = async () => {
+    setGenErr(null);
+    const ok = await onGenerate();
+    if (ok === false) setGenErr("동의 링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
+  };
+  const shownErr = error ?? genErr;
   useEffect(() => {
     let alive = true;
     getConsentTexts()
@@ -401,13 +416,20 @@ export function ConsentModal({
 
         <div className="mt-5 flex flex-col gap-2.5">
           {!consentUrl ? (
-            <button
-              onClick={onGenerate}
-              disabled={loading}
-              className="w-full rounded-2xl bg-brand text-white text-[15px] font-bold py-3.5 disabled:opacity-60 transition"
-            >
-              {loading ? "링크 생성 중…" : "동의 요청 링크 만들기"}
-            </button>
+            <>
+              {shownErr && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-[13px] text-red-700 leading-5">
+                  {shownErr}
+                </div>
+              )}
+              <button
+                onClick={handleGenerate}
+                disabled={loading}
+                className="w-full rounded-2xl bg-brand text-white text-[15px] font-bold py-3.5 disabled:opacity-60 transition"
+              >
+                {loading ? "링크 생성 중…" : shownErr ? "다시 시도하기" : "동의 요청 링크 만들기"}
+              </button>
+            </>
           ) : (
             <>
               <div className="rounded-xl border border-line bg-surface2 px-3 py-2.5 text-[12px] text-ink2 break-all select-all">

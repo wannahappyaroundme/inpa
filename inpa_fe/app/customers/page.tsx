@@ -211,6 +211,7 @@ export default function CustomersPage() {
     if (sp && SALES_STAGES.some((s) => s.key === sp)) {
       setView("kanban");
       setActiveStage(sp as SalesStage);
+      if (sp === "contract") setShowContract(true); // 청약 딥링크 시 데스크탑 청약 컬럼도 펼침
       setFocusStage(sp as SalesStage);
       const t = setTimeout(() => setFocusStage(null), 2200); // 잠깐 하이라이트 후 해제
       return () => clearTimeout(t);

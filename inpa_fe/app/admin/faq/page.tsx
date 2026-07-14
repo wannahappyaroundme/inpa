@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useAdminGuard } from "@/lib/useAdminGuard";
-import { adminCreateFaq, adminUpdateFaq, adminDeleteFaq } from "@/lib/adminApi";
-import { listFaqs, type FaqItem } from "@/lib/api";
+import { adminListFaqs, adminCreateFaq, adminUpdateFaq, adminDeleteFaq } from "@/lib/adminApi";
+import { type FaqItem } from "@/lib/api";
 import { Card } from "@/components/ui";
 
 const CATEGORIES = ["general", "billing", "feature", "compliance"];
@@ -35,7 +35,7 @@ export default function AdminFaqPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listFaqs();
+      const res = await adminListFaqs();
       setFaqs(res);
     } catch {
       setError("FAQ를 불러오지 못했어요.");

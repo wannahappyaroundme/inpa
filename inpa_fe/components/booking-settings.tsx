@@ -31,6 +31,7 @@ export function BookingSettings() {
   const [affiliation, setAffiliation] = useState("");
   const [title, setTitle] = useState("");
   const [tpl, setTpl] = useState("");
+  const [location, setLocation] = useState("");
   const [dur, setDur] = useState(30);
   const [buffer, setBuffer] = useState(60);
   const [saving, setSaving] = useState(false);
@@ -48,6 +49,7 @@ export function BookingSettings() {
       setAffiliation(p.affiliation ?? "");
       setTitle(p.title ?? "");
       setTpl(p.booking_msg_template ?? "");
+      setLocation(p.booking_location ?? "");
       setDur(p.booking_default_duration ?? 30);
       setBuffer(p.booking_buffer_min ?? 60);
     }).catch(() => { /* useAuthGuard 처리 */ });
@@ -61,14 +63,15 @@ export function BookingSettings() {
     try {
       await updateProfile({
         name: name.trim(), affiliation: affiliation.trim(), title: title.trim(),
-        booking_msg_template: tpl, booking_default_duration: dur, booking_buffer_min: buffer,
+        booking_msg_template: tpl, booking_location: location.trim(),
+        booking_default_duration: dur, booking_buffer_min: buffer,
       });
       setMsg("예약 설정을 저장했어요");
       setTimeout(() => setMsg(null), 2000);
     } catch {
       setMsg("저장에 실패했어요");
     } finally { setSaving(false); }
-  }, [name, affiliation, title, tpl, dur, buffer]);
+  }, [name, affiliation, title, tpl, location, dur, buffer]);
 
   const addWorkHour = useCallback(async () => {
     setWhErr(null);
@@ -159,6 +162,14 @@ export function BookingSettings() {
         </div>
         {whErr && <div className="mt-1 text-[12px] text-rose-600">{whErr}</div>}
       </div>
+
+      {/* 대면 미팅 장소 */}
+      <label className="mt-5 block">
+        <span className="text-[12px] text-ink3">대면 미팅 장소</span>
+        <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="예) 부산 서면 스타벅스 1층"
+          className={`mt-1 w-full ${inputCls}`} />
+        <span className="mt-1 block text-[12px] text-ink3 leading-5">대면 미팅으로 예약되면 이 장소가 일정에 함께 표시돼요.</span>
+      </label>
 
       {/* 미팅 시간 + 여유 + 저장 */}
       <div className="mt-5 flex flex-wrap items-end gap-3">

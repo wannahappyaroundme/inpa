@@ -12,7 +12,7 @@
 //    AI 안내서(guide_draft)만 별도 통제, 가짜 데이터 금지·게이트 사유 명시.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useCallback, Suspense, type ChangeEvent } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense, type ChangeEvent } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
@@ -63,6 +63,7 @@ import {
   type ContactLog,
   type ManualInsuranceItem,
   type CustomerDetail,
+  type CustomerWritePayload,
   type SalesStage,
   type CustomerStatus,
   type JobMatch,
@@ -276,26 +277,33 @@ function CustomerDetailInner() {
     router.replace(`/customer/${customerId}?tab=${tab}`);
   }
 
-  // 영업 단계 변경(DB·TA·FA·청약) — 칸반 select 대체. 낙관적 업데이트 후 실패 시 재조회.
+  // 단계·상태 저장 실패 안내 — 실패 시 컨트롤이 되돌아가면서 사유를 보여준다(다음 성공 시 해제).
+  const [changeMsg, setChangeMsg] = useState<string | null>(null);
+
+  // 영업 단계 변경(DB·TA·FA·청약) — 칸반 select 대체. 낙관적 업데이트 후 실패 시 재조회 + 안내.
   const changeStage = useCallback(
     async (to: SalesStage) => {
       setCustomer((c) => (c && c.sales_stage !== to ? { ...c, sales_stage: to } : c));
       try {
         setCustomer(await updateCustomer(customerId, { sales_stage: to }));
+        setChangeMsg(null);
       } catch {
+        setChangeMsg("단계 저장에 실패했어요. 다시 시도해 주세요.");
         getCustomer(customerId).then(setCustomer).catch(() => {});
       }
     },
     [customerId]
   );
 
-  // 고객 상태 변경(진행중·보류·휴면·종료) — 낙관적 업데이트 후 실패 시 재조회.
+  // 고객 상태 변경(진행중·보류·휴면·종료) — 낙관적 업데이트 후 실패 시 재조회 + 안내.
   const changeStatus = useCallback(
     async (to: CustomerStatus) => {
       setCustomer((c) => (c && c.status !== to ? { ...c, status: to } : c));
       try {
         setCustomer(await updateCustomer(customerId, { status: to }));
+        setChangeMsg(null);
       } catch {
+        setChangeMsg("상태 저장에 실패했어요. 다시 시도해 주세요.");
         getCustomer(customerId).then(setCustomer).catch(() => {});
       }
     },
@@ -352,6 +360,13 @@ function CustomerDetailInner() {
               onTab={setTab}
             />
           )
+        )}
+
+        {/* 단계·상태 저장 실패 안내(다음 성공 시 자동 해제) */}
+        {changeMsg && (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-800">
+            {changeMsg}
+          </div>
         )}
 
         {/* ── 탭 바 ── */}
@@ -627,15 +642,18 @@ function InfoTab({
   async function saveInfo() {
     setSavingInfo(true);
     try {
-      const c = await updateCustomer(customer.id, {
+      // 성별·생년월일을 비우면 명시적으로 지워 저장한다. 값을 빠뜨리면(undefined) PATCH에서 필드가
+      // 누락돼 화면만 비고 실제로는 안 지워졌다 — 성별은 null, 생년월일은 빈 문자열로 비운다.
+      const payload: Record<string, unknown> = {
         name: name.trim(),
         mobile_phone_number: phone.trim(),
-        gender: gender || undefined,
-        birth_day: birth || undefined,
+        gender: gender === "" ? null : gender,
+        birth_day: birth,          // '' 이면 생년월일 삭제
         color,
         avatar_label: avatarLabel.trim(),
-        job_code: pickedJob ? String(pickedJob.id) : undefined,
-      });
+      };
+      if (pickedJob) payload.job_code = String(pickedJob.id);
+      const c = await updateCustomer(customer.id, payload as Partial<CustomerWritePayload>);
       onUpdated(c);
       setPickedJob(null);
       flash("상세정보를 저장했어요.");
@@ -1329,6 +1347,12 @@ function SwitchTab({ customerId }: { customerId: number }) {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   // ④ 비교안내서 = 설계사 직접 발송 — 인파는 복사 편의만 제공(자동 발송 없음, §97).
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  // 배정을 바꿀 때마다 재비교가 도는데, 늦게 온 이전 응답이 최신 화면을 덮어쓰지 않도록 요청 번호로 가드.
+  // (analysis 탭의 insReqRef 패턴 재사용)
+  const compareReqRef = useRef(0);
+  // 열 이름(현재/제안 vs A안/B안)은 화면에 표시된 응답과 같은 스냅샷으로 묶는다 — 그래야 고객에게 복사되는
+  // 텍스트의 라벨이 실제 비교 결과와 어긋나지 않는다(§97 사실 정확성).
+  const [labels, setLabels] = useState<{ a: string; b: string }>({ a: "A안", b: "B안" });
 
   // 보험 목록 + 비교 대상 자유 배정(A안/B안/미포함, 2026-07-09 재정의 — 보유/제안 풀 구분 없이
   // 아무 보험이나 A·B에 넣을 수 있다: 제안 vs 제안·증권 vs 증권도 가능). 마운트 시 보유→A/제안→B
@@ -1364,11 +1388,26 @@ function SwitchTab({ customerId }: { customerId: number }) {
     setError(null);
     setUpgradeInfo(undefined);
     setUpgradeOpen(false);
+    const req = ++compareReqRef.current;
     const sideAIds = Object.entries(assign).filter(([, v]) => v === "A").map(([id]) => Number(id));
     const sideBIds = Object.entries(assign).filter(([, v]) => v === "B").map(([id]) => Number(id));
+    // 이 요청에 쓰인 배정으로 열 이름을 확정 → 응답과 함께 커밋한다(라벨-데이터 스냅샷 일치).
+    // A측이 전부 보유(portfolio_type==1)·B측이 전부 제안(==2)인 표준 갈아타기 배치일 때만 '현재/제안',
+    // 아니면(제안 vs 제안·증권 vs 증권) A측을 '현재'로 부르면 거짓이 되므로 중립 'A안/B안'.
+    const aTypes = new Set(sideAIds.map((id) => insurances.find((i) => i.id === id)?.portfolio_type));
+    const bTypes = new Set(sideBIds.map((id) => insurances.find((i) => i.id === id)?.portfolio_type));
+    const canonical =
+      aTypes.size > 0 && bTypes.size > 0 &&
+      [...aTypes].every((t) => t === 1) && [...bTypes].every((t) => t === 2);
+    const nextLabels = { a: canonical ? "현재" : "A안", b: canonical ? "제안" : "B안" };
     compareCustomer(customerId, { sideAIds, sideBIds })
-      .then((d) => setData(d))
+      .then((d) => {
+        if (compareReqRef.current !== req) return; // 최신 요청 응답만 반영
+        setData(d);
+        setLabels(nextLabels);
+      })
       .catch((e: unknown) => {
+        if (compareReqRef.current !== req) return;
         if (e instanceof ApiError && e.status === 402) {
           setUpgradeInfo(e.creditBody ?? { kind: "ai_compare" });
           setUpgradeOpen(true);
@@ -1376,8 +1415,10 @@ function SwitchTab({ customerId }: { customerId: number }) {
           setError(e instanceof Error ? e.message : "비교 데이터를 불러오지 못했어요.");
         }
       })
-      .finally(() => setLoading(false));
-  }, [customerId, assign]);
+      .finally(() => {
+        if (compareReqRef.current === req) setLoading(false);
+      });
+  }, [customerId, assign, insurances]);
 
   // 제안 추가(업로드/직접) 후 목록 새로고침 → 배정 갱신(기존 보존+신규 프리셋) → 재비교.
   const propOcr = useOcrUpload(() => { loadInsurances(); }, 2);
@@ -1462,17 +1503,12 @@ function SwitchTab({ customerId }: { customerId: number }) {
     return { text, cls: clsBy[text] ?? "bg-surface2 text-ink3 border-line" };
   }
 
-  // ★ 열 이름 적응(사실 정확성 + §97): A안이 전부 보유(portfolio_type==1)이고 B안이 전부 제안(==2)인
-  //   '표준 갈아타기' 배치일 때만 친숙한 '현재/제안'을 쓴다. 제안 vs 제안·증권 vs 증권처럼 그렇지
-  //   않은 배치에선 A측을 '현재'로 부르면 고객에게 거짓이 되므로 중립 라벨 'A안/B안'을 쓴다.
-  const aTypes = new Set(insurances.filter((i) => assign[i.id] === "A").map((i) => i.portfolio_type));
-  const bTypes = new Set(insurances.filter((i) => assign[i.id] === "B").map((i) => i.portfolio_type));
-  const canonicalSides =
-    aTypes.size > 0 && bTypes.size > 0 &&
-    [...aTypes].every((t) => t === 1) && [...bTypes].every((t) => t === 2);
-  const labelA = canonicalSides ? "현재" : "A안";
-  const labelB = canonicalSides ? "제안" : "B안";
-  const canExport = aCount > 0 && bCount > 0;
+  // ★ 열 이름은 화면에 표시된 응답과 같은 스냅샷(doCompare에서 확정) — 배정을 바꿔도 재비교가 끝나기
+  //   전까진 옛 라벨을 유지해, 복사되는 텍스트의 '현재/제안'이 실제 데이터와 어긋나지 않게 한다.
+  const labelA = labels.a;
+  const labelB = labels.b;
+  // 복사 가능 = 양쪽 배정 ≥1 + 재계산 중이 아님(진행 중엔 옛 데이터가 복사되지 않도록 잠근다).
+  const canExport = aCount > 0 && bCount > 0 && !loading;
 
   // ④ 고객에게 보낼 내용 — 중립 사실만(담보·금액·증감 라벨). §97: 판정·권유·switch_warnings(설계사
   // 내부 전용) 절대 미포함, 인파는 복사만 하고 발송하지 않는다(설계사가 직접 카톡·문자로 전달).
@@ -1629,8 +1665,8 @@ function SwitchTab({ customerId }: { customerId: number }) {
 
       {/* 담보 비교표 */}
       {data.rows.length > 0 ? (
-        <div className="rounded-xl border border-line overflow-hidden">
-          <table className="w-full text-[13px]">
+        <div className="rounded-xl border border-line overflow-x-auto">
+          <table className="w-full min-w-[560px] text-[13px]">
             <thead>
               <tr className="bg-surface2 border-b border-line">
                 <th className="px-3 py-2.5 text-left font-semibold text-ink2">담보</th>
@@ -1699,9 +1735,13 @@ function SwitchTab({ customerId }: { customerId: number }) {
         >
           고객에게 보낼 내용 복사
         </button>
-        {copyMsg
+        {loading
+          ? <span className="text-[12px] text-ink3">비교를 다시 계산하고 있어요. 잠시만요.</span>
+          : copyMsg
           ? <span className="text-[12px] text-ink3">{copyMsg}</span>
-          : !canExport && <span className="text-[12px] text-ink3">A안·B안에 보험을 하나씩 배정하면 복사할 수 있어요.</span>}
+          : (aCount === 0 || bCount === 0)
+          ? <span className="text-[12px] text-ink3">A안·B안에 보험을 하나씩 배정하면 복사할 수 있어요.</span>
+          : null}
       </div>
       <p className="mt-2 text-[11px] leading-4 text-ink3">
         복사되는 내용에는 해지손실·면책 같은 불리사항이 들어가지 않아요. 갈아타기라면 불리사항은 고객에게 따로 안내해 주세요.

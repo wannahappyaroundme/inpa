@@ -9,7 +9,7 @@ import {
   tokenStore,
   type PaginatedResult,
   type InquiryStatus,
-  type InquiryDetail,
+  type InquiryCategory,
   type NoticeItem,
   type FaqItem,
   type PromotionOrderStatus,
@@ -210,10 +210,34 @@ export async function adminSendResetEmail(userId: number): Promise<{ sent: boole
 }
 
 // ─── Inquiries ───────────────────────────────────────────────────────────────
+// ⚠️ admin 직렬화는 답변 작성자를 author_email 로 준다(설계사용 InquiryReply 의
+//    author_name 아님). 문의 본문도 owner_email 를 포함한다.
+
+/** 답변 (admin 직렬화 필드 그대로: id/author_email/body/created_at/updated_at). */
+export interface AdminInquiryReply {
+  id: number;
+  author_email: string | null;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 문의 상세 + 답변 목록 (admin). */
+export interface AdminInquiryDetail {
+  id: number;
+  owner_email: string;
+  category: InquiryCategory;
+  title: string;
+  body: string;
+  status: InquiryStatus;
+  created_at: string;
+  updated_at: string;
+  replies: AdminInquiryReply[];
+}
 
 /** GET /api/v1/admin/inquiries/{id}/ — 문의 상세 + 답변 목록 */
-export async function adminGetInquiry(id: number): Promise<InquiryDetail> {
-  return req<InquiryDetail>("GET", `/admin/inquiries/${id}/`);
+export async function adminGetInquiry(id: number): Promise<AdminInquiryDetail> {
+  return req<AdminInquiryDetail>("GET", `/admin/inquiries/${id}/`);
 }
 
 /** PATCH /api/v1/admin/inquiries/{id}/status/ — 문의 상태 변경 */
@@ -260,6 +284,23 @@ export async function adminActionReport(
 
 // ─── Notices (admin write) ───────────────────────────────────────────────────
 
+/**
+ * GET /api/v1/admin/notices/ — 임시저장(미게시) 포함 전체 목록.
+ * 공개 listNotices()는 게시분만 반환하므로 관리자 콘솔은 이 함수를 써야
+ * 방금 저장한 임시저장 공지가 목록에서 사라지지 않는다. 페이지네이션 전체 순회.
+ */
+export async function adminListNotices(): Promise<NoticeItem[]> {
+  const all: NoticeItem[] = [];
+  let page = 1;
+  for (;;) {
+    const res = await req<PaginatedResult<NoticeItem>>("GET", `/admin/notices/?page=${page}`);
+    all.push(...res.results);
+    if (!res.next) break;
+    page += 1;
+  }
+  return all;
+}
+
 /** PATCH /api/v1/admin/notices/{id}/ — 공지 수정 */
 export async function adminUpdateNotice(
   id: number,
@@ -287,6 +328,23 @@ export interface FaqWritePayload {
   category?: string;
   order?: number;
   is_published?: boolean;
+}
+
+/**
+ * GET /api/v1/admin/faq/ — 비공개(미게시) 포함 전체 목록.
+ * 공개 listFaqs()는 게시분만 반환하므로 관리자 콘솔은 이 함수를 써야
+ * 방금 저장한 비공개 FAQ가 목록에서 사라지지 않는다. 페이지네이션 전체 순회.
+ */
+export async function adminListFaqs(): Promise<FaqItem[]> {
+  const all: FaqItem[] = [];
+  let page = 1;
+  for (;;) {
+    const res = await req<PaginatedResult<FaqItem>>("GET", `/admin/faq/?page=${page}`);
+    all.push(...res.results);
+    if (!res.next) break;
+    page += 1;
+  }
+  return all;
 }
 
 /** POST /api/v1/admin/faq/ — FAQ 작성 */

@@ -440,7 +440,7 @@ export default function PostDetailPage() {
         </Card>
 
         {/* 댓글 입력 */}
-        <Card className="p-4 sticky bottom-4">
+        <Card className="p-4 sticky bottom-[calc(70px+env(safe-area-inset-bottom))] sm:bottom-4 z-30">
           {(replyTo || editingComment) && (
             <div className="flex items-center justify-between mb-2 text-[12px] text-ink3 bg-surface2 rounded-xl px-3 py-1.5">
               <span>

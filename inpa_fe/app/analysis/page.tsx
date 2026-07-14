@@ -23,7 +23,7 @@ import { BaselineRequiredModal } from "@/components/baseline-required-modal";
 import { UpgradeModal } from "@/components/upgrade-modal";
 import {
   getHeatmap,
-  listCustomers,
+  listAllCustomers,
   type HeatmapResponse,
   type InsuranceFee,
   type CustomerListItem,
@@ -148,10 +148,10 @@ function AnalysisPageInner() {
       return;
     }
     setCustomersLoading(true);
-    listCustomers({ page: 1 })
-      .then((res) => {
-        setCustomers(res.results);
-        if (res.results.length > 0) setSelectedId(res.results[0].id);
+    listAllCustomers()
+      .then((results) => {
+        setCustomers(results);
+        if (results.length > 0) setSelectedId(results[0].id);
       })
       .catch(() => setCustomers([]))
       .finally(() => setCustomersLoading(false));
