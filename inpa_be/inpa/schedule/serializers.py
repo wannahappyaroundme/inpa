@@ -39,6 +39,11 @@ class ScheduleItemSerializer(serializers.ModelSerializer):
         kind = attrs.get('kind') or getattr(self.instance, 'kind', None)
         # 반복 차단이면 요일 + 시작/종료 시각 필수
         if kind == ScheduleItem.KIND_BLOCK and _val('recur_weekday') is not None:
-            if _val('recur_start_time') is None or _val('recur_end_time') is None:
+            start = _val('recur_start_time')
+            end = _val('recur_end_time')
+            if start is None or end is None:
                 raise serializers.ValidationError('반복 차단은 시작·종료 시각이 필요해요.')
+            # 종료가 시작보다 늦어야 실제로 시간을 차단한다(WorkHour 규칙과 동일).
+            if start >= end:
+                raise serializers.ValidationError('종료 시간이 시작보다 늦어야 해요.')
         return attrs

@@ -32,6 +32,7 @@ _MESSAGES = {
     'expired': '유효기간이 지난 쿠폰이에요.',
     'exhausted': '이미 모두 사용된 쿠폰이에요.',
     'already': '이미 사용한 쿠폰이에요.',
+    'active_plan': '이미 이용 중인 요금제가 있어요. 기간이 끝난 뒤에 사용해 주세요.',
 }
 
 
@@ -59,12 +60,31 @@ def redeem_coupon(user, raw_code):
         if CouponRedemption.objects.filter(coupon=coupon, user=user).exists():
             raise CouponError('already', _MESSAGES['already'])
 
-        # 구독 upsert — 같은 플랜 잔여 기간이 있으면 그 위에 이어붙임(stack).
+        # 구독 upsert — free/만료/해지/없음일 때만 새로 부여한다. 활성 구독을 조용히
+        # 덮어써 기존 혜택을 줄이지 않는다.
+        #   · 무기한 동일·상위 플랜 → 유한 쿠폰이 오히려 기간을 깎으므로 적용하지 않음('already').
+        #   · 같은 플랜 잔여 기간 → 그 위에 이어붙임(stack).
+        #   · 다른 활성 플랜(잔여 기간 있음) → 덮어쓰지 않음('active_plan').
+        # ★ Free 구독은 지켜야 할 유료 혜택이 없으므로 '활성 유료 구독'에서 제외한다
+        #   (free/만료/해지/없음 = 그대로 새로 부여). paid 활성 구독만 덮어쓰기를 막는다.
         sub = Subscription.objects.select_for_update().filter(user=user).first()
+        active = (
+            sub is not None
+            and sub.status in ('active', 'trial')
+            and (sub.expires_at is None or sub.expires_at > now)
+            and sub.plan.code != 'free'
+        )
         base = now
-        if (sub and sub.plan_id == coupon.plan_id
-                and sub.expires_at and sub.expires_at > now):
-            base = sub.expires_at
+        if active:
+            same_plan = sub.plan_id == coupon.plan_id
+            if sub.expires_at is None and (same_plan or sub.plan.price_krw >= coupon.plan.price_krw):
+                # 무기한 동일·상위 플랜은 유한 쿠폰으로 단축하지 않는다.
+                raise CouponError('already', _MESSAGES['already'])
+            if same_plan:
+                base = sub.expires_at
+            else:
+                # 다른 활성 플랜은 조용히 덮어쓰지 않는다.
+                raise CouponError('active_plan', _MESSAGES['active_plan'])
         granted_until = base + timedelta(days=coupon.duration_days)
 
         if sub is None:

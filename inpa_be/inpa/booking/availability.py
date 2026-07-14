@@ -115,11 +115,9 @@ def is_slot_available(owner, start_at, *, duration_min=30, buffer_min=60):
     if timezone.is_naive(start_at):
         start_at = timezone.make_aware(start_at)
     target = timezone.localtime(start_at)  # KST aware
+    # ★ POST 재확인 grid = GET 노출 grid 와 동일해야 함(step_min=소요시간).
+    # 예전엔 max(15,...) 바닥을 둬서 10~14분 소요 미팅은 GET 슬롯이 POST에서 안 잡혀 409가 났다.
     candidates = generate_available_slots(
-        owner, days=60, duration_min=duration_min, buffer_min=buffer_min, step_min=step_min_for(owner, duration_min))
+        owner, days=60, duration_min=duration_min, buffer_min=buffer_min,
+        step_min=duration_min or 30)
     return any(abs((c - target).total_seconds()) < 60 for c in candidates)
-
-
-def step_min_for(owner, duration_min):
-    """슬롯 간격 = 소요시간(분)과 동일(겹치지 않게). 최소 15분."""
-    return max(15, duration_min or 30)

@@ -255,6 +255,61 @@ class HeatmapOwnerIsolationTests(TestCase):
         self.assertEqual(r.status_code, 401)
 
 
+class HeatmapProposalExclusionTests(TestCase):
+    """★ 제안(portfolio_type=2)이 히트맵 '보유 보장금액'에 섞이지 않는다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('proposal@heatmap.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='제안고객', birth_day='1990.01.01', gender=1)
+        self.det = _build_std_tree()
+        self.idet = _catalog_detail_linked_to(self.det)
+        # 보유(pt=1) 1억
+        held = _make_portfolio(self.customer, self.idet, assurance_amount=100000000)
+        held.set_renewal_month(); held.calculate(); held.save()
+
+    def _make_proposal(self, amount):
+        ci = CustomerInsurance.objects.create(
+            customer=self.customer, insurance_type=2, name='제안보험',
+            portfolio_type=2, payment_period_type=1, payment_period=20,
+            monthly_premiums=70000, monthly_assurance_premium=70000)
+        CustomerInsuranceDetail.objects.create(
+            insurance=ci, detail=self.idet, assurance_amount=amount, premium=20000,
+            payment_period_type=1, payment_period=20,
+            warranty_period_type=1, warranty_period='100')
+        ci.set_renewal_month(); ci.calculate(); ci.save()
+        return ci
+
+    def test_proposal_excluded_from_held_amount(self):
+        self._make_proposal(amount=500000000)  # 제안 5억 — 보유로 잡히면 안 됨
+        body = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/heatmap/').json()
+        held = body['tree'][0]['sub_categories'][0]['details'][0]['held_amount']
+        self.assertEqual(held, 100000000)   # 보유 1억만(제안 5억 제외)
+        self.assertEqual(body['insurance_count'], 1)  # 보유 1건만 집계
+
+
+class HeatmapAnalysisViewEventTests(TestCase):
+    """★ 히트맵 조회 → 북극성 ANALYSIS_VIEW 1건 적재(관리자 '분석 조회' 집계)."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('anview@heatmap.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='조회고객', birth_day='1990.01.01', gender=1)
+        det = _build_std_tree()
+        idet = _catalog_detail_linked_to(det)
+        _make_portfolio(self.customer, idet, assurance_amount=50000000)
+
+    def test_viewing_heatmap_logs_one_analysis_view(self):
+        from inpa.analytics.models import NorthStarEvent
+        r = self.client.get(f'/api/v1/customers/{self.customer.id}/heatmap/')
+        self.assertEqual(r.status_code, 200)
+        evs = NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.ANALYSIS_VIEW,
+            customer=self.customer, sender=self.user)
+        self.assertEqual(evs.count(), 1)   # 요청당 정확히 1건(중복 계측 없음)
+
+
 # ──────────────────────────────────────────────────────────────────────
 # 갈아타기(승환) 비교 — 보유(portfolio_type=1) vs 제안(portfolio_type=2)
 # ★ 준법 게이트: AI 비활성 시 guide null / 발행 403 하드블록 / owner 격리.

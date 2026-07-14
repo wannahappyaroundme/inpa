@@ -246,8 +246,11 @@ def _build_share_payload(customer):
 
     held_amount(보유 보장금액)와 status('none'|'neutral')만 노출한다.
     """
+    #    ★ portfolio_type=1(보유)만 — 제안(2)/템플릿(0)이 고객 공유뷰·스냅샷에 '보유'로
+    #    섞이지 않게 한다(dashboard/aggregation·churn·manager 와 동일 규칙).
     insurance_list = list(
         customer.customer_insurance_list
+        .filter(portfolio_type=1)
         .prefetch_related('case_list__detail__analysis_detail',
                           'case_list__detail__chart_detail')
         .all()
@@ -321,7 +324,8 @@ class ShareEventView(_NoIndexMixin, APIView):
 
     # 비인증 공유뷰에서 적재 허용하는 이벤트(화이트리스트) — 임의 이벤트 위조 차단
     _PUBLIC_ALLOWED = frozenset({NorthStarEvent.CLIPBOARD_COPY,
-                                 NorthStarEvent.CALLBACK_REQUEST})
+                                 NorthStarEvent.CALLBACK_REQUEST,
+                                 NorthStarEvent.CTA_CLICK})
 
     def _notify_callback(self, customer):
         """콜백(연락 요청) → 설계사 알림 1건. 같은 공유건은 하루(KST) 1회만(중복 방지).
@@ -382,6 +386,17 @@ class ShareEventView(_NoIndexMixin, APIView):
             )
             if not already_today:
                 self._notify_callback(customer)
+            return Response({'status': 'logged', 'event_type': event_type},
+                            status=status.HTTP_201_CREATED)
+
+        if event_type == NorthStarEvent.CTA_CLICK:
+            # 분석→예약 CTA 클릭 — channel='web'(콜백과 동일, 자동발송 아님). 알림 없음.
+            log_event(
+                event_type, customer=customer, sender=customer.owner,
+                share_token=customer.share_token, ref_code=ref_code,
+                viewer_fp=fp, channel='web',
+                payload={'source': 'share_view'},
+            )
             return Response({'status': 'logged', 'event_type': event_type},
                             status=status.HTTP_201_CREATED)
 

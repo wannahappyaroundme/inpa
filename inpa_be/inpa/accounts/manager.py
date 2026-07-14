@@ -10,6 +10,7 @@
 import datetime
 
 from django.conf import settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -54,7 +55,9 @@ class ManagerDashboardView(APIView):
         if getattr(settings, 'MANAGER_PLAN_GATE_ENABLED', False) and not user_can_use_team(request.user):
             return Response(MANAGER_PLAN_REQUIRED_BODY, status=status.HTTP_402_PAYMENT_REQUIRED)
         me = request.user
-        today = datetime.date.today()
+        # ★ KST 기준(§7 이번 달 경계 버그): timezone.localdate() 로 서비스 로컬(Asia/Seoul) 날짜.
+        #   datetime.date.today()=OS 로컬(운영 서버 UTC)이라 KST/UTC 월경계 날 집계가 어긋남.
+        today = timezone.localdate()
         this_ym = today.strftime('%Y-%m')
         # 동의한 소속 설계사만(level != none). activity=활동만 / full=활동+실적.
         profiles = me.managed_agents.filter(

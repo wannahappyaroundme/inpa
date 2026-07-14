@@ -221,6 +221,37 @@ class ShareViewTests(TestCase):
         self.assertEqual(ev.ref_code, 'A7K3XX')
 
 
+class SharePayloadProposalExclusionTests(TestCase):
+    """★ 제안(portfolio_type=2)이 고객 공유뷰(/s)에 '보유'로 섞이지 않는다."""
+
+    def setUp(self):
+        self.user, _ = _make_planner('share-proposal@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='제안고객', birth_day='1985.05.05', gender=1)
+        self.det = _build_std_tree()
+        self.idet = _catalog_detail_linked_to(self.det)
+        # 보유(pt=1) 5천만원
+        _make_portfolio(self.customer, self.idet, assurance_amount=50000000)
+        # 제안(pt=2) 3억 — 공유뷰 보유 보장금액에 섞이면 안 된다.
+        prop = CustomerInsurance.objects.create(
+            customer=self.customer, insurance_type=2, name='제안보험',
+            portfolio_type=2, payment_period_type=1, payment_period=20,
+            monthly_premiums=90000, monthly_assurance_premium=90000)
+        CustomerInsuranceDetail.objects.create(
+            insurance=prop, detail=self.idet, assurance_amount=300000000,
+            premium=30000, payment_period_type=1, payment_period=20,
+            warranty_period_type=1, warranty_period='100')
+        prop.set_renewal_month()
+        prop.calculate()
+        prop.save()
+        self.public = APIClient()
+
+    def test_proposal_excluded_from_share_payload(self):
+        body = self.public.get(f'/api/v1/s/{self.customer.share_token}/').json()
+        held = body['tree'][0]['sub_categories'][0]['details'][0]['held_amount']
+        self.assertEqual(held, 50000000)  # 보유만(제안 3억 제외)
+
+
 class ShareViewGateTests(TestCase):
     """4) 만료/회수/없는 토큰 → 404 (데이터 0)."""
 
@@ -272,6 +303,17 @@ class ShareEventTests(TestCase):
         # ★ 자동발송 사칭 금지 — channel='clipboard' 고정
         self.assertEqual(ev.channel, 'clipboard')
         self.assertEqual(ev.payload.get('delivery'), 'clipboard')
+
+    def test_cta_click_accepted_and_logged(self):
+        """★ 분석→예약 CTA 클릭(FE가 전송) → 허용·적재. channel='web'(자동발송 아님)."""
+        r = self.public.post(self._url(),
+                             {'event_type': 'cta_click'}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        ev = NorthStarEvent.objects.get(
+            event_type=NorthStarEvent.CTA_CLICK,
+            share_token=self.customer.share_token)
+        self.assertEqual(ev.channel, 'web')
+        self.assertEqual(ev.sender, self.user)
 
     def test_disallowed_event_rejected(self):
         """비인증 공유뷰에서 임의 이벤트 위조 차단 (화이트리스트 외 400)."""

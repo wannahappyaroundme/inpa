@@ -24,6 +24,9 @@ from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
 from inpa.customers.models import ConsentLog, Customer
 from inpa.notifications.models import NotifType, Notification
 
+# 무인증 경로 — 설계사(refcode) 1명당 하루 소개 카드 상담 신청 상한(셀프진단과 동일 방어).
+INTRO_DAILY_CAP_PER_REF = 30
+
 
 def _planner_name(profile):
     return (profile.name or '').strip() or (profile.affiliation or '').strip() or '담당 설계사'
@@ -60,6 +63,16 @@ class IntroductionCardView(_NoIndexMixin, APIView):
             return Response({'code': 'INVALID_REF', 'detail': '유효하지 않은 링크입니다.'},
                             status=status.HTTP_404_NOT_FOUND)
         planner = profile.user
+        # ★ refcode 일일상한(DB 카운트 — 워커 무관). 셀프진단과 동일한 무인증 남용 방어.
+        #   KST 기준(§7): '오늘'은 timezone.localdate() 로 집계.
+        todays_leads = Customer.objects.filter(
+            owner=planner, lead_source=Customer.LEAD_INTRODUCTION,
+            lead_created_at__date=timezone.localdate()).count()
+        if todays_leads >= INTRO_DAILY_CAP_PER_REF:
+            return Response(
+                {'code': 'DAILY_LIMIT',
+                 'detail': '오늘 이 링크의 상담 신청 한도를 초과했어요. 내일 다시 시도해 주세요.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS)
         name = (request.data.get('name') or '').strip()
         phone = re.sub(r'[^0-9-]', '', (request.data.get('phone') or '').strip())
         agreed = str(request.data.get('agreed')).lower() in ('1', 'true', 'on', 'yes', 'y')

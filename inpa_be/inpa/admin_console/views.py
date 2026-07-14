@@ -101,8 +101,9 @@ class AdminDashboardView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        today = timezone.now().date()
-        year_month = timezone.now().strftime('%Y-%m')
+        # ★ KST 기준(§7): __date 룩업은 TIME_ZONE(Asia/Seoul) 버킷이라 오늘 카운트도
+        #   localdate() 로 맞춰야 UTC/KST 월·일 경계에서 어긋나지 않는다.
+        today = timezone.localdate()
 
         data = {
             # 오늘 현황
@@ -241,10 +242,12 @@ class AdminUserSubscriptionView(APIView):
         else:
             old_plan = None
 
-        # 설계사 본인에게 알림 (고객 자동발송 금지 원칙)
+        # 설계사 본인에게 알림 (고객 자동발송 금지 원칙).
+        # ★ EXPIRY_SOON(만기 임박, 일정 배지) 재사용은 잘못된 배지·라벨을 만든다.
+        #   요금제 변경은 운영팀이 계정에 보낸 안내이므로 게시판(받은함) 버킷으로 라우팅.
         _notify_user(
             owner=user,
-            notif_type=NotifType.EXPIRY_SOON,  # 시스템 알림 — 가장 유사 타입 재사용
+            notif_type=NotifType.INQUIRY_ANSWERED,
             title='요금제가 변경되었습니다',
             body=f'요금제가 {plan.display_name}({plan.code})으로 변경되었습니다.',
         )
@@ -334,7 +337,7 @@ class AdminInquiryReplyView(APIView):
         if inquiry.owner:
             _notify_user(
                 owner=inquiry.owner,
-                notif_type=NotifType.EXPIRY_SOON,  # 시스템 알림 최근접 타입
+                notif_type=NotifType.INQUIRY_ANSWERED,  # 문의 답변 도착(게시판 버킷)
                 title='1:1 문의 답변이 등록되었습니다',
                 body=f'"{inquiry.title}"에 답변이 달렸습니다.',
             )
@@ -417,9 +420,11 @@ class AdminReportActionView(APIView):
         # 신고자에게 처리 결과 알림
         if report.reporter:
             result_msg = '처리되었습니다' if action == AdminReportActionSerializer.ACTION_RESOLVED else '기각되었습니다'
+            # ★ 신고 처리 결과는 게시글 모더레이션(게시판) 안내 → 받은함 버킷.
+            #   EXPIRY_SOON(일정 배지, '만기 임박') 재사용 금지.
             _notify_user(
                 owner=report.reporter,
-                notif_type=NotifType.EXPIRY_SOON,
+                notif_type=NotifType.INQUIRY_ANSWERED,
                 title=f'신고가 {result_msg}',
                 body=f'신고하신 콘텐츠가 검토되어 {result_msg}.',
             )
@@ -509,24 +514,16 @@ class AdminOrderStatusView(APIView):
         except ValueError as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 설계사 본인에게 알림 (고객 자동발송 금지)
-        _STATUS_MESSAGES = {
-            PromotionOrder.STATUS_REVIEWING: '주문을 검토 중입니다',
-            PromotionOrder.STATUS_PRODUCING: '제작이 시작되었습니다',
-            PromotionOrder.STATUS_SHIPPING: '배송이 시작되었습니다',
-            PromotionOrder.STATUS_COMPLETED: '주문이 완료되었습니다',
-            PromotionOrder.STATUS_CANCELLED: '주문이 취소되었습니다',
-        }
-        msg = _STATUS_MESSAGES.get(new_status)
-        if msg and order.owner:
-            _notify_user(
-                owner=order.owner,
-                notif_type=NotifType.EXPIRY_SOON,
-                title=f'판촉물 주문 #{order.pk} — {msg}',
-                body=admin_note or msg,
-            )
-
         order.refresh_from_db()
+
+        # 설계사 본인에게 알림 (고객 자동발송 금지).
+        # ★ 판촉물 주문 상태 알림은 PROMOTION_STATUS(전자자료면 PROMOTION_DIGITAL_READY)로
+        #   라우팅해야 판촉물 배지에 정확히 잡힌다. 기존 EXPIRY_SOON 재사용은 '만기 임박'으로
+        #   잘못 표시되고 PROMOTION_STATUS 경로를 사장시켰다. 판촉물 도메인의 공용 헬퍼를
+        #   재사용(전자자료 준비 완료 분기 포함, em-dash 없는 카피).
+        from inpa.promotion.views import _send_order_status_notification
+        _send_order_status_notification(order)
+
         return Response(AdminOrderDetailSerializer(order).data)
 
 
@@ -1207,9 +1204,19 @@ class AdminUsageView(APIView):
     """설계사별 기능 사용량 집계 — GET /api/v1/admin/usage/?days=30 (IsAdmin).
 
     NorthStarEvent(sender=설계사, event_type별)를 집계해 '누가 어떤 기능을 많이 쓰나'를 본다.
-    ★ 데모 계정(@inpa.local)은 제외. 사용량 많은 순 정렬 + 기능별 총합.
+    ★ 데모 계정(@inpa.local)은 제외. days=0 이면 전체 기간(시간 필터 없음).
+
+    ★ 이벤트를 두 갈래로 나눠 본다:
+      - planner_activity: 설계사가 직접 한 행동(증권 스캔·분석 조회·공유 발급·복사).
+      - customer_response: 고객이 공유 링크에 반응한 것(공유 열람·연락 요청·소개 귀속).
+    순위는 planner_activity 합계 기준 — 고객이 공유를 여러 번 열람해도 설계사 '사용량'을
+    부풀리지 않는다(고객 반응은 설계사가 한 일이 아님).
     """
     permission_classes = [IsAdmin]
+
+    # 이벤트 분류 (analytics.NorthStarEvent event_type 안정값 기준).
+    _PLANNER_ACTIVITY = frozenset({'ocr_upload', 'analysis_view', 'share_created', 'clipboard_copy'})
+    _CUSTOMER_RESPONSE = frozenset({'share_view', 'callback_request', 'referral_attributed'})
 
     def get(self, request):
         from datetime import timedelta
@@ -1239,24 +1246,45 @@ class AdminUsageView(APIView):
                 'user_id': uid,
                 'email': r['sender__email'],
                 'name': r['sender__profile__name'] or '',
-                'total': 0,
+                'total': 0,               # 전체 이벤트 합(하위호환 유지)
+                'planner_activity': 0,    # 설계사 직접 행동 합
+                'customer_response': 0,   # 고객 반응 합
                 'events': {},  # event_type → count
             })
-            u['events'][r['event_type']] = r['c']
-            u['total'] += r['c']
+            etype = r['event_type']
+            cnt = r['c']
+            u['events'][etype] = cnt
+            u['total'] += cnt
+            if etype in self._PLANNER_ACTIVITY:
+                u['planner_activity'] += cnt
+            elif etype in self._CUSTOMER_RESPONSE:
+                u['customer_response'] += cnt
 
-        ranked = sorted(users.values(), key=lambda x: x['total'], reverse=True)
+        # ★ 순위 = planner_activity 우선(동률 시 전체 합) — 고객 반응이 순위를 부풀리지 않게.
+        ranked = sorted(
+            users.values(),
+            key=lambda x: (x['planner_activity'], x['total']),
+            reverse=True,
+        )
 
         feature_totals = {}
+        planner_activity_total = 0
+        customer_response_total = 0
         for u in ranked:
             for k, v in u['events'].items():
                 feature_totals[k] = feature_totals.get(k, 0) + v
+            planner_activity_total += u['planner_activity']
+            customer_response_total += u['customer_response']
 
         return Response({
             'days': days,
             'active_users': len(ranked),
             'feature_totals': feature_totals,  # event_type → 전체 합
-            'users': ranked,                   # 사용량 내림차순
+            'group_totals': {                  # 두 갈래 합계
+                'planner_activity': planner_activity_total,
+                'customer_response': customer_response_total,
+            },
+            'users': ranked,                   # planner_activity 내림차순
         })
 
 

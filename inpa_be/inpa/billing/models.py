@@ -197,8 +197,13 @@ class UsageMeter(models.Model):
 
     @classmethod
     def current_month(cls) -> str:
-        """현재 연월 (YYYY-MM). lazy reset 비교 기준."""
-        return timezone.now().strftime('%Y-%m')
+        """현재 연월 (YYYY-MM). lazy reset 비교 기준.
+
+        ★ KST 기준(dashboard.MonthlyGoal.current_month 와 동형, §7). UsageMeter 집계·
+          '이번 달' 창은 TIME_ZONE(Asia/Seoul) 버킷과 맞춰야 UTC/KST 월 경계일에
+          카운트가 어긋나지 않는다. timezone.now()=UTC 를 쓰면 안 된다.
+        """
+        return timezone.localtime().strftime('%Y-%m')
 
 
 class ClaudeApiLog(models.Model):

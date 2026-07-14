@@ -69,6 +69,17 @@ class ScheduleCrudTests(TestCase):
             'kind': 'block', 'title': '미정', 'recur_weekday': 2}, format='json')
         self.assertEqual(r.status_code, 400)
 
+    def test_recurring_block_rejects_inverted_times(self):
+        """종료가 시작보다 이르거나 같으면 실제로 시간을 차단하지 못하므로 거부한다."""
+        r = self.client.post('/api/v1/schedule-items/', {
+            'kind': 'block', 'title': '거꾸로', 'recur_weekday': 1,
+            'recur_start_time': '14:00', 'recur_end_time': '13:00'}, format='json')
+        self.assertEqual(r.status_code, 400)
+        r2 = self.client.post('/api/v1/schedule-items/', {
+            'kind': 'block', 'title': '같음', 'recur_weekday': 1,
+            'recur_start_time': '13:00', 'recur_end_time': '13:00'}, format='json')
+        self.assertEqual(r2.status_code, 400)
+
     def test_month_filter_includes_recurring(self):
         ScheduleItem.objects.create(owner=self.user, kind='event', title='6월 일정',
                                     start_at='2026-06-10T01:00:00Z')
@@ -82,6 +93,19 @@ class ScheduleCrudTests(TestCase):
         self.assertIn('6월 일정', titles)
         self.assertIn('반복차단', titles)        # 반복은 항상 포함
         self.assertNotIn('7월 일정', titles)     # 다른 달 단건 제외
+
+    def test_month_filter_includes_yearly_anniversary_next_year(self):
+        """★ 회귀(FIX4): 매년 반복 생일·기념일(anniversary_md)은 생성 연도 이후 모든 해의
+        달 조회에 포함돼야 한다. 수정 전엔 2026 생성 건이 2027 조회에서 빠져 캘린더에서 사라졌다."""
+        ScheduleItem.objects.create(
+            owner=self.user, kind='event', category=ScheduleItem.CAT_ANNIVERSARY,
+            anniversary_md='03-05', title='고객 생일',
+            start_at='2026-03-05T03:00:00Z')
+        r = self.client.get('/api/v1/schedule-items/?month=2027-03')
+        data = r.json()
+        results = data['results'] if isinstance(data, dict) else data
+        titles = {x['title'] for x in results}
+        self.assertIn('고객 생일', titles)   # 다음 해에도 계속 노출
 
 
 class ScheduleOwnerIsolationTests(TestCase):

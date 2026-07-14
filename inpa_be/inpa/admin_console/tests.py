@@ -1153,3 +1153,165 @@ class AdminActivationFunnelTest(TestCase):
         res = self.client_admin.get('/api/v1/admin/activation-funnel/?days=3')
         data = res.json()
         self.assertEqual(data['signup_count'], 0)  # a·b(10일 전)·c(5일 전) 전부 창 밖
+
+
+# ─── FIX 1: 관리자 액션 알림 라우팅 (EXPIRY_SOON 오분류 방지) ──────────
+
+class AdminNotificationRoutingTest(TestCase):
+    """FIX 1: 주문 상태·문의 답변·신고 결과·요금제 변경 알림이 '만기 임박'(EXPIRY_SOON,
+    일정 배지)으로 잘못 라우팅되지 않고 각자의 올바른 버킷으로 가는지."""
+
+    def setUp(self):
+        self.admin = _make_user('admin@inpa.kr', is_admin=True)
+        self.planner = _make_user('planner@test.kr', is_admin=False)
+        self.client_admin = _auth_client(self.admin)
+
+    def test_inquiry_reply_uses_inquiry_answered(self):
+        """문의 답변 알림 = INQUIRY_ANSWERED(게시판 버킷), EXPIRY_SOON 아님."""
+        from inpa.notifications.models import NotifType
+        inquiry = Inquiry.objects.create(
+            owner=self.planner, category='bug', title='버그', body='내용')
+        res = self.client_admin.post(
+            f'/api/v1/admin/inquiries/{inquiry.id}/reply/',
+            {'body': '확인했습니다.'}, format='json')
+        self.assertEqual(res.status_code, 201)
+        notif = Notification.objects.filter(owner=self.planner).latest('created_at')
+        self.assertEqual(notif.notif_type, NotifType.INQUIRY_ANSWERED)
+
+    def test_order_status_uses_promotion_status(self):
+        """주문 상태 알림 = PROMOTION_STATUS(판촉물 버킷), 제목에 em-dash 없음."""
+        from inpa.notifications.models import NotifType
+        sample = _make_sample()
+        order = PromotionOrder.objects.create(
+            owner=self.planner, sample=sample, form_response={'quantity': 100})
+        res = self.client_admin.patch(
+            f'/api/v1/admin/orders/{order.id}/status/',
+            {'status': 'reviewing', 'admin_note': '검토 중'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        notif = Notification.objects.filter(owner=self.planner).latest('created_at')
+        self.assertEqual(notif.notif_type, NotifType.PROMOTION_STATUS)
+        self.assertNotIn('—', notif.title)  # em-dash(U+2014) 금지
+
+    def test_report_result_routes_to_board_bucket(self):
+        """신고 처리 결과 알림은 게시판 버킷, EXPIRY_SOON 아님."""
+        from inpa.notifications.models import NotifType, BOARD_NOTIF_TYPES
+        post = Post.objects.create(author=self.planner, body='글')
+        report = Report.objects.create(
+            reporter=self.planner, content_type=Report.CONTENT_POST,
+            object_id=post.pk, reason=Report.REASON_SPAM)
+        res = self.client_admin.patch(
+            f'/api/v1/admin/reports/{report.id}/action/',
+            {'action': 'resolved'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        notif = Notification.objects.filter(owner=self.planner).latest('created_at')
+        self.assertNotEqual(notif.notif_type, NotifType.EXPIRY_SOON)
+        self.assertIn(notif.notif_type, BOARD_NOTIF_TYPES)
+
+    def test_plan_change_not_expiry_soon(self):
+        """요금제 변경 알림은 EXPIRY_SOON(일정 버킷) 재사용 금지."""
+        from inpa.notifications.models import NotifType
+        _make_plan('plus', 'Plus', 19900)
+        res = self.client_admin.patch(
+            f'/api/v1/admin/users/{self.planner.id}/subscription/',
+            {'plan_code': 'plus'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        notif = Notification.objects.filter(owner=self.planner).latest('created_at')
+        self.assertNotEqual(notif.notif_type, NotifType.EXPIRY_SOON)
+
+
+# ─── FIX 2: 대시보드 '오늘' 카운트 KST 기준(§7) ─────────────────────────
+
+class AdminDashboardKstTest(TestCase):
+    """FIX 2: today_new_users 는 localdate()(KST) 로 버킷팅 — UTC/KST 경계일에
+    date.today()(UTC)를 쓰면 카운트가 빠지던 문제 회귀 방지."""
+
+    def setUp(self):
+        self.admin = _make_user('admin@inpa.kr', is_admin=True)
+        self.client_admin = _auth_client(self.admin)
+
+    def test_today_count_uses_kst_localdate(self):
+        from datetime import datetime, timezone as dt_timezone
+        from unittest import mock
+
+        # 2026-07-13 20:00 UTC = 2026-07-14 05:00 KST → UTC 날짜와 KST 날짜가 다른 순간.
+        frozen = datetime(2026, 7, 13, 20, 0, 0, tzinfo=dt_timezone.utc)
+        planner = _make_user('boundary@test.kr')
+        # 경계 유저는 그 순간 가입(KST 날짜 = 2026-07-14).
+        User.objects.filter(pk=planner.pk).update(date_joined=frozen)
+        # admin 은 오늘 카운트에 섞이지 않도록 40일 전으로.
+        User.objects.filter(pk=self.admin.pk).update(
+            date_joined=frozen - timedelta(days=40))
+
+        with mock.patch('django.utils.timezone.now', return_value=frozen):
+            res = self.client_admin.get('/api/v1/admin/dashboard/')
+        self.assertEqual(res.status_code, 200)
+        # KST(2026-07-14) 기준이면 경계 유저 1명이 잡힌다(UTC 2026-07-13 기준이면 0 = 버그).
+        self.assertEqual(res.json()['today_new_users'], 1)
+
+
+# ─── FIX 3/5: 사용량 그룹핑 + days=0 전체기간 ───────────────────────────
+
+class AdminUsageGroupingTest(TestCase):
+    """FIX 3: 설계사 활동 vs 고객 반응 2그룹 분리·순위는 설계사 활동 기준.
+    FIX 5: days=0 는 전체 기간(시간 필터 없음)으로 허용."""
+
+    def setUp(self):
+        self.admin = _make_user('admin@inpa.kr', is_admin=True)
+        self.planner = _make_user('planner@test.kr')
+        self.other = _make_user('other@test.kr')
+        self.client_admin = _auth_client(self.admin)
+
+    def test_grouping_and_ranking(self):
+        from inpa.analytics.models import NorthStarEvent
+        # planner: 설계사 활동 2 + 고객 반응 3
+        NorthStarEvent.objects.create(sender=self.planner, event_type='ocr_upload')
+        NorthStarEvent.objects.create(sender=self.planner, event_type='share_created')
+        for _ in range(3):
+            NorthStarEvent.objects.create(sender=self.planner, event_type='share_view')
+        # other: 설계사 활동 3
+        for _ in range(3):
+            NorthStarEvent.objects.create(sender=self.other, event_type='analysis_view')
+
+        res = self.client_admin.get('/api/v1/admin/usage/?days=0')  # 전체 기간(FIX 5)
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data['days'], 0)
+        self.assertEqual(data['group_totals']['planner_activity'], 5)   # 2 + other 3
+        self.assertEqual(data['group_totals']['customer_response'], 3)
+        # ★ 순위는 설계사 활동 기준: other(3) 가 planner(2) 보다 앞.
+        self.assertEqual(data['users'][0]['email'], 'other@test.kr')
+        p = next(u for u in data['users'] if u['email'] == 'planner@test.kr')
+        self.assertEqual(p['planner_activity'], 2)
+        self.assertEqual(p['customer_response'], 3)
+        self.assertEqual(p['total'], 5)  # 하위호환(전체 합) 유지
+
+
+# ─── FIX 4: 관리자 사용량 화면 = 강제와 동일한 유효 요금제 한도 ──────────
+
+class AdminEffectiveLimitsTest(TestCase):
+    """FIX 4(#9 admin part): 구독이 만료/해지면 강제는 Free 폴백 → 관리자 상세 화면의
+    한도도 Free 로 보여야 한다(resolve_effective_plan 공용)."""
+
+    def setUp(self):
+        self.admin = _make_user('admin@inpa.kr', is_admin=True)
+        self.planner = _make_user('planner@test.kr')
+        _make_plan('free', 'Free')  # 기본 한도(ocr 10, ai_compare 5 ...)
+        self.plus = Plan.objects.create(
+            code='plus', display_name='Plus', price_krw=19900,
+            limit_ocr=100, limit_ai_compare=100, limit_analysis=100,
+            limit_promotion=100, limit_customer=100)
+        self.client_admin = _auth_client(self.admin)
+
+    def test_expired_subscription_shows_free_limits(self):
+        Subscription.objects.create(user=self.planner, plan=self.plus, status='expired')
+        res = self.client_admin.get(f'/api/v1/admin/users/{self.planner.id}/')
+        self.assertEqual(res.status_code, 200)
+        limits = res.json()['usage_limits']
+        self.assertEqual(limits['ocr'], 10)        # Free (Plus 100 아님)
+        self.assertEqual(limits['ai_compare'], 5)
+
+    def test_active_subscription_shows_plan_limits(self):
+        Subscription.objects.create(user=self.planner, plan=self.plus, status='active')
+        res = self.client_admin.get(f'/api/v1/admin/users/{self.planner.id}/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['usage_limits']['ocr'], 100)  # Plus

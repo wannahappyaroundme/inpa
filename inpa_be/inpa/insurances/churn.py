@@ -127,7 +127,7 @@ class ChurnRadarView(_OwnerScopedMixin, APIView):
     """환수 위험 집계 + 보유정책 리스트(수기입력 대상)."""
 
     def get(self, request):
-        today = datetime.date.today()
+        today = timezone.localdate()  # ★ KST 기준(§7). date.today()=OS 로컬이라 월경계 어긋남.
         items = [_serialize(ci, today) for ci in self._owned_held_insurances()]
         imminent = [it for it in items if it['is_at_risk']]
         # 회차 적은 순(초기·임박 먼저) — 회차 미상(None)은 맨 뒤.
@@ -217,7 +217,7 @@ class InsuranceChurnView(_OwnerScopedMixin, APIView):
         ci.save(update_fields=list(self.ALLOWED) + ['updated_at'])
         if 'is_cancelled' in request.data or 'cancelled_at' in request.data:
             Customer.objects.filter(pk=ci.customer_id).update(last_contacted_at=timezone.now())
-        return Response(_serialize(ci, datetime.date.today()))
+        return Response(_serialize(ci, timezone.localdate()))  # ★ KST 기준(§7)
 
 
 class ChurnSyncAlertsView(_OwnerScopedMixin, APIView):
@@ -228,7 +228,9 @@ class ChurnSyncAlertsView(_OwnerScopedMixin, APIView):
     """
 
     def post(self, request):
-        today = datetime.date.today()
+        # ★ KST 기준(§7): dedupe 키(target_date)가 KST 하루가 되도록. date.today()=OS 로컬(UTC)이면
+        #   자정 근처에 하루 어긋난 중복 알림이 생길 수 있음.
+        today = timezone.localdate()
         created = 0
         for ci in self._owned_held_insurances():
             is_at_risk, reason, _, _ = _assess(ci, today)

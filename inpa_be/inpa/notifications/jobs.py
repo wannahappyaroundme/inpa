@@ -335,8 +335,10 @@ def check_signup_verification_flatline(today):
     """
     lookback = max(1, int(getattr(settings, 'ACTIVATION_FLATLINE_LOOKBACK_DAYS', 1) or 1))
     min_signups = int(getattr(settings, 'ACTIVATION_FLATLINE_MIN_SIGNUPS', 3) or 3)
-    window_start = _kst_day_start(today - dt.timedelta(days=lookback - 1))
-    window_end = _kst_day_start(today + dt.timedelta(days=1))
+    # ★ 실행 시점 기준 롤링 창(달력 오늘 00:00~24:00 이 아니라 지금-lookback일 ~ 지금).
+    #   08:00 KST 에 돌 때 전날 오후 가입까지 포착 → 인증 장애를 조기에 잡는다(리뷰 major).
+    window_end = timezone.now()
+    window_start = window_end - dt.timedelta(days=lookback)
 
     # ★ 데모 계정(@inpa.local) 제외 — seed_demo 는 is_active+email_verified_at 를 동시에
     #   세팅하므로, 실제 인증 장애 중 Render Shell 에서 seed_demo 를 돌리면 이 알람이

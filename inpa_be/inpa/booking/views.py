@@ -80,11 +80,20 @@ class MeetingViewSet(OwnedQuerySetMixin, viewsets.ReadOnlyModelViewSet):
     def accept(self, request, pk=None):
         """대기 중인 예약 신청을 수락 → 확정 + 구글 캘린더 등록."""
         meeting = self.get_object()
-        if meeting.status != Meeting.STATUS_PENDING:
+        # 원자적 상태 전환(대기→확정). 동시 이중 수락이 와도 1명만 성공 →
+        # 구글 캘린더 이벤트가 중복 생성되지 않는다.
+        updated = Meeting.objects.filter(
+            pk=meeting.pk, status=Meeting.STATUS_PENDING
+        ).update(status=Meeting.STATUS_CONFIRMED)
+        if not updated:
             return Response({'detail': '대기 중인 예약만 수락할 수 있어요.'},
                             status=status.HTTP_400_BAD_REQUEST)
         meeting.status = Meeting.STATUS_CONFIRMED
-        meeting.save(update_fields=['status'])
+        # 대면 미팅이면 설계사 기본 장소를 확정 시점에 스냅샷(이후 설정을 바꿔도 이력 보존).
+        if meeting.method == Meeting.METHOD_IN_PERSON:
+            profile = getattr(request.user, 'profile', None)
+            meeting.location_detail = (getattr(profile, 'booking_location', '') or '')
+            meeting.save(update_fields=['location_detail'])
         # 수락 = 만나기로 확정 → 고객을 FA(대면) 단계로 자동 승급(db/contact일 때만).
         # Customer.save() 훅이 fa_reached_at 최초 도달 시각을 자동 스탬프 → '이번 달 미팅' 실적 반영.
         c = meeting.customer
@@ -99,11 +108,14 @@ class MeetingViewSet(OwnedQuerySetMixin, viewsets.ReadOnlyModelViewSet):
     def decline(self, request, pk=None):
         """대기 중인 예약 신청을 거절 → 그 시간이 다시 비워진다."""
         meeting = self.get_object()
-        if meeting.status != Meeting.STATUS_PENDING:
+        # 원자적 상태 전환(대기→거절) — 수락과 경합해도 한쪽만 성공.
+        updated = Meeting.objects.filter(
+            pk=meeting.pk, status=Meeting.STATUS_PENDING
+        ).update(status=Meeting.STATUS_DECLINED)
+        if not updated:
             return Response({'detail': '대기 중인 예약만 거절할 수 있어요.'},
                             status=status.HTTP_400_BAD_REQUEST)
         meeting.status = Meeting.STATUS_DECLINED
-        meeting.save(update_fields=['status'])
         return Response(self.get_serializer(meeting).data)
 
     @action(detail=True, methods=['post'])

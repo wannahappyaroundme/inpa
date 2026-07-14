@@ -243,6 +243,25 @@ class ManagerDashboardTests(TestCase):
         self.assertIn('new_month', act)           # 활동은 공유
         self.assertEqual(body['totals']['perf_agent_count'], 1)  # full 1명만 실적 합산
 
+    def test_this_month_uses_kst_localdate(self):
+        """★ KST 경계 회귀(§7): '이번 달' 집계가 timezone.localdate(KST) 기준이어야 한다.
+        UTC date.today() 를 쓰면 KST/UTC 월경계 날에 이번 달 실적이 어긋난다."""
+        import datetime as _dt
+        from unittest import mock
+        from inpa.customers.models import Customer
+        c = Customer.objects.create(owner=self.agent_yes, name='FA고객',
+                                    birth_day='1990.01.01', gender=1)
+        # 8월(KST)에 FA 최초 도달 — save 훅 우회 위해 update. UTC 03:00 = KST 12:00 → KST 8월.
+        Customer.objects.filter(pk=c.pk).update(
+            fa_reached_at=_dt.datetime(2026, 8, 15, 3, 0, tzinfo=_dt.timezone.utc))
+        # localdate 를 8월로 고정. 코드가 localdate 를 쓰면 이번 달=8월 → FA 를 집계.
+        # (수정 전엔 date.today()=UTC 라 이 mock 이 무시되어 meetings_month=0 → 실패)
+        with mock.patch('inpa.accounts.manager.timezone.localdate',
+                        return_value=_dt.date(2026, 8, 1)):
+            body = self.mc.get('/api/v1/manager/dashboard/').json()
+        agent = body['agents'][0]
+        self.assertEqual(agent['meetings_month'], 1)
+
     def test_non_manager_sees_empty(self):
         _, lone = _verified_planner('lone@test.com')
         body = lone.get('/api/v1/manager/dashboard/').json()
@@ -532,3 +551,96 @@ class ProfilePhoneTests(TestCase):
     def test_phone_rejects_over_20_chars(self):
         r = self.c.patch('/api/v1/auth/profile/', {'phone': '0' * 21}, format='json')
         self.assertEqual(r.status_code, 400, r.content)
+
+
+@override_settings(GOOGLE_OAUTH_ENABLED=True, GOOGLE_OAUTH_CLIENT_ID='cid')
+class GoogleLinkSecurityTests(TestCase):
+    """FIX 1 — 구글 로그인이 선점(미인증) 계정을 탈취로부터 방어."""
+
+    def setUp(self):
+        self.public = APIClient()
+
+    @mock.patch('inpa.accounts.views.verify_google_id_token')
+    def test_unverified_account_activated_and_old_password_dies(self, mock_verify):
+        # 공격자가 피해자 이메일을 선점(미인증 = is_active=False) + 비번 설정.
+        victim = User.objects.create_user(email='victim@test.com', password='attackerPass1!')
+        self.assertFalse(victim.is_active)
+        self.assertTrue(victim.has_usable_password())
+        mock_verify.return_value = {'sub': 'gVictim', 'email': 'victim@test.com',
+                                    'email_verified': True}
+        r = self.public.post('/api/v1/auth/google/', {'id_token': 'x'}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        victim.refresh_from_db()
+        # 소유권 증명 → 활성화 + 인증 도장.
+        self.assertTrue(victim.is_active)
+        self.assertIsNotNone(victim.profile.email_verified_at)
+        self.assertEqual(victim.profile.google_sub, 'gVictim')
+        # 선점자 비번은 무효화 → 더 이상 로그인 불가(본인은 비번 재설정으로 복구).
+        self.assertFalse(victim.has_usable_password())
+        r2 = self.public.post('/api/v1/auth/login/',
+                              {'email': 'victim@test.com', 'password': 'attackerPass1!'},
+                              format='json')
+        self.assertNotEqual(r2.status_code, 200)
+
+    @mock.patch('inpa.accounts.views.verify_google_id_token')
+    def test_verified_account_keeps_parallel_password(self, mock_verify):
+        # 이미 인증된 본인 계정은 병행 로그인용 비번을 보존.
+        user, _ = _verified_planner('owner@test.com')
+        mock_verify.return_value = {'sub': 'gOwner', 'email': 'owner@test.com',
+                                    'email_verified': True}
+        r = self.public.post('/api/v1/auth/google/', {'id_token': 'x'}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        user.refresh_from_db()
+        self.assertTrue(user.has_usable_password())
+        r2 = self.public.post('/api/v1/auth/login/',
+                              {'email': 'owner@test.com', 'password': 'inpaPass123!'},
+                              format='json')
+        self.assertEqual(r2.status_code, 200)
+
+
+class TeamInviteInfoNoIndexTests(TestCase):
+    """FIX 2 — 공개 초대 정보 뷰도 noindex(X-Robots-Tag) 헤더를 낸다."""
+
+    def test_invite_info_sends_noindex_header(self):
+        from .invite import make_invite_token
+        mgr = User.objects.create_user(email='mgr@test.com', is_active=True)
+        Profile.objects.create(user=mgr, name='매니저')
+        token = make_invite_token(mgr)
+        c = APIClient()
+        r = c.get(f'/api/v1/manager/invite-info/?token={token}')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertIn('noindex', r['X-Robots-Tag'])
+
+
+class IntroCardDailyCapTests(TestCase):
+    """FIX 3 — 소개 카드 상담 신청도 refcode 일일상한(429)을 적용."""
+
+    def setUp(self):
+        from inpa.customers.models import Customer
+        self.Customer = Customer
+        self.planner = User.objects.create_user(email='intro@test.com', is_active=True)
+        self.profile = Profile.objects.create(user=self.planner, name='설계사')
+        self.refcode = self.profile.ref_code
+        self.public = APIClient()
+
+    def test_daily_cap_returns_429(self):
+        from inpa.accounts import public as public_mod
+        # 상한 직전까지 오늘자 소개 리드를 채운다.
+        for i in range(public_mod.INTRO_DAILY_CAP_PER_REF):
+            self.Customer.objects.create(
+                owner=self.planner, name=f'리드{i}',
+                lead_source=self.Customer.LEAD_INTRODUCTION,
+                lead_created_at=timezone.now())
+        r = self.public.post(f'/api/v1/p/{self.refcode}/',
+                             {'name': '초과고객', 'phone': '010-9999-0000', 'agreed': 'true'},
+                             format='json')
+        self.assertEqual(r.status_code, 429, r.content)
+        self.assertEqual(r.json()['code'], 'DAILY_LIMIT')
+
+    def test_under_cap_creates_lead(self):
+        r = self.public.post(f'/api/v1/p/{self.refcode}/',
+                             {'name': '홍길동', 'phone': '010-1234-5678', 'agreed': 'true'},
+                             format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertTrue(self.Customer.objects.filter(
+            owner=self.planner, lead_source=self.Customer.LEAD_INTRODUCTION).exists())

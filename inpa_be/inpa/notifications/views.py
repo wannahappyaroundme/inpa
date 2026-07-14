@@ -53,7 +53,12 @@ class NotificationViewSet(OwnedQuerySetMixin, viewsets.GenericViewSet):
     queryset = Notification.objects.select_related('customer')
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        # ★ 알림/설정 화면은 관리자도 '본인' 것만 다뤄야 한다. OwnedQuerySetMixin 의
+        #   관리자 전체조회 우회를 쓰면 read-all/unread-count 가 전 사용자에 걸쳐
+        #   교차 테넌시 쓰기·집계가 되므로(리뷰 CRITICAL), 여기서는 항상 owner 로 스코프.
+        qs = Notification.objects.select_related('customer').filter(
+            owner=self.request.user
+        )
         # ?is_read=true/false 필터 (dev/22 §5.1)
         is_read = self.request.query_params.get('is_read')
         if is_read is not None:
@@ -134,6 +139,10 @@ class ReminderRuleViewSet(OwnedQuerySetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, IsEmailVerified, IsOwner]
     serializer_class = ReminderRuleSerializer
     queryset = ReminderRule.objects.all()
+
+    def get_queryset(self):
+        # ★ 설정 화면도 관리자 우회 없이 항상 본인 것만 (교차 테넌시 쓰기 차단).
+        return ReminderRule.objects.filter(owner=self.request.user)
 
     # ── GET /reminder-rules/ ──────────────────────────────────────
     def list(self, request, *args, **kwargs):
