@@ -586,6 +586,23 @@ class SeedBillingCommandTests(TestCase):
         call_command('seed_billing')
         self.assertEqual(Plan.objects.filter(code='super').count(), 1)
 
+    def test_annual_price_backfill_fills_null_preserves_admin(self):
+        """연 요금 백필(2026-07-15) — price_annual_krw 가 null 인 기존 유료 행만 월가×10 으로 채우고,
+        관리자가 설정한 값(non-null)은 보존한다."""
+        from django.core.management import call_command
+        # 기존 프로드 상태 모사: 연 요금 null.
+        Plan.objects.create(code='plus', display_name='Plus', price_krw=19900, price_annual_krw=None)
+        Plan.objects.create(code='super', display_name='Super', price_krw=39900, price_annual_krw=None)
+        # 관리자가 직접 설정한 연 요금(보존돼야 함).
+        Plan.objects.create(code='manager', display_name='Manager', price_krw=19900,
+                            price_annual_krw=150000)
+
+        call_command('seed_billing')
+
+        self.assertEqual(Plan.objects.get(code='plus').price_annual_krw, 199000)    # null → ×10
+        self.assertEqual(Plan.objects.get(code='super').price_annual_krw, 399000)   # null → ×10
+        self.assertEqual(Plan.objects.get(code='manager').price_annual_krw, 150000)  # 관리자 값 보존
+
     def test_seeds_landing_aligned_quota_numbers(self):
         """spec 2026-07-09 pricing-limits-align — 랜딩 요금표와 정확히 일치하는 4한도.
 

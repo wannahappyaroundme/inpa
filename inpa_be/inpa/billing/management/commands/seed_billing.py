@@ -136,6 +136,16 @@ class Command(BaseCommand):
             SeedMarker.objects.update_or_create(
                 key=_QUOTA_ALIGN_KEY, defaults={'version': _QUOTA_ALIGN_VERSION})
 
+        # ★ 연 요금 백필(2026-07-15) — price_annual_krw 이 비어 있는(null) 기존 유료 플랜 행만
+        #   월가×10 으로 채운다. 연구독 = 12개월을 10개월가로(2개월 무료). 관리자가 Django Admin
+        #   에서 설정한 값(non-null)은 보존하므로 마커 없이도 멱등(한 번 채워지면 다시 안 건드림).
+        #   무료 플랜은 연 상품이 없어 대상 아님.
+        _annual = {'plus': 199000, 'manager': 199000, 'super': 399000}
+        for plan in (plus, manager, superp):
+            if plan.price_annual_krw is None:
+                plan.price_annual_krw = _annual[plan.code]
+                plan.save(update_fields=['price_annual_krw'])
+
         User = get_user_model()
         backfilled = 0
         for user in User.objects.filter(subscription__isnull=True).iterator():
