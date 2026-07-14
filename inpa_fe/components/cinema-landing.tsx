@@ -256,9 +256,9 @@ export function CinemaLanding() {
         <HeroPosterSection />
         <ProductPreviewSection />
         <AIPipelineSection />
+        <SalesProcessMapSection />
         <BrandDefinitionSection />
         <PlannerJourneySection />
-        <SalesProcessMapSection />
         <ClosingHeroSection />
         <TrustBar />
         <FeaturesSection />

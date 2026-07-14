@@ -248,6 +248,24 @@ const PROCESS: { stage: string; groups: { name: string; items: { label: string; 
   ]},
 ];
 
+function ProcessGroupCard({ group }: { group: { name: string; items: { label: string; highlight?: boolean }[] } }) {
+  return (
+    <div className="rounded-xl border border-[var(--line)] p-3">
+      <div className="text-center text-[13px] font-bold text-[var(--ink)]">{group.name}</div>
+      <div className="mt-2 space-y-1.5">
+        {group.items.map((it) => (
+          <div key={it.label}
+            className={`rounded-lg text-center text-[12px] font-semibold py-1.5 px-1 ${it.highlight
+              ? "border border-[var(--danger)] text-[var(--danger)] bg-[var(--danger-tint)]"
+              : "bg-[var(--surface-2)] text-[var(--ink-3)]"}`}>
+            {it.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SalesProcessMapSection() {
   return (
     <section className="py-20 md:py-28 bg-[var(--surface)]">
@@ -255,7 +273,9 @@ export function SalesProcessMapSection() {
         <Reveal>
           <div className="mx-auto max-w-3xl rounded-2xl bg-[var(--brand)] text-white text-center font-extrabold text-[20px] sm:text-[24px] py-4">보험 영업</div>
         </Reveal>
-        <div className="mt-8 overflow-x-auto pb-4">
+
+        {/* 데스크탑: 가로 6단 보드 */}
+        <div className="mt-8 hidden md:block overflow-x-auto pb-4">
           <div className="flex gap-3 min-w-[1080px]">
             {PROCESS.map((col, i) => (
               <div key={col.stage} className="flex-1 min-w-[160px]">
@@ -264,27 +284,29 @@ export function SalesProcessMapSection() {
                   {i < PROCESS.length - 1 ? <span className="absolute -right-3 top-1/2 -translate-y-1/2 text-[var(--brand)] font-extrabold">›</span> : null}
                 </div>
                 <div className="mt-3 space-y-3">
-                  {col.groups.map((g) => (
-                    <div key={g.name} className="rounded-xl border border-[var(--line)] p-3">
-                      <div className="text-center text-[13px] font-bold text-[var(--ink)]">{g.name}</div>
-                      <div className="mt-2 space-y-1.5">
-                        {g.items.map((it) => (
-                          <div key={it.label}
-                            className={`rounded-lg text-center text-[12px] font-semibold py-1.5 px-1 ${it.highlight
-                              ? "border border-[var(--danger)] text-[var(--danger)] bg-[var(--danger-tint)]"
-                              : "bg-[var(--surface-2)] text-[var(--ink-3)]"}`}>
-                            {it.label}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                  {col.groups.map((g) => <ProcessGroupCard key={g.name} group={g} />)}
                 </div>
               </div>
             ))}
           </div>
         </div>
-        <p className="mt-2 text-center text-[13px] text-[var(--ink-3)] sm:hidden">옆으로 밀어서 전체 과정을 볼 수 있어요</p>
+
+        {/* 모바일: 세로 스택 — 옆으로 미는 대신 스크롤만으로 전체 과정이 한 줄로 이어짐 */}
+        <div className="mt-8 md:hidden flex flex-col gap-2">
+          {PROCESS.map((col, i) => (
+            <div key={col.stage}>
+              <div className="rounded-xl bg-[var(--brand)] text-white text-center font-bold text-[15px] py-2.5">{col.stage}</div>
+              <div className="mt-3 space-y-3">
+                {col.groups.map((g) => <ProcessGroupCard key={g.name} group={g} />)}
+              </div>
+              {i < PROCESS.length - 1 ? (
+                <div className="flex justify-center py-2" aria-hidden>
+                  <span className="text-[var(--brand)] font-extrabold text-[18px] leading-none inline-block rotate-90">›</span>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
