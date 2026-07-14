@@ -50,7 +50,9 @@ from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
 from inpa.customers.models import ConsentLog, Customer
 from inpa.notifications.models import NotifType, Notification
 
-from .views import _build_normalizer, _extract_pdf_lines, _persist_ocr
+from .views import (
+    _build_normalizer, _extract_pdf_lines, _parse_value, _persist_ocr,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,47 @@ def _company_label(ocr_data):
     if isinstance(loss_idx, int) and 0 <= loss_idx < len(LossInsurance.company):
         return LossInsurance.company[loss_idx]
     return None
+
+
+def _ocr_signature(ocr_data):
+    """파싱된 증권 1건의 안정 서명 — (보험사코드, 상품명, 정렬된 담보·금액 지문).
+
+    _persist_ocr 가 실제로 저장할 값과 같은 규약으로 계산한다(회사코드 오프셋·상품명·
+    담보명↔금액). 같은 증권을 다시 제출하면 같은 서명이 나와 중복 저장을 건너뛴다.
+    """
+    life_head = getattr(ocr_data, 'dict_life_head_data', None) or {}
+    loss_head = getattr(ocr_data, 'dict_loss_head_data', None) or {}
+    if life_head.get('생명보험', -1) > -1:
+        # ★ 사전 코드 공간 규약(_persist_ocr 와 동일): 생명 = 200 + LifeInsurance index.
+        company_code = 200 + life_head.get('생명보험', -1)
+        product = (life_head.get('상품명') or '').strip()
+    elif loss_head.get('손해보험', -1) > -1:
+        company_code = loss_head.get('손해보험', -1)
+        product = (loss_head.get('상품명') or '').strip()
+    else:
+        company_code = -1
+        product = (loss_head.get('상품명') or '').strip()
+
+    coverages = []
+    for _cat, subs in (getattr(ocr_data, 'dict_detail_data', None) or {}).items():
+        for _sub, dets in subs.items():
+            for det_name, value_list in dets.items():
+                for value in value_list:
+                    parsed = _parse_value(value)
+                    if not parsed or parsed['amount'] <= 0:
+                        continue
+                    coverages.append((det_name, parsed['amount']))
+    return (company_code, product, tuple(sorted(coverages)))
+
+
+def _ci_signature(ci):
+    """기존 CustomerInsurance 1건의 서명 — _ocr_signature 와 동일 규약으로 비교 가능."""
+    coverages = [
+        (case.detail.name, case.assurance_amount)
+        for case in ci.case_list.all()
+        if case.assurance_amount and case.assurance_amount > 0
+    ]
+    return (ci.company, (ci.name or '').strip(), tuple(sorted(coverages)))
 
 
 class SelfDiagnosisView(_NoIndexMixin, APIView):
@@ -270,6 +313,14 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                     doc_version=CONSENT_TEXTS_VERSION, ip=ip)
             # ── 파싱 성공 보험 전부 이 고객에 귀속 + 보험별 카드 페이로드 구성 ──
             if has_files:
+                # ★ 중복 방지(재제출 시 금액 2배 버그): 같은 phone 리드를 재사용하므로
+                #   이미 등록된 것과 동일한 증권(회사·상품·담보 지문 일치)은 다시 저장하지
+                #   않고 기존 보험을 그대로 카드에 쓴다. 같은 요청 안의 동일 파일 2장도 커버.
+                existing_by_sig = {}
+                for prev_ci in (customer.customer_insurance_list
+                                .filter(portfolio_type=1)
+                                .prefetch_related('case_list__detail')):
+                    existing_by_sig.setdefault(_ci_signature(prev_ci), prev_ci)
                 entries = []
                 for item in parsed_items:
                     if item['status'] != 'ok':
@@ -280,7 +331,14 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                             'status': item['status'], 'message': item['message'],
                         })
                         continue
-                    ci, created_cases = _persist_ocr(customer, item['ocr_data'])
+                    sig = _ocr_signature(item['ocr_data'])
+                    dup = existing_by_sig.get(sig)
+                    if dup is not None:
+                        ci = dup
+                        created_cases = ci.case_list.count()
+                    else:
+                        ci, created_cases = _persist_ocr(customer, item['ocr_data'])
+                        existing_by_sig[sig] = ci
                     # ★ 그 보험만의 트리(보유 담보만 가지치기) — 카드 탭 상세용. neutral 강제.
                     tree, _summary = build_coverage_tree(customer, [ci], held_only=True)
                     entries.append({

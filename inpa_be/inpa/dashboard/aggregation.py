@@ -125,7 +125,7 @@ def compute_portfolio_breakdown(user, today=None):
     churn 레이더와 같은 판정(_assess)을 재사용해 일관성 보장. 보유(portfolio_type=1)만 대상.
     """
     from inpa.insurances.churn import _assess  # 순환 import 회피 — 함수 내부 lazy
-    today = today or datetime.date.today()
+    today = today or timezone.localdate()  # ★ KST 기준(§7, recent_months 와 동일)
     qs = CustomerInsurance.objects.select_related('customer').filter(
         customer__owner=user, portfolio_type=1)
     # 회차(계약일 자동계산) 단계별 분포. 연체/미납(자동 인지 불가)은 쓰지 않음.
@@ -172,7 +172,7 @@ def compute_retention(user, today=None):
     분자(survived) = 그 중 N년 도달 시점까지 미해지(해지일이 계약일+N년 이후 포함).
     rate(%) = survived/reached 반올림. reached==0이면 None(평가 불가).
     """
-    today = today or datetime.date.today()
+    today = today or timezone.localdate()  # ★ KST 기준(§7, recent_months 와 동일)
     rows = list(CustomerInsurance.objects
                 .filter(customer__owner=user, portfolio_type=1)
                 .values('contract_date', 'is_cancelled', 'cancelled_at'))

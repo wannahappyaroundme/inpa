@@ -13,13 +13,13 @@ import {
   acceptMeeting,
   declineMeeting,
   type NotificationItem,
-  type NotifType,
+  type NotificationType,
 } from "@/lib/api";
 
 // ─── 타입별 아이콘·색 매핑 (dev/22 §4.2) ─────────────────────────────────────
 // expiry_soon: 보라 (cal-expiry). 빨강 금지(§97 비교안내 전용).
 const NOTIF_META: Record<
-  NotifType,
+  NotificationType,
   { icon: string; colorClass: string; label: string }
 > = {
   expiry_soon:       { icon: "🟣", colorClass: "text-purple-600",   label: "만기 임박" },
@@ -32,7 +32,17 @@ const NOTIF_META: Record<
   board_comment:     { icon: "💬", colorClass: "text-brand",                              label: "댓글" },
   board_like:        { icon: "❤️",  colorClass: "text-danger",                            label: "좋아요" },
   meeting_booked:    { icon: "📅", colorClass: "text-brand",                              label: "예약 요청" },
+  promotion_status:  { icon: "📦", colorClass: "text-brand",                              label: "판촉물 상태" },
+  promotion_digital_ready:     { icon: "📂", colorClass: "text-success",                  label: "전자자료 준비됨" },
+  promotion_digital_requested: { icon: "📝", colorClass: "text-ink3",                     label: "전자자료 요청" },
+  coverage_flag_requested:     { icon: "🔎", colorClass: "text-ink3",                     label: "담보 위치 확인 요청" },
+  signup_verify_flatline:      { icon: "📊", colorClass: "text-ink3",                     label: "가입 인증 점검" },
+  inquiry_answered:  { icon: "✉️",  colorClass: "text-brand",                             label: "문의 답변" },
+  inquiry_received:  { icon: "📮", colorClass: "text-ink3",                               label: "새 문의" },
 };
+
+// 미정의 타입 폴백 — '상담 약속'처럼 오해되지 않게 중립 라벨.
+const FALLBACK_META = { icon: "🔔", colorClass: "text-ink3", label: "알림" };
 
 // ─── 날짜 그룹 분류 ────────────────────────────────────────────────────────────
 function getDateGroup(createdAt: string): string {
@@ -90,7 +100,7 @@ function NotifCard({
   onAccept: (item: NotificationItem) => void;
   onDecline: (item: NotificationItem) => void;
 }) {
-  const meta = NOTIF_META[item.notif_type] ?? NOTIF_META["consult_reminder"];
+  const meta = NOTIF_META[item.notif_type] ?? FALLBACK_META;
 
   // 클릭 시 읽음 처리 + 이동
   const handleClick = () => {

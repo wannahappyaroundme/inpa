@@ -706,6 +706,23 @@ export async function listCustomers(
   return request<PaginatedResult<CustomerListItem>>("GET", `/customers/${query}`, undefined, true);
 }
 
+/**
+ * 모든 고객을 페이지를 따라가며 전부 로드(선택 드롭다운용).
+ * page=1만 부르면 21명째부터 못 고르므로, next가 없을 때까지 이어붙인다.
+ * 안전 상한(무한루프 방지): 최대 100페이지.
+ */
+export async function listAllCustomers(): Promise<CustomerListItem[]> {
+  const all: CustomerListItem[] = [];
+  let page = 1;
+  for (let i = 0; i < 100; i++) {
+    const res = await listCustomers({ page });
+    all.push(...res.results);
+    if (!res.next) break;
+    page += 1;
+  }
+  return all;
+}
+
 /** GET /api/v1/customers/{id}/ */
 export async function getCustomer(id: number): Promise<CustomerDetail> {
   return request<CustomerDetail>("GET", `/customers/${id}/`, undefined, true);
@@ -1622,9 +1639,21 @@ export type NotifType =
   | "board_like"
   | "meeting_booked";
 
+// 받은함(알림 센터)에 뜰 수 있는 전체 유형 = 리마인더용 NotifType + 판촉물/담보/문의/데드맨 등.
+// (리마인더 규칙은 NotifType 부분집합만 다루므로 ReminderRule 은 NotifType 유지.)
+export type NotificationType =
+  | NotifType
+  | "promotion_status"
+  | "promotion_digital_ready"
+  | "promotion_digital_requested"
+  | "coverage_flag_requested"
+  | "signup_verify_flatline"
+  | "inquiry_answered"
+  | "inquiry_received";
+
 export interface NotificationItem {
   id: number;
-  notif_type: NotifType;
+  notif_type: NotificationType;
   title: string;
   body: string;
   target_date: string | null;

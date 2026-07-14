@@ -169,3 +169,43 @@ class InsightsTests(TestCase):
         """기본 n=12 — ?months 미설정 시 12개 반환."""
         trend = self.client.get('/api/v1/dashboard/insights/').json()['monthly_trend']
         self.assertEqual(len(trend), 12)
+
+
+class AggregationTodayDefaultKstTests(TestCase):
+    """★ KST 회귀(§7): compute_retention / compute_portfolio_breakdown 의 today 기본값이
+    timezone.localdate(KST)여야 한다. date.today()(OS 로컬=UTC)면 월경계·연도 경계에서 어긋난다."""
+
+    def setUp(self):
+        self.user, _ = _make_planner('agg-kst@test.com')
+
+    def _held(self, contract_date):
+        from inpa.customers.models import Customer
+        from inpa.insurances.models import CustomerInsurance
+        cust = Customer.objects.create(owner=self.user, name='보유고객')
+        return CustomerInsurance.objects.create(
+            customer=cust, portfolio_type=1, contract_date=contract_date)
+
+    def test_retention_defaults_to_localdate(self):
+        import datetime as _dt
+        from unittest import mock
+        from .aggregation import compute_retention
+        # 계약일 2029-01-01: mock localdate(2030-06-15) 기준 1년 경과(reached=1),
+        # 실제 today(2026)면 미래라 미도달 → 기본값이 localdate 를 쓰는지로 갈린다.
+        self._held('2029-01-01')
+        with mock.patch('inpa.dashboard.aggregation.timezone.localdate',
+                        return_value=_dt.date(2030, 6, 15)):
+            out = compute_retention(self.user)
+        self.assertEqual(out['y1']['reached'], 1)
+
+    def test_portfolio_breakdown_defaults_to_localdate(self):
+        import datetime as _dt
+        from unittest import mock
+        from .aggregation import compute_portfolio_breakdown
+        # 계약일 2029-01-01: mock localdate(2030-06-15) 기준 약 17개월 경과 → watch(pre_25).
+        # 실제 today(2026)면 미래 계약이라 경과 0 → at_risk(pre_13). 기본값 출처로 버킷이 갈린다.
+        self._held('2029-01-01')
+        with mock.patch('inpa.dashboard.aggregation.timezone.localdate',
+                        return_value=_dt.date(2030, 6, 15)):
+            buckets = compute_portfolio_breakdown(self.user)
+        self.assertEqual(buckets['watch'], 1)
+        self.assertEqual(buckets['at_risk'], 0)

@@ -24,7 +24,7 @@ from inpa.accounts.models import Profile, User
 
 from datetime import timedelta
 
-from .coupons import redeem_coupon  # noqa: F401 — 회귀·문서용
+from .coupons import CouponError, redeem_coupon  # noqa: F401 — 회귀·문서용
 from .credit import LimitExceeded, check_and_consume
 from .models import Coupon, CouponRedemption, Plan, Subscription, UsageMeter
 
@@ -1069,3 +1069,185 @@ class LogClaudeUsageExtendedTests(TestCase):
         with patch('inpa.billing.models.ClaudeApiLog.objects.create',
                    side_effect=RuntimeError('db down')):
             log_claude_usage('ocr_parse', 'claude-opus-4-8', None)  # 예외 없이 통과해야 함
+
+
+# ──────────────────────────────────────────────────────────────────────
+# FIX 1 — UsageMeter.current_month() KST 버킷 (§7 UTC/KST 월 경계 트랩)
+# ──────────────────────────────────────────────────────────────────────
+class UsageMeterCurrentMonthKstTests(TestCase):
+    """current_month() 는 KST 로 버킷팅한다 (dashboard.MonthlyGoal.current_month 와 동형)."""
+
+    def test_utc_kst_month_boundary_uses_kst(self):
+        """2026-07-31 15:30 UTC = 2026-08-01 00:30 KST → 버킷은 '2026-08'."""
+        import datetime as _dt
+        from django.utils import timezone as djtz
+
+        utc_boundary = _dt.datetime(2026, 7, 31, 15, 30, tzinfo=_dt.timezone.utc)
+        with patch.object(djtz, 'now', return_value=utc_boundary):
+            self.assertEqual(UsageMeter.current_month(), '2026-08')
+
+
+# ──────────────────────────────────────────────────────────────────────
+# FIX 2 — resolve_effective_plan (만료·해지 구독 → Free 폴백)
+# ──────────────────────────────────────────────────────────────────────
+@override_settings(FREE_TIER_UNLIMITED=False)
+class ResolveEffectivePlanTests(TestCase):
+    """구독 status·expires_at 를 함께 판정해 실제 적용 Plan 을 돌려준다."""
+
+    def setUp(self):
+        self.free, self.plus = _get_or_create_plans()
+        self.user, _ = _make_user('resolveplan@test.com')
+
+    def _set_sub(self, **kw):
+        Subscription.objects.update_or_create(user=self.user, defaults=kw)
+
+    def test_cancelled_with_future_expiry_falls_back_to_free(self):
+        """관리자가 status='cancelled' 로 바꾸면 만료가 미래여도 Free 한도로 폴백."""
+        from .credit import resolve_effective_plan
+
+        self._set_sub(plan=self.plus, status='cancelled',
+                      expires_at=timezone.now() + timedelta(days=30))
+        self.assertEqual(resolve_effective_plan(self.user).code, 'free')
+
+        # 강제도 Free 한도(ocr=10)로 막힌다.
+        for _ in range(10):
+            check_and_consume(self.user, 'ocr')
+        with self.assertRaises(LimitExceeded):
+            check_and_consume(self.user, 'ocr')
+
+    def test_active_indefinite_returns_its_plan(self):
+        from .credit import resolve_effective_plan
+
+        self._set_sub(plan=self.plus, status='active', expires_at=None)
+        self.assertEqual(resolve_effective_plan(self.user).code, 'plus')
+
+    def test_trial_status_is_effective(self):
+        from .credit import resolve_effective_plan
+
+        self._set_sub(plan=self.plus, status='trial',
+                      expires_at=timezone.now() + timedelta(days=5))
+        self.assertEqual(resolve_effective_plan(self.user).code, 'plus')
+
+    def test_no_subscription_returns_free(self):
+        from .credit import resolve_effective_plan
+
+        self.assertEqual(resolve_effective_plan(self.user).code, 'free')
+
+
+# ──────────────────────────────────────────────────────────────────────
+# FIX 3 — 쿠폰이 활성 유료 구독을 덮어쓰거나 단축하지 않는다
+# ──────────────────────────────────────────────────────────────────────
+class CouponActivePlanGuardTests(TestCase):
+    """redeem_coupon — 무기한 동일·상위 플랜 미단축 / 다른 활성 플랜 미덮어쓰기 / free·만료 정상 부여."""
+
+    def setUp(self):
+        self.free, self.plus = _get_or_create_plans()
+        self.super_plan, _ = Plan.objects.get_or_create(
+            code='super',
+            defaults={
+                'display_name': 'Super', 'price_krw': 39900,
+                'limit_ocr': None, 'limit_ai_compare': None, 'limit_analysis': None,
+                'limit_promotion': None, 'limit_customer': None,
+            },
+        )
+        self.user, _ = _make_user('cpguard@test.com')
+
+    def _set_sub(self, **kw):
+        Subscription.objects.update_or_create(user=self.user, defaults=kw)
+
+    def _coupon(self, plan, code):
+        return Coupon.objects.create(plan=plan, code=code, duration_days=30,
+                                     max_redemptions=5)
+
+    def test_indefinite_plus_not_truncated(self):
+        """무기한 Plus 구독은 유한 Plus 쿠폰으로 단축되지 않는다(already, 소진 없음)."""
+        self._set_sub(plan=self.plus, status='active', expires_at=None)
+        c = self._coupon(self.plus, 'INPA-PLUSIND')
+        with self.assertRaises(CouponError) as ctx:
+            redeem_coupon(self.user, 'INPA-PLUSIND')
+        self.assertEqual(ctx.exception.code, 'already')
+        sub = Subscription.objects.get(user=self.user)
+        self.assertIsNone(sub.expires_at)  # 여전히 무기한
+        c.refresh_from_db()
+        self.assertEqual(c.redeemed_count, 0)  # 쿠폰 소진 안 됨
+
+    def test_different_active_plan_not_overwritten(self):
+        """활성 Super(유한) 구독을 Plus 쿠폰이 조용히 덮어쓰지 않는다(active_plan)."""
+        self._set_sub(plan=self.super_plan, status='active',
+                      expires_at=timezone.now() + timedelta(days=20))
+        self._coupon(self.plus, 'INPA-PLUSDIFF')
+        with self.assertRaises(CouponError) as ctx:
+            redeem_coupon(self.user, 'INPA-PLUSDIFF')
+        self.assertEqual(ctx.exception.code, 'active_plan')
+        sub = Subscription.objects.get(user=self.user)
+        self.assertEqual(sub.plan.code, 'super')  # 유지
+
+    def test_expired_subscription_upgrades_fine(self):
+        """만료된 구독은 쿠폰으로 정상 재부여된다."""
+        self._set_sub(plan=self.plus, status='active',
+                      expires_at=timezone.now() - timedelta(days=1))
+        self._coupon(self.plus, 'INPA-RENEW')
+        res = redeem_coupon(self.user, 'INPA-RENEW')
+        self.assertEqual(res['plan_code'], 'plus')
+        sub = Subscription.objects.get(user=self.user)
+        self.assertGreater(sub.expires_at, timezone.now())
+
+    def test_free_subscription_upgrades_fine(self):
+        """무기한 Free 구독은 Plus 쿠폰으로 정상 업그레이드된다."""
+        self._set_sub(plan=self.free, status='active', expires_at=None)
+        self._coupon(self.plus, 'INPA-FREEUP')
+        res = redeem_coupon(self.user, 'INPA-FREEUP')
+        self.assertEqual(res['plan_code'], 'plus')
+        sub = Subscription.objects.get(user=self.user)
+        self.assertEqual(sub.plan.code, 'plus')
+        self.assertIsNotNone(sub.expires_at)
+
+    def test_same_plan_finite_still_stacks(self):
+        """같은 Plus(유한) 잔여 기간 위에는 그대로 이어붙는다(기존 stack 동작 보존)."""
+        future = timezone.now() + timedelta(days=10)
+        self._set_sub(plan=self.plus, status='active', expires_at=future)
+        self._coupon(self.plus, 'INPA-STACK')
+        res = redeem_coupon(self.user, 'INPA-STACK')
+        self.assertEqual(res['plan_code'], 'plus')
+        sub = Subscription.objects.get(user=self.user)
+        # 이어붙였으므로 대략 기존 만료 + 30일.
+        self.assertGreater((sub.expires_at - future).days, 28)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# FIX 4 — GET /billing/usage/ 표시 한도 = 실제 강제 한도 (만료 시 Free + status 'expired')
+# ──────────────────────────────────────────────────────────────────────
+class UsageDisplayMatchesEnforcementTests(TestCase):
+    """만료·해지 구독이면 사용량 화면이 Free 한도 + status='expired' 를 보여준다."""
+
+    URL = '/api/v1/billing/usage/'
+
+    def setUp(self):
+        self.free, self.plus = _get_or_create_plans()
+        self.user, self.client = _make_user('usagedisplay@test.com')
+
+    def test_expired_subscription_shows_free_limits_and_expired_status(self):
+        Subscription.objects.update_or_create(
+            user=self.user,
+            defaults={'plan': self.plus, 'status': 'active',
+                      'expires_at': timezone.now() - timedelta(days=1)},
+        )
+        r = self.client.get(self.URL)
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data['plan']['code'], 'free')  # 실제 적용 한도
+        self.assertEqual(data['subscription']['status'], 'expired')
+        ocr = next(u for u in data['usage'] if u['action'] == 'ocr')
+        self.assertEqual(ocr['limit'], self.free.limit_ocr)  # Free 한도 표시
+
+    def test_active_plus_shows_plus_limits(self):
+        Subscription.objects.update_or_create(
+            user=self.user,
+            defaults={'plan': self.plus, 'status': 'active', 'expires_at': None},
+        )
+        r = self.client.get(self.URL)
+        data = r.json()
+        self.assertEqual(data['plan']['code'], 'plus')
+        self.assertEqual(data['subscription']['status'], 'active')
+        ocr = next(u for u in data['usage'] if u['action'] == 'ocr')
+        self.assertEqual(ocr['limit'], self.plus.limit_ocr)

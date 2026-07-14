@@ -47,6 +47,8 @@ class NorthStarEvent(models.Model):
     #    만드는데 이번 라운드는 마이그레이션 0 고정. choices는 표시용일 뿐 저장은 자유
     #    (create()는 choices 검증을 하지 않음). 다음 스키마 라운드에서 choices에 흡수.
     CALLBACK_REQUEST = 'callback_request'
+    # ⑧ 공유뷰(/s) '바로 상담 예약' CTA 클릭 — 분석→예약 전환 계측(FE가 이미 전송).
+    CTA_CLICK = 'cta_click'
 
     EVENT_TYPE_CHOICES = (
         (OCR_UPLOAD, '증권 OCR 업로드'),
@@ -55,6 +57,7 @@ class NorthStarEvent(models.Model):
         (CLIPBOARD_COPY, '클립보드 복사'),
         (SHARE_VIEW, '공유뷰 열람'),
         (REFERRAL_ATTRIBUTED, '인바운드 귀속'),
+        (CTA_CLICK, '예약 CTA 클릭'),
     )
 
     event_type = models.CharField('이벤트 종류', max_length=40, choices=EVENT_TYPE_CHOICES)

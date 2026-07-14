@@ -24,6 +24,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, ChartDetail
+from inpa.analytics.events import log_event
+from inpa.analytics.models import NorthStarEvent
 from inpa.billing.credit import LimitExceeded, check_and_consume
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer, PlannerBaseline
@@ -128,7 +130,10 @@ class CustomerHeatmapView(APIView):
         #    이미 owner 스코프를 통과한 customer 의 리스트에서 pk 필터 → 남의 보험/다른 고객의
         #    보험/없는 id/형식 오류 전부 404(존재 자체 은폐). 응답 형태는 전체 조회와 동일.
         #    ★ 404 판정을 크레딧 차감보다 먼저 해 잘못된 요청에 크레딧을 헛차감하지 않는다.
-        insurance_qs = customer.customer_insurance_list.prefetch_related(
+        #    ★ portfolio_type=1(보유)만 집계 — 제안(2)/템플릿(0)이 '보유 보장금액'으로
+        #    섞이지 않게 한다(dashboard/aggregation·churn·manager 와 동일 규칙).
+        insurance_qs = customer.customer_insurance_list.filter(
+            portfolio_type=1).prefetch_related(
             'case_list__detail__analysis_detail', 'case_list__detail__chart_detail')
         insurance_id = request.query_params.get('insurance_id')
         if insurance_id is not None:
@@ -237,6 +242,14 @@ class CustomerHeatmapView(APIView):
             'total_prepaid_insurance_premium', 'total_pay_insurance_premium',
         )
         summary = {k: result[k] for k in summary_keys}
+
+        # ── 5) 분석 조회 계측 (북극성 ANALYSIS_VIEW) — 관리자 사용량 '분석 조회' 집계용 ──
+        #    sender = 조회한 설계사(owner). log_event 는 예외 격리(계측 실패가 응답을 막지 않음).
+        #    요청당 1건만 적재(중복 계측 방지). insurance_id 필터 조회도 1회로 센다.
+        log_event(
+            NorthStarEvent.ANALYSIS_VIEW, customer=customer, sender=request.user,
+            channel='web',
+            payload={'customer_id': customer.id, 'insurance_count': len(insurance_list)})
 
         return Response({
             'customer_id': customer.id,

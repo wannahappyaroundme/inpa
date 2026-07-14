@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useAdminGuard } from "@/lib/useAdminGuard";
-import { adminCreateNotice, adminUpdateNotice, adminDeleteNotice } from "@/lib/adminApi";
-import { listNotices, type NoticeItem } from "@/lib/api";
+import { adminListNotices, adminCreateNotice, adminUpdateNotice, adminDeleteNotice } from "@/lib/adminApi";
+import { type NoticeItem } from "@/lib/api";
 import { Card } from "@/components/ui";
 
 function fmt(d: string | null): string {
@@ -31,7 +31,7 @@ export default function AdminAnnouncementsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listNotices();
+      const res = await adminListNotices();
       setNotices(res);
     } catch {
       setError("공지사항을 불러오지 못했어요.");

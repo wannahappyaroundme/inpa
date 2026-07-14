@@ -16,6 +16,7 @@
 """
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -51,7 +52,13 @@ def _build_usage_response(user) -> dict:
     sub가 없으면 Free Plan으로 폴백 (비정상 상태 방어).
     Django OneToOneField 역방향 캐시를 우회해 항상 최신 DB 상태를 조회한다.
     """
-    # select_related로 plan까지 단일 쿼리, 캐시 우회
+    from .credit import resolve_effective_plan
+
+    # ★ 표시 한도 = 실제 강제 한도. resolve_effective_plan 이 만료·해지 구독을 Free 로
+    #   폴백하므로 화면에 보이는 한도가 402 로 실제 막히는 한도와 일치한다.
+    plan = resolve_effective_plan(user)
+
+    # select_related로 plan까지 단일 쿼리, 캐시 우회 — 폴백 여부 판정용.
     sub = (
         Subscription.objects
         .select_related('plan')
@@ -59,14 +66,17 @@ def _build_usage_response(user) -> dict:
         .first()
     )
     if sub is not None:
-        plan = sub.plan
+        effective = (
+            sub.status in ('active', 'trial')
+            and (sub.expires_at is None or sub.expires_at > timezone.now())
+        )
+        # 폴백이 발동하면(만료·해지) 상태를 '만료'로 표기해 Free 한도 표시와 맞춘다.
         sub_data = {
-            'status': sub.status,
+            'status': sub.status if effective else 'expired',
             'expires_at': sub.expires_at.isoformat() if sub.expires_at else None,
         }
     else:
         # 가입 시그널 누락 방어 — Free Plan 폴백
-        plan = Plan.objects.filter(code='free').first()
         sub_data = {'status': 'active', 'expires_at': None}
 
     ym = UsageMeter.current_month()
@@ -148,6 +158,7 @@ class CouponRedeemView(APIView):
             status_map = {
                 'not_found': status.HTTP_404_NOT_FOUND,
                 'already': status.HTTP_409_CONFLICT,
+                'active_plan': status.HTTP_409_CONFLICT,
             }
             code = status_map.get(exc.code, status.HTTP_410_GONE)
             return Response({'code': exc.code, 'detail': str(exc)}, status=code)

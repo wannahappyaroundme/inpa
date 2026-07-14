@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from inpa.analytics.views import _NoIndexMixin
 from inpa.billing.credit import user_can_use_team
 from inpa.core.permissions import IsEmailVerified
 
@@ -71,7 +72,7 @@ class TeamInviteLinkView(APIView):
                          'ttl_days': settings.TEAM_INVITE_TTL_DAYS})
 
 
-class TeamInviteInfoView(APIView):
+class TeamInviteInfoView(_NoIndexMixin, APIView):
     """GET /api/v1/manager/invite-info/?token= — AllowAny(가입 화면 칩용), throttled.
 
     유효하면 {manager_name, affiliation}, 무효/만료면 404 — FE 는 칩 없이 일반 가입 진행.

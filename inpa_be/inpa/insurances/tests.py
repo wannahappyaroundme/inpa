@@ -534,6 +534,25 @@ class PiiMaskUnitTests(TestCase):
             masked = _strip_identity(text)
             self.assertNotIn('김철수', masked, f'{label} 근접 이름이 안 지워짐')
 
+    def test_label_before_structural_word_still_masks_following_name(self):
+        """★ 회귀(누수 버그): 라벨과 실명 사이에 구조어('성명')·'~명' 접미·글자 사이
+        공백이 끼어도 그 다음의 실제 이름은 반드시 마스킹된다.
+
+        과거엔 '성명'이 이름 후보로 잡혀 NOT_NAMES 로 스킵되고 re.sub 이 그 뒤부터
+        재개돼, 라벨을 잃은 다음 줄 실명이 마스킹되지 않고 국외전송 텍스트에 샜다.
+        """
+        from inpa.core.ocr.pii_mask import _strip_identity
+        cases = [
+            ('보험계약자\n성명\n김효준', '김효준'),
+            ('계약자 성명: 홍길동', '홍길동'),
+            ('피보험자 성명 김철수', '김철수'),
+            ('계약자명 홍길동', '홍길동'),
+            ('계 약 자 명\n김행임', '김행임'),   # 현대류 글자 사이 공백 표기
+        ]
+        for text, name in cases:
+            masked = _strip_identity(text)
+            self.assertNotIn(name, masked, f'{text!r} 실명이 마스킹되지 않고 샜다')
+
     def test_standalone_korean_word_without_label_not_masked(self):
         """★ 라벨이 없으면 한글 2~4자 단어(담보명 등)는 절대 마스킹 대상이 아니다."""
         from inpa.core.ocr.pii_mask import _strip_identity
@@ -1110,6 +1129,20 @@ class ChurnSyncAlertsTests(TestCase):
         r = self.client.post('/api/v1/churn-radar/sync-alerts/')
         self.assertEqual(r.json()['created'], 0)
 
+    def test_dedupe_key_uses_kst_localdate(self):
+        """★ KST 회귀(§7): sync-alerts dedupe 키(target_date)가 KST localdate 여야 한다.
+        date.today()(UTC)면 자정 근처에 하루 어긋난 중복 알림이 생긴다."""
+        from unittest import mock
+        from inpa.notifications.models import Notification, NotifType
+        _make_held(self.customer, period=12)  # 13회차 1회 전 → 임박
+        pinned = _dt.date(2027, 3, 9)
+        with mock.patch('inpa.insurances.churn.timezone.localdate', return_value=pinned):
+            r = self.client.post('/api/v1/churn-radar/sync-alerts/')
+        self.assertEqual(r.json()['created'], 1)
+        note = Notification.objects.get(
+            owner=self.user, notif_type=NotifType.UNPAID_D_ALERT)
+        self.assertEqual(note.target_date, pinned)
+
 
 class SelfDiagnosisGateTests(TestCase):
     """셀프진단 인바운드 — 본인정보 필수 + 동의 게이트 + 무첨부 리드 접수(OCR 이전 단계)."""
@@ -1337,6 +1370,28 @@ class SelfDiagnosisMultiPdfTests(TestCase):
         self.assertEqual(body['summary']['monthly_premiums'], 60000)
         self.assertTrue(body['analyzed'])
         self.assertNotIn('notice', body)
+
+    def test_resubmission_same_policy_no_double(self):
+        """★ 재제출(같은 phone 리드 재사용) 시 동일 증권은 다시 저장하지 않는다 → 금액 2배 방지."""
+        def _run():
+            with mock.patch('inpa.insurances.self_diagnosis.claude_parse',
+                            return_value=_fake_ocr_product('A종합보험')), \
+                    mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines',
+                               return_value=(['line'], None)):
+                return self._post([self._pdf('a.pdf')])
+
+        r1 = _run()
+        self.assertEqual(r1.status_code, 201, r1.content)
+        r2 = _run()  # 같은 사람이 같은 증권을 다시 제출
+        self.assertEqual(r2.status_code, 201, r2.content)
+
+        lead = Customer.objects.get(owner=self.planner, lead_source='self_diagnosis')
+        # ★ 보험 1건만 — 중복 저장 없음(2건이면 /d 금액·CRM 행이 2배로 부풀던 버그).
+        self.assertEqual(CustomerInsurance.objects.filter(customer=lead).count(), 1)
+        # 최상위 요약(보유 합산)이 2배로 부풀지 않는다.
+        self.assertEqual(r2.json()['summary']['monthly_premiums'], 30000)
+        # 카드도 1건(기존 보험 재사용).
+        self.assertEqual(len(r2.json()['insurances']), 1)
 
     def test_six_files_processes_five_with_notice(self):
         """스펙 TC2: 6장 업로드 → 5장만 처리 + notice 안내(초과분 파싱 0회)."""
@@ -2190,3 +2245,101 @@ class CoverageExpansionRegressionTests(TestCase):
         det5 = resolve_std_detail('처치', '표적항암', '표적항암방사선치료')
         self.assertIsNotNone(det5)
         self.assertEqual(det5.name, '표적항암방사선치료비')
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 크레딧 되돌리기(FIX 1) + 북극성 OCR_UPLOAD 계측(FIX 2)
+# ──────────────────────────────────────────────────────────────────────
+def _parse_returns_none(outcome=None):
+    """claude_parse mock — meta[outcome]을 채우고 None(파싱 실패)을 반환한다.
+
+    outcome=None 이면 meta 를 비운 채 None 반환 → 뷰의 fallback('api_error')을 탄다.
+    """
+    def _inner(lines, normalizer=None, meta=None):
+        if outcome is not None and meta is not None:
+            meta['outcome'] = outcome
+        return None
+    return _inner
+
+
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False,
+                   FREE_TIER_UNLIMITED=False)
+class OcrCreditRefundTests(TestCase):
+    """FIX 1 — 전송 계층 실패(timeout/api_error 등)는 방금 차감한 ocr 크레딧을 되돌린다.
+
+    Claude 가 출력을 만든 실패(json_invalid/empty)는 비용이 발생했으므로 차감을 유지한다.
+    """
+
+    def setUp(self):
+        from inpa.billing.models import Plan
+        # Free 플랜(ocr 한도 5) 시드 — FREE_TIER_UNLIMITED=False 라 실제 집계.
+        Plan.objects.get_or_create(
+            code='free', defaults={'display_name': '무료', 'price_krw': 0, 'limit_ocr': 5})
+        self.user, self.client = _make_planner('refund@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='되돌리기고객')
+        _grant_overseas(self.customer)
+
+    def _ocr_count(self):
+        from inpa.billing.models import UsageMeter
+        m = UsageMeter.objects.filter(
+            user=self.user, action='ocr', year_month=UsageMeter.current_month()).first()
+        return m.count if m else 0
+
+    def test_transport_failure_refunds_credit(self):
+        """Claude 호출 실패(fallback api_error) → 422 + ocr 카운터 0(차감 후 되돌림)."""
+        with mock.patch('inpa.insurances.views.claude_parse',
+                        side_effect=_parse_returns_none(None)), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['dummy'], None)):
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual(self._ocr_count(), 0)  # ★ 차감 1 → 되돌림 1 = 0
+
+    def test_json_invalid_failure_keeps_credit(self):
+        """Claude 가 출력을 만든 실패(json_invalid) → 422 + ocr 카운터 1(차감 유지)."""
+        with mock.patch('inpa.insurances.views.claude_parse',
+                        side_effect=_parse_returns_none('json_invalid')), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['dummy'], None)):
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual(self._ocr_count(), 1)  # ★ 실제 비용 발생 → 차감 유지
+
+
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
+class OcrNorthStarEventTests(TestCase):
+    """FIX 2 — 설계사 OCR 업로드 성공 시 NorthStarEvent(OCR_UPLOAD) 1건 적재."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('nsevent@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='계측고객')
+        _grant_overseas(self.customer)
+
+    def test_successful_upload_logs_ocr_upload_event(self):
+        from inpa.analytics.models import NorthStarEvent
+        with mock.patch('inpa.insurances.views.claude_parse', return_value=_fake_ocr_data()), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['삼성화재 종합보험 암진단 5천만원'], None)):
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+        self.assertEqual(r.status_code, 201, r.content)
+        events = NorthStarEvent.objects.filter(event_type=NorthStarEvent.OCR_UPLOAD)
+        self.assertEqual(events.count(), 1)
+        ev = events.first()
+        self.assertEqual(ev.sender_id, self.user.id)
+        self.assertEqual(ev.customer_id, self.customer.id)
+
+    def test_failed_parse_does_not_log_ocr_upload_event(self):
+        """파싱 실패(성공 경로 아님)면 OCR_UPLOAD 이벤트를 남기지 않는다."""
+        from inpa.analytics.models import NorthStarEvent
+        with mock.patch('inpa.insurances.views.claude_parse',
+                        side_effect=_parse_returns_none(None)), \
+                mock.patch('inpa.insurances.views._extract_pdf_lines',
+                           return_value=(['dummy'], None)):
+            r = self.client.post(
+                _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual(
+            NorthStarEvent.objects.filter(event_type=NorthStarEvent.OCR_UPLOAD).count(), 0)

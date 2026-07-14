@@ -195,6 +195,64 @@ class BookingCoreTests(TestCase):
         self.customer.refresh_from_db()
         self.assertEqual(self.customer.sales_stage, Customer.STAGE_CONTRACT)
 
+    def test_short_duration_slot_bookable(self):
+        # 소요시간 12분(15분 미만) — GET가 노출한 슬롯이 POST에서도 그대로 예약돼야 함.
+        # 예전엔 POST가 15분 grid 로 재확인해 15분 비배수 슬롯이 409였다(grid 불일치).
+        self.profile_a.booking_default_duration = 12
+        self.profile_a.save(update_fields=['booking_default_duration'])
+        _all_week_workhours(self.user_a)
+        token = make_booking_token(self.customer)
+        slots = [s['start_at'] for s in self.public.get(f'/api/v1/b/{token}/').json()['slots']]
+        self.assertTrue(slots)
+        off_grid = None
+        for s in slots:
+            if timezone.datetime.fromisoformat(s).minute % 15 != 0:
+                off_grid = s  # 예: 09:12 — 15분 grid 에는 없는 슬롯
+                break
+        self.assertIsNotNone(off_grid, '12분 소요면 15분 비배수 슬롯이 있어야 함')
+        r = self.public.post(f'/api/v1/b/{token}/',
+                             {'start_at': off_grid, 'method': 'phone'}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+
+    def test_double_accept_is_noop(self):
+        # 이미 확정된 예약을 다시 수락하면 400(멱등) — 구글 캘린더 중복 생성 방지.
+        _all_week_workhours(self.user_a)
+        token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
+        self.public.post(f'/api/v1/b/{token}/',
+                         {'start_at': start_at, 'method': 'phone'}, format='json')
+        meeting = Meeting.objects.get(customer=self.customer)
+        r1 = self.client_a.post(f'/api/v1/meetings/{meeting.id}/accept/')
+        self.assertEqual(r1.status_code, 200)
+        r2 = self.client_a.post(f'/api/v1/meetings/{meeting.id}/accept/')
+        self.assertEqual(r2.status_code, 400)
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_CONFIRMED)
+
+    def test_accept_snapshots_location_for_in_person(self):
+        # 대면 수락 시 설계사 기본 장소가 미팅에 스냅샷된다(전화 예약은 장소 없음).
+        _all_week_workhours(self.user_a)
+        token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
+        self.public.post(f'/api/v1/b/{token}/',
+                         {'start_at': start_at, 'method': 'in_person'}, format='json')
+        meeting = Meeting.objects.get(customer=self.customer)
+        self.assertEqual(meeting.location_detail, '')  # 신청 시엔 빈 값
+        self.client_a.post(f'/api/v1/meetings/{meeting.id}/accept/')
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.location_detail, '강남역 스타벅스')
+
+    def test_accept_phone_leaves_location_empty(self):
+        _all_week_workhours(self.user_a)
+        token = make_booking_token(self.customer)
+        start_at = _first_slot(self.public, token)
+        self.public.post(f'/api/v1/b/{token}/',
+                         {'start_at': start_at, 'method': 'phone'}, format='json')
+        meeting = Meeting.objects.get(customer=self.customer)
+        self.client_a.post(f'/api/v1/meetings/{meeting.id}/accept/')
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.location_detail, '')
+
     def test_decline_frees_time(self):
         _all_week_workhours(self.user_a)
         token = make_booking_token(self.customer)

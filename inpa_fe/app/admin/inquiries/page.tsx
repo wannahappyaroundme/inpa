@@ -9,8 +9,9 @@ import {
   adminUpdateInquiryStatus,
   adminGetInquiry,
   type AdminInquiryListItem,
+  type AdminInquiryDetail,
 } from "@/lib/adminApi";
-import { type InquiryStatus, type InquiryDetail } from "@/lib/api";
+import { type InquiryStatus } from "@/lib/api";
 import { Card } from "@/components/ui";
 
 const STATUS_LABELS: Record<InquiryStatus, string> = {
@@ -38,7 +39,7 @@ function InquiriesContent() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [detail, setDetail] = useState<InquiryDetail | null>(null);
+  const [detail, setDetail] = useState<AdminInquiryDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [replyText, setReplyText] = useState("");
@@ -253,7 +254,7 @@ function InquiriesContent() {
                   <div className="border-t border-line pt-3 mb-3 space-y-3">
                     {detail.replies.map((r) => (
                       <div key={r.id} className="bg-accent-tint rounded-xl px-3 py-2.5">
-                        <div className="text-[11px] text-ink3 mb-1">{r.author_name} · {fmt(r.created_at)}</div>
+                        <div className="text-[11px] text-ink3 mb-1">{r.author_email} · {fmt(r.created_at)}</div>
                         <p className="text-[13px] text-ink whitespace-pre-wrap">{r.body}</p>
                       </div>
                     ))}

@@ -53,10 +53,13 @@ class ScheduleItemViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             bounds = _month_bounds_utc(month)
             if bounds:
                 start, end = bounds
-                # 단건은 그 달, 반복 차단(recur_weekday)은 항상 포함(FE 가 주차별 전개)
+                # 단건은 그 달, 반복 차단(recur_weekday)은 항상 포함(FE 가 주차별 전개).
+                # ★ 매년 반복 생일·기념일(anniversary_md)은 생성 연도 이후 모든 달에 항상 포함해야
+                #   다음 해 캘린더에서 사라지지 않음(FE 가 mm 매칭으로 해당 월에 배치).
                 qs = qs.filter(
                     Q(start_at__gte=start, start_at__lt=end)
-                    | Q(recur_weekday__isnull=False))
+                    | Q(recur_weekday__isnull=False)
+                    | ~Q(anniversary_md=''))
         return qs
 
     @action(detail=True, methods=['post'])

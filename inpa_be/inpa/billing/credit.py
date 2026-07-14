@@ -51,6 +51,38 @@ def free_tier_unlimited() -> bool:
 # 허용된 kind 목록 (정본 5종 — dev/02 §16 + spec 2026-07-09 'customer')
 _ALLOWED_KINDS = frozenset({'ocr', 'ai_compare', 'analysis', 'promotion', 'customer'})
 
+# 구독이 '유효'하다고 볼 상태(user_can_use_team 와 동형 판정 — 만료·해지 폴백).
+_EFFECTIVE_STATUSES = frozenset({'active', 'trial'})
+
+
+def resolve_effective_plan(user):
+    """실제 한도 계산에 적용할 Plan 을 반환한다 (단일 진실 소스).
+
+    구독의 plan 을 돌려주는 것은 **모든 조건이 참일 때만**이다:
+      1) 구독이 존재하고,
+      2) status ∈ {active, trial} 이고 (관리자가 cancelled/expired 로 바꾸면 제외),
+      3) expires_at 이 없거나(=무기한) 아직 지나지 않았다.
+    그 밖(구독 없음·비활성·해지·만료)은 Free 한도로 폴백한다.
+
+    ★ user_can_use_team 과 status 판정 의미를 맞춘다 — 표시(사용량 화면)와
+      실제 강제(_consume)가 어긋나지 않도록 이 헬퍼를 공용으로 쓴다.
+    """
+    from .models import Subscription  # 순환 import 방지
+
+    sub = (
+        Subscription.objects
+        .select_related('plan')
+        .filter(user=user)
+        .first()
+    )
+    if sub is None:
+        return _get_free_plan()
+    if sub.status not in _EFFECTIVE_STATUSES:
+        return _get_free_plan()
+    if sub.expires_at is not None and sub.expires_at <= timezone.now():
+        return _get_free_plan()
+    return sub.plan
+
 
 def check_and_consume(user, kind: str) -> dict:
     """사용 전 호출. 한도 이내이면 count+1 후 반환, 초과이면 LimitExceeded raise.
@@ -100,22 +132,12 @@ def _consume(user, kind: str, n: int) -> dict:
     if free_tier_unlimited():
         return {'action': kind, 'count': 0, 'limit': None, 'remaining': None}
 
-    from .models import Plan, UsageMeter, Subscription  # 순환 import 방지
+    from .models import UsageMeter  # 순환 import 방지
 
-    # select_related로 plan까지 단일 쿼리. getattr 역방향 캐시를 우회해
-    # 관리자 Subscription 변경 직후에도 최신 plan을 반영한다 (AC-B7).
-    sub = (
-        Subscription.objects
-        .select_related('plan')
-        .filter(user=user)
-        .first()
-    )
-    if sub is not None and (sub.expires_at is None or sub.expires_at > timezone.now()):
-        plan = sub.plan
-    else:
-        # 구독이 없거나, 기간제 구독(쿠폰·체험)이 만료됐으면 Free 한도로 폴백.
-        # expires_at=null = 무기한(Free 또는 무기한 Plus) → 만료 판정 없음.
-        plan = _get_free_plan()
+    # 유효 구독일 때만 그 plan, 아니면 Free 폴백(status·expires_at 동시 판정).
+    # resolve_effective_plan 이 매번 DB 조회 → 관리자 변경 직후에도 최신 반영(AC-B7),
+    # 역방향 OneToOne 캐시도 우회한다.
+    plan = resolve_effective_plan(user)
 
     ym = UsageMeter.current_month()
     lim = plan.get_limit(kind)  # None = 무제한 sentinel

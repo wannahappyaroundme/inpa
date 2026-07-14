@@ -230,15 +230,37 @@ class GoogleLoginView(APIView):
         else:
             user = User.objects.filter(email__iexact=email).first()
             if user is not None:
-                # 기존(이메일/비번) 계정에 링크 — 비번 무손상(병행).
+                # 기존(이메일/비번) 계정에 링크.
                 profile, _ = Profile.objects.get_or_create(user=user)
                 if profile.google_sub and profile.google_sub != sub:
                     return Response({'code': 'GOOGLE_ALREADY_LINKED',
                                      'detail': '이미 다른 구글 계정에 연결된 이메일입니다.'},
                                     status=status.HTTP_409_CONFLICT)
-                if not profile.google_sub:
-                    profile.google_sub = sub
-                    profile.save(update_fields=['google_sub'])
+                # ★ 보안: 선점(미인증) 계정 탈취 방지. 구글이 이메일 소유권을 증명했으므로,
+                #   아직 인증되지 않은(미활성/미인증) 계정이면 활성화 + 인증 도장을 찍고,
+                #   그 계정에 남아 있던 (선점자의) 비번을 무효화한다. 본인은 비밀번호 재설정으로
+                #   언제든 복구 가능. 이미 인증된 계정의 비번은 병행 로그인용으로 보존.
+                unverified = (not user.is_active) or (profile.email_verified_at is None)
+                with transaction.atomic():
+                    if unverified:
+                        user_fields = []
+                        if not user.is_active:
+                            user.is_active = True
+                            user_fields.append('is_active')
+                        if user.has_usable_password():
+                            user.set_unusable_password()
+                            user_fields.append('password')
+                        if user_fields:
+                            user.save(update_fields=user_fields)
+                    profile_fields = []
+                    if unverified and profile.email_verified_at is None:
+                        profile.email_verified_at = timezone.now()
+                        profile_fields.append('email_verified_at')
+                    if not profile.google_sub:
+                        profile.google_sub = sub
+                        profile_fields.append('google_sub')
+                    if profile_fields:
+                        profile.save(update_fields=profile_fields)
             else:
                 # 신규 구글 사용자 — 구글이 이메일 검증했으므로 is_active=True, 비번 미설정.
                 with transaction.atomic():

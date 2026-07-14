@@ -93,6 +93,7 @@ function buildAgenda(scheduleItems: ScheduleItem[], meetings: Meeting[]): Map<st
     add({ ymd: kstYmd(s.start_at), time: t || "종일", title: s.title, cat, sort: t ? hhmmToMin(t) : -1 });
   }
   for (const m of meetings) {
+    if (m.status !== "confirmed") continue; // 확정된 미팅만 캘린더에 표시(대기·취소·거절 제외)
     const t = kstTime(m.start_at);
     add({ ymd: kstYmd(m.start_at), time: t || "-", title: `${m.customer_name} · ${m.method_display}`, cat: "meeting", sort: t ? hhmmToMin(t) : 0 });
   }
@@ -167,7 +168,8 @@ export default function HomePage() {
     listCustomers({ page: 1 })
       .then((res) => setCustomerCount(res.count))
       .catch(() => { setCustomerCount(null); setLoadFailed(true); });
-    listMeetings(true)
+    // 캘린더는 지난·진행 중 미팅도 그려야 하므로 upcoming 필터 없이 전체를 받아 날짜별로 표시.
+    listMeetings(false)
       .then((res) => setMeetings(res.results))
       .catch(() => { setMeetings([]); setLoadFailed(true); });
     getDashboard()

@@ -38,6 +38,8 @@ from inpa.analysis.models import (
     AnalysisCategory, AnalysisDetail, AnalysisSubCategory, NormalizationDict,
     UnmatchedLog,
 )
+from inpa.analytics.events import log_event
+from inpa.analytics.models import NorthStarEvent
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
 from inpa.core.ocr.claude_parser import claude_parse
 from inpa.core.permissions import IsEmailVerified
@@ -58,6 +60,27 @@ logger = logging.getLogger(__name__)
 
 # 최대 업로드 크기 (foliio 동일 정책)
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+# Claude 가 결과를 만들지 못한 '전송 계층' 실패 outcome — 방금 차감한 크레딧을 되돌린다.
+# empty / json_invalid 는 Claude 가 출력을 만든(=비용 발생) 것이므로 되돌리지 않는다.
+_TRANSPORT_FAILURE_OUTCOMES = frozenset({'no_key', 'package_missing', 'timeout', 'api_error'})
+
+
+def _refund_ocr_credit(user):
+    """전송 계층 실패로 결과를 못 만들었을 때, check_and_consume 로 방금 올린 ocr 카운터 1건을 되돌린다.
+
+    - 베타(FREE_TIER_UNLIMITED=True)면 UsageMeter 행 자체가 없어 0건 갱신 = 무해한 no-op.
+    - count>0 행만 -1 (PositiveIntegerField 음수 방지).
+    - 되돌리기 실패가 사용자 응답을 막지 않도록 예외 격리(계측·정산은 부가 처리).
+    """
+    try:
+        from inpa.billing.models import UsageMeter
+        UsageMeter.objects.filter(
+            user=user, action='ocr', year_month=UsageMeter.current_month(),
+            count__gt=0,
+        ).update(count=F('count') - 1)
+    except Exception as exc:  # 되돌리기 실패는 삼킨다 — 본 응답을 깨뜨리지 않는다.
+        logger.warning('[ocr-upload] credit refund failed: %s', type(exc).__name__)
 
 
 def _credit_exhausted_response(exc: LimitExceeded, user) -> Response:
@@ -429,6 +452,11 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
         )
 
         if ocr_data is None:
+            # ★ FIX: Claude 호출 자체가 실패(timeout/api_error/no_key 등)해 결과가 없으면
+            #   방금 차감한 ocr 크레딧을 되돌린다. empty/json_invalid(=Claude 가 응답을
+            #   만든 경우)는 실제 비용이 발생했으므로 차감을 유지한다.
+            if outcome in _TRANSPORT_FAILURE_OUTCOMES:
+                _refund_ocr_credit(request.user)
             return Response(
                 {'code': 'PARSE_FAILED',
                  'detail': '증권을 인식하지 못했습니다. 직접 입력해 주세요.'},
@@ -437,6 +465,11 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
         # ── 7) 포트폴리오 + 담보 생성 (트랜잭션) + 계산 엔진 ──
         with transaction.atomic():
             ci, created_cases = _persist_ocr(customer, ocr_data, portfolio_type=portfolio_type)
+
+        # ── 7.05) 북극성 계측 — 증권 OCR 업로드 성공(깔때기 입구). 실패는 격리(log_event 내부). ──
+        #    설계사(owner) 능동 업로드만 집계 — 셀프진단(/d) 공개 경로는 여기로 오지 않는다.
+        log_event(NorthStarEvent.OCR_UPLOAD, customer=customer,
+                  sender=request.user, channel='web')
 
         # ── 7.1) 정확도 다중검사 — Claude 교차검증(원문↔파싱). 실패는 격리. ──
         if getattr(settings, 'OCR_VERIFY_ENABLED', False):

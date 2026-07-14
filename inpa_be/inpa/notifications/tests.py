@@ -96,6 +96,38 @@ class OwnerIsolationTests(TestCase):
         self.assertTrue(notif_a.is_read)
         self.assertFalse(self.notif_b.is_read)
 
+    def test_admin_read_all_does_not_mark_other_users(self):
+        """★ 관리자여도 read-all은 본인 알림만 읽음 처리 — OwnedQuerySetMixin의 관리자
+        전체조회 우회로 전 사용자 알림을 교차 테넌시로 쓰던 버그 회귀 방지."""
+        admin = User.objects.create_user(email='admin@test.com', password='inpaPass123!')
+        admin.is_active = True
+        admin.save(update_fields=['is_active'])
+        Profile.objects.create(user=admin, is_admin=True, email_verified_at=timezone.now())
+        admin_client = APIClient()
+        admin_client.force_authenticate(user=admin)
+
+        own = _make_notif(admin)
+        r = admin_client.post('/api/v1/notifications/read-all/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['updated'], 1)  # 관리자 본인 1건만
+        own.refresh_from_db()
+        self.notif_b.refresh_from_db()
+        self.assertTrue(own.is_read)
+        self.assertFalse(self.notif_b.is_read)  # 다른 사용자 알림은 그대로
+
+    def test_admin_unread_count_only_counts_own(self):
+        """★ 관리자 unread-count도 본인 것만 집계(전 사용자 합산 금지)."""
+        admin = User.objects.create_user(email='admin2@test.com', password='inpaPass123!')
+        admin.is_active = True
+        admin.save(update_fields=['is_active'])
+        Profile.objects.create(user=admin, is_admin=True, email_verified_at=timezone.now())
+        admin_client = APIClient()
+        admin_client.force_authenticate(user=admin)
+        _make_notif(admin)  # 본인 1건
+        r = admin_client.get('/api/v1/notifications/unread-count/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['unread_count'], 1)  # B의 알림은 제외
+
 
 # ─── 2. 읽음 처리 ─────────────────────────────────────────────────
 
@@ -946,3 +978,32 @@ class SignupVerificationFlatlineTests(TestCase):
         self.assertEqual(result['errors'], {})
         marker = SeedMarker.objects.get(key=HEARTBEAT_KEY)
         self.assertEqual(marker.version, tz.localdate().isoformat())
+
+    def test_detects_signups_from_previous_afternoon_rolling_window(self):
+        """★ 롤링 창(지금-lookback일 ~ 지금) — 08:00 실행 시 전날 오후 가입도 포착.
+        달력-오늘만 보던 창은 전날 오후 가입을 놓쳐 인증 장애를 늦게 잡던 버그 회귀 방지."""
+        # 전날 오후(약 17시간 전)로 가입 시각 백데이팅 — 달력상 '오늘'이 아니지만
+        # 롤링 창(지금-1일) 안에는 들어온다.
+        prev_afternoon = tz.now() - timedelta(hours=17)
+        for i in range(3):
+            u = self._signup(f'prevpm{i}@test.com')
+            User.objects.filter(pk=u.pk).update(date_joined=prev_afternoon)
+        created = check_signup_verification_flatline(self.today)
+        self.assertEqual(created, 1)
+        self.assertTrue(Notification.objects.filter(
+            owner=self.admin, notif_type=NotifType.SIGNUP_VERIFY_FLATLINE).exists())
+
+
+# ─── 문의/피드백 알림 유형 버킷 매핑 (support) ────────────────────────
+
+from .models import ADMIN_NOTIF_TYPES, BOARD_NOTIF_TYPES  # noqa: E402
+
+
+class InquiryNotifTypeBucketTests(TestCase):
+    """1:1 문의 알림 2종이 올바른 네비 카테고리 버킷에 들어간다."""
+
+    def test_inquiry_answered_in_board_bucket(self):
+        self.assertIn(NotifType.INQUIRY_ANSWERED.value, BOARD_NOTIF_TYPES)
+
+    def test_inquiry_received_in_admin_bucket(self):
+        self.assertIn(NotifType.INQUIRY_RECEIVED.value, ADMIN_NOTIF_TYPES)

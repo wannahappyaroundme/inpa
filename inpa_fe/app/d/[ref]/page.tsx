@@ -184,7 +184,10 @@ export default function SelfDiagnosisPage() {
     if (!/^01[0-9]{8,9}$/.test(phoneDigits)) return setError("올바른 휴대폰 번호를 입력해 주세요.");
     if (!birth) return setError("생년월일을 선택해 주세요.");
     if (!gender) return setError("성별을 선택해 주세요.");
-    if (!consentOverseas || !consentShare) return setError("필수 동의 항목에 체크해 주세요.");
+    if (!consentShare) return setError("필수 동의 항목에 체크해 주세요.");
+    // 국외이전 동의는 증권(PDF)을 실제로 올릴 때만 필요. 증권 없이 상담 신청만 하면 리드만 접수돼요.
+    if (files.length > 0 && !consentOverseas)
+      return setError("증권 분석을 위한 국외이전 동의에 체크해 주세요.");
 
     setError(null);
     setLoading(true);
@@ -195,7 +198,7 @@ export default function SelfDiagnosisPage() {
     fd.append("phone", phoneDigits);
     fd.append("birth", birth);
     fd.append("gender", gender);
-    fd.append("consent_overseas", "true");
+    if (consentOverseas) fd.append("consent_overseas", "true");
     fd.append("consent_share", "true");
     if (consentMarketing) fd.append("consent_marketing", "true");
     if (consentThirdParty) fd.append("consent_thirdparty", "true");
@@ -447,7 +450,7 @@ export default function SelfDiagnosisPage() {
             <label className="flex items-start gap-2.5 cursor-pointer">
               <input type="checkbox" checked={consentOverseas} onChange={(e) => setConsentOverseas(e.target.checked)} className="mt-0.5" />
               <span className="text-[13px] text-ink2 leading-5">
-                <b>(필수)</b> 증권 분석을 위해 보험정보가 Claude API(미국, Anthropic)로 <b>국외이전</b>되는 데 동의합니다.
+                <b>(증권 첨부 시 필수)</b> 증권 분석을 위해 보험정보가 Claude API(미국, Anthropic)로 <b>국외이전</b>되는 데 동의합니다.
                 <span className="block mt-1 text-[12px] text-ink3">{overseasRetention}</span>
               </span>
             </label>

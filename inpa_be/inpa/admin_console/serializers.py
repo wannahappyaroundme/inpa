@@ -112,6 +112,7 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
     subscription_status = serializers.SerializerMethodField()
     # ── 활동 요약 + 사용량 + 동의로그 ───────────────────────────────────
     usage_this_month = serializers.SerializerMethodField()
+    usage_limits = serializers.SerializerMethodField()
     customer_count = serializers.SerializerMethodField()
     portfolio_count = serializers.SerializerMethodField()
     consent_logs = serializers.SerializerMethodField()
@@ -126,7 +127,7 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
             'email_verified_at', 'onboarding_completed_at',
             'is_dormant', 'dormant_at', 'will_delete_at',
             'plan_code', 'plan_display', 'subscription_status',
-            'usage_this_month', 'customer_count', 'portfolio_count',
+            'usage_this_month', 'usage_limits', 'customer_count', 'portfolio_count',
             'consent_logs',
         ]
 
@@ -198,6 +199,17 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
             for m in UsageMeter.objects.filter(user=obj, year_month=year_month)
         }
         return {action: meters.get(action, 0) for action, _ in UsageMeter.ACTION_CHOICES}
+
+    def get_usage_limits(self, obj):
+        """실제 강제에 적용되는 '유효 요금제' 한도 (None = 무제한 sentinel).
+
+        ★ 구독이 만료·해지면 강제는 Free 로 폴백하는데, 구독의 원래 plan 한도를
+          그대로 보여주면 화면과 실제가 어긋난다. billing.credit.resolve_effective_plan
+          으로 강제와 같은 유효 요금제를 골라 한도를 노출한다(#9 admin part).
+        """
+        from inpa.billing.credit import resolve_effective_plan
+        plan = resolve_effective_plan(obj)
+        return {action: plan.get_limit(action) for action, _ in UsageMeter.ACTION_CHOICES}
 
     def get_customer_count(self, obj):
         return Customer.objects.filter(owner=obj).count()
