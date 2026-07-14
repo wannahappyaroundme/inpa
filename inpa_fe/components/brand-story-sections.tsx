@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, Users, Phone, BarChart3, CalendarClock, Gift, ArrowLeftRight, type LucideIcon } from "lucide-react";
+import { Check, Users, Phone, BarChart3, CalendarClock, Gift, type LucideIcon } from "lucide-react";
 import { Reveal } from "@/components/reveal";
 import { InpaMark } from "@/components/inpa-logo";
 
@@ -71,55 +71,35 @@ export function HeroPosterSection() {
   );
 }
 
-// 제품 증거 섹션(www HeroSection의 보장 한눈표+비교분석 목업 이식, 2026-07-14 PM 지시).
-// www와 달리 어두운 배경+플로팅 카드가 아니라 new의 밝은 브랜드 톤에 맞춰 배치.
-// www 원본에 있던 '가입 시 한 달 무료 쿠폰' 문구는 자동 지급이 실제로 연결돼 있지 않아(§11 changelog) 제외.
+// 제품 증거 섹션 — 실제 서비스 화면 캡처(2026-07-14 PM 지시: 가짜 목업 대신 진짜 화면 캡처로 교체).
+// 데모 계정([DEMO] 표시 데이터)으로 촬영, 개별 고객 목록처럼 이름·연락처가 여러 건 노출되는 화면은 제외.
 export function ProductPreviewSection() {
-  const cells = ["line", "line", "enough", "line", "short", "line",
-    "line", "enough", "line", "over", "line", "line",
-    "short", "line", "line", "enough", "line", "none",
-    "line", "line", "enough", "line", "short", "line"] as const;
   return (
     <section className="py-20 md:py-28 bg-[var(--surface)] text-center">
-      <div className="mx-auto max-w-3xl px-6">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6">
         <Reveal>
-          <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] tracking-tight">증권 한 장으로, 보장 공백이 한눈에</h2>
-          <p className="mt-3 text-[16px] sm:text-[18px] text-[var(--ink-2)] leading-relaxed">
-            100개 이상 담보를 색으로 정리하고, 비교할 때 놓치기 쉬운 불이익까지 짚어드립니다.
+          <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] tracking-tight break-keep">증권 한 장으로, 보장 공백이 한눈에</h2>
+          <p className="mt-3 text-[16px] sm:text-[18px] text-[var(--ink-2)] leading-relaxed break-keep">
+            100개 이상 담보를 색으로 정리하고, 오늘 할 일까지 한 화면에서 확인하세요.
           </p>
         </Reveal>
-        <Reveal delay={100} className="mt-10 text-left">
-          <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
-            <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-[var(--line)] bg-[var(--surface-2)]">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--cov-none)" }} />
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--cov-short)" }} />
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--cov-enough)" }} />
-              <span className="ml-2 text-[11px] font-semibold text-[var(--ink-3)]">김영수님 · 보장 한눈표</span>
+        <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+          <Reveal delay={100}>
+            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/landing-new/coverage-analysis.webp" alt="보장 분석 화면: 담보별 넉넉·적정·부족을 색으로 표시" className="w-full h-auto" loading="lazy" />
             </div>
-            <div className="p-5 sm:p-6">
-              <div className="grid grid-cols-6 gap-1.5">
-                {cells.map((k, i) => (
-                  <span key={i} className="aspect-square rounded-[4px] cell-pop"
-                    style={{ background: k === "line" ? "var(--line)" : `var(--cov-${k})`, animationDelay: `${300 + i * 32}ms` }} />
-                ))}
-              </div>
-              <div className="mt-4 rounded-xl border border-[var(--line)] p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[12px] font-bold text-[var(--ink)]">비교 분석</span>
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold rounded-full px-2 py-0.5" style={{ color: "var(--brand)", background: "var(--accent-tint)" }}>
-                    <ArrowLeftRight size={12} strokeWidth={2.2} /> 유지·전환 변동 비교
-                  </span>
-                </div>
-                <div className="mt-2.5 space-y-1.5 text-[12px]">
-                  <div className="flex justify-between"><span className="text-[var(--ink-3)]">해지 손실(추정)</span><span className="font-semibold text-[var(--ink)] tnum">-1,200,000원</span></div>
-                  <div className="flex justify-between"><span className="text-[var(--ink-3)]">면책기간 리셋</span><span className="font-semibold text-[var(--cov-short)]">재적용 가능</span></div>
-                </div>
-              </div>
+            <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">보장 분석 · 실제 화면</p>
+          </Reveal>
+          <Reveal delay={160}>
+            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/landing-new/dashboard.webp" alt="대시보드 화면: 이번 달 목표·영업 단계별 고객·월별 보험료 추이" className="w-full h-auto" loading="lazy" />
             </div>
-          </div>
-          <p className="mt-2 text-center text-[11px] text-[var(--ink-3)]">예시 화면</p>
-        </Reveal>
-        <Reveal delay={160} className="mt-9">
+            <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">대시보드 · 실제 화면</p>
+          </Reveal>
+        </div>
+        <Reveal delay={220} className="mt-10">
           <Link href="/register" className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition shadow-lg">무료로 시작하기</Link>
           <p className="mt-3 text-[13px] text-[var(--ink-3)]">신용카드 불필요 · 이메일로 가입</p>
         </Reveal>
