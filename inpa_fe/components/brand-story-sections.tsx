@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Check, Users, Phone, BarChart3, CalendarClock, Gift, type LucideIcon } from "lucide-react";
 import { Reveal } from "@/components/reveal";
 import { InpaMark } from "@/components/inpa-logo";
+import { getBillingEvent } from "@/lib/api";
 
 // new.inpa.kr 스크롤 파트 전용 브랜드 섹션. 시안 landing_page.pdf p1(포스터)·p9~p14.
 // 카피 레드라인: em-dash 금지, '준비 중' 금지, 가격은 'N원 (VAT 별도)'만.
@@ -355,6 +356,16 @@ const TIERS: {
 ];
 
 export function PricingFourTiers() {
+  // 첫 결제 보너스 이벤트가 실제 켜져 있을 때만 이벤트 문구를 노출(§6 정직성). 기본 false.
+  // 연 결제 할인(2개월 무료)은 실제 가격이므로 항상 노출한다.
+  const [bonusEnabled, setBonusEnabled] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getBillingEvent()
+      .then((e) => { if (alive) setBonusEnabled(e.first_paid_bonus_enabled); })
+      .catch(() => { if (alive) setBonusEnabled(false); });
+    return () => { alive = false; };
+  }, []);
   return (
     <section className="py-20 md:py-28 bg-[var(--surface)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -362,7 +373,9 @@ export function PricingFourTiers() {
           <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] text-center tracking-tight">인파 for 설계사 / 관리자 요금제</h2>
           <p className="mt-3 text-center text-[15px] sm:text-[17px] text-[var(--ink-3)]">지금은 베타 기간이라 모든 기능을 무료로 이용할 수 있어요</p>
           <div className="mt-5 mx-auto max-w-2xl rounded-2xl border border-[var(--brand)] bg-[var(--accent-tint)] px-5 py-3 text-center">
-            <p className="text-[14px] sm:text-[15px] font-bold text-[var(--brand)]">첫 유료 결제 시 한 달을 더 드려요 (두 달 이용)</p>
+            {bonusEnabled && (
+              <p className="text-[14px] sm:text-[15px] font-bold text-[var(--brand)]">첫 유료 결제 시 한 달을 더 드려요 (두 달 이용)</p>
+            )}
             <p className="mt-0.5 text-[13px] sm:text-[14px] text-[var(--ink-2)]">연 결제 시 2개월 무료 · 약 17% 할인</p>
           </div>
         </Reveal>

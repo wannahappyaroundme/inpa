@@ -1830,6 +1830,18 @@ export async function listPlans(): Promise<Plan[]> {
   return request<Plan[]>("GET", "/billing/plans/", undefined, false);
 }
 
+export interface BillingEvent {
+  /** 첫 유료 결제 +1개월 보너스 이벤트가 실제로 켜져 있는지(RuntimeConfig). */
+  first_paid_bonus_enabled: boolean;
+}
+
+/** GET /api/v1/billing/event/ — 진행 중 결제 이벤트 플래그 (AllowAny, 토큰 불필요).
+ *  랜딩·업그레이드 모달의 이벤트 문구를 이 값이 true일 때만 노출한다(§6 정직성).
+ *  연 결제 할인(실제 가격)은 이 플래그와 무관하게 항상 표시. */
+export async function getBillingEvent(): Promise<BillingEvent> {
+  return request<BillingEvent>("GET", "/billing/event/", undefined, false);
+}
+
 /** GET /api/v1/billing/usage/ — 내 사용량 + 구독 */
 export async function getMyUsage(): Promise<BillingUsage> {
   return request<BillingUsage>("GET", "/billing/usage/", undefined, true);

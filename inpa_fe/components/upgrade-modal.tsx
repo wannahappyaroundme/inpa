@@ -13,7 +13,9 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { getBillingEvent } from "@/lib/api";
 
 /** BE 402 credit_exhausted 추가 필드 (api.ts CreditExhaustedBody 와 동형) */
 export interface UpgradeModalInfo {
@@ -102,6 +104,17 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
   );
   const [payCycle, setPayCycle] = useState<"monthly" | "annual">("monthly");
   const [copied, setCopied] = useState(false);
+  // 첫 결제 보너스 이벤트가 실제로 켜져 있을 때만 문구를 노출(§6 정직성). 기본 false.
+  const [bonusEnabled, setBonusEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    getBillingEvent()
+      .then((e) => { if (alive) setBonusEnabled(e.first_paid_bonus_enabled); })
+      .catch(() => { if (alive) setBonusEnabled(false); });
+    return () => { alive = false; };
+  }, [open]);
 
   if (!open) return null;
 
@@ -284,10 +297,12 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
             </div>
           </dl>
 
-          {/* 첫 결제 보너스 이벤트 안내 */}
-          <div className="mt-3 rounded-lg border border-brand/30 bg-brand-soft px-3 py-2 text-[12px] leading-5 text-ink2">
-            <span className="font-bold text-brand">이벤트</span> 첫 결제 시 한 달 더 드려요 (첫 달 결제하면 두 달 이용).
-          </div>
+          {/* 첫 결제 보너스 이벤트 안내 — 이벤트가 실제 켜져 있을 때만 노출(§6 정직성) */}
+          {bonusEnabled && (
+            <div className="mt-3 rounded-lg border border-brand/30 bg-brand-soft px-3 py-2 text-[12px] leading-5 text-ink2">
+              <span className="font-bold text-brand">이벤트</span> 첫 결제 시 한 달 더 드려요 (첫 달 결제하면 두 달 이용).
+            </div>
+          )}
 
           {/* 입금 계좌 + 복사 */}
           <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-surface2 px-3 py-2.5">

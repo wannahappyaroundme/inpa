@@ -456,6 +456,37 @@ class PlanListPublicTests(TestCase):
         self.assertIn('plus', codes)
 
 
+class BillingEventPublicTests(TestCase):
+    """GET /billing/event/ — 첫 유료 보너스 이벤트 플래그 (비인증 공개).
+
+    랜딩·업그레이드 모달의 이벤트 문구를 실제 켜짐(RuntimeConfig)일 때만 노출하기
+    위한 읽기 전용 플래그. 기본값 OFF(§6 정직성 — 꺼진 이벤트를 약속하지 않음).
+    """
+
+    def test_anonymous_can_read_event_flag(self):
+        """비로그인 GET /billing/event/ → 200 + first_paid_bonus_enabled 키."""
+        from .models import RuntimeConfig
+        RuntimeConfig.objects.all().delete()  # 깨끗한 상태에서 기본값 확인
+        c = APIClient()
+        r = c.get('/api/v1/billing/event/')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn('first_paid_bonus_enabled', body)
+        # 기본값 OFF (모델 default=False)
+        self.assertFalse(body['first_paid_bonus_enabled'])
+
+    def test_flag_reflects_runtime_config(self):
+        """RuntimeConfig 토글이 응답에 그대로 반영된다 (ON→True)."""
+        from .models import RuntimeConfig
+        cfg = RuntimeConfig.solo()
+        cfg.first_paid_bonus_enabled = True
+        cfg.save(update_fields=['first_paid_bonus_enabled', 'updated_at'])
+        c = APIClient()
+        r = c.get('/api/v1/billing/event/')
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()['first_paid_bonus_enabled'])
+
+
 # ─── 관리자 사용량 조회 ──────────────────────────────────────────
 
 

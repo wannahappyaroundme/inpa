@@ -3,6 +3,7 @@
 config/urls.py에서 /api/v1/ 로 마운트.
 
   GET  /api/v1/billing/plans/                     — 요금제 목록 (AllowAny)
+  GET  /api/v1/billing/event/                      — 진행 중 이벤트 플래그 (AllowAny)
   GET  /api/v1/billing/usage/                     — 내 사용량 (IsAuthenticated)
   GET  /api/v1/admin/billing/usage/               — 관리자 전체 사용량 (IsAdmin)
   PATCH /api/v1/admin/billing/subscription/<uid>/ — 관리자 구독 수동 변경 (IsAdmin)
@@ -13,6 +14,7 @@ from .views import (
     AdminBillingModeView,
     AdminBillingUsageView,
     AdminSubscriptionPatchView,
+    BillingEventView,
     BillingUsageView,
     CouponRedeemView,
     PlanListView,
@@ -23,6 +25,7 @@ app_name = 'billing'
 urlpatterns = [
     # 설계사 공개 / 본인 조회
     path('billing/plans/', PlanListView.as_view(), name='plan-list'),
+    path('billing/event/', BillingEventView.as_view(), name='billing-event'),
     path('billing/usage/', BillingUsageView.as_view(), name='billing-usage'),
     path('billing/coupons/redeem/', CouponRedeemView.as_view(), name='coupon-redeem'),
 

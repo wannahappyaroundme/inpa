@@ -1,9 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { InpaMark } from "@/components/inpa-logo";
 import { Reveal, CountUp } from "@/components/reveal";
 import { LineCompareChart } from "@/components/charts";
+import { getBillingEvent } from "@/lib/api";
 import {
   LayoutGrid, BarChart3, ArrowLeftRight, ShieldCheck, ScanLine,
   Upload, Sparkles, Share2, Check, FileCheck,
@@ -348,6 +350,16 @@ export function HowItWorksSection() {
 }
 
 export function PricingSection() {
+  // 첫 결제 보너스 이벤트가 실제 켜져 있을 때만 이벤트 문구를 노출(§6 정직성). 기본 false.
+  // 연 결제 할인(2개월 무료)은 실제 가격이므로 항상 노출한다.
+  const [bonusEnabled, setBonusEnabled] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getBillingEvent()
+      .then((e) => { if (alive) setBonusEnabled(e.first_paid_bonus_enabled); })
+      .catch(() => { if (alive) setBonusEnabled(false); });
+    return () => { alive = false; };
+  }, []);
   const free = ["증권 분석·비교 분석 핵심 기능 포함", "베타 기간에는 월 한도 없이", "보장 한눈표 조회 무제한"];
   const plus = ["증권 분석 더 많이", "비교안내서 복수 발행", "AI 분석·메시지 제한 완화", "판촉물 주문 제한 완화"];
   const superPlan = ["Plus의 모든 기능 포함", "증권 분석·비교안내서 무제한", "AI 분석·메시지 무제한", "판촉물 주문 무제한"];
@@ -358,7 +370,9 @@ export function PricingSection() {
           <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">요금제</h2>
           <p className="mt-3 text-center text-[15px] text-[var(--ink-3)]">지금은 베타 기간이라 모든 요금제 기능을 무료로 이용할 수 있어요.</p>
           <div className="mt-5 mx-auto max-w-2xl rounded-2xl border border-[var(--brand)] bg-[var(--accent-tint)] px-5 py-3 text-center">
-            <p className="text-[14px] font-bold text-[var(--brand)]">첫 유료 결제 시 한 달 더 (2개월 이용)</p>
+            {bonusEnabled && (
+              <p className="text-[14px] font-bold text-[var(--brand)]">첫 유료 결제 시 한 달 더 (2개월 이용)</p>
+            )}
             <p className="mt-0.5 text-[13px] text-[var(--ink-2)]">연 결제 시 2개월 무료 · 약 17% 할인</p>
           </div>
         </Reveal>

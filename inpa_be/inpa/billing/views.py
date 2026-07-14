@@ -127,6 +127,25 @@ class PlanListView(APIView):
         return Response(serializer.data)
 
 
+class BillingEventView(APIView):
+    """진행 중인 결제 이벤트 플래그 (공개 AllowAny — 비로그인 GET 허용).
+
+    GET /api/v1/billing/event/  → {"first_paid_bonus_enabled": bool}
+
+    첫 유료 결제 +1개월 보너스 이벤트가 실제로 켜져 있는지(RuntimeConfig 런타임 토글).
+    랜딩·업그레이드 모달의 이벤트 문구는 이 값이 True일 때만 노출해, 꺼져 있는
+    이벤트를 약속하지 않도록 한다(§6 정직성). 연 결제 할인(2개월 무료 = 실제 가격)은
+    이 플래그와 무관하게 항상 노출한다.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []  # Token 없이도 접근 가능
+
+    def get(self, request):
+        from .models import RuntimeConfig
+        cfg = RuntimeConfig.solo()
+        return Response({'first_paid_bonus_enabled': cfg.first_paid_bonus_enabled})
+
+
 class BillingUsageView(APIView):
     """내 사용량 조회 (IsAuthenticated — 본인 데이터만).
 
