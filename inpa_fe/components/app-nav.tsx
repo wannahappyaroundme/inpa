@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { getProfile, getUnreadCount, tokenStore } from "@/lib/api";
 import { BottomNav } from "./bottom-nav";
+import { FeedbackWidget } from "./feedback-widget";
 
 function Logo({ size = 26 }: { size?: number }) {
   return (
@@ -203,6 +204,9 @@ export function AppNav({ active }: { active?: NavKey }) {
         promoUnread={promoUnread}
         adminUnread={adminUnread}
       />
+
+      {/* 의견 위젯 — 인증 서비스 화면 우하단(클릭할 때만 열림) */}
+      <FeedbackWidget />
     </>
   );
 }

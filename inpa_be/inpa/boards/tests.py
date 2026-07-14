@@ -942,3 +942,155 @@ class BlogCopyGuardTests(TestCase):
         )
         self.assertEqual(r.status_code, 201)
         self.assertEqual(r.json()['warnings'], [])
+
+
+# ─── 피드백 위젯 (공개 제출) ────────────────────────────────────────
+
+from inpa.notifications.models import ADMIN_NOTIF_TYPES, NotifType  # noqa: E402
+
+
+class FeedbackWidgetTests(TestCase):
+    """POST /api/v1/feedback/ — 익명/로그인 제출 + 관리자 fan-out + 검증."""
+
+    def setUp(self):
+        self.admin, _ = _make_planner('admin@test.com', is_admin=True)
+        self.planner, self.planner_client = _make_planner('planner@test.com')
+        self.anon = APIClient()  # 비인증
+
+    def test_anonymous_submission_creates_owner_null_inquiry(self):
+        """익명 제출 → owner=None Inquiry + 관리자 알림 fan-out."""
+        r = self.anon.post(
+            '/api/v1/feedback/',
+            {'category': 'feedback', 'body': '화면이 깔끔해서 좋아요',
+             'rating': 5, 'contact_email': 'guest@example.com'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 201)
+        inq = Inquiry.objects.get(pk=r.json()['id'])
+        self.assertIsNone(inq.owner_id)
+        self.assertEqual(inq.category, Inquiry.CATEGORY_FEEDBACK)
+        self.assertEqual(inq.rating, 5)
+        self.assertEqual(inq.contact_email, 'guest@example.com')
+        self.assertTrue(inq.title.startswith('[이용 의견]'))
+        # 관리자 알림 fan-out
+        notif = Notification.objects.filter(
+            owner=self.admin, notif_type=NotifType.INQUIRY_RECEIVED,
+        )
+        self.assertEqual(notif.count(), 1)
+
+    def test_authed_submission_sets_owner(self):
+        """로그인 제출 → owner=request.user (문의 내역·답변 알림 작동)."""
+        r = self.planner_client.post(
+            '/api/v1/feedback/',
+            {'category': 'feature', 'body': '월별 리포트 내보내기 기능이 있으면 좋겠어요'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 201)
+        inq = Inquiry.objects.get(pk=r.json()['id'])
+        self.assertEqual(inq.owner_id, self.planner.id)
+        self.assertEqual(inq.category, Inquiry.CATEGORY_FEATURE)
+        # 본인 문의 내역에 노출(OwnedQuerySetMixin)
+        listing = self.planner_client.get('/api/v1/board/inquiries/')
+        self.assertIn(inq.id, [row['id'] for row in listing.json()])
+
+    def test_bug_meta_whitelist(self):
+        """불편 신고 meta 는 화이트리스트 키만 저장, 그 외 키 제거."""
+        r = self.anon.post(
+            '/api/v1/feedback/',
+            {'category': 'bug', 'body': '버튼이 안 눌려요',
+             'meta': {'path': '/customers', 'user_agent': 'UA', 'viewport': '390x844',
+                      'cookie': 'secret', 'token': 'leak'}},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 201)
+        inq = Inquiry.objects.get(pk=r.json()['id'])
+        self.assertEqual(set(inq.meta.keys()), {'path', 'user_agent', 'viewport'})
+        self.assertNotIn('cookie', inq.meta)
+        self.assertNotIn('token', inq.meta)
+
+    def test_rating_only_for_feedback_and_clamped(self):
+        """rating 은 feedback 만, 범위 밖은 1..5 로 clamp; 타 카테고리는 무시."""
+        # 범위 밖(9) → 5로 clamp
+        r = self.anon.post(
+            '/api/v1/feedback/',
+            {'category': 'feedback', 'body': '좋아요', 'rating': 9}, format='json',
+        )
+        self.assertEqual(Inquiry.objects.get(pk=r.json()['id']).rating, 5)
+        # feature 에 rating 줘도 무시(None)
+        r2 = self.anon.post(
+            '/api/v1/feedback/',
+            {'category': 'feature', 'body': '제안합니다', 'rating': 3}, format='json',
+        )
+        self.assertIsNone(Inquiry.objects.get(pk=r2.json()['id']).rating)
+
+    def test_meta_ignored_for_non_bug(self):
+        """meta 는 bug 만 저장 — feedback 제출의 meta 는 무시(None)."""
+        r = self.anon.post(
+            '/api/v1/feedback/',
+            {'category': 'feedback', 'body': '좋아요', 'meta': {'path': '/x'}},
+            format='json',
+        )
+        self.assertIsNone(Inquiry.objects.get(pk=r.json()['id']).meta)
+
+    def test_body_required(self):
+        r = self.anon.post('/api/v1/feedback/', {'category': 'feedback'}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['code'], 'BODY_REQUIRED')
+
+    def test_body_length_cap(self):
+        r = self.anon.post(
+            '/api/v1/feedback/',
+            {'category': 'other', 'body': 'x' * 2001}, format='json',
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['code'], 'BODY_TOO_LONG')
+
+    def test_invalid_category(self):
+        r = self.anon.post(
+            '/api/v1/feedback/',
+            {'category': 'nope', 'body': '내용'}, format='json',
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['code'], 'INVALID_CATEGORY')
+
+    def test_invalid_contact_email(self):
+        r = self.anon.post(
+            '/api/v1/feedback/',
+            {'category': 'other', 'body': '내용', 'contact_email': 'not-an-email'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['code'], 'INVALID_EMAIL')
+
+    def test_throttle_scope_registered(self):
+        """feedback throttle scope 가 settings + 뷰에 등록돼 있음."""
+        from django.conf import settings as dj_settings
+        from inpa.boards.views import FeedbackCreateView
+        self.assertIn('feedback', dj_settings.REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'])
+        self.assertEqual(FeedbackCreateView.throttle_scope, 'feedback')
+
+    def test_inquiry_received_in_admin_partition(self):
+        """INQUIRY_RECEIVED 는 어드민 알림 파티션에 속함."""
+        self.assertIn(NotifType.INQUIRY_RECEIVED.value, ADMIN_NOTIF_TYPES)
+
+
+class InquiryCreateNotifiesAdminsTests(TestCase):
+    """기존 /board/inquiries/ 작성도 관리자 알림 fan-out (누락 갭 해소)."""
+
+    def setUp(self):
+        self.admin, _ = _make_planner('admin2@test.com', is_admin=True)
+        self.planner, self.planner_client = _make_planner('p2@test.com')
+
+    def test_owner_inquiry_create_fans_out_to_admins(self):
+        r = self.planner_client.post(
+            '/api/v1/board/inquiries/',
+            {'category': 'feature', 'title': '기능 문의', 'body': '문의 내용입니다'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(
+            Notification.objects.filter(
+                owner=self.admin, notif_type=NotifType.INQUIRY_RECEIVED,
+            ).count(),
+            1,
+        )

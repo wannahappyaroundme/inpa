@@ -290,6 +290,10 @@ class AdminInquiryListView(APIView):
         if status_filter:
             qs = qs.filter(status=status_filter)
 
+        category_filter = request.query_params.get('category')
+        if category_filter:
+            qs = qs.filter(category=category_filter)
+
         qs = qs.order_by('-created_at')
         paginator = PageNumberPagination()
         paginator.page_size = 20

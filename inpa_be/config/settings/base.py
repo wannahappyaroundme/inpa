@@ -118,6 +118,7 @@ REST_FRAMEWORK = {
         'admin_login': '5/min',       # 관리자 로그인 무차별 대입 방어(IP 기준)
         'job_runner': '10/hour',      # 일일 배치 트리거 /jobs/run-daily/ — 토큰 대입/재실행 폭탄 방어
         'invite_info': '30/hour',     # 팀 초대 정보 공개 조회(/manager/invite-info/) — 토큰 대입 방어
+        'feedback': '10/hour',        # 피드백 위젯 공개 제출(/feedback/) — 익명 스팸 방어
     },
 }
 

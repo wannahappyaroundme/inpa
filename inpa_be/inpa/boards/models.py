@@ -312,11 +312,13 @@ class Inquiry(models.Model):
     CATEGORY_BILLING = 'billing'
     CATEGORY_BUG = 'bug'
     CATEGORY_OTHER = 'other'
+    CATEGORY_FEEDBACK = 'feedback'
     CATEGORY_CHOICES = [
         (CATEGORY_FEATURE, '기능문의'),
         (CATEGORY_BILLING, '요금결제'),
         (CATEGORY_BUG, '버그신고'),
         (CATEGORY_OTHER, '기타'),
+        (CATEGORY_FEEDBACK, '이용 의견'),
     ]
 
     STATUS_OPEN = 'open'
@@ -328,9 +330,13 @@ class Inquiry(models.Model):
         (STATUS_CLOSED, '종료'),
     ]
 
+    # ★ null 허용: 랜딩 등 비로그인 피드백은 owner=None(익명). OwnedQuerySetMixin
+    #   은 filter(owner=user) 라 null-owner 행은 설계사 목록에 절대 노출되지 않음.
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name='inquiries',
         verbose_name='작성 설계사',
     )
@@ -338,6 +344,13 @@ class Inquiry(models.Model):
     title = models.CharField('제목', max_length=200)
     body = models.TextField('내용')
     status = models.CharField('상태', max_length=10, choices=STATUS_CHOICES, default=STATUS_OPEN)
+    # ── 피드백 위젯 확장 필드 ──
+    #   rating: 이용 의견(feedback) 별점 1..5. 그 외 카테고리는 null.
+    #   meta:   불편 신고(bug) 자동 첨부 {path, user_agent, viewport} — 어드민 전용 표시.
+    #   contact_email: 익명 제출 시 답변받을 이메일(선택). 로그인 제출은 빈 값.
+    rating = models.PositiveSmallIntegerField('별점(1~5)', null=True, blank=True)
+    meta = models.JSONField('메타(화면 정보)', null=True, blank=True, default=None)
+    contact_email = models.EmailField('답변 이메일(익명)', blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

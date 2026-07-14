@@ -10,6 +10,7 @@ import {
   type PaginatedResult,
   type InquiryStatus,
   type InquiryCategory,
+  type FeedbackMeta,
   type NoticeItem,
   type FaqItem,
   type PromotionOrderStatus,
@@ -225,11 +226,14 @@ export interface AdminInquiryReply {
 /** 문의 상세 + 답변 목록 (admin). */
 export interface AdminInquiryDetail {
   id: number;
-  owner_email: string;
+  owner_email: string | null;   // null = 비회원(익명) 제출
   category: InquiryCategory;
   title: string;
   body: string;
   status: InquiryStatus;
+  rating: number | null;        // 이용 의견 별점(1~5), 그 외 null
+  meta: FeedbackMeta | null;    // 불편 신고 화면 정보(경로/브라우저/화면 크기)
+  contact_email: string;        // 비회원 답변 이메일(없으면 '')
   created_at: string;
   updated_at: string;
   replies: AdminInquiryReply[];

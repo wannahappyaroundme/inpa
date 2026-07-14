@@ -5,6 +5,7 @@ import {
   TrustSection, FinalCTASection, LandingFooter,
 } from "@/components/landing-sections";
 import { LandingClient } from "@/components/landing-client";
+import { FeedbackWidget } from "@/components/feedback-widget";
 import { JsonLd, ORGANIZATION, WEBSITE, SOFTWARE_APP } from "@/components/structured-data";
 
 // 인파 랜딩 — 섹션 본체는 components/landing-sections.tsx (new.inpa.kr 랜딩과 공용).
@@ -33,6 +34,8 @@ export default function LandingPage() {
         <FinalCTASection />
       </main>
       <LandingFooter />
+      {/* 의견 위젯 — 랜딩(비로그인) 익명 모드 */}
+      <FeedbackWidget anonymous />
     </>
   );
 }

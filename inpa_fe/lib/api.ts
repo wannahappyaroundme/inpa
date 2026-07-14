@@ -1431,7 +1431,7 @@ export async function getBlogSitemap(): Promise<{ slug: string; updated_at: stri
 
 // ── 1:1 문의 (Inquiry — 비공개) ─────────────────────────────────────────────
 
-export type InquiryCategory = "feature" | "billing" | "bug" | "other";
+export type InquiryCategory = "feedback" | "feature" | "billing" | "bug" | "other";
 export type InquiryStatus = "open" | "answered" | "closed";
 
 export interface InquiryListItem {
@@ -1483,6 +1483,53 @@ export async function getInquiry(id: number): Promise<InquiryDetail> {
 /** POST /api/v1/board/inquiries/ */
 export async function createInquiry(payload: InquiryWritePayload): Promise<InquiryDetail> {
   return request<InquiryDetail>("POST", "/board/inquiries/", payload, true);
+}
+
+// ── 의견 위젯 (Feedback) — 공개 엔드포인트, 로그인 선택 ────────────────────────
+
+/** 불편 신고 시 자동 첨부되는 화면 정보(관리자 전용 노출). PII 아님. */
+export interface FeedbackMeta {
+  path?: string;
+  user_agent?: string;
+  viewport?: string;
+}
+
+export interface FeedbackPayload {
+  category: InquiryCategory;   // feedback | feature | bug | other
+  body: string;
+  rating?: number;             // 이용 의견(별점 1~5)만
+  meta?: FeedbackMeta;         // 불편 신고 화면 정보
+  contact_email?: string;      // 비회원 답변 채널(선택)
+}
+
+export interface FeedbackResponse {
+  id?: number;
+  created?: boolean;
+}
+
+/**
+ * POST /api/v1/feedback/ — 의견 위젯 제출.
+ * 공개 엔드포인트(AllowAny). 로그인 상태면 토큰을 실어 보내 owner 에 귀속되고,
+ * 비로그인이면 토큰 없이 전송한다(contact_email 로 답장). 401 리다이렉트 처리는 하지 않는다.
+ */
+export async function submitFeedback(payload: FeedbackPayload): Promise<FeedbackResponse> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const tok = tokenStore.get();
+  if (tok) headers["Authorization"] = `Token ${tok}`;
+  const res = await fetch(`${API_BASE}/feedback/`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      (data as { code?: string }).code ?? "ERROR",
+      (data as { detail?: string }).detail ?? "보내지 못했어요. 잠시 후 다시 시도해 주세요.",
+    );
+  }
+  return data as FeedbackResponse;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1875,21 +1922,24 @@ export async function adminCreateNotice(payload: {
 
 export interface AdminInquiryListItem {
   id: number;
-  owner_email: string;
+  owner_email: string | null;   // null = 비회원(익명) 제출
   category: InquiryCategory;
   title: string;
   status: InquiryStatus;
+  rating: number | null;        // 이용 의견 별점(1~5), 그 외 null
+  contact_email: string;        // 비회원 답변 이메일(없으면 '')
   created_at: string;
   updated_at: string;
 }
 
-/** GET /api/v1/admin/inquiries/?status= — {count, next, previous, results} */
+/** GET /api/v1/admin/inquiries/?status=&category= — {count, next, previous, results} */
 export async function adminListInquiries(
-  params: { page?: number; status?: InquiryStatus } = {}
+  params: { page?: number; status?: InquiryStatus; category?: InquiryCategory } = {}
 ): Promise<PaginatedResult<AdminInquiryListItem>> {
   const qs = new URLSearchParams();
   if (params.page) qs.set("page", String(params.page));
   if (params.status) qs.set("status", params.status);
+  if (params.category) qs.set("category", params.category);
   const query = qs.toString() ? `?${qs.toString()}` : "";
   return request<PaginatedResult<AdminInquiryListItem>>(
     "GET",
