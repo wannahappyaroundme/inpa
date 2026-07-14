@@ -246,6 +246,7 @@ const REAL_SHOTS: Partial<Record<"analysis" | "funnel" | "calendar" | "message" 
   analysis: { src: "/landing-new/compare-analysis.webp", alt: "보험 분석 & 비교 실제 화면: 현재 보장과 제안 보장의 담보별 비교" },
   funnel: { src: "/landing-new/customer-pipeline.webp", alt: "고객 관리 시스템 실제 화면: 고객 검색과 영업 단계별 분류" },
   calendar: { src: "/landing-new/schedule-calendar.webp", alt: "일정 & 예약 관리 실제 화면: 캘린더와 오늘 일정" },
+  promo: { src: "/landing-new/promotion.webp", alt: "판촉물 디자인 & 발주 실제 화면: 명함 디자인 샘플" },
 };
 
 export function FeatureShowcaseSection() {
