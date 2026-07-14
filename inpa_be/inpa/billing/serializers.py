@@ -20,6 +20,7 @@ class PlanSerializer(serializers.ModelSerializer):
             'code',
             'display_name',
             'price_krw',
+            'price_annual_krw',
             'description',
             'limit_ocr',
             'limit_ai_compare',
@@ -45,6 +46,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             'plan_display_name',
             'plan_price_krw',
             'status',
+            'billing_cycle',
             'started_at',
             'expires_at',
         ]

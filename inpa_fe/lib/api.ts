@@ -1799,6 +1799,8 @@ export interface Plan {
   code: string;
   display_name: string;
   price_krw: number;
+  /** 연 결제 금액(VAT 별도). null이면 price_krw*10 폴백(2개월 무료). */
+  price_annual_krw: number | null;
   description: string;
   limit_ocr: number | null;
   limit_ai_compare: number | null;

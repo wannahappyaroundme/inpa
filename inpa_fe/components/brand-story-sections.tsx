@@ -86,44 +86,21 @@ export function ProductPreviewSection() {
         </Reveal>
         <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
           <Reveal delay={100}>
-            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
+            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden aspect-[4/3]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/landing-new/coverage-analysis.webp" alt="보장 분석 화면: 담보별 넉넉·적정·부족을 색으로 표시" className="w-full h-auto" loading="lazy" />
+              <img src="/landing-new/coverage-analysis.webp" alt="보장 분석 화면: 담보별 넉넉·적정·부족을 색으로 표시" className="w-full h-full object-cover object-top" loading="lazy" />
             </div>
             <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">보장 분석 · 실제 화면</p>
           </Reveal>
           <Reveal delay={160}>
-            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
+            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden aspect-[4/3]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/landing-new/dashboard.webp" alt="대시보드 화면: 이번 달 목표·영업 단계별 고객·월별 보험료 추이" className="w-full h-auto" loading="lazy" />
+              <img src="/landing-new/dashboard.webp" alt="대시보드 화면: 이번 달 목표·영업 단계별 고객·월별 보험료 추이" className="w-full h-full object-cover object-top" loading="lazy" />
             </div>
             <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">대시보드 · 실제 화면</p>
           </Reveal>
         </div>
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
-          <Reveal delay={200}>
-            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/landing-new/compare-analysis.webp" alt="비교 분석 화면: 현재 보장과 제안 보장의 담보별 증감 비교" className="w-full h-auto" loading="lazy" />
-            </div>
-            <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">비교 분석 · 실제 화면</p>
-          </Reveal>
-          <Reveal delay={240}>
-            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/landing-new/schedule-calendar.webp" alt="일정 관리 화면: 상담·할 일이 정리된 캘린더" className="w-full h-auto" loading="lazy" />
-            </div>
-            <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">일정 관리 · 실제 화면</p>
-          </Reveal>
-        </div>
-        <Reveal delay={280} className="mt-6 text-left">
-          <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/landing-new/customer-pipeline.webp" alt="고객 관리 화면: 고객 검색, 단계별·목록 보기 전환, 일괄 등록" className="w-full h-auto" loading="lazy" />
-          </div>
-          <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">고객 관리 · 실제 화면</p>
-        </Reveal>
-        <Reveal delay={320} className="mt-10">
+        <Reveal delay={220} className="mt-10">
           <Link href="/register" className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition shadow-lg">무료로 시작하기</Link>
           <p className="mt-3 text-[13px] text-[var(--ink-3)]">신용카드 불필요 · 이메일로 가입</p>
         </Reveal>
@@ -358,20 +335,21 @@ export function PersonaSection() {
 }
 
 // 요금제 4단 (시안 p14 + VAT 별도 병기). 표기 한도는 시안 그대로(마케팅 문안).
+// annual = 연 결제 금액(2개월 무료 · 약 17% 할인, VAT 별도). 무료는 없음.
 const TIERS: {
   name: string; badge?: string; managerOnly?: boolean; price: string; vat?: boolean;
-  features: string[]; footnote: string; highlight?: boolean;
+  annual?: string; features: string[]; footnote: string; highlight?: boolean;
 }[] = [
   { name: "무료", price: "0원",
-    features: ["증권 자동 분석 월 5건", "비교 분석 월 1건 체험", "영업 리포트 생성 월 5건", "신규 고객 추가 월 5인"],
+    features: ["증권 자동 분석 월 5건", "비교 분석 월 1건 체험", "영업 리포트 생성 월 5건", "신규 고객 추가 월 5명"],
     footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
-  { name: "Manager", managerOnly: true, price: "19,900원", vat: true,
+  { name: "Manager", managerOnly: true, price: "19,900원", vat: true, annual: "연 199,000원 · 2개월 무료",
     features: ["Plus 모든 기능 사용 가능", "팀원 인사 관리", "팀원 개별 실적 관리", "팀 전체 실적 관리"],
     footnote: "팀장, 지점장, 지사장 등 관리자만 사용할 수 있는 기능입니다." },
-  { name: "Plus", badge: "추천", highlight: true, price: "19,900원", vat: true,
-    features: ["증권 자동 분석 월 100건", "비교 분석 월 50건", "영업 리포트 생성 월 50건", "신규 고객 추가 월 30인"],
+  { name: "Plus", badge: "추천", highlight: true, price: "19,900원", vat: true, annual: "연 199,000원 · 2개월 무료",
+    features: ["증권 자동 분석 월 100건", "비교 분석 월 50건", "영업 리포트 생성 월 50건", "신규 고객 추가 월 30명"],
     footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
-  { name: "Super", price: "39,900원", vat: true,
+  { name: "Super", price: "39,900원", vat: true, annual: "연 399,000원 · 2개월 무료",
     features: ["증권 자동 분석 무제한", "비교 분석 무제한", "영업 리포트 생성 무제한", "신규 고객 추가 무제한"],
     footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
 ];
@@ -383,6 +361,10 @@ export function PricingFourTiers() {
         <Reveal>
           <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] text-center tracking-tight">인파 for 설계사 / 관리자 요금제</h2>
           <p className="mt-3 text-center text-[15px] sm:text-[17px] text-[var(--ink-3)]">지금은 베타 기간이라 모든 기능을 무료로 이용할 수 있어요</p>
+          <div className="mt-5 mx-auto max-w-2xl rounded-2xl border border-[var(--brand)] bg-[var(--accent-tint)] px-5 py-3 text-center">
+            <p className="text-[14px] sm:text-[15px] font-bold text-[var(--brand)]">첫 유료 결제 시 한 달을 더 드려요 (두 달 이용)</p>
+            <p className="mt-0.5 text-[13px] sm:text-[14px] text-[var(--ink-2)]">연 결제 시 2개월 무료 · 약 17% 할인</p>
+          </div>
         </Reveal>
         <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {TIERS.map((t, i) => (
@@ -396,6 +378,11 @@ export function PricingFourTiers() {
               <div className="text-[26px] font-extrabold text-[var(--ink)]">
                 {t.price}{t.vat ? <span className="ml-1 text-[12px] font-semibold text-[var(--ink-3)]">월 (VAT 별도)</span> : null}
               </div>
+              {t.annual ? (
+                <div className="text-[13px] font-semibold text-[var(--brand)]">
+                  {t.annual} <span className="text-[11px] font-normal text-[var(--ink-3)]">(VAT 별도)</span>
+                </div>
+              ) : null}
               <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
                 {t.features.map((f) => (
                   <li key={f} className="flex gap-2 items-start">

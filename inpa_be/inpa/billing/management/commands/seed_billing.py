@@ -70,6 +70,7 @@ class Command(BaseCommand):
             defaults={
                 'display_name': '무료',
                 'price_krw': 0,
+                'price_annual_krw': 0,
                 'description': '베타 무료 플랜. OCR 5/AI비교 1/AI분석 5/고객추가 5/판촉 5 월 한도.',
                 'limit_ocr': 5, 'limit_ai_compare': 1,
                 'limit_analysis': 5, 'limit_promotion': 5, 'limit_customer': 5,
@@ -80,6 +81,7 @@ class Command(BaseCommand):
             defaults={
                 'display_name': 'Plus',
                 'price_krw': 19900,  # VAT 별도 (확정 2026-07-07)
+                'price_annual_krw': 199000,  # 월가×10 = 12개월을 10개월가로 (VAT 별도)
                 'description': PLUS_DESCRIPTION,
                 'limit_ocr': 100, 'limit_ai_compare': 50,
                 'limit_analysis': 50, 'limit_promotion': 100, 'limit_customer': 30,
@@ -90,6 +92,7 @@ class Command(BaseCommand):
             defaults={
                 'display_name': 'Manager',
                 'price_krw': 19900,  # VAT 별도 (확정 2026-07-07)
+                'price_annual_krw': 199000,  # 월가×10 (VAT 별도)
                 'description': MANAGER_DESCRIPTION,
                 'limit_ocr': 100, 'limit_ai_compare': 50,
                 'limit_analysis': 50, 'limit_promotion': 100, 'limit_customer': 30,
@@ -108,6 +111,7 @@ class Command(BaseCommand):
             defaults={
                 'display_name': 'Super',
                 'price_krw': 39900,  # VAT 별도 (확정 2026-07-07)
+                'price_annual_krw': 399000,  # 월가×10 (VAT 별도)
                 'description': SUPER_DESCRIPTION,
                 # null = 무제한 sentinel (models.Plan.get_limit)
                 'limit_ocr': None, 'limit_ai_compare': None,

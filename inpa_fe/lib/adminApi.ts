@@ -200,12 +200,22 @@ export async function adminGetUserCustomers(id: number): Promise<AdminUserCustom
   return req<AdminUserCustomersResponse>("GET", `/admin/users/${id}/customers/`);
 }
 
-/** PATCH /api/v1/admin/users/{id}/subscription/ — 요금제 변경 */
+/** 구독 결제 주기 — 월/연. 연 부여 시 만료를 12개월로 계산(2개월 무료). */
+export type BillingCycle = "monthly" | "annual";
+
+/**
+ * PATCH /api/v1/admin/users/{id}/subscription/ — 요금제 변경
+ * billing_cycle 지정 시 유료 부여 만료를 월(1개월)/연(12개월)으로 계산한다.
+ * 미지정이면 기존 동작(무기한 유료 유지) 보존.
+ */
 export async function adminUpdateSubscription(
   userId: number,
-  plan_code: string
+  plan_code: string,
+  billing_cycle?: BillingCycle
 ): Promise<{ plan_code: string; plan_display: string }> {
-  return req("PATCH", `/admin/users/${userId}/subscription/`, { plan_code });
+  const payload: { plan_code: string; billing_cycle?: BillingCycle } = { plan_code };
+  if (billing_cycle) payload.billing_cycle = billing_cycle;
+  return req("PATCH", `/admin/users/${userId}/subscription/`, payload);
 }
 
 /** POST /api/v1/admin/users/{id}/send_reset_email/ — 비밀번호 재설정 이메일 발송 */
@@ -551,6 +561,8 @@ export interface AdminPlan {
   code: string;
   display_name: string;
   price_krw: number;
+  /** 연 결제 금액(VAT 별도). null이면 price_krw*10 폴백. */
+  price_annual_krw: number | null;
   limit_ocr: number | null;
   limit_ai_compare: number | null;
   limit_analysis: number | null;
@@ -618,11 +630,14 @@ export async function adminGetFlags(): Promise<FeatureFlags> {
 
 export interface BillingMode {
   free_tier_unlimited: boolean;
+  /** 첫 유료 결제 보너스 이벤트(첫 결제 시 +1개월) on/off. 기본 OFF. */
+  first_paid_bonus_enabled?: boolean;
 }
 
 /**
  * GET /api/v1/admin/billing/mode/
  * 현재 유료화 모드 조회. free_tier_unlimited=true → 베타 무제한, false → 유료 한도 적용.
+ * first_paid_bonus_enabled=true → 첫 유료 결제 시 관리자 부여가 +1개월 적용.
  */
 export async function getBillingMode(): Promise<BillingMode> {
   return req<BillingMode>("GET", "/admin/billing/mode/");
@@ -630,10 +645,10 @@ export async function getBillingMode(): Promise<BillingMode> {
 
 /**
  * PATCH /api/v1/admin/billing/mode/
- * 유료화 모드 전환. 모든 설계사에게 즉시 적용됨.
+ * 유료화 모드 / 첫 결제 보너스 이벤트 전환. 모든 설계사에게 즉시 적용됨.
  */
-export async function setBillingMode(free_tier_unlimited: boolean): Promise<BillingMode> {
-  return req<BillingMode>("PATCH", "/admin/billing/mode/", { free_tier_unlimited });
+export async function setBillingMode(patch: Partial<BillingMode>): Promise<BillingMode> {
+  return req<BillingMode>("PATCH", "/admin/billing/mode/", patch);
 }
 
 // ─── Claude 호출당 비용·파싱 결과 계측 (프리런치 리뷰 #17) ───────────────────

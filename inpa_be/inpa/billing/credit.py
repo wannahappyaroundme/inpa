@@ -23,6 +23,16 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
+def add_months(dt, n: int):
+    """dt 로부터 n개월 뒤 시각. python-dateutil relativedelta 사용(월말 clamp 처리).
+
+    relativedelta 는 1/31 + 1개월 = 2/28 처럼 존재하지 않는 날짜를 자동으로 그 달의
+    마지막 날로 clamp 한다(구독 만료일 계산에 안전). requirements.txt 에 이미 존재.
+    """
+    from dateutil.relativedelta import relativedelta
+    return dt + relativedelta(months=n)
+
+
 class LimitExceeded(Exception):
     """한도 초과. API 뷰는 402 Payment Required 로 변환.
 

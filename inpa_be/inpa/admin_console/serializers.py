@@ -275,6 +275,10 @@ class AdminSubscriptionUpdateSerializer(serializers.Serializer):
     """
     plan_code = serializers.CharField(max_length=20)
     status = serializers.ChoiceField(choices=Subscription.STATUS, required=False)
+    # 유료 플랜 부여 시 결제 주기. 지정하면 만료(월=1개월/연=12개월)를 계산해 세팅한다.
+    # 미지정 시 만료를 강제하지 않는다(하위호환 — 기존 무기한 수동 부여 보존).
+    billing_cycle = serializers.ChoiceField(
+        choices=Subscription.BILLING_CYCLE, required=False)
 
 
 # ─── 대시보드 ──────────────────────────────────────────────────────────
@@ -638,7 +642,7 @@ class AdminPlanSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plan
         fields = [
-            'id', 'code', 'display_name', 'price_krw', 'description',
+            'id', 'code', 'display_name', 'price_krw', 'price_annual_krw', 'description',
             'limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
             'limit_customer',
             'is_active', 'created_at', 'updated_at',
@@ -651,7 +655,7 @@ class AdminPlanUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plan
         fields = [
-            'display_name', 'price_krw', 'description',
+            'display_name', 'price_krw', 'price_annual_krw', 'description',
             'limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
             'limit_customer',
             'is_active',

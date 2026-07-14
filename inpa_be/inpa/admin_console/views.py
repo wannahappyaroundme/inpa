@@ -222,25 +222,43 @@ class AdminUserSubscriptionView(APIView):
     permission_classes = [IsAdmin]
 
     def patch(self, request, user_id):
+        from inpa.billing.credit import add_months
+        from inpa.billing.models import RuntimeConfig
+
         user = get_object_or_404(User, pk=user_id)
         serializer = AdminSubscriptionUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         plan_code = serializer.validated_data['plan_code']
         plan = get_object_or_404(Plan, code=plan_code, is_active=True)
+        billing_cycle = serializer.validated_data.get('billing_cycle')
 
         sub, created = Subscription.objects.get_or_create(
             user=user,
             defaults={'plan': plan, 'status': 'active'},
         )
-        if not created:
-            old_plan = sub.plan.display_name
-            sub.plan = plan
-            if 'status' in serializer.validated_data:
-                sub.status = serializer.validated_data['status']
-            sub.save()
-        else:
-            old_plan = None
+        old_plan = None if created else sub.plan.display_name
+        sub.plan = plan
+        if 'status' in serializer.validated_data:
+            sub.status = serializer.validated_data['status']
+
+        # ── 만료·주기·첫 유료 보너스 ─────────────────────────────────────
+        # 무료 플랜은 무기한(expires_at=None) 유지. 유료 + billing_cycle 지정 시에만
+        # 만료를 계산한다(하위호환: cycle 미지정 유료 부여는 기존 expires_at 보존 =
+        # 수동 무기한 부여 관례). 월=1개월/연=12개월. 첫 유료 보너스(토글 ON·미소진)면 +1개월.
+        if plan.code == 'free':
+            sub.expires_at = None
+        elif billing_cycle:
+            now = timezone.now()
+            sub.billing_cycle = billing_cycle
+            months = 1 if billing_cycle == 'monthly' else 12
+            expires = add_months(now, months)
+            if RuntimeConfig.solo().first_paid_bonus_enabled and not sub.first_paid_bonus_used:
+                expires = add_months(expires, 1)
+                sub.first_paid_bonus_used = True
+            sub.expires_at = expires
+
+        sub.save()
 
         # 설계사 본인에게 알림 (고객 자동발송 금지 원칙).
         # ★ EXPIRY_SOON(만기 임박, 일정 배지) 재사용은 잘못된 배지·라벨을 만든다.
@@ -257,6 +275,9 @@ class AdminUserSubscriptionView(APIView):
             'plan_code': plan.code,
             'plan_display': plan.display_name,
             'status': sub.status,
+            'billing_cycle': sub.billing_cycle,
+            'expires_at': sub.expires_at.isoformat() if sub.expires_at else None,
+            'first_paid_bonus_used': sub.first_paid_bonus_used,
             'changed': not created or old_plan != plan.display_name,
         })
 
