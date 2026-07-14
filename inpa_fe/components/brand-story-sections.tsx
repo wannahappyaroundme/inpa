@@ -87,14 +87,14 @@ export function ProductPreviewSection() {
         </Reveal>
         <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
           <Reveal delay={100}>
-            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden aspect-[4/3]">
+            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden aspect-[1190/1055]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/landing-new/coverage-analysis.webp" alt="보장 분석 화면: 담보별 넉넉·적정·부족을 색으로 표시" className="w-full h-full object-cover object-top" loading="lazy" />
             </div>
             <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">보장 분석 · 실제 화면</p>
           </Reveal>
           <Reveal delay={160}>
-            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden aspect-[4/3]">
+            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden aspect-[1190/1055]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/landing-new/dashboard.webp" alt="대시보드 화면: 이번 달 목표·영업 단계별 고객·월별 보험료 추이" className="w-full h-full object-cover object-top" loading="lazy" />
             </div>
