@@ -69,7 +69,7 @@ export function HeroSection() {
               <Link href="/register" className="w-full sm:w-auto px-7 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/90 transition shadow-lg">무료로 시작하기</Link>
               <a href="#features" className="w-full sm:w-auto px-7 py-4 rounded-2xl border border-white/25 text-white font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/10 transition">기능 둘러보기</a>
             </div>
-            <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 가입 시 한 달 무료 쿠폰 · 이메일로 가입</p>
+            <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 베타 기간 전 기능 무료 · 이메일로 가입</p>
           </Reveal>
 
           <Reveal immediate delay={120} className="flex-1 w-full max-w-md md:max-w-none">
@@ -339,7 +339,7 @@ export function PricingSection() {
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
         <Reveal>
           <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">요금제</h2>
-          <p className="mt-3 text-center text-[15px] text-[var(--ink-3)]">최초 가입하면 한 달 무료 사용 쿠폰을 드립니다. 정식 출시 후에도 가입자 혜택은 그대로예요.</p>
+          <p className="mt-3 text-center text-[15px] text-[var(--ink-3)]">지금은 베타 기간이라 모든 요금제 기능을 무료로 이용할 수 있어요.</p>
         </Reveal>
         <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           <Reveal className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 flex flex-col gap-3">
@@ -409,7 +409,7 @@ export function FinalCTASection() {
         <h2 className="text-[28px] sm:text-[40px] font-extrabold text-white leading-tight tracking-tight">
           지금, 첫 고객의<br /><span style={{ color: MINT }}>보장 공백</span>부터 보세요
         </h2>
-        <p className="mt-4 text-[16px] text-white/70">증권 한 장이면 시작입니다. 지금 가입하면 한 달 무료.</p>
+        <p className="mt-4 text-[16px] text-white/70">증권 한 장이면 시작입니다. 지금은 베타 기간이라 전 기능 무료예요.</p>
         <Link href="/register" className="mt-8 inline-flex px-8 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] items-center justify-center hover:bg-white/90 transition shadow-lg">무료로 분석 시작하기</Link>
         <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 이메일로 가입</p>
       </Reveal>
