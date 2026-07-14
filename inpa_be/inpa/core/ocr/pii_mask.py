@@ -46,13 +46,22 @@ _IDENTITY_NAME_PATTERN = re.compile(
 )
 
 
+# NOT_NAMES(이름 추출용)에는 없지만, '성명' 흡수 라벨 뒤 표 헤더 행에서 이름으로 오인되기
+# 쉬운 구조어. 예: "계약자 성명 생년월일 연락처"(헤더 행)의 '생년월일'을 마스킹하지 않는다.
+# NOT_NAMES 자체는 이름 추출 로직도 공유하므로 여기(마스킹 전용)에만 별도로 둔다.
+_STRUCTURAL_NON_NAMES = frozenset({
+    '생년월일', '담보내역', '법정상속', '보장내용', '계약내용', '가입금액',
+    '납입기간', '납입방법', '상품명', '보험나이', '청약일자', '계약일자', '증권번호',
+})
+
+
 def _mask_name(match):
     label, sep, candidate = match.group(1), match.group(2), match.group(3)
     # ocrparsing._extract_person_name 이 이름 "추출"에 쓰는 것과 동일한 오탐 방지
     # 사전(NOT_NAMES)을 재사용 — "주민번호"·"보험기간" 같은 테이블 헤더/구조어가
     # 라벨 바로 뒤에 왔다고 이름으로 오인해 지우지 않는다(과다 마스킹 방지: 이런
     # 구조어는 어차피 신원정보가 아니므로 원문 그대로 두는 편이 더 정밀하다).
-    if candidate in NOT_NAMES:
+    if candidate in NOT_NAMES or candidate in _STRUCTURAL_NON_NAMES:
         return match.group(0)
     return f'{label}{sep}***'
 

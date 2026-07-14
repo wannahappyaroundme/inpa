@@ -199,6 +199,7 @@ class AdminBillingUsageView(APIView):
 
         # user별 그룹핑
         from collections import defaultdict
+        from .credit import resolve_effective_plan
         user_meters: dict = defaultdict(dict)
         user_objs = {}
         for m in meters:
@@ -208,8 +209,8 @@ class AdminBillingUsageView(APIView):
         results = []
         for uid, cnt_map in user_meters.items():
             u = user_objs[uid]
-            sub = getattr(u, 'subscription', None)
-            plan = sub.plan if sub else None
+            # 표시 한도 = 실제 강제 한도(취소·만료 구독은 무료로 폴백). 단일유저 브랜치·_consume와 동일.
+            plan = resolve_effective_plan(u)
             usage_list = []
             for action in _ACTION_ORDER:
                 lim = plan.get_limit(action) if plan else None

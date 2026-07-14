@@ -82,11 +82,17 @@ function hhmmToMin(t: string): number {
 interface AgendaItem { ymd: string; time: string; title: string; cat: Cat; sort: number }
 
 // 일정/할일/차단 + 미팅 → 날짜별 일정 맵. (캘린더 = 보는 달, 오늘 카드 = 이번 달 전용으로 각각 호출)
-function buildAgenda(scheduleItems: ScheduleItem[], meetings: Meeting[]): Map<string, AgendaItem[]> {
+function buildAgenda(scheduleItems: ScheduleItem[], meetings: Meeting[], year: number, month: number): Map<string, AgendaItem[]> {
   const map = new Map<string, AgendaItem[]>();
   const add = (it: AgendaItem) => { const a = map.get(it.ymd) ?? []; a.push(it); map.set(it.ymd, a); };
   for (const s of scheduleItems) {
     if (s.kind === "block" && s.recur_weekday !== null) continue; // 반복차단은 /schedule 풀뷰에서만
+    // 생일·기념일: anniversary_md(MM-DD)로 매년 반복 — 보는 달이면 그 해 날짜에 표시(/schedule과 동일)
+    if (s.category === "anniversary" && s.anniversary_md) {
+      const [mm, dd] = s.anniversary_md.split("-");
+      if (mm === pad(month)) add({ ymd: `${year}-${mm}-${dd}`, time: "종일", title: `🎂 ${s.title}`, cat: "anniversary", sort: -1 });
+      continue;
+    }
     if (!s.start_at) continue;
     const t = s.all_day ? "" : kstTime(s.start_at);
     const cat: Cat = s.kind === "block" ? "etc" : s.category;
@@ -205,8 +211,8 @@ export default function HomePage() {
   }, [ready, todayY, todayM, reloadKey]);
 
   // 날짜별 일정 맵 — 캘린더(보는 달) / 오늘 카드(이번 달) 각각. (알림은 우측 상단 종에서만)
-  const agenda = useMemo(() => buildAgenda(scheduleItems, meetings), [scheduleItems, meetings]);
-  const todayAgenda = useMemo(() => buildAgenda(todayScheduleItems, meetings), [todayScheduleItems, meetings]);
+  const agenda = useMemo(() => buildAgenda(scheduleItems, meetings, viewY, viewM), [scheduleItems, meetings, viewY, viewM]);
+  const todayAgenda = useMemo(() => buildAgenda(todayScheduleItems, meetings, todayY, todayM), [todayScheduleItems, meetings, todayY, todayM]);
 
   async function saveGoal() {
     setGoalSaving(true);

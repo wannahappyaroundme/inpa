@@ -597,6 +597,20 @@ class GoogleLinkSecurityTests(TestCase):
                               format='json')
         self.assertEqual(r2.status_code, 200)
 
+    @mock.patch('inpa.accounts.views.verify_google_id_token')
+    def test_admin_disabled_verified_account_not_reactivated(self, mock_verify):
+        """★ 회귀: 관리자가 비활성화(is_active=False)한 '인증 완료' 계정은 구글 로그인으로
+        재활성화·비번 무효화되지 않는다(비활성화 우회 방지). 선점 방어는 미인증 계정에만."""
+        user, _ = _verified_planner('banned@test.com')  # email_verified_at 도장 있음
+        user.is_active = False  # 관리자 비활성화
+        user.save(update_fields=['is_active'])
+        mock_verify.return_value = {'sub': 'gBan', 'email': 'banned@test.com',
+                                    'email_verified': True}
+        self.public.post('/api/v1/auth/google/', {'id_token': 'x'}, format='json')
+        user.refresh_from_db()
+        self.assertFalse(user.is_active, '관리자 비활성화 계정이 구글 로그인으로 재활성화됨')
+        self.assertTrue(user.has_usable_password(), '비활성화 계정의 비번이 무효화됨')
+
 
 class TeamInviteInfoNoIndexTests(TestCase):
     """FIX 2 — 공개 초대 정보 뷰도 noindex(X-Robots-Tag) 헤더를 낸다."""

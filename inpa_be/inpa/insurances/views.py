@@ -420,7 +420,8 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
         # ── 4) API 키 확인 (하드코딩 금지 — settings/env) ──
         if not getattr(settings, 'ANTHROPIC_API_KEY', ''):
             return Response(
-                {'code': 'OCR_UNAVAILABLE', 'detail': 'OCR 분석이 현재 비활성화되어 있습니다.'},
+                {'code': 'OCR_UNAVAILABLE',
+                 'detail': '지금은 증권 자동 분석을 사용할 수 없어요. 직접 입력으로 등록할 수 있어요.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         # ── 5) 크레딧 차감 (kind='ocr') — Claude 호출 직전. 한도 초과 시 402 ──

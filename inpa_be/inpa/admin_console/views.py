@@ -1220,7 +1220,7 @@ class AdminUsageView(APIView):
 
     # 이벤트 분류 (analytics.NorthStarEvent event_type 안정값 기준).
     _PLANNER_ACTIVITY = frozenset({'ocr_upload', 'analysis_view', 'share_created', 'clipboard_copy'})
-    _CUSTOMER_RESPONSE = frozenset({'share_view', 'callback_request', 'referral_attributed'})
+    _CUSTOMER_RESPONSE = frozenset({'share_view', 'callback_request', 'referral_attributed', 'cta_click'})
 
     def get(self, request):
         from datetime import timedelta
