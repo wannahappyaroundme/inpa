@@ -11,7 +11,7 @@ import {
   TrustSection, FinalCTASection, LandingFooter,
 } from "@/components/landing-sections";
 import {
-  HeroPosterSection, BrandDefinitionSection, PlannerJourneySection, SalesProcessMapSection,
+  HeroPosterSection, ProductPreviewSection, BrandDefinitionSection, PlannerJourneySection, SalesProcessMapSection,
   ClosingHeroSection, PersonaSection, PricingFourTiers,
 } from "@/components/brand-story-sections";
 
@@ -254,6 +254,7 @@ export function CinemaLanding() {
       <LandingHeader />
       <main>
         <HeroPosterSection />
+        <ProductPreviewSection />
         <BrandDefinitionSection />
         <PlannerJourneySection />
         <SalesProcessMapSection />
