@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, Users, Phone, BarChart3, CalendarClock, Gift, type LucideIcon } from "lucide-react";
 import { Reveal } from "@/components/reveal";
@@ -126,6 +127,88 @@ export function ProductPreviewSection() {
           <Link href="/register" className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition shadow-lg">무료로 시작하기</Link>
           <p className="mt-3 text-[13px] text-[var(--ink-3)]">신용카드 불필요 · 이메일로 가입</p>
         </Reveal>
+      </div>
+    </section>
+  );
+}
+
+// 증권 업로드부터 고객 전달까지 실제 처리 6단계. 스크롤 위치에 따라 왼쪽 카드/오른쪽 요약이 함께 하이라이트.
+const PIPELINE_STEPS: { title: string; desc: string; badges: string[] }[] = [
+  { title: "증권 업로드", desc: "고객님의 보험증권 PDF를 올리는 것으로 시작합니다. 여러 장도 한 번에 올릴 수 있어요.",
+    badges: ["PDF 여러 장 동시 업로드", "직접 입력도 가능"] },
+  { title: "AI가 담보를 읽어냅니다", desc: "Claude AI가 증권 속 담보명·금액·회사명을 자동으로 인식합니다.",
+    badges: ["AI 자동 인식", "회사별 표기 차이 대응"] },
+  { title: "표준 틀에 자동 정리", desc: "100개 넘는 보장 항목을 하나의 표준 틀로 가지런히 정리합니다. 설계사님이 고쳐주면 다음 분석부터 더 정확해져요.",
+    badges: ["100개 이상 표준 담보", "쓸수록 정확해지는 사전"] },
+  { title: "보장 상태를 색으로 확인", desc: "설계사님이 세운 기준에 따라 넉넉·적정·부족을 신호등처럼 보여줍니다.",
+    badges: ["넉넉·적정·부족", "기준은 설계사님이 직접"] },
+  { title: "제안과 나란히 비교", desc: "보유 증권과 새 제안을 자유롭게 짝지어 담보별 증감을 사실 그대로 비교합니다.",
+    badges: ["자유롭게 비교", "판단 없이 사실만"] },
+  { title: "고객에게 바로 전달", desc: "비교 내용을 복사해서 카톡이나 문자로 직접 보내드리세요.",
+    badges: ["복사해서 바로 전달", "발송은 설계사님이 직접"] },
+];
+
+export function AIPipelineSection() {
+  const [active, setActive] = useState(0);
+  const refs = useRef<(HTMLDivElement | null)[]>([]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const idx = refs.current.findIndex((el) => el === entry.target);
+          if (idx !== -1) setActive(idx);
+        });
+      },
+      { rootMargin: "-42% 0px -42% 0px", threshold: 0 }
+    );
+    refs.current.forEach((el) => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <section className="py-20 md:py-28 bg-[var(--surface-2)]">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8">
+        <Reveal className="text-center mb-14">
+          <span className="inline-block text-[11px] font-bold tracking-widest uppercase px-3 py-1 rounded-full bg-[var(--accent-tint)] text-[var(--brand)]">증권 한 장이 처리되는 과정</span>
+          <h2 className="mt-4 text-[28px] sm:text-[36px] font-extrabold text-[var(--ink)] tracking-tight break-keep">
+            업로드부터 <span className="text-[var(--brand)]">고객 전달</span>까지, 6단계로 이어집니다
+          </h2>
+          <p className="mt-3 text-[15px] sm:text-[17px] text-[var(--ink-3)] max-w-xl mx-auto break-keep">
+            각 단계는 실제로 인파 안에서 일어나는 일이에요. 스크롤하면서 하나씩 확인해보세요.
+          </p>
+        </Reveal>
+        <div className="grid md:grid-cols-2 gap-8 md:gap-12 items-start">
+          <div className="flex flex-col gap-4">
+            {PIPELINE_STEPS.map((s, i) => (
+              <div key={s.title} ref={(el) => { refs.current[i] = el; }}
+                className={`rounded-2xl border p-6 transition-all duration-300 ${i === active ? "border-[var(--brand)] bg-[var(--surface)] shadow-card" : "border-[var(--line)] bg-[var(--surface)]/60"}`}>
+                <div className={`text-[11px] font-bold tracking-widest uppercase mb-2 transition-colors duration-300 ${i === active ? "text-[var(--brand)]" : "text-[var(--ink-3)]"}`}>Step {String(i + 1).padStart(2, "0")}</div>
+                <h3 className={`text-[17px] font-bold mb-2 transition-colors duration-300 break-keep ${i === active ? "text-[var(--ink)]" : "text-[var(--ink-3)]"}`}>{s.title}</h3>
+                <p className="text-[14px] text-[var(--ink-3)] leading-relaxed mb-3 break-keep">{s.desc}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {s.badges.map((b) => (
+                    <span key={b} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full transition-colors duration-300 ${i === active ? "bg-[var(--accent-tint)] text-[var(--brand)]" : "bg-[var(--surface-2)] text-[var(--ink-3)]"}`}>{b}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block sticky top-24">
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-card p-6">
+              {PIPELINE_STEPS.map((s, i) => (
+                <div key={s.title} className="flex flex-col items-center">
+                  <div className={`w-full rounded-xl border px-4 py-3 text-center transition-all duration-300 ${i === active ? "border-[var(--brand)] bg-[var(--accent-tint)]/60" : "border-[var(--line)] bg-[var(--surface-2)]"}`}>
+                    <div className={`text-[10px] font-bold tracking-widest transition-colors duration-300 ${i === active ? "text-[var(--brand)]" : "text-[var(--ink-3)]"}`}>STEP {i + 1}</div>
+                    <div className={`text-[13px] font-bold mt-0.5 transition-colors duration-300 break-keep ${i === active ? "text-[var(--ink)]" : "text-[var(--ink-3)]"}`}>{s.title}</div>
+                  </div>
+                  {i < PIPELINE_STEPS.length - 1 ? <div className="w-px h-4 bg-[var(--line)] my-1" /> : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );
