@@ -21,7 +21,9 @@ export default function DemoLayout({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
   if (!ready) return null;
   return (
-    <div>
+    // 데모는 전용 크롬(풀블리드 배지 바 + 서브탭 + 자체 컨테이너)을 유지한다.
+    // 셸(main)의 새 패딩을 상쇄해 기존 화면과 동일하게 보이도록 음수 마진을 준다.
+    <div className="-m-4 sm:-m-6">
       <div className="sticky top-0 z-20 bg-amber-50 border-b border-amber-200 px-4 sm:px-6 py-2 flex items-center gap-2 flex-wrap">
         <span className="text-[12px] font-bold text-amber-900 bg-amber-200 rounded-full px-2.5 py-0.5">🧪 목업 데모</span>
         <span className="text-[12px] text-amber-800">실제 데이터가 아니에요. 데이터가 채워지면 이런 형식·UI라는 미리보기입니다.</span>

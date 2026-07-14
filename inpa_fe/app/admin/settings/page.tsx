@@ -119,7 +119,7 @@ export default function AdminSettingsPage() {
   if (!ready) return null;
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="max-w-3xl">
       <h1 className="text-[22px] font-extrabold text-ink mb-6">운영 설정</h1>
 
       {/* 요금제 한도 */}

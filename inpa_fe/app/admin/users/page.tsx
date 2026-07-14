@@ -59,7 +59,7 @@ function UsersContent() {
   if (!ready) return null;
 
   return (
-    <div className="p-6">
+    <div>
       <h1 className="text-[22px] font-extrabold text-ink mb-6">설계사 관리</h1>
 
       {/* 검색 */}
@@ -80,7 +80,7 @@ function UsersContent() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-neg-soft border border-line text-[13px] text-neg-ink">{error}</div>
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger-ink">{error}</div>
       )}
 
       {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}

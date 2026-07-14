@@ -211,8 +211,8 @@ export default function AdminMilestonesPage() {
   ];
 
   return (
-    <div className="p-5 lg:p-7 max-w-5xl">
-      <div className="mb-5">
+    <div className="max-w-5xl">
+      <div className="mb-6">
         <h1 className="text-[22px] font-extrabold text-ink">마일스톤</h1>
         <p className="text-[13px] text-ink3 mt-1">
           2026-06-21 VC·규제·업계 21인 라운드테이블 결론을 실행 카드로 정리.{" "}

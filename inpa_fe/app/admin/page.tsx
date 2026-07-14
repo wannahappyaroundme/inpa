@@ -81,7 +81,7 @@ export default function AdminDashboardPage() {
   ];
 
   return (
-    <div className="p-6">
+    <div>
       <h1 className="text-[22px] font-extrabold text-ink mb-6">대시보드</h1>
 
       {error && (

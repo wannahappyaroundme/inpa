@@ -97,7 +97,7 @@ async function reqVoid(method: string, path: string, body?: unknown): Promise<vo
 export interface AdminLoginPayload { email: string; password: string }
 export interface AdminLoginResponse {
   token: string;
-  admin: { email: string; name: string };
+  admin: { id: number; email: string };
 }
 
 /** POST /api/v1/admin/auth/login/ — is_admin=false면 403 */
@@ -118,13 +118,16 @@ export interface AdminUsageUser {
   email: string;
   name: string;
   total: number;
+  planner_activity: number; // 설계사 직접 행동 합
+  customer_response: number; // 고객 반응 합
   events: Record<string, number>; // event_type → count
 }
 export interface AdminUsageResponse {
   days: number;
   active_users: number;
   feature_totals: Record<string, number>; // event_type → 전체 합
-  users: AdminUsageUser[]; // 사용량 내림차순(데모 @inpa.local 제외)
+  group_totals: { planner_activity: number; customer_response: number };
+  users: AdminUsageUser[]; // 설계사 활동 합 내림차순(데모 @inpa.local 제외)
 }
 
 /** GET /api/v1/admin/usage/?days= — 설계사별 기능 사용량 집계(데모 제외) */

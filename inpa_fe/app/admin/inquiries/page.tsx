@@ -137,8 +137,8 @@ function InquiriesContent() {
   if (!ready) return null;
 
   return (
-    <div className="p-6">
-      <h1 className="text-[22px] font-extrabold text-ink mb-4">1:1 문의</h1>
+    <div>
+      <h1 className="text-[22px] font-extrabold text-ink mb-6">1:1 문의</h1>
 
       {/* 상태 필터 */}
       <div className="flex gap-2 mb-2 flex-wrap">

@@ -80,8 +80,8 @@ function BoardContent() {
   if (!ready) return null;
 
   return (
-    <div className="p-6">
-      <h1 className="text-[22px] font-extrabold text-ink mb-4">게시판 모더레이션</h1>
+    <div>
+      <h1 className="text-[22px] font-extrabold text-ink mb-6">게시판 모더레이션</h1>
 
       {/* 필터 */}
       <div className="flex gap-2 mb-4 flex-wrap">
@@ -106,7 +106,7 @@ function BoardContent() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-neg-soft border border-line text-[13px] text-danger">{error}</div>
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger-ink">{error}</div>
       )}
 
       {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}

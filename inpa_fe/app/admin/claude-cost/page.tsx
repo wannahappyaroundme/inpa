@@ -31,6 +31,13 @@ const OUTCOME_COLOR: Record<string, string> = {
   package_missing: "var(--ink3)",
 };
 
+const RANGES = [
+  { v: 7, l: "7일" },
+  { v: 30, l: "30일" },
+  { v: 90, l: "90일" },
+  { v: 0, l: "전체" },
+];
+
 function won(n: number) {
   return `${KO.format(Math.round(n))}원`;
 }
@@ -75,47 +82,53 @@ export default function AdminClaudeCostPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-[22px] font-extrabold text-ink">Claude 비용·결과 계측</h1>
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-6">
+        <div>
+          <h1 className="text-[22px] font-extrabold text-ink">Claude 비용·결과 계측</h1>
+          <p className="mt-1 text-[13px] text-ink3">
+            비용은 토큰 수 × 모델 단가 × 환율({data ? KO.format(data.usd_krw_rate) : "-"}원/USD
+            가정)로 계산한 <b className="text-ink2">추정치</b>예요. 실제 청구서와 다를 수 있어요.
+            (데모 계정 제외)
+          </p>
+        </div>
         <div className="flex gap-1">
-          {[7, 30, 90].map((d) => (
+          {RANGES.map((r) => (
             <button
-              key={d}
-              onClick={() => setDays(d)}
+              key={r.v}
+              onClick={() => setDays(r.v)}
               className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold transition ${
-                days === d ? "bg-brand-soft text-brand" : "bg-surface2 text-ink2 hover:bg-line"
+                days === r.v ? "bg-brand-soft text-brand" : "bg-surface2 text-ink2 hover:bg-line"
               }`}
             >
-              {d}일
+              {r.l}
             </button>
           ))}
         </div>
       </div>
-      <p className="mt-1 text-[13px] text-ink3">
-        비용은 토큰 수 × 모델 단가 × 환율({data ? KO.format(data.usd_krw_rate) : "-"}원/USD
-        가정)로 계산한 <b className="text-ink2">추정치</b>예요. 실제 청구서와 다를 수 있어요.
-        (데모 계정 제외)
-      </p>
 
-      {error && <div className="mt-4 text-[13px] text-danger">{error}</div>}
-      {loading && <div className="mt-6 h-40 rounded-2xl bg-line animate-pulse" />}
+      {error && (
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger-ink">
+          {error}
+        </div>
+      )}
+      {loading && <div className="mt-2 h-40 rounded-2xl bg-line animate-pulse" />}
 
       {data && !loading && (
         <>
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            <Card className="px-4 py-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Card className="px-4 py-3.5">
               <div className="text-[11px] text-ink3">총 호출</div>
               <div className="mt-1 text-[20px] font-extrabold text-ink tnum">
                 {KO.format(data.total_calls)}건
               </div>
             </Card>
-            <Card className="px-4 py-3">
+            <Card className="px-4 py-3.5">
               <div className="text-[11px] text-ink3">총 추정 비용</div>
               <div className="mt-1 text-[20px] font-extrabold text-ink tnum">
                 {won(data.total_cost_krw)}
               </div>
             </Card>
-            <Card className="px-4 py-3">
+            <Card className="px-4 py-3.5">
               <div className="text-[11px] text-ink3">성공률</div>
               <div className="mt-1 text-[20px] font-extrabold text-ink tnum">
                 {data.success_rate === null ? "-" : `${data.success_rate.toFixed(1)}%`}
