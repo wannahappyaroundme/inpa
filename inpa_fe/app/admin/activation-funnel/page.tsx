@@ -12,6 +12,13 @@ import { BarChart } from "@/components/charts";
 
 const KO = new Intl.NumberFormat("ko-KR");
 
+const RANGES = [
+  { v: 7, l: "7일" },
+  { v: 30, l: "30일" },
+  { v: 90, l: "90일" },
+  { v: 0, l: "전체" },
+];
+
 function pct(n: number | null) {
   return n === null ? "-" : `${n.toFixed(1)}%`;
 }
@@ -45,54 +52,60 @@ export default function AdminActivationFunnelPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-[22px] font-extrabold text-ink">활성화 퍼널</h1>
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-6">
+        <div>
+          <h1 className="text-[22px] font-extrabold text-ink">활성화 퍼널</h1>
+          <p className="mt-1 text-[13px] text-ink3">
+            가입 코호트(창 내 신규 가입) 기준 단계별 인원과 전환율이에요. 활성화 = 첫 분석과 첫 공유
+            링크가 모두 가입 후{" "}
+            <b className="text-ink2">{data ? data.activation_window_days : "-"}일</b> 이내인 경우예요.
+            (데모 계정 제외)
+          </p>
+        </div>
         <div className="flex gap-1">
-          {[7, 30, 90].map((d) => (
+          {RANGES.map((r) => (
             <button
-              key={d}
-              onClick={() => setDays(d)}
+              key={r.v}
+              onClick={() => setDays(r.v)}
               className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold transition ${
-                days === d ? "bg-brand-soft text-brand" : "bg-surface2 text-ink2 hover:bg-line"
+                days === r.v ? "bg-brand-soft text-brand" : "bg-surface2 text-ink2 hover:bg-line"
               }`}
             >
-              {d}일
+              {r.l}
             </button>
           ))}
         </div>
       </div>
-      <p className="mt-1 text-[13px] text-ink3">
-        가입 코호트(창 내 신규 가입) 기준 단계별 인원과 전환율이에요. 활성화 = 첫 분석과 첫 공유
-        링크가 모두 가입 후{" "}
-        <b className="text-ink2">{data ? data.activation_window_days : "-"}일</b> 이내인 경우예요.
-        (데모 계정 제외)
-      </p>
 
-      {error && <div className="mt-4 text-[13px] text-danger">{error}</div>}
-      {loading && <div className="mt-6 h-40 rounded-2xl bg-line animate-pulse" />}
+      {error && (
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger-ink">
+          {error}
+        </div>
+      )}
+      {loading && <div className="mt-2 h-40 rounded-2xl bg-line animate-pulse" />}
 
       {data && !loading && (
         <>
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-            <Card className="px-4 py-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <Card className="px-4 py-3.5">
               <div className="text-[11px] text-ink3">가입 수</div>
               <div className="mt-1 text-[20px] font-extrabold text-ink tnum">
                 {KO.format(data.signup_count)}명
               </div>
             </Card>
-            <Card className="px-4 py-3">
+            <Card className="px-4 py-3.5">
               <div className="text-[11px] text-ink3">활성화 수</div>
               <div className="mt-1 text-[20px] font-extrabold text-ink tnum">
                 {KO.format(data.activated_count)}명
               </div>
             </Card>
-            <Card className="px-4 py-3">
+            <Card className="px-4 py-3.5">
               <div className="text-[11px] text-ink3">활성화율</div>
               <div className="mt-1 text-[20px] font-extrabold text-ink tnum">
                 {pct(data.activation_rate)}
               </div>
             </Card>
-            <Card className="px-4 py-3">
+            <Card className="px-4 py-3.5">
               <div className="text-[11px] text-ink3">평균 활성화 소요일</div>
               <div className="mt-1 text-[20px] font-extrabold text-ink tnum">
                 {data.avg_days_to_activation === null ? "-" : `${data.avg_days_to_activation}일`}

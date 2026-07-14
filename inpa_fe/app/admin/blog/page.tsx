@@ -69,7 +69,7 @@ export default function AdminBlogListPage() {
   if (!ready) return null;
 
   return (
-    <div className="p-6">
+    <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-[22px] font-extrabold text-ink">블로그</h1>
         <button

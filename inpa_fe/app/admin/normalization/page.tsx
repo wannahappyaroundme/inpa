@@ -390,7 +390,7 @@ export default function AdminNormalizationPage() {
   };
 
   return (
-    <div className="p-6">
+    <div>
       <h1 className="text-[22px] font-extrabold text-ink mb-4">정규화 매핑 큐</h1>
       <p className="text-[12px] text-ink3 mb-5">
         증권에서 읽은 담보명을 표준 담보로 매핑합니다. 매핑 후 다음 분석부터 자동 적용됩니다.
@@ -418,7 +418,7 @@ export default function AdminNormalizationPage() {
       </div>
 
       {tab === "unmatched" && (
-        <div className="flex gap-5">
+        <div className="flex flex-col lg:flex-row gap-5">
           {/* 미매칭 목록 */}
           <div className="flex-1 min-w-0">
             {unmatchedLoading && <div className="text-[14px] text-ink3">불러오는 중...</div>}
@@ -499,7 +499,7 @@ export default function AdminNormalizationPage() {
       )}
 
       {tab === "flags" && (
-        <div className="flex gap-5">
+        <div className="flex flex-col lg:flex-row gap-5">
           {/* 신고 목록 */}
           <div className="flex-1 min-w-0">
             <div className="flex gap-2 mb-3">

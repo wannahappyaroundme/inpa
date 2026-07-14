@@ -108,7 +108,7 @@ export default function AdminAnnouncementsPage() {
   const showForm = isNew || editing !== null;
 
   return (
-    <div className="p-6">
+    <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-[22px] font-extrabold text-ink">공지사항</h1>
         <button

@@ -43,7 +43,7 @@ function ConsentLogsContent() {
   if (!ready) return null;
 
   return (
-    <div className="p-6">
+    <div>
       <div className="flex items-center gap-3 mb-2">
         <h1 className="text-[22px] font-extrabold text-ink">동의 로그</h1>
         <span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-surface2 text-ink3">READ-ONLY</span>

@@ -114,7 +114,7 @@ export default function AdminUserDetailPage() {
       : [];
 
   return (
-    <div className="p-6">
+    <div>
       <div className="mb-4">
         <Link href="/admin/users" className="text-[13px] text-brand hover:underline">
           ← 목록으로
@@ -123,7 +123,7 @@ export default function AdminUserDetailPage() {
       <h1 className="text-[22px] font-extrabold text-ink mb-6">설계사 상세</h1>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-danger-soft border border-line text-[13px] text-danger">{error}</div>
+        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger-ink">{error}</div>
       )}
 
       {loading && <div className="text-[14px] text-ink3">불러오는 중...</div>}
