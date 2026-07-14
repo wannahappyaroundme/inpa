@@ -28,7 +28,7 @@ const NOTIF_META: Record<
   task_due:          { icon: "✅", colorClass: "text-success",                            label: "할 일 마감" },
   share_unread:      { icon: "📨", colorClass: "text-ink3",                               label: "미열람 공유" },
   unpaid_d_alert:    { icon: "⚠️",  colorClass: "text-rose-600",        label: "환수 위험" },
-  self_diagnosis_lead: { icon: "🎯", colorClass: "text-brand",                            label: "셀프진단 리드" },
+  self_diagnosis_lead: { icon: "🎯", colorClass: "text-brand",                            label: "셀프진단 고객" },
   board_comment:     { icon: "💬", colorClass: "text-brand",                              label: "댓글" },
   board_like:        { icon: "❤️",  colorClass: "text-danger",                            label: "좋아요" },
   meeting_booked:    { icon: "📅", colorClass: "text-brand",                              label: "예약 요청" },

@@ -84,7 +84,9 @@ class Command(BaseCommand):
         for raw in SAMPLES:
             spec = dict(raw)
             image = spec.pop('image')
-            sample, was_created = PromotionSample.objects.update_or_create(
+            # get_or_create: defaults 는 CREATE 시에만 적용 → 관리자가 Django Admin 에서
+            # 고친 category/sort_order/description/form_fields 가 재배포에도 보존(전역 시드 규칙).
+            sample, was_created = PromotionSample.objects.get_or_create(
                 name=spec['name'],
                 defaults={k: v for k, v in spec.items() if k != 'name'},
             )

@@ -176,7 +176,7 @@ export default function SharePage() {
             </Card>
           ) : (
             <Card className="px-4 py-6 text-center text-[14px] text-ink3">
-              등록된 보유 담보가 아직 없어요.
+              담당 설계사님이 보장 정보를 정리하고 있어요.
             </Card>
           )}
         </section>
