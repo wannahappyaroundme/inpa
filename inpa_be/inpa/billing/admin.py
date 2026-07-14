@@ -32,7 +32,7 @@ class PlanAdmin(admin.ModelAdmin):
     is_active=False 시 신규 Subscription 불가.
     """
     list_display = [
-        'code', 'display_name', 'price_krw',
+        'code', 'display_name', 'price_krw', 'price_annual_krw',
         'limit_ocr', 'limit_ai_compare',
         'limit_analysis', 'limit_promotion', 'limit_customer',
         'can_use_team', 'is_active', 'updated_at',
@@ -40,7 +40,7 @@ class PlanAdmin(admin.ModelAdmin):
     list_editable = [
         'limit_ocr', 'limit_ai_compare',
         'limit_analysis', 'limit_promotion', 'limit_customer',
-        'price_krw', 'can_use_team', 'is_active',
+        'price_krw', 'price_annual_krw', 'can_use_team', 'is_active',
     ]
     readonly_fields = ['created_at', 'updated_at']
     ordering = ['price_krw']
@@ -53,12 +53,12 @@ class SubscriptionAdmin(admin.ModelAdmin):
     결제 확인 → list_editable에서 plan=Plus, status=active 로 변경 → 저장.
     """
     list_display = [
-        'user', 'plan', 'status',
-        'started_at', 'expires_at', 'cancelled_at',
+        'user', 'plan', 'status', 'billing_cycle', 'first_paid_bonus_used',
+        'auto_renew', 'started_at', 'expires_at', 'next_billing_at', 'cancelled_at',
     ]
-    list_filter = ['plan', 'status']
+    list_filter = ['plan', 'status', 'billing_cycle', 'auto_renew']
     search_fields = ['user__email']
-    list_editable = ['status', 'plan']
+    list_editable = ['status', 'plan', 'billing_cycle']
     raw_id_fields = ['user']
     readonly_fields = ['started_at', 'cancelled_at', 'pg_subscription_id']
     ordering = ['-started_at']

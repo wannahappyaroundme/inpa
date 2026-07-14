@@ -13,6 +13,7 @@ import {
   type AdminUserDetail,
   type AdminCustomerRow,
   type AdminPlan,
+  type BillingCycle,
 } from "@/lib/adminApi";
 import { Card } from "@/components/ui";
 
@@ -43,6 +44,7 @@ export default function AdminUserDetailPage() {
 
   const [planChanging, setPlanChanging] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("");
+  const [selectedCycle, setSelectedCycle] = useState<BillingCycle>("monthly");
   const [planMsg, setPlanMsg] = useState<string | null>(null);
 
   const [resetSending, setResetSending] = useState(false);
@@ -78,7 +80,7 @@ export default function AdminUserDetailPage() {
     setPlanChanging(true);
     setPlanMsg(null);
     try {
-      const res = await adminUpdateSubscription(userId, selectedPlan);
+      const res = await adminUpdateSubscription(userId, selectedPlan, selectedCycle);
       setUser((prev) =>
         prev ? { ...prev, plan_code: res.plan_code, plan_display: res.plan_display } : prev
       );
@@ -253,8 +255,11 @@ export default function AdminUserDetailPage() {
 
           {/* 요금제 변경 */}
           <Card className="p-5">
-            <h2 className="text-[15px] font-bold text-ink mb-4">요금제 변경</h2>
-            <div className="flex items-center gap-3">
+            <h2 className="text-[15px] font-bold text-ink mb-1">요금제 변경</h2>
+            <p className="text-[12px] text-ink3 mb-4">
+              유료 요금제를 부여하면 결제 주기에 따라 만료일이 정해져요(월 = 1개월, 연 = 12개월). 첫 결제 보너스 이벤트가 켜져 있으면 첫 유료 부여에 한 달이 자동으로 더 붙어요.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
               <select
                 value={selectedPlan}
                 onChange={(e) => setSelectedPlan(e.target.value)}
@@ -263,6 +268,15 @@ export default function AdminUserDetailPage() {
                 {planOptions.map((p) => (
                   <option key={p.code} value={p.code}>{p.label}</option>
                 ))}
+              </select>
+              <select
+                value={selectedCycle}
+                onChange={(e) => setSelectedCycle(e.target.value as BillingCycle)}
+                aria-label="결제 주기"
+                className="rounded-xl border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none focus:border-brand"
+              >
+                <option value="monthly">월 결제 (1개월)</option>
+                <option value="annual">연 결제 (12개월)</option>
               </select>
               <button
                 onClick={handlePlanChange}

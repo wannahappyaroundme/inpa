@@ -456,6 +456,37 @@ class PlanListPublicTests(TestCase):
         self.assertIn('plus', codes)
 
 
+class BillingEventPublicTests(TestCase):
+    """GET /billing/event/ — 첫 유료 보너스 이벤트 플래그 (비인증 공개).
+
+    랜딩·업그레이드 모달의 이벤트 문구를 실제 켜짐(RuntimeConfig)일 때만 노출하기
+    위한 읽기 전용 플래그. 기본값 OFF(§6 정직성 — 꺼진 이벤트를 약속하지 않음).
+    """
+
+    def test_anonymous_can_read_event_flag(self):
+        """비로그인 GET /billing/event/ → 200 + first_paid_bonus_enabled 키."""
+        from .models import RuntimeConfig
+        RuntimeConfig.objects.all().delete()  # 깨끗한 상태에서 기본값 확인
+        c = APIClient()
+        r = c.get('/api/v1/billing/event/')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn('first_paid_bonus_enabled', body)
+        # 기본값 OFF (모델 default=False)
+        self.assertFalse(body['first_paid_bonus_enabled'])
+
+    def test_flag_reflects_runtime_config(self):
+        """RuntimeConfig 토글이 응답에 그대로 반영된다 (ON→True)."""
+        from .models import RuntimeConfig
+        cfg = RuntimeConfig.solo()
+        cfg.first_paid_bonus_enabled = True
+        cfg.save(update_fields=['first_paid_bonus_enabled', 'updated_at'])
+        c = APIClient()
+        r = c.get('/api/v1/billing/event/')
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()['first_paid_bonus_enabled'])
+
+
 # ─── 관리자 사용량 조회 ──────────────────────────────────────────
 
 
@@ -583,6 +614,17 @@ class SeedBillingCommandTests(TestCase):
 
         superp = Plan.objects.get(code='super')
         self.assertIsNone(superp.limit_customer)
+
+    def test_seeds_annual_price_ten_times_monthly(self):
+        """price_annual_krw = 월가×10 (12개월을 10개월가로). free=0."""
+        from django.core.management import call_command
+
+        call_command('seed_billing')
+
+        self.assertEqual(Plan.objects.get(code='free').price_annual_krw, 0)
+        self.assertEqual(Plan.objects.get(code='plus').price_annual_krw, 199000)      # 19900×10
+        self.assertEqual(Plan.objects.get(code='manager').price_annual_krw, 199000)   # 19900×10
+        self.assertEqual(Plan.objects.get(code='super').price_annual_krw, 399000)     # 39900×10
 
     def test_seed_corrects_quota_limits_on_pre_existing_rows(self):
         """★ CREATE-only 원칙의 명시적 예외 — 랜딩 정합 목적으로 기존 행의 4한도(ocr/
@@ -816,6 +858,31 @@ class AdminBillingModeViewTests(TestCase):
         r = self.admin_client.get('/api/v1/admin/billing/mode/')
         self.assertEqual(r.status_code, 200)
         self.assertIn('free_tier_unlimited', r.json())
+        # 첫 유료 보너스 토글도 함께 노출.
+        self.assertIn('first_paid_bonus_enabled', r.json())
+
+    def test_admin_patch_first_paid_bonus_toggle_read_write(self):
+        """first_paid_bonus_enabled PATCH → 저장 + GET 반영(기본 False → True)."""
+        from .models import RuntimeConfig
+        self.assertFalse(RuntimeConfig.solo().first_paid_bonus_enabled)
+        r = self.admin_client.patch(
+            '/api/v1/admin/billing/mode/',
+            {'first_paid_bonus_enabled': True},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()['first_paid_bonus_enabled'])
+        # free_tier_unlimited 는 미전송이라 그대로 유지.
+        self.assertTrue(r.json()['free_tier_unlimited'])
+        self.assertTrue(RuntimeConfig.objects.get(pk=1).first_paid_bonus_enabled)
+
+    def test_admin_patch_bonus_invalid_value_400(self):
+        r = self.admin_client.patch(
+            '/api/v1/admin/billing/mode/',
+            {'first_paid_bonus_enabled': 'yes'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 400)
 
     def test_admin_patch_sets_false(self):
         r = self.admin_client.patch(

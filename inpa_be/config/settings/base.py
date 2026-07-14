@@ -230,6 +230,12 @@ LOGGING = {
 # 환경변수 FREE_TIER_UNLIMITED=true/false 로 런타임 제어.
 FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
 
+# ── 첫 유료 결제 보너스 이벤트 (spec 2026-07-15) ─────────────────────
+# True = 첫 유료 구독 부여 시 +1개월(사용자당 1회). 기본 OFF. RuntimeConfig.solo() 최초
+# 생성 시 이 값을 시드하고, 이후엔 관리자 토글(/admin/billing/mode/)이 DB 값으로 제어한다
+# (FREE_TIER_UNLIMITED 관례와 동일).
+FIRST_PAID_BONUS_ENABLED = env.bool('FIRST_PAID_BONUS_ENABLED', default=False)
+
 # ── 팀(매니저) 기능 권한 게이트 (Manager 요금제, spec 2026-07-09) ─────────────
 # ★ 기본 False(dormant) — 베타 중엔 Manager 결제자가 없으므로 켜면 팀 기능이 전원 잠긴다.
 #   COMPARE_AI_ENABLED와 동일 관례: ship dormant, 유료 전환 시점에 env로만 flip(재배포 무관).

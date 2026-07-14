@@ -73,11 +73,12 @@ def _build_usage_response(user) -> dict:
         # 폴백이 발동하면(만료·해지) 상태를 '만료'로 표기해 Free 한도 표시와 맞춘다.
         sub_data = {
             'status': sub.status if effective else 'expired',
+            'billing_cycle': sub.billing_cycle,
             'expires_at': sub.expires_at.isoformat() if sub.expires_at else None,
         }
     else:
         # 가입 시그널 누락 방어 — Free Plan 폴백
-        sub_data = {'status': 'active', 'expires_at': None}
+        sub_data = {'status': 'active', 'billing_cycle': 'monthly', 'expires_at': None}
 
     ym = UsageMeter.current_month()
 
@@ -124,6 +125,25 @@ class PlanListView(APIView):
         plans = Plan.objects.filter(is_active=True).order_by('price_krw')
         serializer = PlanSerializer(plans, many=True)
         return Response(serializer.data)
+
+
+class BillingEventView(APIView):
+    """진행 중인 결제 이벤트 플래그 (공개 AllowAny — 비로그인 GET 허용).
+
+    GET /api/v1/billing/event/  → {"first_paid_bonus_enabled": bool}
+
+    첫 유료 결제 +1개월 보너스 이벤트가 실제로 켜져 있는지(RuntimeConfig 런타임 토글).
+    랜딩·업그레이드 모달의 이벤트 문구는 이 값이 True일 때만 노출해, 꺼져 있는
+    이벤트를 약속하지 않도록 한다(§6 정직성). 연 결제 할인(2개월 무료 = 실제 가격)은
+    이 플래그와 무관하게 항상 노출한다.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []  # Token 없이도 접근 가능
+
+    def get(self, request):
+        from .models import RuntimeConfig
+        cfg = RuntimeConfig.solo()
+        return Response({'first_paid_bonus_enabled': cfg.first_paid_bonus_enabled})
 
 
 class BillingUsageView(APIView):
@@ -233,23 +253,39 @@ class AdminBillingUsageView(APIView):
 
 
 class AdminBillingModeView(APIView):
-    """유료화 모드 토글 — 관리자. GET 현재값 / PATCH {free_tier_unlimited: bool}."""
+    """운영 토글 — 관리자. GET 현재값 / PATCH 부분 전송.
+
+    토글:
+      free_tier_unlimited      — 베타 무제한(True=한도 무시).
+      first_paid_bonus_enabled — 첫 유료 결제 +1개월 이벤트(사용자당 1회, 기본 OFF).
+    각 키는 선택 전송이며, 있으면 bool 이어야 한다(아니면 400).
+    """
     permission_classes = [IsAdmin]
+
+    _TOGGLE_KEYS = ('free_tier_unlimited', 'first_paid_bonus_enabled')
+
+    def _snapshot(self, cfg):
+        return {k: getattr(cfg, k) for k in self._TOGGLE_KEYS}
 
     def get(self, request):
         from .models import RuntimeConfig
-        return Response({'free_tier_unlimited': RuntimeConfig.solo().free_tier_unlimited})
+        return Response(self._snapshot(RuntimeConfig.solo()))
 
     def patch(self, request):
         from rest_framework.exceptions import ValidationError
         from .models import RuntimeConfig
-        val = request.data.get('free_tier_unlimited')
-        if not isinstance(val, bool):
-            raise ValidationError({'free_tier_unlimited': 'true/false 값이 필요합니다.'})
         cfg = RuntimeConfig.solo()
-        cfg.free_tier_unlimited = val
-        cfg.save(update_fields=['free_tier_unlimited', 'updated_at'])
-        return Response({'free_tier_unlimited': cfg.free_tier_unlimited})
+        update_fields = []
+        for key in self._TOGGLE_KEYS:
+            if key in request.data:
+                val = request.data.get(key)
+                if not isinstance(val, bool):
+                    raise ValidationError({key: 'true/false 값이 필요합니다.'})
+                setattr(cfg, key, val)
+                update_fields.append(key)
+        if update_fields:
+            cfg.save(update_fields=update_fields + ['updated_at'])
+        return Response(self._snapshot(cfg))
 
 
 class AdminSubscriptionPatchView(APIView):

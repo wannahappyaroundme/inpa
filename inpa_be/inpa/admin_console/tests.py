@@ -52,6 +52,7 @@ from rest_framework.test import APIClient
 from inpa.accounts.models import Profile, User
 from inpa.admin_console.models import PolicyVersion
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory, UnmatchedLog
+from inpa.billing.credit import add_months
 from inpa.billing.models import Plan, Subscription
 from inpa.boards.models import Inquiry, InquiryReply, Notice, Post, Report
 from inpa.customers.models import ConsentLog, Customer
@@ -240,6 +241,118 @@ class AdminUserManagementTest(TestCase):
         )
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()['sent'])
+
+
+# ─── 연구독 + 첫 유료 보너스 (spec 2026-07-15) ───────────────────────
+
+class AdminSubscriptionCycleBonusTest(TestCase):
+    """관리자 구독 부여 시 결제 주기(월/연) 만료 계산 + 첫 유료 보너스(+1개월, 사용자당 1회)."""
+
+    def setUp(self):
+        from inpa.billing.models import RuntimeConfig
+        self.admin = _make_user('admin_cycle@inpa.kr', is_admin=True)
+        self.planner = _make_user('planner_cycle@test.kr', is_admin=False)
+        self.free = _make_plan('free', '무료', 0)
+        self.plus = _make_plan('plus', 'Plus', 19900)
+        Subscription.objects.get_or_create(user=self.planner, defaults={'plan': self.free})
+        self.client_admin = _auth_client(self.admin)
+        # 기본 이벤트 OFF 상태로 시작.
+        RuntimeConfig.objects.update_or_create(pk=1, defaults={'first_paid_bonus_enabled': False})
+
+    def _grant(self, plan_code, billing_cycle=None):
+        body = {'plan_code': plan_code, 'status': 'active'}
+        if billing_cycle:
+            body['billing_cycle'] = billing_cycle
+        res = self.client_admin.patch(
+            f'/api/v1/admin/users/{self.planner.id}/subscription/', body, format='json')
+        return res
+
+    def _sub(self):
+        return Subscription.objects.get(user=self.planner)
+
+    def _assert_months(self, expires_at, months, anchor):
+        """expires_at 이 anchor + months개월 근처(±2일)인지."""
+        expected = add_months(anchor, months)
+        delta = abs((expires_at - expected).total_seconds())
+        self.assertLess(delta, 2 * 24 * 3600,
+                        f'만료가 {months}개월 기대와 다름: {expires_at} vs {expected}')
+
+    def test_monthly_grant_expires_one_month(self):
+        before = timezone.now()
+        res = self._grant('plus', 'monthly')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['billing_cycle'], 'monthly')
+        sub = self._sub()
+        self.assertEqual(sub.billing_cycle, 'monthly')
+        self._assert_months(sub.expires_at, 1, before)
+        self.assertFalse(sub.first_paid_bonus_used)  # 이벤트 OFF
+
+    def test_annual_grant_expires_twelve_months(self):
+        before = timezone.now()
+        res = self._grant('plus', 'annual')
+        self.assertEqual(res.status_code, 200)
+        sub = self._sub()
+        self.assertEqual(sub.billing_cycle, 'annual')
+        self._assert_months(sub.expires_at, 12, before)
+
+    def test_first_paid_bonus_on_adds_one_month_and_marks_used(self):
+        from inpa.billing.models import RuntimeConfig
+        RuntimeConfig.objects.update_or_create(pk=1, defaults={'first_paid_bonus_enabled': True})
+        before = timezone.now()
+        res = self._grant('plus', 'monthly')
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()['first_paid_bonus_used'])
+        sub = self._sub()
+        self.assertTrue(sub.first_paid_bonus_used)
+        # 1개월 + 보너스 1개월 = 2개월.
+        self._assert_months(sub.expires_at, 2, before)
+
+    def test_second_grant_does_not_get_bonus_again(self):
+        from inpa.billing.models import RuntimeConfig
+        RuntimeConfig.objects.update_or_create(pk=1, defaults={'first_paid_bonus_enabled': True})
+        self._grant('plus', 'monthly')  # 1st = 보너스 소진
+        self.assertTrue(self._sub().first_paid_bonus_used)
+        before = timezone.now()
+        self._grant('plus', 'monthly')  # 2nd = 보너스 없음
+        sub = self._sub()
+        self.assertTrue(sub.first_paid_bonus_used)
+        self._assert_months(sub.expires_at, 1, before)  # 보너스 없이 1개월
+
+    def test_bonus_off_no_extra_month(self):
+        # 기본 OFF.
+        before = timezone.now()
+        self._grant('plus', 'monthly')
+        sub = self._sub()
+        self.assertFalse(sub.first_paid_bonus_used)
+        self._assert_months(sub.expires_at, 1, before)
+
+    def test_annual_plus_bonus_first_is_thirteen_months(self):
+        from inpa.billing.models import RuntimeConfig
+        RuntimeConfig.objects.update_or_create(pk=1, defaults={'first_paid_bonus_enabled': True})
+        before = timezone.now()
+        self._grant('plus', 'annual')
+        sub = self._sub()
+        self.assertTrue(sub.first_paid_bonus_used)
+        # 12개월 + 보너스 1개월 = 13개월.
+        self._assert_months(sub.expires_at, 13, before)
+
+    def test_free_plan_keeps_expires_none(self):
+        # 유료(연구독)로 만료를 세팅한 뒤 free 로 내리면 무기한(None) 복귀.
+        self._grant('plus', 'annual')
+        self.assertIsNotNone(self._sub().expires_at)
+        self._grant('free')
+        sub = self._sub()
+        self.assertEqual(sub.plan.code, 'free')
+        self.assertIsNone(sub.expires_at)
+
+    def test_paid_grant_without_cycle_preserves_existing_expiry(self):
+        """하위호환: billing_cycle 미지정 유료 부여는 기존 expires_at 을 강제하지 않는다."""
+        # 기존 무기한(None) 유료 부여 관례 재현 — cycle 없이 plus 부여.
+        res = self._grant('plus')  # billing_cycle 없음
+        self.assertEqual(res.status_code, 200)
+        sub = self._sub()
+        self.assertEqual(sub.plan.code, 'plus')
+        self.assertIsNone(sub.expires_at)  # 만료 강제 안 함
 
 
 # ─── I: 1:1 문의 ────────────────────────────────────────────────────

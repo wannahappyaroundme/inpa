@@ -1,9 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { InpaMark } from "@/components/inpa-logo";
 import { Reveal, CountUp } from "@/components/reveal";
 import { LineCompareChart } from "@/components/charts";
+import { getBillingEvent } from "@/lib/api";
 import {
   LayoutGrid, BarChart3, ArrowLeftRight, ShieldCheck, ScanLine,
   Upload, Sparkles, Share2, Check, FileCheck,
@@ -239,6 +241,13 @@ function ShowcaseViz({ kind }: { kind: "analysis" | "funnel" | "calendar" | "mes
   }
 }
 
+// 실제 화면 캡처가 있는 카드는 ShowcaseViz(마케팅용 예시 그래픽) 대신 이걸 씀 — 2026-07-15 PM 지시(가짜 목업 대신 실제 화면, 적절한 위치에 배치).
+const REAL_SHOTS: Partial<Record<"analysis" | "funnel" | "calendar" | "message" | "kpi" | "promo", { src: string; alt: string }>> = {
+  analysis: { src: "/landing-new/compare-analysis.webp", alt: "보험 분석 & 비교 실제 화면: 현재 보장과 제안 보장의 담보별 비교" },
+  funnel: { src: "/landing-new/customer-pipeline.webp", alt: "고객 관리 시스템 실제 화면: 고객 검색과 영업 단계별 분류" },
+  calendar: { src: "/landing-new/schedule-calendar.webp", alt: "일정 & 예약 관리 실제 화면: 캘린더와 오늘 일정" },
+};
+
 export function FeatureShowcaseSection() {
   const cards: { icon: LucideIcon; title: string; sub: string; kind: "analysis" | "funnel" | "calendar" | "message" | "kpi" | "promo" }[] = [
     { icon: ArrowLeftRight, title: "보험 분석 & 비교", sub: "기존 증권 분석 및 비교 차트 제공", kind: "analysis" },
@@ -256,20 +265,30 @@ export function FeatureShowcaseSection() {
           <p className="mt-3 text-center text-[16px] text-[var(--ink-3)]">분석부터 고객관리·일정·성과까지, 영업 한 동선을 한 앱에서.</p>
         </Reveal>
         <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {cards.map((c, i) => (
-            <Reveal
-              key={c.title}
-              delay={(i % 3) * 90}
-              className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-6 shadow-card hover:-translate-y-0.5 transition"
-            >
-              <FeatureIcon icon={c.icon} />
-              <h3 className="mt-4 font-bold text-[16px] text-[var(--ink)]">{c.title}</h3>
-              <p className="mt-1.5 text-[13px] text-[var(--ink-3)] leading-relaxed">{c.sub}</p>
-              <div className="mt-4 rounded-xl bg-[var(--surface-2)] border border-[var(--line)] px-3 min-h-[84px] flex items-center">
-                <ShowcaseViz kind={c.kind} />
-              </div>
-            </Reveal>
-          ))}
+          {cards.map((c, i) => {
+            const shot = REAL_SHOTS[c.kind];
+            return (
+              <Reveal
+                key={c.title}
+                delay={(i % 3) * 90}
+                className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-6 shadow-card hover:-translate-y-0.5 transition"
+              >
+                <FeatureIcon icon={c.icon} />
+                <h3 className="mt-4 font-bold text-[16px] text-[var(--ink)]">{c.title}</h3>
+                <p className="mt-1.5 text-[13px] text-[var(--ink-3)] leading-relaxed">{c.sub}</p>
+                {shot ? (
+                  <div className="mt-4 rounded-xl border border-[var(--line)] overflow-hidden h-24">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={shot.src} alt={shot.alt} className="w-full h-full object-cover object-top" loading="lazy" />
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-xl bg-[var(--surface-2)] border border-[var(--line)] px-3 min-h-[84px] h-24 flex items-center">
+                    <ShowcaseViz kind={c.kind} />
+                  </div>
+                )}
+              </Reveal>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -331,6 +350,16 @@ export function HowItWorksSection() {
 }
 
 export function PricingSection() {
+  // 첫 결제 보너스 이벤트가 실제 켜져 있을 때만 이벤트 문구를 노출(§6 정직성). 기본 false.
+  // 연 결제 할인(2개월 무료)은 실제 가격이므로 항상 노출한다.
+  const [bonusEnabled, setBonusEnabled] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getBillingEvent()
+      .then((e) => { if (alive) setBonusEnabled(e.first_paid_bonus_enabled); })
+      .catch(() => { if (alive) setBonusEnabled(false); });
+    return () => { alive = false; };
+  }, []);
   const free = ["증권 분석·비교 분석 핵심 기능 포함", "베타 기간에는 월 한도 없이", "보장 한눈표 조회 무제한"];
   const plus = ["증권 분석 더 많이", "비교안내서 복수 발행", "AI 분석·메시지 제한 완화", "판촉물 주문 제한 완화"];
   const superPlan = ["Plus의 모든 기능 포함", "증권 분석·비교안내서 무제한", "AI 분석·메시지 무제한", "판촉물 주문 무제한"];
@@ -340,6 +369,12 @@ export function PricingSection() {
         <Reveal>
           <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand-ink)] text-center tracking-tight">요금제</h2>
           <p className="mt-3 text-center text-[15px] text-[var(--ink-3)]">지금은 베타 기간이라 모든 요금제 기능을 무료로 이용할 수 있어요.</p>
+          <div className="mt-5 mx-auto max-w-2xl rounded-2xl border border-[var(--brand)] bg-[var(--accent-tint)] px-5 py-3 text-center">
+            {bonusEnabled && (
+              <p className="text-[14px] font-bold text-[var(--brand)]">첫 유료 결제 시 한 달 더 (2개월 이용)</p>
+            )}
+            <p className="mt-0.5 text-[13px] text-[var(--ink-2)]">연 결제 시 2개월 무료 · 약 17% 할인</p>
+          </div>
         </Reveal>
         <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           <Reveal className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 flex flex-col gap-3">
@@ -357,6 +392,7 @@ export function PricingSection() {
               <span className="px-2 py-0.5 rounded-full bg-[var(--accent-tint)] text-[var(--brand)] text-[11px] font-bold">추천</span>
             </div>
             <div className="text-[28px] font-extrabold text-[var(--ink)]">월 19,900원 <span className="text-[13px] font-semibold text-[var(--ink-3)]">(VAT 별도)</span></div>
+            <div className="text-[13px] font-semibold text-[var(--brand)]">연 199,000원 · 2개월 무료 (VAT 별도)</div>
             <p className="text-[13px] text-[var(--ink-3)]">증권 분석이 일상이 된 설계사님에게 딱 맞아요.</p>
             <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
               {plus.map((f) => (<li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>))}
@@ -366,6 +402,7 @@ export function PricingSection() {
           <Reveal delay={180} className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 flex flex-col gap-3">
             <div className="text-[13px] font-semibold text-[var(--ink-3)] uppercase tracking-wide">Super</div>
             <div className="text-[28px] font-extrabold text-[var(--ink)]">월 39,900원 <span className="text-[13px] font-semibold text-[var(--ink-3)]">(VAT 별도)</span></div>
+            <div className="text-[13px] font-semibold text-[var(--brand)]">연 399,000원 · 2개월 무료 (VAT 별도)</div>
             <p className="text-[13px] text-[var(--ink-3)]">팀 단위로, 한도 걱정 없이 쓰는 설계사님에게 딱 맞아요.</p>
             <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
               {superPlan.map((f) => (<li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>))}

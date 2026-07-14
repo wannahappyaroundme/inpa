@@ -47,6 +47,8 @@ export default function AdminSettingsPage() {
   const [billingLoading, setBillingLoading] = useState(true);
   const [billingToggling, setBillingToggling] = useState(false);
   const [billingMsg, setBillingMsg] = useState<string | null>(null);
+  const [bonusToggling, setBonusToggling] = useState(false);
+  const [bonusMsg, setBonusMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!ready) return;
@@ -66,13 +68,33 @@ export default function AdminSettingsPage() {
     setBillingToggling(true);
     setBillingMsg(null);
     try {
-      const result = await setBillingMode(next);
+      const result = await setBillingMode({ free_tier_unlimited: next });
       setBillingModeState(result);
       setBillingMsg(next ? "무료 무제한(베타)으로 변경됐어요." : "유료 한도 적용으로 변경됐어요.");
     } catch {
       setBillingMsg("변경에 실패했어요. 다시 시도해 주세요.");
     } finally {
       setBillingToggling(false);
+    }
+  }
+
+  async function toggleFirstPaidBonus() {
+    if (!billingMode) return;
+    const next = !billingMode.first_paid_bonus_enabled;
+    const confirmMsg = next
+      ? "첫 유료 결제 보너스 이벤트를 켤까요? 켜는 동안 첫 유료 구독을 부여하면 자동으로 한 달이 더 붙어요."
+      : "첫 유료 결제 보너스 이벤트를 끌까요? 이후 부여부터는 보너스가 붙지 않아요."; // 이미 부여된 구독은 유지
+    if (!confirm(confirmMsg)) return;
+    setBonusToggling(true);
+    setBonusMsg(null);
+    try {
+      const result = await setBillingMode({ first_paid_bonus_enabled: next });
+      setBillingModeState(result);
+      setBonusMsg(next ? "첫 결제 보너스 이벤트를 켰어요." : "첫 결제 보너스 이벤트를 껐어요.");
+    } catch {
+      setBonusMsg("변경에 실패했어요. 다시 시도해 주세요.");
+    } finally {
+      setBonusToggling(false);
     }
   }
 
@@ -329,6 +351,47 @@ export default function AdminSettingsPage() {
                   : billingMode.free_tier_unlimited
                   ? "유료 한도 켜기"
                   : "무제한으로 되돌리기"}
+              </button>
+            </div>
+          </Card>
+        )}
+      </section>
+
+      {/* 첫 결제 보너스 이벤트 */}
+      <section className="mb-8">
+        <h2 className="text-[16px] font-bold text-ink mb-3">첫 결제 보너스 이벤트</h2>
+        {billingLoading && <div className="text-[13px] text-ink3">불러오는 중...</div>}
+        {!billingLoading && billingMode !== null && (
+          <Card className="p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[14px] font-semibold text-ink mb-1">
+                  현재 상태:&nbsp;
+                  <span className={billingMode.first_paid_bonus_enabled ? "text-success font-bold" : "text-ink3 font-bold"}>
+                    {billingMode.first_paid_bonus_enabled ? "이벤트 진행 중" : "이벤트 꺼짐"}
+                  </span>
+                </div>
+                <div className="text-[12px] text-ink3">
+                  켜져 있으면, 설계사에게 첫 유료 요금제(월·연)를 부여할 때 한 달이 자동으로 더 붙어요. 사용자당 한 번만 적용되고, 이후 갱신은 정상 기간으로 부여됩니다.
+                </div>
+                {bonusMsg && (
+                  <div className="text-[12px] text-ink mt-2">{bonusMsg}</div>
+                )}
+              </div>
+              <button
+                onClick={toggleFirstPaidBonus}
+                disabled={bonusToggling}
+                className={`shrink-0 rounded-xl px-4 py-2 text-[13px] font-bold disabled:opacity-50 ${
+                  billingMode.first_paid_bonus_enabled
+                    ? "bg-warning text-white hover:opacity-90"
+                    : "bg-success text-white hover:opacity-90"
+                }`}
+              >
+                {bonusToggling
+                  ? "처리 중..."
+                  : billingMode.first_paid_bonus_enabled
+                  ? "이벤트 끄기"
+                  : "이벤트 켜기"}
               </button>
             </div>
           </Card>

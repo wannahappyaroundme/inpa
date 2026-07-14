@@ -38,6 +38,10 @@ class Plan(models.Model):
     code = models.CharField(max_length=20, unique=True, choices=PLAN_CODE)
     display_name = models.CharField('표시 이름', max_length=50)
     price_krw = models.PositiveIntegerField('월 요금(원)', default=0)
+    price_annual_krw = models.PositiveIntegerField(
+        '연 요금(원)', null=True, blank=True,
+        help_text='연 요금(부가세 별도). 미설정 시 월가×10 폴백(연구독=12개월을 10개월가로).'
+    )
     description = models.TextField('설명(관리자 메모)', blank=True)
 
     # action별 월 한도 (정본 4종 — dev/02 §16, dev/23 §1.2)
@@ -122,6 +126,18 @@ class Subscription(models.Model):
         verbose_name='요금제',
     )
     status = models.CharField('상태', max_length=20, choices=STATUS, default='active')
+    BILLING_CYCLE = (
+        ('monthly', '월간'),
+        ('annual', '연간'),
+    )
+    billing_cycle = models.CharField(
+        '결제 주기', max_length=10, choices=BILLING_CYCLE, default='monthly',
+        help_text='monthly=월간 / annual=연간(12개월을 10개월가로).'
+    )
+    first_paid_bonus_used = models.BooleanField(
+        '첫 유료 보너스 소진', default=False,
+        help_text='첫 유료 구독 1회에 한해 +1개월 이벤트 보너스가 적용됐는지(사용자당 1회 보장).'
+    )
     started_at = models.DateTimeField('시작 시각', auto_now_add=True)
     expires_at = models.DateTimeField('만료 시각', null=True, blank=True,
                                       help_text='null = 무기한(Free).')
@@ -130,6 +146,15 @@ class Subscription(models.Model):
     pg_subscription_id = models.CharField(
         'PG 구독 ID', max_length=100, blank=True, default='',
         help_text='Phase 2 PG 자동 결제 연동 시 채움.'
+    )
+    # ── Phase B(자동결제) 토대 — 지금은 필드만, 청구 로직은 후속(spec 2026-07-15) ──
+    auto_renew = models.BooleanField(
+        '자동 갱신', default=False,
+        help_text='Phase B 정기결제 토대. True면 next_billing_at 도래 시 빌링키로 자동 청구(로직 후속).'
+    )
+    next_billing_at = models.DateTimeField(
+        '다음 결제 예정 시각', null=True, blank=True,
+        help_text='Phase B 정기결제 토대. auto_renew 청구 잡의 기준 시각(로직 후속).'
     )
 
     class Meta:
@@ -361,6 +386,9 @@ class RuntimeConfig(models.Model):
     free_tier_unlimited = models.BooleanField(
         '무료 무제한(베타)', default=True,
         help_text='True=모든 한도 무시(베타 무차감). False=유료 한도 적용(402 발동).')
+    first_paid_bonus_enabled = models.BooleanField(
+        '첫 유료 결제 보너스 이벤트', default=False,
+        help_text='True=첫 유료 구독 부여 시 +1개월 보너스(사용자당 1회). 기본 OFF.')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -369,12 +397,18 @@ class RuntimeConfig(models.Model):
         verbose_name_plural = '런타임 설정'
 
     def __str__(self):
-        return f'free_tier_unlimited={self.free_tier_unlimited}'
+        return (f'free_tier_unlimited={self.free_tier_unlimited} '
+                f'first_paid_bonus_enabled={self.first_paid_bonus_enabled}')
 
     @classmethod
     def solo(cls):
         obj, _ = cls.objects.get_or_create(
-            pk=1, defaults={'free_tier_unlimited': bool(getattr(settings, 'FREE_TIER_UNLIMITED', True))})
+            pk=1,
+            defaults={
+                'free_tier_unlimited': bool(getattr(settings, 'FREE_TIER_UNLIMITED', True)),
+                'first_paid_bonus_enabled': bool(getattr(settings, 'FIRST_PAID_BONUS_ENABLED', False)),
+            },
+        )
         return obj
 
 

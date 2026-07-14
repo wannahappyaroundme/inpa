@@ -13,7 +13,9 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { getBillingEvent } from "@/lib/api";
 
 /** BE 402 credit_exhausted 추가 필드 (api.ts CreditExhaustedBody 와 동형) */
 export interface UpgradeModalInfo {
@@ -72,10 +74,24 @@ function kindShort(kind: string | undefined): string {
 
 // 확정 가격(2026-07-07). base = VAT 별도 월 이용료, vat = 10%, total = 최종 입금액.
 // manager(2026-07-09 팀 기능 게이트) = Plus와 동일가, 팀 관리 capability 전용.
+// 연 결제(2026-07-15): 12개월을 10개월 금액으로 = 2개월 무료(약 17% 할인, 2/12).
+//   annualBase = VAT 별도 연 이용료, annualVat = 10%, annualTotal = 최종 입금액.
 const PLAN_PRICING = {
-  plus: { name: "플러스", base: "19,900원", vat: "1,990원", total: "21,890원" },
-  manager: { name: "Manager", base: "19,900원", vat: "1,990원", total: "21,890원" },
-  super: { name: "슈퍼", base: "39,900원", vat: "3,990원", total: "43,890원" },
+  plus: {
+    name: "플러스",
+    base: "19,900원", vat: "1,990원", total: "21,890원",
+    annualBase: "199,000원", annualVat: "19,900원", annualTotal: "218,900원",
+  },
+  manager: {
+    name: "Manager",
+    base: "19,900원", vat: "1,990원", total: "21,890원",
+    annualBase: "199,000원", annualVat: "19,900원", annualTotal: "218,900원",
+  },
+  super: {
+    name: "슈퍼",
+    base: "39,900원", vat: "3,990원", total: "43,890원",
+    annualBase: "399,000원", annualVat: "39,900원", annualTotal: "438,900원",
+  },
 } as const;
 
 const BANK_ACCOUNT_NUMBER = "459001-04-503030";
@@ -86,7 +102,19 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
   const [payPlan, setPayPlan] = useState<keyof typeof PLAN_PRICING>(
     isManagerGate ? "manager" : "plus"
   );
+  const [payCycle, setPayCycle] = useState<"monthly" | "annual">("monthly");
   const [copied, setCopied] = useState(false);
+  // 첫 결제 보너스 이벤트가 실제로 켜져 있을 때만 문구를 노출(§6 정직성). 기본 false.
+  const [bonusEnabled, setBonusEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    getBillingEvent()
+      .then((e) => { if (alive) setBonusEnabled(e.first_paid_bonus_enabled); })
+      .catch(() => { if (alive) setBonusEnabled(false); });
+    return () => { alive = false; };
+  }, [open]);
 
   if (!open) return null;
 
@@ -99,6 +127,11 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
     : ["plus", "super"];
 
   const pricing = PLAN_PRICING[payPlan];
+  const isAnnual = payCycle === "annual";
+  const feeLabel = isAnnual ? "연 이용료" : "월 이용료";
+  const feeAmt = isAnnual ? pricing.annualBase : pricing.base;
+  const vatAmt = isAnnual ? pricing.annualVat : pricing.vat;
+  const totalAmt = isAnnual ? pricing.annualTotal : pricing.total;
 
   async function copyAccount() {
     try {
@@ -184,6 +217,7 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
                 <li>슈퍼 월 39,900원 (VAT 별도) · 한도 무제한</li>
               </>
             )}
+            <li className="text-brand font-semibold">연 결제 시 2개월 무료 · 약 17% 할인</li>
           </ul>
         </div>
 
@@ -216,21 +250,59 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
             </p>
           )}
 
+          {/* 결제 주기 선택 (월 / 연) */}
+          <div className="mt-2 grid grid-cols-2 gap-1.5" role="group" aria-label="결제 주기 선택">
+            <button
+              type="button"
+              onClick={() => setPayCycle("monthly")}
+              aria-pressed={!isAnnual}
+              className={`rounded-lg border px-3 py-2 text-[13px] font-semibold transition ${
+                !isAnnual ? "border-brand text-brand bg-brand-soft" : "border-line text-ink3 hover:text-ink"
+              }`}
+            >
+              월 결제
+            </button>
+            <button
+              type="button"
+              onClick={() => setPayCycle("annual")}
+              aria-pressed={isAnnual}
+              className={`relative rounded-lg border px-3 py-2 text-[13px] font-semibold transition ${
+                isAnnual ? "border-brand text-brand bg-brand-soft" : "border-line text-ink3 hover:text-ink"
+              }`}
+            >
+              연 결제
+            </button>
+          </div>
+
+          {/* 연 결제 할인 강조 */}
+          {isAnnual && (
+            <div className="mt-2 rounded-lg bg-brand-soft px-3 py-2 text-[12px] font-bold text-brand text-center">
+              2개월 무료 · 약 17% 할인
+            </div>
+          )}
+
           {/* 금액 분해 */}
           <dl className="mt-3 space-y-1 text-[13px]">
             <div className="flex items-center justify-between">
-              <dt className="text-ink3">월 이용료</dt>
-              <dd className="font-semibold text-ink">{pricing.base}</dd>
+              <dt className="text-ink3">{feeLabel}</dt>
+              <dd className="font-semibold text-ink">{feeAmt}</dd>
             </div>
             <div className="flex items-center justify-between">
               <dt className="text-ink3">VAT(10%)</dt>
-              <dd className="font-semibold text-ink">{pricing.vat}</dd>
+              <dd className="font-semibold text-ink">{vatAmt}</dd>
             </div>
             <div className="flex items-center justify-between border-t border-line pt-1.5 mt-1.5">
               <dt className="font-bold text-ink">최종 입금액</dt>
-              <dd className="text-[14px] font-extrabold text-brand">{pricing.total}</dd>
+              <dd className="text-[14px] font-extrabold text-brand">{totalAmt}</dd>
             </div>
           </dl>
+
+          {/* 첫 결제 보너스 이벤트 안내 — 이벤트가 실제 켜져 있을 때만 노출(§6 정직성) */}
+          {bonusEnabled && (
+            <div className="mt-3 rounded-lg border border-brand/30 bg-brand-soft px-3 py-2 text-[12px] leading-5 text-ink2">
+              <span className="font-bold text-brand">이벤트</span> 첫 결제 시 한 달 더 드려요 (첫 달 결제하면 두 달 이용).
+            </div>
+          )}
 
           {/* 입금 계좌 + 복사 */}
           <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-surface2 px-3 py-2.5">
@@ -247,7 +319,7 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
           {/* 절차 3단계 */}
           <ol className="mt-3 list-decimal pl-5 space-y-1 text-[12px] text-ink3 leading-5">
             <li>위 계좌로 최종 입금액을 입금해 주세요.</li>
-            <li>1:1 문의에 입금자명과 원하는 요금제를 남겨 주세요.</li>
+            <li>1:1 문의에 입금자명과 원하는 요금제(월/연 결제)를 남겨 주세요.</li>
             <li>확인 후 요금제를 적용해 드려요. 세금계산서 발행이 필요하면 사업자 정보를 함께 남겨 주세요.</li>
           </ol>
         </div>
