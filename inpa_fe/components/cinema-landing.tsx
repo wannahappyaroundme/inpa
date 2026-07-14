@@ -255,10 +255,10 @@ export function CinemaLanding() {
       <main>
         <HeroPosterSection />
         <ProductPreviewSection />
-        <AIPipelineSection />
-        <SalesProcessMapSection />
         <BrandDefinitionSection />
         <PlannerJourneySection />
+        <SalesProcessMapSection />
+        <AIPipelineSection />
         <ClosingHeroSection />
         <TrustBar />
         <FeaturesSection />
