@@ -99,7 +99,30 @@ export function ProductPreviewSection() {
             <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">대시보드 · 실제 화면</p>
           </Reveal>
         </div>
-        <Reveal delay={220} className="mt-10">
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
+          <Reveal delay={200}>
+            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/landing-new/compare-analysis.webp" alt="비교 분석 화면: 현재 보장과 제안 보장의 담보별 증감 비교" className="w-full h-auto" loading="lazy" />
+            </div>
+            <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">비교 분석 · 실제 화면</p>
+          </Reveal>
+          <Reveal delay={240}>
+            <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/landing-new/schedule-calendar.webp" alt="일정 관리 화면: 상담·할 일이 정리된 캘린더" className="w-full h-auto" loading="lazy" />
+            </div>
+            <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">일정 관리 · 실제 화면</p>
+          </Reveal>
+        </div>
+        <Reveal delay={280} className="mt-6 text-left">
+          <div className="rounded-2xl bg-[var(--surface)] shadow-card border border-[var(--line)] overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/landing-new/customer-pipeline.webp" alt="고객 관리 화면: 고객 검색, 단계별·목록 보기 전환, 일괄 등록" className="w-full h-auto" loading="lazy" />
+          </div>
+          <p className="mt-2 text-center text-[13px] text-[var(--ink-3)]">고객 관리 · 실제 화면</p>
+        </Reveal>
+        <Reveal delay={320} className="mt-10">
           <Link href="/register" className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition shadow-lg">무료로 시작하기</Link>
           <p className="mt-3 text-[13px] text-[var(--ink-3)]">신용카드 불필요 · 이메일로 가입</p>
         </Reveal>
@@ -256,8 +279,8 @@ const TIERS: {
   name: string; badge?: string; managerOnly?: boolean; price: string; vat?: boolean;
   features: string[]; footnote: string; highlight?: boolean;
 }[] = [
-  { name: "Basic", price: "0원",
-    features: ["증권 자동 분석 월 5건", "비교 분석 월 1건 체험", "고객 추가 최대 5인"],
+  { name: "무료", price: "0원",
+    features: ["증권 자동 분석 월 5건", "비교 분석 월 1건 체험", "영업 리포트 생성 월 5건", "신규 고객 추가 월 5인"],
     footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
   { name: "Manager", managerOnly: true, price: "19,900원", vat: true,
     features: ["Plus 모든 기능 사용 가능", "팀원 인사 관리", "팀원 개별 실적 관리", "팀 전체 실적 관리"],
@@ -276,7 +299,7 @@ export function PricingFourTiers() {
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
           <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] text-center tracking-tight">인파 for 설계사 / 관리자 요금제</h2>
-          <p className="mt-3 text-center text-[15px] sm:text-[17px] text-[var(--ink-3)]">최초 가입 시 한 달 무료 사용 쿠폰과 모바일 명함 무료 제작 쿠폰을 드립니다</p>
+          <p className="mt-3 text-center text-[15px] sm:text-[17px] text-[var(--ink-3)]">지금은 베타 기간이라 모든 기능을 무료로 이용할 수 있어요</p>
         </Reveal>
         <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {TIERS.map((t, i) => (
