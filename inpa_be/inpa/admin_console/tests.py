@@ -290,6 +290,37 @@ class AdminInquiryTest(TestCase):
         self.inquiry.refresh_from_db()
         self.assertEqual(self.inquiry.status, Inquiry.STATUS_CLOSED)
 
+    def test_category_filter(self):
+        """?category= 필터 — 해당 카테고리만 반환."""
+        Inquiry.objects.create(
+            owner=self.planner, category='feedback', title='[이용 의견] 좋아요',
+            body='좋아요', rating=5,
+        )
+        res = self.client_admin.get('/api/v1/admin/inquiries/?category=feedback')
+        self.assertEqual(res.status_code, 200)
+        cats = {row['category'] for row in res.json()['results']}
+        self.assertEqual(cats, {'feedback'})
+
+    def test_new_fields_exposed_and_anonymous_labeled(self):
+        """익명(owner=None) 행 = '비회원' + rating/meta/contact_email 노출."""
+        anon = Inquiry.objects.create(
+            owner=None, category='bug', title='[불편 신고] 버그',
+            body='버그', meta={'path': '/x', 'user_agent': 'UA', 'viewport': '390x844'},
+            contact_email='guest@example.com',
+        )
+        # 목록: 비회원 표기 + rating/contact_email
+        listing = self.client_admin.get('/api/v1/admin/inquiries/?category=bug')
+        row = next(r for r in listing.json()['results'] if r['id'] == anon.id)
+        self.assertEqual(row['owner_display'], '비회원')
+        self.assertIsNone(row['owner_email'])
+        self.assertIn('rating', row)
+        self.assertEqual(row['contact_email'], 'guest@example.com')
+        # 상세: meta 블록 노출
+        detail = self.client_admin.get(f'/api/v1/admin/inquiries/{anon.id}/')
+        body = detail.json()
+        self.assertEqual(body['owner_display'], '비회원')
+        self.assertEqual(body['meta']['path'], '/x')
+
 
 # ─── R: 신고 모더레이션 ────────────────────────────────────────────
 

@@ -301,11 +301,20 @@ class DashboardSerializer(serializers.Serializer):
 
 class AdminInquiryListSerializer(serializers.ModelSerializer):
     """문의 목록 (admin용)."""
-    owner_email = serializers.CharField(source='owner.email', read_only=True)
+    owner_email = serializers.CharField(source='owner.email', read_only=True, default=None)
+    owner_display = serializers.SerializerMethodField()
+    category_label = serializers.CharField(source='get_category_display', read_only=True)
 
     class Meta:
         model = Inquiry
-        fields = ['id', 'owner_email', 'category', 'title', 'status', 'created_at', 'updated_at']
+        fields = ['id', 'owner_email', 'owner_display', 'category', 'category_label',
+                  'title', 'status', 'rating', 'contact_email', 'created_at', 'updated_at']
+
+    def get_owner_display(self, obj):
+        # 익명(owner=None) 제출은 '비회원' 으로 표기.
+        if obj.owner_id is None:
+            return '비회원'
+        return obj.owner.email
 
 
 class AdminInquiryReplySerializer(serializers.ModelSerializer):
@@ -319,13 +328,21 @@ class AdminInquiryReplySerializer(serializers.ModelSerializer):
 
 class AdminInquiryDetailSerializer(serializers.ModelSerializer):
     """문의 상세 (답변 포함, admin용)."""
-    owner_email = serializers.CharField(source='owner.email', read_only=True)
+    owner_email = serializers.CharField(source='owner.email', read_only=True, default=None)
+    owner_display = serializers.SerializerMethodField()
+    category_label = serializers.CharField(source='get_category_display', read_only=True)
     replies = AdminInquiryReplySerializer(many=True, read_only=True)
 
     class Meta:
         model = Inquiry
-        fields = ['id', 'owner_email', 'category', 'title', 'body', 'status',
+        fields = ['id', 'owner_email', 'owner_display', 'category', 'category_label',
+                  'title', 'body', 'status', 'rating', 'meta', 'contact_email',
                   'created_at', 'updated_at', 'replies']
+
+    def get_owner_display(self, obj):
+        if obj.owner_id is None:
+            return '비회원'
+        return obj.owner.email
 
 
 class AdminInquiryReplyWriteSerializer(serializers.ModelSerializer):

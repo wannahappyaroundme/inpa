@@ -11,7 +11,7 @@ import {
   type AdminInquiryListItem,
   type AdminInquiryDetail,
 } from "@/lib/adminApi";
-import { type InquiryStatus } from "@/lib/api";
+import { type InquiryStatus, type InquiryCategory } from "@/lib/api";
 import { Card } from "@/components/ui";
 
 const STATUS_LABELS: Record<InquiryStatus, string> = {
@@ -20,8 +20,36 @@ const STATUS_LABELS: Record<InquiryStatus, string> = {
   closed: "종결",
 };
 
+const CATEGORY_LABELS: Record<InquiryCategory, string> = {
+  feedback: "의견",
+  feature: "제안",
+  bug: "불편",
+  billing: "요금·결제",
+  other: "기타",
+};
+
+const CATEGORY_FILTERS: (InquiryCategory | undefined)[] = [
+  undefined, "feedback", "feature", "bug", "billing", "other",
+];
+
+function catLabel(c: string): string {
+  return (CATEGORY_LABELS as Record<string, string>)[c] ?? c;
+}
+
 function fmt(d: string): string {
   return new Date(d).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+/** 별점 표시(이용 의견). rating 없으면 아무것도 그리지 않음. */
+function StarRating({ rating }: { rating: number | null }) {
+  if (!rating) return null;
+  return (
+    <span className="inline-flex items-center gap-0.5 text-warn" aria-label={`별점 ${rating}점`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <span key={n} className={n <= rating ? "text-warn" : "text-line"}>★</span>
+      ))}
+    </span>
+  );
 }
 
 function InquiriesContent() {
@@ -31,6 +59,7 @@ function InquiriesContent() {
 
   const page = Number(searchParams.get("page") ?? "1");
   const statusFilter = (searchParams.get("status") as InquiryStatus | null) ?? undefined;
+  const categoryFilter = (searchParams.get("category") as InquiryCategory | null) ?? undefined;
 
   const [items, setItems] = useState<AdminInquiryListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -49,7 +78,7 @@ function InquiriesContent() {
     setLoading(true);
     setError(null);
     try {
-      const res = await adminListInquiries({ page, status: statusFilter });
+      const res = await adminListInquiries({ page, status: statusFilter, category: categoryFilter });
       setItems(res.results);
       setTotal(res.count);
       setHasNext(!!res.next);
@@ -58,7 +87,7 @@ function InquiriesContent() {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter]);
+  }, [page, statusFilter, categoryFilter]);
 
   useEffect(() => { if (ready) fetchList(); }, [ready, fetchList]);
 
@@ -111,14 +140,15 @@ function InquiriesContent() {
     <div className="p-6">
       <h1 className="text-[22px] font-extrabold text-ink mb-4">1:1 문의</h1>
 
-      {/* 필터 */}
-      <div className="flex gap-2 mb-4 flex-wrap">
+      {/* 상태 필터 */}
+      <div className="flex gap-2 mb-2 flex-wrap">
         {([undefined, "open", "answered", "closed"] as (InquiryStatus | undefined)[]).map((s) => (
           <button
             key={s ?? "all"}
             onClick={() => {
               const qs = new URLSearchParams();
               if (s) qs.set("status", s);
+              if (categoryFilter) qs.set("category", categoryFilter);
               qs.set("page", "1");
               router.push(`/admin/inquiries?${qs.toString()}`);
             }}
@@ -129,6 +159,29 @@ function InquiriesContent() {
             }`}
           >
             {s ? STATUS_LABELS[s] : "전체"}
+          </button>
+        ))}
+      </div>
+
+      {/* 종류 필터 */}
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {CATEGORY_FILTERS.map((c) => (
+          <button
+            key={c ?? "all"}
+            onClick={() => {
+              const qs = new URLSearchParams();
+              if (statusFilter) qs.set("status", statusFilter);
+              if (c) qs.set("category", c);
+              qs.set("page", "1");
+              router.push(`/admin/inquiries?${qs.toString()}`);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition ${
+              categoryFilter === c
+                ? "bg-brand-soft text-brand"
+                : "bg-surface2 text-ink2 hover:bg-line"
+            }`}
+          >
+            {c ? CATEGORY_LABELS[c] : "전체 종류"}
           </button>
         ))}
       </div>
@@ -170,11 +223,17 @@ function InquiriesContent() {
                         >
                           {STATUS_LABELS[item.status]}
                         </span>
-                        <span className="text-[11px] text-ink3">{item.category}</span>
+                        <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-surface2 text-ink2">
+                          {catLabel(item.category)}
+                        </span>
+                        <StarRating rating={item.rating} />
                       </div>
                       <div className="text-[14px] font-semibold text-ink truncate">{item.title}</div>
                       <div className="text-[12px] text-ink3 mt-0.5">
-                        {item.owner_email} · {fmt(item.created_at)}
+                        {item.owner_email ?? (
+                          <span className="text-warn-ink font-semibold">비회원</span>
+                        )}{" "}
+                        · {fmt(item.created_at)}
                       </div>
                     </button>
                   ))}
@@ -228,8 +287,62 @@ function InquiriesContent() {
                     ×
                   </button>
                 </div>
-                <div className="text-[13px] text-ink3 mb-3">{detail.category} · {fmt(detail.created_at)}</div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-surface2 text-ink2">
+                    {catLabel(detail.category)}
+                  </span>
+                  <StarRating rating={detail.rating} />
+                  <span className="text-[12px] text-ink3">{fmt(detail.created_at)}</span>
+                </div>
+
+                {/* 작성자 — 로그인 설계사면 이메일, 아니면 비회원(+답변 이메일) */}
+                <div className="text-[12px] text-ink3 mb-3">
+                  {detail.owner_email ? (
+                    <>보낸 사람: {detail.owner_email}</>
+                  ) : (
+                    <>
+                      <span className="text-warn-ink font-semibold">비회원</span>
+                      {detail.contact_email ? (
+                        <> · 답변 이메일: <span className="text-ink2">{detail.contact_email}</span></>
+                      ) : (
+                        <> · 답변 받을 이메일 없음</>
+                      )}
+                    </>
+                  )}
+                </div>
+
                 <p className="text-[14px] text-ink leading-6 mb-4 whitespace-pre-wrap">{detail.body}</p>
+
+                {/* 불편 신고 화면 정보(관리자 전용) */}
+                {detail.meta && (detail.meta.path || detail.meta.user_agent || detail.meta.viewport) && (
+                  <div className="mb-4 rounded-xl bg-surface2 px-3 py-2.5 space-y-1">
+                    <div className="text-[11px] font-semibold text-ink3 mb-1">보낸 화면 정보</div>
+                    {detail.meta.path && (
+                      <div className="text-[12px] text-ink2 break-all">
+                        <span className="text-ink3">화면 주소</span> {detail.meta.path}
+                      </div>
+                    )}
+                    {detail.meta.viewport && (
+                      <div className="text-[12px] text-ink2">
+                        <span className="text-ink3">화면 크기</span> {detail.meta.viewport}
+                      </div>
+                    )}
+                    {detail.meta.user_agent && (
+                      <div className="text-[12px] text-ink2 break-all">
+                        <span className="text-ink3">브라우저</span> {detail.meta.user_agent}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 비회원 답변 안내 */}
+                {!detail.owner_email && (
+                  <div className="mb-4 rounded-xl bg-warn-soft px-3 py-2.5 text-[12px] text-warn-ink leading-5">
+                    {detail.contact_email
+                      ? "비회원 문의예요. 답변은 위 이메일로 직접 보내주세요(앱 알림은 전달되지 않아요)."
+                      : "비회원 문의예요. 답변 받을 이메일이 없어 기록용으로만 남길 수 있어요."}
+                  </div>
+                )}
 
                 {/* 상태 변경 */}
                 <div className="flex gap-2 mb-4">

@@ -21,10 +21,11 @@
 from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
@@ -82,6 +83,28 @@ def _create_board_notification(owner, notif_type, title, body, post=None):
         )
     except Exception:
         # 알림 생성 실패는 무시 — 게시판 주 동작 보호
+        pass
+
+
+def _notify_admins_inquiry(inquiry):
+    """새 문의/피드백 접수 → 관리자(profile.is_admin) 전원에게 inquiry_received 알림.
+
+    analysis/flags._notify_admins 패턴. 알림 실패가 문의 접수 본 동작을 막으면 안 됨.
+    """
+    try:
+        from django.contrib.auth import get_user_model
+        from inpa.notifications.models import Notification, NotifType
+        User = get_user_model()
+        who = inquiry.owner.email if inquiry.owner_id else (inquiry.contact_email or '비회원')
+        label = inquiry.get_category_display()
+        for admin in User.objects.filter(profile__is_admin=True):
+            Notification.objects.create(
+                owner=admin,
+                notif_type=NotifType.INQUIRY_RECEIVED,
+                title=f'새 문의가 접수됐어요: {label}',
+                body=f'{who} · "{inquiry.title}"',
+            )
+    except Exception:
         pass
 
 
@@ -516,6 +539,8 @@ class InquiryViewSet(OwnedQuerySetMixin, viewsets.GenericViewSet):
         serializer = InquiryWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         inquiry = serializer.save(owner=request.user)
+        # 새 문의 → 관리자 알림 fan-out (기존 누락 갭 해소).
+        _notify_admins_inquiry(inquiry)
         return Response(InquiryDetailSerializer(inquiry).data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, pk=None):
@@ -632,3 +657,120 @@ class BlogPostViewSet(viewsets.GenericViewSet):
             '-published_at', '-created_at'
         ).values('slug', 'updated_at')
         return Response([{'slug': r['slug'], 'updated_at': r['updated_at']} for r in rows])
+
+
+# ─── FeedbackCreateView (피드백 위젯 — 공개 제출) ────────────────────
+
+# 위젯 카테고리 → Inquiry 카테고리 매핑 (feedback 신설, 나머지는 기존 재사용).
+_FEEDBACK_CATEGORY_MAP = {
+    'feedback': Inquiry.CATEGORY_FEEDBACK,   # 이용 의견 (별점)
+    'feature': Inquiry.CATEGORY_FEATURE,     # 기능 제안
+    'bug': Inquiry.CATEGORY_BUG,             # 불편 신고 (meta 첨부)
+    'other': Inquiry.CATEGORY_OTHER,         # 1:1 문의(익명)
+}
+_FEEDBACK_BODY_MAX = 2000
+_FEEDBACK_META_KEYS = ('path', 'user_agent', 'viewport')  # bug 리포트 화이트리스트
+
+
+class FeedbackCreateView(viewsets.ViewSet):
+    """POST /api/v1/feedback/ — 피드백 위젯 공개 제출 (AllowAny + throttle).
+
+    body: {category, body, rating?, meta?, contact_email?}
+      category  위젯 4종(feedback/feature/bug/other) → Inquiry 카테고리로 매핑.
+      body      필수, 최대 2000자.
+      rating    이용 의견(feedback)만 1..5 로 clamp 저장. 그 외 무시.
+      meta      불편 신고(bug)만 {path,user_agent,viewport} 화이트리스트 저장.
+      contact_email  익명 제출 시 답변받을 이메일(선택). 로그인 제출은 owner 로 대체.
+
+    title 은 서버 생성(카테고리 라벨 + 본문 앞 30자). 로그인 사용자는 owner 로 저장돼
+    본인 '문의 내역' 과 답변 알림이 그대로 작동, 비로그인은 owner=None(익명).
+    새 문의 → 관리자 알림 fan-out (INQUIRY_RECEIVED).
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'feedback'
+
+    def create(self, request):
+        data = request.data
+
+        # ── 카테고리 검증 ──
+        raw_category = str(data.get('category') or '').strip()
+        inquiry_category = _FEEDBACK_CATEGORY_MAP.get(raw_category)
+        if inquiry_category is None:
+            return Response(
+                {'code': 'INVALID_CATEGORY',
+                 'detail': '알 수 없는 의견 유형이에요.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── 본문 검증 ──
+        body = str(data.get('body') or '').strip()
+        if not body:
+            return Response(
+                {'code': 'BODY_REQUIRED', 'detail': '내용을 입력해 주세요.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(body) > _FEEDBACK_BODY_MAX:
+            return Response(
+                {'code': 'BODY_TOO_LONG',
+                 'detail': f'내용은 {_FEEDBACK_BODY_MAX}자 이내로 적어 주세요.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── 별점: 이용 의견만, 1..5 clamp ──
+        rating = None
+        if inquiry_category == Inquiry.CATEGORY_FEEDBACK and data.get('rating') is not None:
+            try:
+                rating = max(1, min(5, int(data.get('rating'))))
+            except (TypeError, ValueError):
+                rating = None
+
+        # ── meta: 불편 신고만, 화이트리스트 키만 ──
+        meta = None
+        if inquiry_category == Inquiry.CATEGORY_BUG:
+            raw_meta = data.get('meta')
+            if isinstance(raw_meta, dict):
+                cleaned = {
+                    k: str(raw_meta[k])[:500]
+                    for k in _FEEDBACK_META_KEYS
+                    if raw_meta.get(k) not in (None, '')
+                }
+                meta = cleaned or None
+
+        # ── owner / contact_email ──
+        user = request.user
+        is_authed = bool(user and user.is_authenticated)
+        owner = user if is_authed else None
+        contact_email = ''
+        if not is_authed:
+            email_field = serializers.EmailField(required=False, allow_blank=True)
+            try:
+                contact_email = email_field.run_validation(data.get('contact_email') or '')
+            except serializers.ValidationError:
+                return Response(
+                    {'code': 'INVALID_EMAIL',
+                     'detail': '이메일 형식을 확인해 주세요.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # ── 제목 서버 생성 (카테고리 라벨 + 본문 앞 30자) ──
+        label = dict(Inquiry.CATEGORY_CHOICES)[inquiry_category]
+        snippet = body[:30]
+        title = f'[{label}] {snippet}'[:200]
+
+        inquiry = Inquiry.objects.create(
+            owner=owner,
+            category=inquiry_category,
+            title=title,
+            body=body,
+            rating=rating,
+            meta=meta,
+            contact_email=contact_email,
+        )
+
+        _notify_admins_inquiry(inquiry)
+
+        return Response(
+            {'id': inquiry.id, 'status': inquiry.status},
+            status=status.HTTP_201_CREATED,
+        )

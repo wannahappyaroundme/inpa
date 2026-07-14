@@ -47,6 +47,7 @@ from .views import (
     BlogPostViewSet,
     CommentViewSet,
     FaqViewSet,
+    FeedbackCreateView,
     InquiryReplyViewSet,
     InquiryViewSet,
     NoticeViewSet,
@@ -93,6 +94,9 @@ inquiry_detail = InquiryViewSet.as_view({'get': 'retrieve', 'patch': 'partial_up
 inquiry_reply_create = InquiryReplyViewSet.as_view({'post': 'create'})
 inquiry_reply_detail = InquiryReplyViewSet.as_view({'patch': 'partial_update'})
 
+# ── 피드백 위젯 (공개 제출 — AllowAny + throttle) ──
+feedback_create = FeedbackCreateView.as_view({'post': 'create'})
+
 urlpatterns = [
     # 게시판
     path('board/posts/', post_list, name='post-list'),
@@ -121,4 +125,7 @@ urlpatterns = [
     path('board/inquiries/<int:pk>/', inquiry_detail, name='inquiry-detail'),
     path('board/inquiries/<int:inquiry_pk>/replies/', inquiry_reply_create, name='inquiry-reply-create'),
     path('board/inquiry-replies/<int:pk>/', inquiry_reply_detail, name='inquiry-reply-detail'),
+
+    # 피드백 위젯 (공개 제출)
+    path('feedback/', feedback_create, name='feedback-create'),
 ]
