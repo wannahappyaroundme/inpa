@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveNewHostRoute } from "./new-host-routing.ts";
+import { resolveNewHostRoute } from "./new-host-routing";
 
 test("new host의 운영 랜딩과 test 후보를 내부 라우트로 보낸다", () => {
   assert.deepEqual(resolveNewHostRoute("/", ""), { kind: "rewrite", target: "/new" });
