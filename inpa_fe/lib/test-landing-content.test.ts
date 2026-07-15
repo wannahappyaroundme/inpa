@@ -57,6 +57,16 @@ test("서비스 링크는 경로에 있던 UTM을 새 값으로 덮어쓰지 않
   );
 });
 
+test("서비스 링크는 중복된 UTM 키의 첫 값을 유지한다", () => {
+  assert.equal(
+    buildServiceUrl(
+      "/register",
+      "?utm_source=first&utm_source=second&utm_campaign=launch",
+    ),
+    "https://www.inpa.kr/register?utm_source=first&utm_campaign=launch",
+  );
+});
+
 test("브라우저 검색값이 없어도 서비스 링크를 만든다", () => {
   assert.equal(buildServiceUrl("/register"), "https://www.inpa.kr/register");
 });

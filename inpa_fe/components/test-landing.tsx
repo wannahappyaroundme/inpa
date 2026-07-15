@@ -95,9 +95,9 @@ export function TestLanding() {
           </a>
 
           <nav className="hidden items-center gap-1 md:flex" aria-label="주요 메뉴">
-            <a href="#product" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">서비스 화면</a>
-            <a href="#workflow" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">사용 흐름</a>
-            <a href="#audience" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">이런 분께</a>
+            <a href="#product" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">실제 화면</a>
+            <a href="#workflow" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">주요 기능</a>
+            <a href="#pricing" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">요금</a>
             <a href="#faq" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">자주 묻는 질문</a>
           </nav>
 
@@ -136,9 +136,9 @@ export function TestLanding() {
           <div id="test-landing-mobile-menu" className="border-b border-[var(--line)] bg-white px-4 py-4 shadow-lg md:hidden">
             <nav className="mx-auto grid max-w-7xl gap-1" aria-label="모바일 메뉴">
               {[
-                ["#product", "서비스 화면"],
-                ["#workflow", "사용 흐름"],
-                ["#audience", "이런 분께"],
+                ["#product", "실제 화면"],
+                ["#workflow", "주요 기능"],
+                ["#pricing", "요금"],
                 ["#faq", "자주 묻는 질문"],
               ].map(([href, label]) => (
                 <a
@@ -182,9 +182,7 @@ export function TestLanding() {
               {HERO.eyebrow}
             </div>
             <h1 className="mt-6 break-keep text-[40px] font-extrabold leading-[1.12] tracking-[-0.04em] text-[var(--brand-ink)] sm:text-[54px] lg:text-[64px]">
-              설계사님은
-              <br />
-              <span className="text-[var(--brand)]">클로징만</span> 준비하세요
+              {HERO.title}
             </h1>
             <p className="mx-auto mt-6 max-w-xl break-keep text-base leading-7 text-[var(--ink-2)] sm:text-lg lg:mx-0">
               {HERO.description}
@@ -422,6 +420,28 @@ export function TestLanding() {
         </div>
       </section>
 
+      <section id="faq" className="scroll-mt-20 bg-[var(--canvas)] py-20 sm:py-24">
+        <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <p className="text-sm font-extrabold tracking-wide text-[var(--brand)]">자주 묻는 질문</p>
+            <h2 className="mt-3 break-keep text-3xl font-extrabold tracking-tight text-[var(--brand-ink)] sm:text-4xl">
+              시작 전에 궁금한 점을 확인하세요
+            </h2>
+          </div>
+          <div className="mt-10 space-y-3">
+            {FAQS.map((faq) => (
+              <details key={faq.question} className="group rounded-2xl border border-[var(--line)] bg-white px-5 py-1 shadow-sm sm:px-6">
+                <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-4 py-4 font-extrabold text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-[var(--brand)]">
+                  <span className="break-keep">{faq.question}</span>
+                  <ChevronDown className="shrink-0 text-[var(--brand)] transition-transform group-open:rotate-180" size={20} aria-hidden />
+                </summary>
+                <p className="break-keep border-t border-[var(--line)] py-5 text-sm leading-6 text-[var(--ink-2)]">{faq.answer}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section className="bg-white py-20 sm:py-24" aria-labelledby="role-title">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
@@ -441,28 +461,6 @@ export function TestLanding() {
               <h3 className="mt-3 break-keep text-xl font-extrabold text-[var(--ink)]">보장 판단과 고객 안내</h3>
               <p className="mt-3 break-keep text-sm leading-6 text-[var(--ink-2)]">정리된 내용을 직접 확인하고, 고객 상황에 맞는 판단과 안내를 완성합니다.</p>
             </article>
-          </div>
-        </div>
-      </section>
-
-      <section id="faq" className="scroll-mt-20 bg-[var(--canvas)] py-20 sm:py-24">
-        <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <p className="text-sm font-extrabold tracking-wide text-[var(--brand)]">자주 묻는 질문</p>
-            <h2 className="mt-3 break-keep text-3xl font-extrabold tracking-tight text-[var(--brand-ink)] sm:text-4xl">
-              시작 전에 궁금한 점을 확인하세요
-            </h2>
-          </div>
-          <div className="mt-10 space-y-3">
-            {FAQS.map((faq) => (
-              <details key={faq.question} className="group rounded-2xl border border-[var(--line)] bg-white px-5 py-1 shadow-sm sm:px-6">
-                <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-4 py-4 font-extrabold text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-[var(--brand)]">
-                  <span className="break-keep">{faq.question}</span>
-                  <ChevronDown className="shrink-0 text-[var(--brand)] transition-transform group-open:rotate-180" size={20} aria-hidden />
-                </summary>
-                <p className="break-keep border-t border-[var(--line)] py-5 text-sm leading-6 text-[var(--ink-2)]">{faq.answer}</p>
-              </details>
-            ))}
           </div>
         </div>
       </section>
