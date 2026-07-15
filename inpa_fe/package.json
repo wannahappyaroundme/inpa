@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint:copy": "node scripts/check-copy.js"
+    "lint:copy": "node scripts/check-copy.js",
+    "test:landing": "node --test lib/new-host-routing.test.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.63.0",
