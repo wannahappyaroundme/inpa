@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint:copy": "node scripts/check-copy.js",
-    "test:landing": "tsc --module commonjs --moduleResolution node --target es2020 --esModuleInterop --skipLibCheck --outDir .next/landing-tests lib/new-host-routing.ts lib/new-host-routing.test.ts && node --test .next/landing-tests/new-host-routing.test.js"
+    "test:landing": "tsc --module commonjs --moduleResolution node --target es2020 --esModuleInterop --skipLibCheck --outDir .next/landing-tests lib/new-host-routing.ts lib/new-host-routing.test.ts lib/test-landing-content.ts lib/test-landing-content.test.ts && node --test .next/landing-tests/new-host-routing.test.js .next/landing-tests/test-landing-content.test.js"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.63.0",
