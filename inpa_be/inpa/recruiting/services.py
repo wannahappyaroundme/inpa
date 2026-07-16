@@ -499,42 +499,64 @@ def stop_candidate_contact(*, candidate):
         return locked
     if locked.selection_status != locked.SelectionStatus.ACTIVE:
         raise ValidationError("신청 관리 링크에서 현재 연락 상태를 확인해주세요.")
-    previous_stage = locked.stage
-    now = timezone.now()
-    locked.contact_opt_out_at = now
-    locked.stage = locked.Stage.ENDED
-    locked.ended_at = now
-    locked.retention_expires_at = now + timedelta(days=settings.RECRUITING_TOMBSTONE_DAYS)
-    locked.next_action = ""
-    locked.next_action_at = None
-    locked.name = "정리 요청"
-    locked.phone = ""
-    locked.current_affiliation = ""
-    locked.region = ""
-    locked.save(
-        update_fields=[
-            "contact_opt_out_at",
-            "stage",
-            "ended_at",
-            "retention_expires_at",
-            "next_action",
-            "next_action_at",
-            "name",
-            "phone",
-            "current_affiliation",
-            "region",
-            "updated_at",
-        ]
-    )
-    locked.consents.all().delete()
-    RecruitingActivity.objects.create(
+    return anonymize_candidate_for_tombstone(
         candidate=locked,
-        candidate_ref=locked.audit_ref,
         event_type=RecruitingActivity.EventType.CONTACT_STOPPED,
-        from_stage=previous_stage,
-        to_stage=RecruitingCandidate.Stage.ENDED,
     )
-    return locked
+
+
+def anonymize_candidate_for_tombstone(*, candidate, event_type, actor=None):
+    """Scrub a locked, unjoined candidate while retaining a short cleanup tombstone."""
+    previous_stage = candidate.stage
+    now = timezone.now()
+    already_scrubbed = (
+        candidate.contact_opt_out_at is not None
+        and candidate.stage == candidate.Stage.ENDED
+        and candidate.name == "정리 요청"
+        and candidate.phone == ""
+        and candidate.current_affiliation == ""
+        and candidate.region == ""
+    )
+    if not already_scrubbed:
+        candidate.contact_opt_out_at = now
+        candidate.stage = candidate.Stage.ENDED
+        candidate.ended_at = now
+        candidate.retention_expires_at = now + timedelta(
+            days=settings.RECRUITING_TOMBSTONE_DAYS
+        )
+        candidate.next_action = ""
+        candidate.next_action_at = None
+        candidate.name = "정리 요청"
+        candidate.phone = ""
+        candidate.current_affiliation = ""
+        candidate.region = ""
+        candidate.save(
+            update_fields=[
+                "contact_opt_out_at",
+                "stage",
+                "ended_at",
+                "retention_expires_at",
+                "next_action",
+                "next_action_at",
+                "name",
+                "phone",
+                "current_affiliation",
+                "region",
+                "updated_at",
+            ]
+        )
+    candidate.consents.all().delete()
+    RecruitingActivity.objects.get_or_create(
+        candidate_ref=candidate.audit_ref,
+        event_type=event_type,
+        defaults={
+            "candidate": candidate,
+            "actor": actor,
+            "from_stage": previous_stage,
+            "to_stage": RecruitingCandidate.Stage.ENDED,
+        },
+    )
+    return candidate
 
 
 @transaction.atomic

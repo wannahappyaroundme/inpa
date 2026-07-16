@@ -352,5 +352,11 @@ class RecruitingEvent(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
+    def save(self, *args, **kwargs):
+        # JSONField validators do not run on objects.create()/save() by default.
+        # Recruiting telemetry must reject raw or unsupported metadata at the model boundary.
+        validate_recruiting_event_metadata(self.metadata)
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"recruiting-event:{self.pk}"

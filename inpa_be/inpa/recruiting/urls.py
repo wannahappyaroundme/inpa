@@ -16,6 +16,9 @@ from .views import (
     RecruitingCampaignView,
     RecruitingCandidateViewSet,
     RecruitingPageView,
+    RecruitingSettlementListView,
+    RecruitingSummaryView,
+    RecruitingTeamSummaryView,
     RecruitingTemplateListView,
 )
 
@@ -26,6 +29,9 @@ router = SimpleRouter()
 router.register("recruiting/candidates", RecruitingCandidateViewSet, basename="recruiting-candidate")
 
 urlpatterns = router.urls + [
+    path("recruiting/summary/", RecruitingSummaryView.as_view(), name="summary"),
+    path("recruiting/team-summary/", RecruitingTeamSummaryView.as_view(), name="team-summary"),
+    path("recruiting/settlements/", RecruitingSettlementListView.as_view(), name="settlements"),
     path("recruiting/page/", RecruitingPageView.as_view(), name="page"),
     path("recruiting/templates/", RecruitingTemplateListView.as_view(), name="templates"),
     path("recruiting/campaign/", RecruitingCampaignView.as_view(), name="campaign"),

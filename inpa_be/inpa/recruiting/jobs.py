@@ -170,12 +170,14 @@ def cleanup_expired_recruiting_candidates(now=None):
                 if expected_expiry > now:
                     continue
 
-            RecruitingActivity.objects.create(
-                candidate=candidate,
+            RecruitingActivity.objects.get_or_create(
                 candidate_ref=candidate.audit_ref,
                 event_type=RecruitingActivity.EventType.CANDIDATE_PURGED,
-                from_stage=candidate.stage,
-                to_stage=RecruitingCandidate.Stage.ENDED,
+                defaults={
+                    "candidate": candidate,
+                    "from_stage": candidate.stage,
+                    "to_stage": RecruitingCandidate.Stage.ENDED,
+                },
             )
             candidate.delete()
             deleted_candidates += 1

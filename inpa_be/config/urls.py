@@ -30,6 +30,7 @@ urlpatterns = [
     path('api/v1/', include('inpa.boards.urls')),
     path('api/v1/', include('inpa.promotion.urls')),
     path('api/v1/', include('inpa.admin_console.urls')),
+    path('api/v1/', include('inpa.recruiting.admin_urls')),
     path('api/v1/', include('inpa.analytics.urls')),
     path('api/v1/', include('inpa.booking.urls')),
     path('api/v1/', include('inpa.dashboard.urls')),

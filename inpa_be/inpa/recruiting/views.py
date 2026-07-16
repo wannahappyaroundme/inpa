@@ -12,7 +12,17 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import RecruitingCampaign, RecruitingCandidate, RecruitingCopyTemplate, RecruitingEvent
+from inpa.accounts.models import Profile
+from inpa.billing.credit import user_can_use_team
+
+from .analytics import candidate_metrics
+from .models import (
+    RecruitingCampaign,
+    RecruitingCandidate,
+    RecruitingCopyTemplate,
+    RecruitingEvent,
+    SettlementCheck,
+)
 from .serializers import (
     CandidateTransitionSerializer,
     RecruitingCampaignSerializer,
@@ -29,6 +39,107 @@ class RecruitingEnabledMixin:
         if not settings.RECRUITING_ENABLED:
             raise NotFound()
         return super().initial(request, *args, **kwargs)
+
+
+MANAGER_PLAN_REQUIRED_BODY = {
+    "detail": "Plus를 시작하면 팀 관리 기능을 계속 사용할 수 있어요.",
+    "code": "manager_plan_required",
+    "plan": "manager",
+}
+
+
+class RecruitingSummaryView(RecruitingEnabledMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(candidate_metrics(request.user, timezone.localdate()))
+
+
+class RecruitingTeamSummaryView(RecruitingEnabledMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if (
+            getattr(settings, "MANAGER_PLAN_GATE_ENABLED", False)
+            and not user_can_use_team(request.user)
+        ):
+            return Response(
+                MANAGER_PLAN_REQUIRED_BODY,
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
+        today = timezone.localdate()
+        profiles = Profile.objects.filter(manager=request.user).select_related("user")
+        shared_profiles = profiles.filter(
+            manager_share_level__in=(Profile.SHARE_ACTIVITY, Profile.SHARE_FULL)
+        )
+        members = []
+        totals = {
+            "active_recruiting": 0,
+            "joined_this_month": 0,
+            "settlement_due": 0,
+        }
+        for profile in shared_profiles.order_by("user_id"):
+            metrics = candidate_metrics(profile.user, today)
+            active_recruiting = sum(
+                count
+                for stage, count in metrics["stage_counts"].items()
+                if stage not in (
+                    RecruitingCandidate.Stage.ENDED,
+                    RecruitingCandidate.Stage.TEAM_JOIN,
+                )
+            )
+            item = {
+                "user_id": profile.user_id,
+                "display_name": (
+                    profile.name or profile.affiliation or "소속 설계사"
+                ).strip(),
+                "active_recruiting": active_recruiting,
+                "joined_this_month": metrics["joined_this_month"],
+                "settlement_due": metrics["settlement_due"],
+            }
+            members.append(item)
+            for key in totals:
+                totals[key] += item[key]
+        return Response(
+            {
+                "members": members,
+                "not_shared_count": profiles.filter(
+                    manager_share_level=Profile.SHARE_NONE
+                ).count(),
+                "team_totals": totals,
+            }
+        )
+
+
+class RecruitingSettlementListView(RecruitingEnabledMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        checks = SettlementCheck.objects.filter(
+            candidate__owner=request.user
+        ).select_related("candidate__joined_user__profile").order_by("due_on", "week", "pk")
+        payload = []
+        for check in checks:
+            joined_user = check.candidate.joined_user
+            profile = getattr(joined_user, "profile", None) if joined_user else None
+            payload.append(
+                {
+                    "id": check.pk,
+                    "candidate_id": check.candidate_id,
+                    "joined_agent_name": (
+                        (profile.name or profile.affiliation or "합류 설계사").strip()
+                        if profile
+                        else "-"
+                    ),
+                    "week": check.week,
+                    "due_on": check.due_on,
+                    "state": check.state,
+                    "blocker": check.blocker,
+                    "next_support": check.next_support,
+                    "completed_at": check.completed_at,
+                }
+            )
+        return Response(payload)
 
 
 class RecruitingCandidateViewSet(RecruitingEnabledMixin, viewsets.ModelViewSet):
