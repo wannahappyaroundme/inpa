@@ -254,8 +254,13 @@ def create_candidate_submission(*, campaign, data, ip_address=None):
     phone = normalize_phone(data.get("phone", ""))
     submission_key = _coerce_submission_key(data.get("submission_key"))
     # PostgreSQL은 nullable OUTER JOIN이 붙은 FOR UPDATE를 거부하므로 본체 행만 잠근다.
-    campaign = RecruitingCampaign.objects.select_for_update().get(pk=campaign.pk)
-    page = RecruitingPage.objects.select_for_update().get(pk=campaign.page_id)
+    campaign_id = campaign.pk
+    page_id = campaign.page_id
+    page = RecruitingPage.objects.select_for_update().get(pk=page_id)
+    campaign = RecruitingCampaign.objects.select_for_update().get(
+        pk=campaign_id,
+        page_id=page_id,
+    )
     if not campaign.is_active or not page.is_published:
         raise RecruitingLinkUnavailable
 

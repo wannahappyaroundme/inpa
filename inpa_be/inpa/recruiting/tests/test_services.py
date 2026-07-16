@@ -329,7 +329,7 @@ class RecruitingSubmissionServiceTests(TestCase):
             30,
         )
 
-    def test_submission_locks_campaign_then_page_without_related_joins(self):
+    def test_submission_locks_page_then_campaign_without_related_joins(self):
         lock_order = []
 
         def campaign_lock():
@@ -349,7 +349,7 @@ class RecruitingSubmissionServiceTests(TestCase):
         ):
             self.submit()
 
-        self.assertEqual(lock_order, ["campaign", "page"])
+        self.assertEqual(lock_order, ["page", "campaign"])
 
     def test_leader_choice_candidate_lock_has_no_related_join(self):
         old = self.submit().candidate

@@ -333,6 +333,33 @@ class RecruitingFrontendCampaignContractTests(TestCase):
         self.assertEqual(response.status_code, 200)
         select_for_update.assert_called_once_with()
 
+    def test_campaign_patch_uses_page_then_campaign_lock_order(self):
+        lock_order = []
+        original_page_lock = RecruitingPage.objects.select_for_update
+        original_campaign_lock = RecruitingCampaign.objects.select_for_update
+
+        def page_lock():
+            lock_order.append("page")
+            return original_page_lock()
+
+        def campaign_lock():
+            lock_order.append("campaign")
+            return original_campaign_lock()
+
+        with patch(
+            "inpa.recruiting.models.RecruitingPage.objects.select_for_update",
+            side_effect=page_lock,
+        ), patch(
+            "inpa.recruiting.models.RecruitingCampaign.objects.select_for_update",
+            side_effect=campaign_lock,
+        ):
+            response = self.client.patch(
+                "/api/v1/recruiting/campaign/", {"is_active": False}, format="json"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(lock_order, ["page", "campaign"])
+
 
 @override_settings(RECRUITING_ENABLED=True)
 class RecruitingFrontendPublicContractTests(TestCase):

@@ -298,6 +298,10 @@ class RecruitingCampaignView(RecruitingEnabledMixin, APIView):
         action_serializer.is_valid(raise_exception=True)
         with transaction.atomic():
             page, campaign = get_or_create_recruiting_page(request.user, lock=True)
+            campaign = RecruitingCampaign.objects.select_for_update().get(
+                pk=campaign.pk,
+                page_id=page.pk,
+            )
             relationship_campaigns = page.campaigns.filter(
                 channel=RecruitingCampaign.Channel.RELATIONSHIP
             )
