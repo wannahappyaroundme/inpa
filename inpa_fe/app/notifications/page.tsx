@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
-import { getNotificationAction } from "@/components/recruiting/recruiting-integration";
+import { getNotificationAction } from "./notification-action";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listNotifications,
