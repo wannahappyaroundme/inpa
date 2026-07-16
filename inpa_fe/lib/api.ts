@@ -3056,6 +3056,7 @@ export interface RecruitingCandidateQuery {
   q?: string;
   stage?: RecruitingStage;
   campaign?: number;
+  source?: RecruitingCandidateCampaign["channel"];
   career_band?: RecruitingCareerBand;
   due?: boolean | "overdue";
 }
@@ -3244,6 +3245,7 @@ export async function listRecruitingCandidates(
   if (filters.q?.trim()) query.set("q", filters.q.trim());
   if (filters.stage) query.set("stage", filters.stage);
   if (filters.campaign !== undefined) query.set("campaign", String(filters.campaign));
+  if (filters.source) query.set("source", filters.source);
   if (filters.career_band) query.set("career_band", filters.career_band);
   if (filters.due === true) query.set("due", "true");
   if (filters.due === "overdue") query.set("due", "overdue");

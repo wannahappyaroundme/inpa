@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Card } from "@/components/ui";
 import {
@@ -26,7 +26,7 @@ import {
   friendlyRecruitingError,
 } from "./recruiting-labels";
 import { RecruitingError, RecruitingLoading } from "./recruiting-states";
-import { groupSettlementsByDue } from "./recruiting-view-model";
+import { createLatestRequestGate, groupSettlementsByDue } from "./recruiting-view-model";
 import { TeamAggregate } from "./team-aggregate";
 
 const BLOCKERS = Object.keys(BLOCKER_LABELS) as SettlementBlocker[];
@@ -184,9 +184,12 @@ export function SettlementPanel() {
   const [isManager, setIsManager] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const loadRequestGateRef = useRef(createLatestRequestGate());
   const today = todayInSeoul();
 
   const load = useCallback(async () => {
+    const requestGate = loadRequestGateRef.current;
+    const requestGeneration = requestGate.begin();
     setLoading(true);
     setError(null);
     try {
@@ -194,35 +197,39 @@ export function SettlementPanel() {
         listRecruitingSettlements(),
         getProfile(),
       ]);
-      setItems(settlements);
-      setIsManager(profile.is_manager);
-      setTeamError(null);
+      let nextTeam: TeamRecruitingSummary | null = null;
+      let nextTeamPlanMessage: string | null = null;
+      let nextTeamError: string | null = null;
       if (profile.is_manager) {
         try {
-          setTeam(await getTeamRecruitingSummary());
-          setTeamPlanMessage(null);
+          nextTeam = await getTeamRecruitingSummary();
         } catch (reason) {
           if (reason instanceof ApiError && reason.status === 402) {
-            setTeam(null);
-            setTeamPlanMessage(reason.message || "Plus를 시작하면 팀 관리 기능을 계속 사용할 수 있어요.");
+            nextTeamPlanMessage = reason.message || "Plus를 시작하면 팀 관리 기능을 계속 사용할 수 있어요.";
           } else {
-            setTeam(null);
-            setTeamError("팀 합계를 다시 불러오면 이어서 확인할 수 있어요.");
+            nextTeamError = "팀 합계를 다시 불러오면 이어서 확인할 수 있어요.";
           }
         }
-      } else {
-        setTeam(null);
-        setTeamPlanMessage(null);
       }
+      if (!requestGate.isCurrent(requestGeneration)) return;
+      setItems(settlements);
+      setIsManager(profile.is_manager);
+      setTeam(nextTeam);
+      setTeamPlanMessage(nextTeamPlanMessage);
+      setTeamError(nextTeamError);
     } catch (reason) {
+      if (!requestGate.isCurrent(requestGeneration)) return;
       setError(friendlyRecruitingError(reason));
     } finally {
-      setLoading(false);
+      if (requestGate.isCurrent(requestGeneration)) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadRequestGateRef.current.invalidate();
+    };
   }, [load]);
 
   const groups = useMemo(() => groupSettlementsByDue(items, today), [items, today]);

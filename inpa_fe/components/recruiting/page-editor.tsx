@@ -13,6 +13,10 @@ import {
 } from "@/lib/api";
 import { friendlyRecruitingError } from "./recruiting-labels";
 import { RecruitingError, RecruitingLoading } from "./recruiting-states";
+import {
+  getActiveSelectedTemplateIds,
+  getRecruitingPageEditorIssue,
+} from "./recruiting-view-model";
 
 export function PageEditor() {
   const [page, setPage] = useState<RecruitingPage | null>(null);
@@ -34,7 +38,6 @@ export function PageEditor() {
         getRecruitingPage(),
         listRecruitingTemplates(),
       ]);
-      const activeIds = new Set(templateResult.map((template) => template.id));
       const activeHeadlineIds = new Set(
         templateResult.filter((template) => template.kind === "headline").map((template) => template.id),
       );
@@ -45,7 +48,7 @@ export function PageEditor() {
           ? pageResult.headline_template_id
           : templateResult.find((template) => template.kind === "headline")?.id ?? null,
       );
-      setSelectedIds(pageResult.templates.map((template) => template.id).filter((id) => activeIds.has(id)));
+      setSelectedIds(getActiveSelectedTemplateIds(pageResult.templates, templateResult));
       setRegion(pageResult.activity_region);
       setPublished(pageResult.is_published);
     } catch (reason) {
@@ -69,6 +72,7 @@ export function PageEditor() {
   );
   const selectedHeadline = headlines.find((template) => template.id === headlineId) ?? null;
   const selectedTemplates = selectable.filter((template) => selectedIds.includes(template.id));
+  const editorIssue = getRecruitingPageEditorIssue(headlineId, selectedIds.length);
 
   function toggleTemplate(id: number) {
     setError(null);
@@ -84,8 +88,12 @@ export function PageEditor() {
   }
 
   async function save() {
-    if (!headlineId) {
+    if (editorIssue === "missing_headline") {
       setError("지원자가 처음 볼 문장을 선택해 주세요.");
+      return;
+    }
+    if (editorIssue === "too_many_templates") {
+      setError("지원 내용과 자주 묻는 질문을 3개까지 남겨 주세요.");
       return;
     }
     setSaving(true);
@@ -131,11 +139,25 @@ export function PageEditor() {
 
         {error && <p role="alert" className="mt-4 rounded-xl bg-danger-tint px-3 py-2.5 text-[12px] font-semibold text-danger-ink">{error}</p>}
         {status && <p aria-live="polite" className="mt-4 rounded-xl bg-success-tint px-3 py-2.5 text-[12px] font-semibold text-success-ink">{status}</p>}
+        {editorIssue === "too_many_templates" && (
+          <p role="status" className="mt-4 rounded-xl bg-warning-tint px-3 py-2.5 text-[12px] font-semibold text-warning-ink">
+            현재 {selectedIds.length}개가 선택되어 있어요. 3개까지 남기면 바로 저장할 수 있어요.
+          </p>
+        )}
 
         <fieldset className="mt-6">
           <legend className="text-[14px] font-extrabold text-ink">처음 보여줄 문장</legend>
           <div className="mt-3 grid gap-2">
-            {headlines.map((template) => (
+            {headlines.length === 0 ? (
+              <div className="rounded-2xl border border-line bg-brand-soft p-5 text-center">
+                <p className="text-[14px] font-bold text-ink">첫 문장을 불러오면 영입 페이지를 완성할 수 있어요.</p>
+                <p className="mt-2 text-[12px] leading-5 text-ink2">다시 불러오거나 운영팀에 사용할 문구를 요청해 주세요.</p>
+                <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
+                  <button type="button" disabled={saving} onClick={() => void load()} className="min-h-11 rounded-xl border border-line bg-surface px-4 text-[13px] font-bold text-brand disabled:opacity-60">문구 다시 불러오기</button>
+                  <Link href="/boards/inquiry/new" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-brand px-4 text-[13px] font-bold text-white">운영팀에 문구 요청하기</Link>
+                </div>
+              </div>
+            ) : headlines.map((template) => (
               <label key={template.id} className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-2xl border p-3 transition ${headlineId === template.id ? "border-brand bg-brand-soft" : "border-line bg-surface"}`}>
                 <input type="radio" name="headline" disabled={saving} checked={headlineId === template.id} onChange={() => setHeadlineId(template.id)} className="mt-1 h-4 w-4 accent-[var(--brand)] disabled:opacity-60" />
                 <span>
@@ -189,8 +211,14 @@ export function PageEditor() {
           </div>
         </fieldset>
 
-        <button type="button" disabled={saving} onClick={save} className="mt-6 min-h-12 w-full rounded-2xl bg-brand px-5 text-[14px] font-bold text-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
-          {saving ? "저장하는 중..." : "영입 페이지 저장"}
+        <button type="button" disabled={saving || editorIssue !== null} onClick={save} className="mt-6 min-h-12 w-full rounded-2xl bg-brand px-5 text-[14px] font-bold text-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
+          {saving
+            ? "저장하는 중..."
+            : editorIssue === "too_many_templates"
+              ? "3개까지 남기면 저장할 수 있어요"
+              : editorIssue === "missing_headline"
+                ? "첫 문장을 불러오면 저장할 수 있어요"
+                : "영입 페이지 저장"}
         </button>
       </Card>
 

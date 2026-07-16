@@ -25,13 +25,16 @@ import {
   friendlyRecruitingError,
 } from "./recruiting-labels";
 import { RecruitingEmpty, RecruitingError, RecruitingLoading } from "./recruiting-states";
-import { getCandidateDisplayIdentity, sortCandidatesByNextAction } from "./recruiting-view-model";
+import {
+  createLatestRequestGate,
+  sortRecruitingCandidates,
+  type CandidateSortKey,
+} from "./recruiting-view-model";
 
 const STAGES = Object.keys(STAGE_LABELS) as RecruitingStage[];
 const CAREERS = Object.keys(CAREER_LABELS) as RecruitingCareerBand[];
 
 type DueFilter = "" | "due";
-type SortKey = "due" | "newest" | "name";
 
 function emptyPage(): PaginatedResult<RecruitingCandidate> {
   return { count: 0, next: null, previous: null, results: [] };
@@ -51,11 +54,12 @@ export function StatusPanel() {
   const [career, setCareer] = useState<RecruitingCareerBand | "">("");
   const [due, setDue] = useState<DueFilter>("");
   const [source, setSource] = useState<"" | "relationship">("");
-  const [sort, setSort] = useState<SortKey>("due");
+  const [sort, setSort] = useState<CandidateSortKey>("due");
   const [view, setView] = useState<"board" | "list">("board");
   const [currentPage, setCurrentPage] = useState(1);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
-  const listRequestRef = useRef(0);
+  const listRequestGateRef = useRef(createLatestRequestGate());
+  const loadCandidatesRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   const loadContext = useCallback(async () => {
     setContextLoading(true);
@@ -77,7 +81,8 @@ export function StatusPanel() {
   }, []);
 
   const loadCandidates = useCallback(async () => {
-    const requestId = ++listRequestRef.current;
+    const requestGate = listRequestGateRef.current;
+    const requestGeneration = requestGate.begin();
     setListLoading(true);
     setError(null);
     try {
@@ -86,19 +91,20 @@ export function StatusPanel() {
         q: search || undefined,
         stage: stage || undefined,
         career_band: career || undefined,
-        // Phase 1 has one source channel. Do not filter by the latest campaign id:
-        // reissued links keep older relationship candidates on prior campaign rows.
+        source: source || undefined,
         due: due === "due" ? true : undefined,
       });
-      if (requestId !== listRequestRef.current) return;
+      if (!requestGate.isCurrent(requestGeneration)) return;
       setCandidates(result);
     } catch (reason) {
-      if (requestId !== listRequestRef.current) return;
+      if (!requestGate.isCurrent(requestGeneration)) return;
       setError(friendlyRecruitingError(reason));
     } finally {
-      if (requestId === listRequestRef.current) setListLoading(false);
+      if (requestGate.isCurrent(requestGeneration)) setListLoading(false);
     }
-  }, [career, currentPage, due, search, stage]);
+  }, [career, currentPage, due, search, source, stage]);
+
+  loadCandidatesRef.current = loadCandidates;
 
   useEffect(() => {
     void loadContext();
@@ -107,28 +113,15 @@ export function StatusPanel() {
   useEffect(() => {
     void loadCandidates();
     return () => {
-      listRequestRef.current += 1;
+      listRequestGateRef.current.invalidate();
     };
   }, [loadCandidates]);
 
-  const sorted = useMemo(() => {
-    const items = [...candidates.results];
-    if (sort === "due") return sortCandidatesByNextAction(items);
-    if (sort === "newest") {
-      return items.sort((left, right) => right.created_at.localeCompare(left.created_at));
-    }
-    return items.sort((left, right) =>
-      getCandidateDisplayIdentity(left).displayName.localeCompare(
-        getCandidateDisplayIdentity(right).displayName,
-        "ko-KR",
-      ),
-    );
-  }, [candidates.results, sort]);
-
-  const mobileSorted = useMemo(
-    () => sortCandidatesByNextAction(candidates.results),
-    [candidates.results],
+  const sorted = useMemo(
+    () => sortRecruitingCandidates(candidates.results, sort),
+    [candidates.results, sort],
   );
+  const mobileSorted = sorted;
 
   function applySearch(event: FormEvent) {
     event.preventDefault();
@@ -137,6 +130,7 @@ export function StatusPanel() {
   }
 
   async function handleCandidateChanged(updated: RecruitingCandidate) {
+    listRequestGateRef.current.invalidate();
     setCandidates((current) => ({
       ...current,
       count: stage && updated.stage !== stage ? Math.max(0, current.count - 1) : current.count,
@@ -144,11 +138,10 @@ export function StatusPanel() {
         .map((candidate) => candidate.id === updated.id ? updated : candidate)
         .filter((candidate) => !stage || candidate.stage === stage),
     }));
-    try {
-      setSummary(await getRecruitingSummary());
-    } catch {
-      // 카드 저장 성공은 유지하고 요약은 다음 새로고침에서 맞춘다.
-    }
+    const summaryRefresh = getRecruitingSummary()
+      .then(setSummary)
+      .catch(() => undefined);
+    await Promise.all([loadCandidatesRef.current(), summaryRefresh]);
   }
 
   async function copyPublicLink() {
@@ -244,7 +237,7 @@ export function StatusPanel() {
             </select>
           </label>
           <label className="col-span-2 text-[11px] font-semibold text-ink3 lg:col-span-1">정렬
-            <select value={sort} onChange={(event) => setSort(event.target.value as SortKey)} className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-2 text-[12px] text-ink">
+            <select value={sort} onChange={(event) => setSort(event.target.value as CandidateSortKey)} className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-2 text-[12px] text-ink">
               <option value="due">다음 행동 빠른 순</option>
               <option value="newest">최근 지원 순</option>
               <option value="name">이름 순</option>
@@ -308,7 +301,7 @@ export function StatusPanel() {
               <div className="max-w-full overflow-x-auto rounded-2xl border border-line bg-surface2 p-3">
                 <div className="flex min-w-max gap-3">
                   {STAGES.map((stageValue) => {
-                    const items = sortCandidatesByNextAction(sorted.filter((candidate) => candidate.stage === stageValue));
+                    const items = sorted.filter((candidate) => candidate.stage === stageValue);
                     return (
                       <section key={stageValue} aria-label={STAGE_LABELS[stageValue]} className="w-[300px] shrink-0">
                         <div className="mb-2 flex items-center justify-between px-1">

@@ -71,6 +71,10 @@ class RecruitingPageSerializer(serializers.ModelSerializer):
             attrs["headline_template"] = headline
         template_ids = attrs.get("template_ids")
         if template_ids is not None:
+            if len(set(template_ids)) > 3:
+                raise serializers.ValidationError(
+                    {"template_ids": "지원 내용과 자주 묻는 질문은 합쳐서 3개까지 골라주세요."}
+                )
             templates = list(
                 RecruitingCopyTemplate.objects.filter(
                     pk__in=template_ids,

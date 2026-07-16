@@ -6,12 +6,17 @@ import type {
   RecruitingCandidate,
   RecruitingReplacedCandidate,
   RecruitingSettlement,
+  RecruitingTemplate,
 } from "../../lib/api";
 import {
   allowedManualStageChoices,
+  createLatestRequestGate,
+  getActiveSelectedTemplateIds,
   getCandidateDisplayIdentity,
+  getRecruitingPageEditorIssue,
   groupSettlementsByDue,
   normalizeRecruitingTab,
+  sortRecruitingCandidates,
   sortCandidatesByNextAction,
 } from "./recruiting-view-model";
 
@@ -60,6 +65,20 @@ function settlement(
     next_support: "",
     completed_at: null,
     ...overrides,
+  };
+}
+
+function template(
+  id: number,
+  kind: RecruitingTemplate["kind"],
+): RecruitingTemplate {
+  return {
+    id,
+    code: `${kind}-${id}`,
+    kind,
+    title: `문구 ${id}`,
+    body: `내용 ${id}`,
+    sort_order: id,
   };
 }
 
@@ -194,4 +213,54 @@ test("모바일 지원자 카드는 다음 행동이 빠른 순이고 날짜 없
   ]);
 
   assert.deepEqual(sorted.map((candidate) => candidate.id), [3, 2, 1, 4]);
+});
+
+test("지원자 정렬은 모바일과 목록에서 같은 선택값을 따른다", () => {
+  const candidates = [
+    activeCandidate({ id: 1, name: "하나", created_at: "2026-07-10T09:00:00+09:00", next_action_at: null }),
+    activeCandidate({ id: 2, name: "가람", created_at: "2026-07-17T09:00:00+09:00", next_action_at: "2026-07-19T09:00:00+09:00" }),
+    activeCandidate({ id: 3, name: "나래", created_at: "2026-07-14T09:00:00+09:00", next_action_at: "2026-07-18T09:00:00+09:00" }),
+  ];
+
+  assert.deepEqual(sortRecruitingCandidates(candidates, "due").map((item) => item.id), [3, 2, 1]);
+  assert.deepEqual(sortRecruitingCandidates(candidates, "newest").map((item) => item.id), [2, 3, 1]);
+  assert.deepEqual(sortRecruitingCandidates(candidates, "name").map((item) => item.id), [2, 3, 1]);
+});
+
+test("최신 요청 세대만 데이터·오류·로딩 상태를 바꿀 수 있다", () => {
+  const gate = createLatestRequestGate();
+  const first = gate.begin();
+  const second = gate.begin();
+
+  assert.equal(gate.isCurrent(first), false);
+  assert.equal(gate.isCurrent(second), true);
+
+  let loading = true;
+  if (gate.isCurrent(first)) loading = false;
+  assert.equal(loading, true, "오래된 요청은 로딩을 끝내지 않는다");
+  if (gate.isCurrent(second)) loading = false;
+  assert.equal(loading, false, "최신 요청만 로딩을 끝낸다");
+
+  gate.invalidate();
+  assert.equal(gate.isCurrent(second), false, "저장 성공은 진행 중인 목록 응답을 무효화한다");
+  const afterMutation = gate.begin();
+  assert.equal(gate.isCurrent(afterMutation), true, "저장 뒤 최신 조건 재조회가 새 세대가 된다");
+});
+
+test("기존 4개 문구는 숨기거나 자르지 않고 3개로 줄일 때까지 저장을 안내한다", () => {
+  const selected = [
+    template(1, "support"),
+    template(2, "support"),
+    template(3, "faq"),
+    template(4, "faq"),
+  ];
+  const available = [template(8, "headline"), ...selected];
+
+  assert.deepEqual(getActiveSelectedTemplateIds(selected, available), [1, 2, 3, 4]);
+  assert.equal(getRecruitingPageEditorIssue(8, 4), "too_many_templates");
+  assert.equal(getRecruitingPageEditorIssue(8, 3), null);
+});
+
+test("첫 문장이 비어 있으면 문의와 재시도 전까지 저장을 잠근다", () => {
+  assert.equal(getRecruitingPageEditorIssue(null, 0), "missing_headline");
 });

@@ -170,6 +170,11 @@ class RecruitingCandidateViewSet(RecruitingEnabledMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(stage=params["stage"])
         if params.get("campaign"):
             queryset = queryset.filter(campaign_id=params["campaign"])
+        if params.get("source"):
+            source = params["source"]
+            if source not in RecruitingCampaign.Channel.values:
+                raise ValidationError({"source": "들어온 곳을 다시 선택해주세요."})
+            queryset = queryset.filter(campaign__channel=source)
         if params.get("career_band"):
             queryset = queryset.filter(career_band=params["career_band"])
         if params.get("due") in {"1", "true", "overdue"}:

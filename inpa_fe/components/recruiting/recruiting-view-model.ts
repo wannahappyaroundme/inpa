@@ -4,6 +4,7 @@ import type {
   RecruitingContactWindow,
   RecruitingSettlement,
   RecruitingStage,
+  RecruitingTemplate,
 } from "../../lib/api";
 
 export const RECRUITING_TABS = [
@@ -149,4 +150,72 @@ export function sortCandidatesByNextAction(
       return leftDate - rightDate || left.index - right.index;
     })
     .map(({ candidate }) => candidate);
+}
+
+export type CandidateSortKey = "due" | "newest" | "name";
+
+export function sortRecruitingCandidates(
+  candidates: RecruitingCandidate[],
+  sort: CandidateSortKey,
+): RecruitingCandidate[] {
+  if (sort === "due") return sortCandidatesByNextAction(candidates);
+  const items = [...candidates];
+  if (sort === "newest") {
+    return items.sort((left, right) => right.created_at.localeCompare(left.created_at));
+  }
+  return items.sort((left, right) =>
+    getCandidateDisplayIdentity(left).displayName.localeCompare(
+      getCandidateDisplayIdentity(right).displayName,
+      "ko-KR",
+    ),
+  );
+}
+
+export interface LatestRequestGate {
+  begin: () => number;
+  invalidate: () => void;
+  isCurrent: (requestGeneration: number) => boolean;
+}
+
+export function createLatestRequestGate(): LatestRequestGate {
+  let generation = 0;
+  return {
+    begin() {
+      generation += 1;
+      return generation;
+    },
+    invalidate() {
+      generation += 1;
+    },
+    isCurrent(requestGeneration) {
+      return requestGeneration === generation;
+    },
+  };
+}
+
+export function getActiveSelectedTemplateIds(
+  selected: RecruitingTemplate[],
+  available: RecruitingTemplate[],
+): number[] {
+  const selectableIds = new Set(
+    available
+      .filter((template) => template.kind === "support" || template.kind === "faq")
+      .map((template) => template.id),
+  );
+  return selected
+    .map((template) => template.id)
+    .filter((id) => selectableIds.has(id));
+}
+
+export type RecruitingPageEditorIssue =
+  | "missing_headline"
+  | "too_many_templates";
+
+export function getRecruitingPageEditorIssue(
+  headlineId: number | null,
+  selectedTemplateCount: number,
+): RecruitingPageEditorIssue | null {
+  if (headlineId === null) return "missing_headline";
+  if (selectedTemplateCount > 3) return "too_many_templates";
+  return null;
 }

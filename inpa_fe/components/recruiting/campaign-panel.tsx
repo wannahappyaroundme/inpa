@@ -117,9 +117,9 @@ export function CampaignPanel({ onMoveToPage }: { onMoveToPage: () => void }) {
 
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "누적 방문", value: campaign.visits },
-          { label: "누적 지원", value: campaign.applications },
-          { label: "누적 합류", value: campaign.joins },
+          { label: "현재 링크 방문", value: campaign.visits },
+          { label: "현재 링크 지원", value: campaign.applications },
+          { label: "현재 링크 합류", value: campaign.joins },
         ].map((item) => (
           <Card key={item.label} className="p-3 text-center sm:p-5">
             <p className="text-[10px] font-semibold text-ink3 sm:text-[12px]">{item.label}</p>

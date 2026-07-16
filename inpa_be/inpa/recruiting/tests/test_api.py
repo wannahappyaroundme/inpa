@@ -4,7 +4,12 @@ from rest_framework.test import APIClient
 from unittest.mock import patch
 
 from inpa.accounts.models import Profile, User
-from inpa.recruiting.models import RecruitingCampaign, RecruitingCandidate, RecruitingPage
+from inpa.recruiting.models import (
+    RecruitingCampaign,
+    RecruitingCandidate,
+    RecruitingCopyTemplate,
+    RecruitingPage,
+)
 
 
 @override_settings(RECRUITING_ENABLED=True)
@@ -44,6 +49,58 @@ class RecruitingCandidateApiTests(TestCase):
         response = self.client.get(f"/api/v1/recruiting/candidates/{self.other_candidate.pk}/")
 
         self.assertEqual(response.status_code, 404)
+
+    def test_source_filter_uses_campaign_channel_and_excludes_unlinked_candidates(self):
+        owner_page = self.candidate.campaign.page
+        threads_campaign = RecruitingCampaign.objects.create(
+            page=owner_page,
+            name="Threads 소개",
+            channel=RecruitingCampaign.Channel.THREADS,
+        )
+        threads_candidate = RecruitingCandidate.objects.create(
+            owner=self.owner,
+            campaign=threads_campaign,
+            name="다른 경로 지원자",
+            phone="01033334444",
+            career_band=RecruitingCandidate.CareerBand.ONE_TO_THREE,
+            region="서울",
+            contact_window=RecruitingCandidate.ContactWindow.ANYTIME,
+            next_action=RecruitingCandidate.NextAction.CALL,
+        )
+        unlinked_candidate = RecruitingCandidate.objects.create(
+            owner=self.owner,
+            campaign=None,
+            name="연결 없는 지원자",
+            phone="01055556666",
+            career_band=RecruitingCandidate.CareerBand.ONE_TO_THREE,
+            region="서울",
+            contact_window=RecruitingCandidate.ContactWindow.ANYTIME,
+            next_action=RecruitingCandidate.NextAction.CALL,
+        )
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(
+            "/api/v1/recruiting/candidates/",
+            {"source": RecruitingCampaign.Channel.RELATIONSHIP},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        listed_ids = [item["id"] for item in response.data["results"]]
+        self.assertEqual(listed_ids, [self.candidate.pk])
+        self.assertNotIn(threads_candidate.pk, listed_ids)
+        self.assertNotIn(unlinked_candidate.pk, listed_ids)
+        self.assertNotIn(self.other_candidate.pk, listed_ids)
+
+    def test_source_filter_rejects_unknown_channel(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(
+            "/api/v1/recruiting/candidates/",
+            {"source": "unknown-channel"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("source", response.data)
 
     def test_admin_does_not_bypass_candidate_service_view(self):
         self.client.force_authenticate(self.admin)
@@ -125,6 +182,32 @@ class RecruitingCandidateApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         select_for_update.assert_called_once_with()
         self.assertFalse(response.data["is_published"])
+
+    def test_page_patch_rejects_more_than_three_support_and_faq_templates(self):
+        templates = [
+            RecruitingCopyTemplate.objects.create(
+                code=f"support-{index}",
+                kind=(
+                    RecruitingCopyTemplate.Kind.SUPPORT
+                    if index < 2
+                    else RecruitingCopyTemplate.Kind.FAQ
+                ),
+                title=f"지원 문구 {index}",
+                body=f"지원 내용 {index}",
+            )
+            for index in range(4)
+        ]
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.patch(
+            "/api/v1/recruiting/page/",
+            {"template_ids": [template.pk for template in templates]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("template_ids", response.data)
+        self.assertEqual(self.candidate.campaign.page.templates.count(), 0)
 
     def test_opted_out_candidate_is_hidden_from_list_detail_and_patch(self):
         self.candidate.contact_opt_out_at = timezone.now()
