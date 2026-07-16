@@ -177,7 +177,19 @@ def get_or_create_recruiting_page(user, *, lock=False):
     campaign = page.campaigns.filter(
         channel=RecruitingCampaign.Channel.RELATIONSHIP
     ).order_by("-created_at", "-pk").first()
-    if campaign is None:
+    if campaign is None and not lock:
+        with transaction.atomic():
+            page = RecruitingPage.objects.select_for_update().get(pk=page.pk)
+            campaign = page.campaigns.filter(
+                channel=RecruitingCampaign.Channel.RELATIONSHIP
+            ).order_by("-created_at", "-pk").first()
+            if campaign is None:
+                campaign = RecruitingCampaign.objects.create(
+                    page=page,
+                    channel=RecruitingCampaign.Channel.RELATIONSHIP,
+                    name="개인 소개",
+                )
+    elif campaign is None:
         campaign = RecruitingCampaign.objects.create(
             page=page,
             channel=RecruitingCampaign.Channel.RELATIONSHIP,

@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
+from django.db.models.query import QuerySet
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.test import APIClient
@@ -13,9 +14,11 @@ from inpa.recruiting.consent_texts import (
 from inpa.recruiting.models import (
     RecruitingCampaign,
     RecruitingCandidate,
+    RecruitingCopyTemplate,
     RecruitingEvent,
     RecruitingPage,
 )
+from inpa.recruiting.services import get_or_create_recruiting_page
 
 
 @override_settings(RECRUITING_ENABLED=True)
@@ -194,6 +197,47 @@ class RecruitingFrontendCampaignContractTests(TestCase):
         self.assertEqual(response.data["applications"], 1)
         self.assertEqual(response.data["joins"], 1)
         self.assertFalse({"candidate", "candidates", "phone"}.intersection(response.data))
+
+    def test_first_campaign_bootstrap_rechecks_relation_under_page_lock(self):
+        self.campaign.delete()
+        headline = RecruitingCopyTemplate.objects.create(
+            code="bootstrap-headline",
+            kind=RecruitingCopyTemplate.Kind.HEADLINE,
+            title="첫 문장",
+            body="함께 시작해요.",
+        )
+        self.page.headline_template = headline
+        self.page.save(update_fields=["headline_template", "updated_at"])
+        original_first = QuerySet.first
+        concurrent = {"campaign": None}
+
+        def first_with_concurrent_insert(queryset):
+            if queryset.model is RecruitingCampaign and concurrent["campaign"] is None:
+                concurrent["campaign"] = RecruitingCampaign.objects.create(
+                    page=self.page,
+                    name="동시 생성 개인 소개",
+                    channel=RecruitingCampaign.Channel.RELATIONSHIP,
+                )
+                return None
+            return original_first(queryset)
+
+        original_lock = RecruitingPage.objects.select_for_update
+        with patch.object(QuerySet, "first", autospec=True, side_effect=first_with_concurrent_insert), patch(
+            "inpa.recruiting.models.RecruitingPage.objects.select_for_update",
+            wraps=original_lock,
+        ) as select_for_update:
+            page, campaign = get_or_create_recruiting_page(self.owner)
+
+        self.assertEqual(page.pk, self.page.pk)
+        self.assertEqual(campaign.pk, concurrent["campaign"].pk)
+        self.assertEqual(
+            RecruitingCampaign.objects.filter(
+                page=self.page,
+                channel=RecruitingCampaign.Channel.RELATIONSHIP,
+            ).count(),
+            1,
+        )
+        select_for_update.assert_called_once_with()
 
     def test_stop_get_page_and_copy_do_not_create_replacement_then_resume_same_token(self):
         original_path = f"/r/{self.campaign.public_token}"
