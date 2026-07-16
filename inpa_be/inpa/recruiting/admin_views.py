@@ -146,9 +146,12 @@ def _mask_name(value):
 
 
 def _mask_phone(value):
-    digits = "".join(character for character in (value or "") if character.isdigit())
-    if not digits:
+    raw = (value or "").strip()
+    if not raw:
         return "-"
+    digits = "".join(character for character in raw if character.isdigit())
+    if len(digits) not in (10, 11):
+        return "***-****-****"
     return f"***-****-{digits[-4:]}"
 
 

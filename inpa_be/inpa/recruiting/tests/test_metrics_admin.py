@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.contrib import admin
 from django.core.exceptions import ValidationError
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -446,6 +446,17 @@ class RecruitingMetricsAdminTests(TestCase):
         for raw in ("홍길동", "01012345678", "극비 소속", "극비 지역", self.owner.email):
             self.assertNotIn(raw, rendered)
 
+    def test_admin_phone_mask_reveals_suffix_only_for_valid_length(self):
+        from inpa.recruiting.admin_views import _mask_phone
+
+        self.assertEqual(_mask_phone(""), "-")
+        self.assertEqual(_mask_phone("   "), "-")
+        self.assertEqual(_mask_phone("02-1234-5678"), "***-****-5678")
+        self.assertEqual(_mask_phone("010-1234-5678"), "***-****-5678")
+        for invalid in ("123", "010123456789", "전화번호 없음"):
+            with self.subTest(invalid=invalid):
+                self.assertEqual(_mask_phone(invalid), "***-****-****")
+
     def test_admin_purge_locks_scrubs_and_is_idempotent_without_reminders(self):
         today = timezone.localdate()
         candidate = self._candidate(
@@ -700,3 +711,122 @@ class RecruitingMetricsAdminTests(TestCase):
                 self.assertFalse(model_admin.has_add_permission(None))
                 self.assertFalse(model_admin.has_change_permission(None))
                 self.assertFalse(model_admin.has_delete_permission(None))
+
+    def test_django_admin_detail_fields_use_explicit_safe_allowlists(self):
+        request = RequestFactory().get("/admin/recruiting/")
+        request.user = self.admin_user
+        candidate = self._candidate()
+        consent = RecruitingConsentLog.objects.create(
+            candidate=candidate,
+            doc_version="recruiting-contact-v1",
+            ip_address="127.0.0.1",
+        )
+        activity = RecruitingActivity.objects.create(
+            candidate=candidate,
+            candidate_ref=candidate.audit_ref,
+            actor=self.owner,
+            event_type=RecruitingActivity.EventType.STAGE_CHANGED,
+        )
+        event = RecruitingEvent.objects.create(
+            owner=self.owner,
+            campaign=candidate.campaign,
+            candidate=candidate,
+            event_type=RecruitingEvent.EventType.APPLICATION_SUBMITTED,
+        )
+        settlement = SettlementCheck.objects.create(
+            candidate=candidate,
+            week=1,
+            due_on=timezone.localdate(),
+        )
+        expected_fields = {
+            RecruitingCandidate: (
+                "id",
+                "campaign",
+                "career_band",
+                "contact_window",
+                "selection_status",
+                "stage",
+                "next_action",
+                "next_action_at",
+                "last_contacted_at",
+                "joined_at",
+                "ended_at",
+                "retention_expires_at",
+                "contact_opt_out_at",
+                "created_at",
+                "updated_at",
+            ),
+            RecruitingConsentLog: (
+                "id",
+                "scope",
+                "doc_version",
+                "agreed_at",
+                "revoked_at",
+            ),
+            RecruitingActivity: (
+                "id",
+                "candidate_ref",
+                "event_type",
+                "from_stage",
+                "to_stage",
+                "actor_id",
+                "created_at",
+            ),
+            RecruitingEvent: ("id", "event_type", "channel", "created_at"),
+            SettlementCheck: (
+                "id",
+                "week",
+                "due_on",
+                "state",
+                "blocker",
+                "next_support",
+                "completed_at",
+                "created_at",
+                "updated_at",
+            ),
+        }
+        objects = {
+            RecruitingCandidate: candidate,
+            RecruitingConsentLog: consent,
+            RecruitingActivity: activity,
+            RecruitingEvent: event,
+            SettlementCheck: settlement,
+        }
+
+        for model, fields in expected_fields.items():
+            with self.subTest(model=model.__name__):
+                model_admin = admin.site._registry[model]
+                self.assertEqual(tuple(model_admin.get_fields(request, objects[model])), fields)
+                self.assertEqual(tuple(model_admin.fields), fields)
+                self.assertEqual(tuple(model_admin.readonly_fields), fields)
+
+        candidate_fields = set(
+            admin.site._registry[RecruitingCandidate].get_fields(request, candidate)
+        )
+        self.assertFalse(
+            candidate_fields
+            & {
+                "name",
+                "phone",
+                "current_affiliation",
+                "region",
+                "submission_key",
+                "audit_ref",
+                "identity_ref",
+                "manage_token",
+                "owner",
+                "joined_user",
+            }
+        )
+        self.assertFalse(
+            set(admin.site._registry[RecruitingConsentLog].get_fields(request, consent))
+            & {"candidate", "ip_address"}
+        )
+        self.assertFalse(
+            set(admin.site._registry[RecruitingActivity].get_fields(request, activity))
+            & {"candidate", "actor"}
+        )
+        self.assertFalse(
+            set(admin.site._registry[RecruitingEvent].get_fields(request, event))
+            & {"candidate", "owner"}
+        )
