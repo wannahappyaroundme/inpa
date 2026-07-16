@@ -95,6 +95,13 @@ class SubmissionResult:
     prior_candidate: RecruitingCandidate | None = None
 
 
+@dataclass(frozen=True)
+class TeamJoinResult:
+    candidate: RecruitingCandidate
+    joined_now: bool
+    manager_promoted_now: bool
+
+
 def normalize_phone(value: str) -> str:
     digits = re.sub(r"\D", "", value or "")
     if digits.startswith("82"):
@@ -505,7 +512,9 @@ def stop_candidate_contact(*, candidate):
 
 
 @transaction.atomic
-def accept_team_join(*, candidate, agent, expected_owner_id=None, confirm_switch=False):
+def accept_team_join(
+    *, candidate, agent, expected_owner_id=None, confirm_switch=False
+) -> TeamJoinResult:
     """Link profiles first, then serialize every candidate identity row.
 
     Profile locks are the global order for two competing join links. Any candidate
@@ -527,7 +536,11 @@ def accept_team_join(*, candidate, agent, expected_owner_id=None, confirm_switch
     if locked is None or locked.owner_id != expected_owner_id:
         raise ValueError("candidate_owner_mismatch")
     if locked.joined_user_id == agent.pk and locked.stage == locked.Stage.TEAM_JOIN:
-        return locked, False
+        return TeamJoinResult(
+            candidate=locked,
+            joined_now=False,
+            manager_promoted_now=team_result.promoted_now,
+        )
     if locked.joined_user_id is not None and locked.joined_user_id != agent.pk:
         raise ValueError("candidate_joined_to_another_account")
     if (
@@ -644,7 +657,11 @@ def accept_team_join(*, candidate, agent, expected_owner_id=None, confirm_switch
             event_type=RecruitingEvent.EventType.MANAGER_PROMOTED,
             metadata={},
         )
-    return locked, True
+    return TeamJoinResult(
+        candidate=locked,
+        joined_now=True,
+        manager_promoted_now=team_result.promoted_now,
+    )
 
 
 @transaction.atomic
@@ -653,12 +670,13 @@ def complete_settlement_check(*, check, owner, state, blocker="", next_support="
     candidate = RecruitingCandidate.objects.get(pk=locked.candidate_id)
     if candidate.owner_id != owner.pk:
         raise ValueError("settlement_owner_mismatch")
-    if locked.completed_at is not None:
-        return locked
 
-    valid_states = set(SettlementCheck.State.values)
-    if state not in valid_states:
+    if state not in set(SettlementCheck.State.values):
         raise ValidationError("정착 상태를 다시 선택해주세요.")
+    if blocker not in {"", *SettlementCheck.Blocker.values}:
+        raise ValidationError("도움이 필요한 부분을 다시 선택해주세요.")
+    if next_support not in {"", *SettlementCheck.NextSupport.values}:
+        raise ValidationError("다음 지원 방법을 다시 선택해주세요.")
     if state == SettlementCheck.State.SUPPORT_NEEDED:
         if blocker in {"", SettlementCheck.Blocker.NONE} or not next_support:
             raise ValidationError("필요한 도움과 다음 지원을 함께 선택해주세요.")
@@ -669,11 +687,27 @@ def complete_settlement_check(*, check, owner, state, blocker="", next_support="
         blocker = SettlementCheck.Blocker.NONE
         next_support = SettlementCheck.NextSupport.SCHEDULE_ONLY
 
+    normalized_is_unchanged = (
+        locked.state == state
+        and locked.blocker == blocker
+        and locked.next_support == next_support
+    )
+    if normalized_is_unchanged and locked.completed_at is not None:
+        return locked
+
     now = timezone.now()
+    reopen_future_check = (
+        locked.state == SettlementCheck.State.STOPPED
+        and state == SettlementCheck.State.ACTIVE
+        and locked.due_on > timezone.localdate()
+    )
     locked.state = state
     locked.blocker = blocker
     locked.next_support = next_support
-    locked.completed_at = now
+    if reopen_future_check:
+        locked.completed_at = None
+    elif locked.completed_at is None:
+        locked.completed_at = now
     locked.save(
         update_fields=["state", "blocker", "next_support", "completed_at", "updated_at"]
     )
@@ -707,12 +741,11 @@ def complete_settlement_check(*, check, owner, state, blocker="", next_support="
         from_stage=RecruitingCandidate.Stage.TEAM_JOIN,
         to_stage=RecruitingCandidate.Stage.TEAM_JOIN,
     )
-    RecruitingEvent.objects.create(
+    _schedule_event(
         owner=owner,
         campaign=candidate.campaign,
         candidate=candidate,
         event_type=RecruitingEvent.EventType.SETTLEMENT_COMPLETED,
-        channel=candidate.campaign.channel if candidate.campaign else "",
         metadata={"week": locked.week, "state": locked.state},
     )
     return locked

@@ -90,7 +90,7 @@ class RecruitingJoinView(RecruitingEnabledMixin, APIView):
         serializer.is_valid(raise_exception=True)
         try:
             candidate, payload = _read_candidate(token)
-            joined, joined_now = accept_team_join(
+            result = accept_team_join(
                 candidate=candidate,
                 agent=request.user,
                 expected_owner_id=payload["owner_id"],
@@ -123,8 +123,9 @@ class RecruitingJoinView(RecruitingEnabledMixin, APIView):
             )
         return Response(
             {
-                "joined_now": joined_now,
-                "stage": joined.stage,
+                "stage": result.candidate.stage,
+                "joined_now": result.joined_now,
+                "manager_promoted_now": result.manager_promoted_now,
             }
         )
 

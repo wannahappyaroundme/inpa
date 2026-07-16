@@ -5,6 +5,7 @@ import uuid
 
 from django.core import signing
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -23,7 +24,11 @@ from inpa.recruiting.models import (
 
 
 def _join_api():
-    from inpa.recruiting.services import accept_team_join, complete_settlement_check
+    from inpa.recruiting.services import (
+        TeamJoinResult,
+        accept_team_join,
+        complete_settlement_check,
+    )
     from inpa.recruiting.tokens import (
         RECRUITING_CHOICE_SALT,
         RECRUITING_JOIN_SALT,
@@ -34,6 +39,7 @@ def _join_api():
     return {
         "accept": accept_team_join,
         "complete": complete_settlement_check,
+        "result_type": TeamJoinResult,
         "choice_salt": RECRUITING_CHOICE_SALT,
         "join_salt": RECRUITING_JOIN_SALT,
         "make_token": make_recruiting_join_token,
@@ -192,6 +198,10 @@ class RecruitingJoinTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response["X-Robots-Tag"], "noindex, nofollow")
         self.assertNotIn("manager_id", response.json())
+        self.assertEqual(
+            set(response.json()),
+            {"stage", "joined_now", "manager_promoted_now"},
+        )
 
     def test_accepting_sets_profile_manager_and_candidate_joined(self):
         response = self._accept()
@@ -227,7 +237,10 @@ class RecruitingJoinTests(TestCase):
         self.candidate.refresh_from_db()
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
+        self.assertTrue(first.json()["joined_now"])
+        self.assertTrue(first.json()["manager_promoted_now"])
         self.assertFalse(second.json()["joined_now"])
+        self.assertFalse(second.json()["manager_promoted_now"])
         self.assertEqual(self.candidate.joined_at, first_joined_at)
         self.assertEqual(self.candidate.settlement_checks.count(), 4)
         self.assertEqual(
@@ -237,6 +250,33 @@ class RecruitingJoinTests(TestCase):
             ).count(),
             1,
         )
+
+    def test_join_result_distinguishes_legacy_manager_first_join(self):
+        manager_plan = Plan.objects.create(
+            code="manager", display_name="Manager", price_krw=19900
+        )
+        Subscription.objects.filter(user=self.owner).update(plan=manager_plan)
+
+        result = _join_api()["accept"](
+            candidate=self.candidate,
+            agent=self.agent,
+            expected_owner_id=self.owner.pk,
+        )
+
+        self.assertIsInstance(result, _join_api()["result_type"])
+        self.assertEqual(result.candidate.pk, self.candidate.pk)
+        self.assertTrue(result.joined_now)
+        self.assertFalse(result.manager_promoted_now)
+
+    def test_join_result_first_join_has_both_explicit_booleans(self):
+        result = _join_api()["accept"](
+            candidate=self.candidate,
+            agent=self.agent,
+            expected_owner_id=self.owner.pk,
+        )
+
+        self.assertTrue(result.joined_now)
+        self.assertTrue(result.manager_promoted_now)
 
     def test_manual_candidate_stage_patch_still_cannot_join(self):
         self.client.force_authenticate(self.owner)
@@ -461,6 +501,38 @@ class RecruitingJoinTests(TestCase):
         self.assertTrue(issued.json()["expires_at"].endswith("+09:00"))
         self.assertNotIn("identity_ref", str(issued.json()))
 
+    def test_team_invite_locks_owner_row_inside_atomic_without_mutating_candidate(self):
+        self.client.force_authenticate(self.owner)
+        before = RecruitingCandidate.objects.filter(pk=self.candidate.pk).values().get()
+        real_lock = RecruitingCandidate.objects.select_for_update
+        from inpa.recruiting import views as recruiting_views
+
+        real_make_token = recruiting_views.make_recruiting_join_token
+        atomic_observations = []
+
+        def observe_token(candidate):
+            atomic_observations.append(connection.in_atomic_block)
+            return real_make_token(candidate)
+
+        with mock.patch(
+            "inpa.recruiting.views.RecruitingCandidate.objects.select_for_update",
+            wraps=real_lock,
+        ) as select_for_update, mock.patch(
+            "inpa.recruiting.views.make_recruiting_join_token",
+            side_effect=observe_token,
+        ):
+            response = self.client.post(
+                f"/api/v1/recruiting/candidates/{self.candidate.pk}/team-invite/"
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        select_for_update.assert_called_once_with()
+        self.assertEqual(atomic_observations, [True])
+        self.assertEqual(
+            RecruitingCandidate.objects.filter(pk=self.candidate.pk).values().get(),
+            before,
+        )
+
     def test_team_invite_issue_blocks_inactive_optout_ended_and_joined_candidates(self):
         self.client.force_authenticate(self.owner)
         cases = [
@@ -536,11 +608,12 @@ class SettlementCheckTests(TestCase):
         self.assertEqual(hidden.status_code, 404)
 
         self.client.force_authenticate(self.owner)
-        completed = self.client.post(
-            f"/api/v1/recruiting/settlement-checks/{self.checks[0].pk}/complete/",
-            {"state": "support_needed", "blocker": "customer_prospecting", "next_support": "activity_plan"},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            completed = self.client.post(
+                f"/api/v1/recruiting/settlement-checks/{self.checks[0].pk}/complete/",
+                {"state": "support_needed", "blocker": "customer_prospecting", "next_support": "activity_plan"},
+                format="json",
+            )
         self.assertEqual(completed.status_code, 200, completed.content)
         activity = RecruitingActivity.objects.get(
             candidate=self.candidate,
@@ -581,3 +654,194 @@ class SettlementCheckTests(TestCase):
         )
         self.assertEqual(result.blocker, SettlementCheck.Blocker.NONE)
         self.assertEqual(result.next_support, SettlementCheck.NextSupport.SCHEDULE_ONLY)
+
+    def test_service_rejects_invalid_state_and_blocker_choices(self):
+        with self.assertRaises(ValidationError):
+            _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state="unknown",
+                blocker="",
+                next_support="",
+            )
+        with self.assertRaises(ValidationError):
+            _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state=SettlementCheck.State.ACTIVE,
+                blocker="unknown",
+                next_support=SettlementCheck.NextSupport.TRAINING,
+            )
+
+    def test_service_rejects_invalid_next_support_even_when_stopped(self):
+        with self.assertRaises(ValidationError):
+            _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state=SettlementCheck.State.STOPPED,
+                blocker=SettlementCheck.Blocker.NONE,
+                next_support="unknown",
+            )
+
+    def test_same_normalized_settlement_update_is_fully_idempotent(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            first = _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state=SettlementCheck.State.ACTIVE,
+                blocker="",
+                next_support="",
+            )
+        completed_at = first.completed_at
+        updated_at = first.updated_at
+        activity_count = RecruitingActivity.objects.filter(candidate=self.candidate).count()
+        event_count = RecruitingEvent.objects.filter(candidate=self.candidate).count()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            repeated = _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state=SettlementCheck.State.ACTIVE,
+                blocker=SettlementCheck.Blocker.PERSONAL,
+                next_support=SettlementCheck.NextSupport.TRAINING,
+            )
+
+        self.assertEqual(repeated.completed_at, completed_at)
+        self.assertEqual(repeated.updated_at, updated_at)
+        self.assertEqual(
+            RecruitingActivity.objects.filter(candidate=self.candidate).count(),
+            activity_count,
+        )
+        self.assertEqual(
+            RecruitingEvent.objects.filter(candidate=self.candidate).count(),
+            event_count,
+        )
+
+    def test_changed_completed_settlement_preserves_first_date_and_appends_history(self):
+        self.checks[0].due_on = timezone.localdate() - timedelta(days=1)
+        self.checks[0].save(update_fields=["due_on", "updated_at"])
+        with self.captureOnCommitCallbacks(execute=True):
+            first = _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state=SettlementCheck.State.ACTIVE,
+                blocker="",
+                next_support="",
+            )
+        completed_at = first.completed_at
+        previous_activity_ids = list(
+            RecruitingActivity.objects.filter(candidate=self.candidate).values_list("pk", flat=True)
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            changed = _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state=SettlementCheck.State.SUPPORT_NEEDED,
+                blocker=SettlementCheck.Blocker.CUSTOMER_PROSPECTING,
+                next_support=SettlementCheck.NextSupport.ACTIVITY_PLAN,
+            )
+
+        self.assertEqual(changed.completed_at, completed_at)
+        self.assertTrue(
+            RecruitingActivity.objects.filter(pk__in=previous_activity_ids).exists()
+        )
+        self.assertEqual(
+            RecruitingActivity.objects.filter(candidate=self.candidate).count(), 2
+        )
+        self.assertEqual(RecruitingEvent.objects.filter(candidate=self.candidate).count(), 2)
+
+    def test_future_auto_stopped_check_can_reopen_pending_without_deleting_history(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state=SettlementCheck.State.STOPPED,
+                blocker="",
+                next_support="",
+            )
+        future = self.checks[1]
+        future.refresh_from_db()
+        self.assertEqual(future.state, SettlementCheck.State.STOPPED)
+        self.assertIsNotNone(future.completed_at)
+        previous_activity_ids = list(
+            RecruitingActivity.objects.filter(candidate=self.candidate).values_list("pk", flat=True)
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            reopened = _join_api()["complete"](
+                check=future,
+                owner=self.owner,
+                state=SettlementCheck.State.ACTIVE,
+                blocker="",
+                next_support="",
+            )
+
+        self.assertEqual(reopened.state, SettlementCheck.State.ACTIVE)
+        self.assertEqual(reopened.blocker, SettlementCheck.Blocker.NONE)
+        self.assertEqual(reopened.next_support, SettlementCheck.NextSupport.SCHEDULE_ONLY)
+        self.assertIsNone(reopened.completed_at)
+        self.assertTrue(
+            RecruitingActivity.objects.filter(pk__in=previous_activity_ids).exists()
+        )
+        self.assertEqual(
+            RecruitingActivity.objects.filter(candidate=self.candidate).count(), 2
+        )
+
+    def test_reopened_active_check_can_be_completed_later(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state=SettlementCheck.State.STOPPED,
+                blocker="",
+                next_support="",
+            )
+        future = SettlementCheck.objects.get(pk=self.checks[1].pk)
+        with self.captureOnCommitCallbacks(execute=True):
+            reopened = _join_api()["complete"](
+                check=future,
+                owner=self.owner,
+                state=SettlementCheck.State.ACTIVE,
+                blocker="",
+                next_support="",
+            )
+        self.assertIsNone(reopened.completed_at)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            completed = _join_api()["complete"](
+                check=future,
+                owner=self.owner,
+                state=SettlementCheck.State.ACTIVE,
+                blocker="",
+                next_support="",
+            )
+
+        self.assertIsNotNone(completed.completed_at)
+        self.assertEqual(
+            RecruitingActivity.objects.filter(candidate=self.candidate).count(), 3
+        )
+
+    def test_analytics_failure_does_not_rollback_required_settlement_history(self):
+        with mock.patch(
+            "inpa.recruiting.services.RecruitingEvent.objects.create",
+            side_effect=RuntimeError("analytics down"),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                updated = _join_api()["complete"](
+                    check=self.checks[0],
+                    owner=self.owner,
+                    state=SettlementCheck.State.ACTIVE,
+                    blocker="",
+                    next_support="",
+                )
+
+        updated.refresh_from_db()
+        self.assertIsNotNone(updated.completed_at)
+        self.assertTrue(
+            RecruitingActivity.objects.filter(
+                candidate=self.candidate,
+                event_type=RecruitingActivity.EventType.SETTLEMENT_COMPLETED,
+            ).exists()
+        )
+        self.assertFalse(RecruitingEvent.objects.filter(candidate=self.candidate).exists())

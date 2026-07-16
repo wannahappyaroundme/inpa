@@ -111,8 +111,13 @@ class RecruitingCandidateViewSet(RecruitingEnabledMixin, viewsets.ModelViewSet):
         return Response(self.get_serializer(updated).data)
 
     @action(detail=True, methods=["post"], url_path="team-invite")
+    @transaction.atomic
     def team_invite(self, request, pk=None):
-        candidate = RecruitingCandidate.objects.filter(pk=pk, owner=request.user).first()
+        candidate = (
+            RecruitingCandidate.objects.select_for_update()
+            .filter(pk=pk, owner=request.user)
+            .first()
+        )
         if candidate is None:
             raise NotFound()
         if (
