@@ -1,9 +1,24 @@
 "use client";
 
-export function RecruitingLoading() {
+export function RecruitingLoading({ fullPage = false }: { fullPage?: boolean }) {
   return (
-    <div role="status" aria-live="polite" className="space-y-3">
+    <div
+      role="status"
+      aria-live="polite"
+      className={`${fullPage ? "mx-auto min-h-dvh max-w-[1440px] px-4 py-6 sm:px-6" : ""} space-y-3`}
+    >
       <span className="sr-only">영입 대화를 불러오는 중이에요.</span>
+      {fullPage && (
+        <>
+          <div aria-hidden="true" className="h-8 w-40 animate-pulse rounded-lg bg-line" />
+          <div aria-hidden="true" className="h-12 w-full animate-pulse rounded-2xl bg-line" />
+          <div aria-hidden="true" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[0, 1, 2, 3].map((item) => (
+              <div key={item} className="h-24 animate-pulse rounded-2xl bg-line" />
+            ))}
+          </div>
+        </>
+      )}
       {[0, 1, 2].map((item) => (
         <div
           key={item}
@@ -30,15 +45,19 @@ export function RecruitingEmpty() {
   );
 }
 
-export function RecruitingError({ onRetry }: { onRetry: () => void }) {
+export function RecruitingError({
+  onRetry,
+  message = "영입 대화를 다시 불러오면 이어서 확인할 수 있어요.",
+}: {
+  onRetry: () => void;
+  message?: string;
+}) {
   return (
     <div
       role="alert"
       className="rounded-2xl border border-line bg-surface px-5 py-8 text-center shadow-card"
     >
-      <p className="text-[14px] font-semibold text-ink">
-        영입 대화를 다시 불러오면 이어서 확인할 수 있어요.
-      </p>
+      <p className="text-[14px] font-semibold text-ink">{message}</p>
       <button
         type="button"
         onClick={onRetry}
