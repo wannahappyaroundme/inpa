@@ -6,6 +6,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { googleLogin, tokenStore, ApiError } from "@/lib/api";
+import {
+  consumeAuthReturn,
+  processAuthReturnNext,
+} from "@/lib/auth-return";
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
@@ -47,7 +51,13 @@ export function GoogleSignInButton() {
           try {
             const res = await googleLogin(resp.credential);
             tokenStore.set(res.token);
-            router.replace(res.onboarding_completed ? "/home" : "/onboarding");
+            const next = new URLSearchParams(window.location.search).get("next");
+            processAuthReturnNext(next);
+            router.replace(
+              res.onboarding_completed
+                ? consumeAuthReturn() ?? "/home"
+                : "/onboarding",
+            );
           } catch (e) {
             if (e instanceof ApiError && e.code === "GOOGLE_ALREADY_LINKED") {
               setError("이미 다른 구글 계정에 연결된 이메일이에요.");

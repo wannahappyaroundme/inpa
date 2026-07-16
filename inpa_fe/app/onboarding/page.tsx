@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ManagerSwitchConfirmModal } from "@/components/manager-switch-confirm-modal";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import { attestOnboarding, getProfile, ApiError, type OnboardingAttestPayload } from "@/lib/api";
+import { consumeAuthReturn } from "@/lib/auth-return";
 
 interface TourStep {
   emoji: string;
@@ -109,7 +110,7 @@ export default function OnboardingPage() {
     setSaving(true);
     try {
       await attestOnboarding(payload);
-      router.replace("/home");
+      router.replace(consumeAuthReturn() ?? "/home");
     } catch (err) {
       if (
         err instanceof ApiError &&
@@ -136,7 +137,7 @@ export default function OnboardingPage() {
         ...pendingManagerSwitch,
         confirm_manager_switch: true,
       });
-      router.replace("/home");
+      router.replace(consumeAuthReturn() ?? "/home");
     } catch (err) {
       setPendingManagerSwitch(null);
       setError(err instanceof ApiError ? err.message : "저장 중 오류가 발생했습니다.");

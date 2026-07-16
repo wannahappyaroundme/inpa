@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { register, getInviteInfo, tokenStore, ApiError, type InviteInfo } from "@/lib/api";
+import {
+  consumeAuthReturn,
+  peekAuthReturn,
+  processAuthReturnNext,
+} from "@/lib/auth-return";
 import { readCapturedUtm } from "@/lib/useUtmCapture";
 import { GoogleSignInButton } from "@/components/google-signin-button";
 
@@ -31,12 +36,15 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [authReturnPath, setAuthReturnPath] = useState<string | null>(null);
   // 팀 초대(#24) — ?invite= 토큰. 무효/만료면 칩 없이 일반 가입(가입을 막지 않는다).
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
 
   useEffect(() => {
-    if (tokenStore.get()) router.replace("/home");
+    const next = new URLSearchParams(window.location.search).get("next");
+    setAuthReturnPath(processAuthReturnNext(next));
+    if (tokenStore.get()) router.replace(consumeAuthReturn() ?? "/home");
   }, [router]);
 
   // ?invite= 읽기 — useSearchParams Suspense 회피(클라이언트 전용 읽기, /customers 패턴).
@@ -83,6 +91,7 @@ export default function RegisterPage() {
         utm_medium: utm.utm_medium || undefined,
         utm_campaign: utm.utm_campaign || undefined,
       });
+      setAuthReturnPath(peekAuthReturn());
       setSuccess(true);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -120,7 +129,7 @@ export default function RegisterPage() {
             이메일을 확인하고 링크를 클릭하면 가입이 완료됩니다.
           </p>
           <Link
-            href="/login"
+            href={authReturnPath ? `/login?next=${authReturnPath}` : "/login"}
             className="mt-2 w-full py-3 rounded-xl bg-[var(--brand)] text-white font-bold text-[15px] text-center hover:opacity-90 transition"
           >
             로그인 페이지로

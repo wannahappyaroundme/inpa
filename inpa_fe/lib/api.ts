@@ -2922,3 +2922,521 @@ export async function postShareEvent(
   });
   // 이벤트 적재 실패는 무시 (non-critical)
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// 설계사 영입 · 정착 관리
+// ════════════════════════════════════════════════════════════════════════════
+
+export type RecruitingStage =
+  | "new"
+  | "contact"
+  | "conversation"
+  | "preparing"
+  | "team_join"
+  | "recontact"
+  | "ended";
+
+export type RecruitingCareerBand =
+  | "under_1"
+  | "1_3"
+  | "3_5"
+  | "5_10"
+  | "10_plus";
+
+export type RecruitingContactWindow =
+  | "morning"
+  | "afternoon"
+  | "evening"
+  | "anytime";
+
+export type RecruitingNextAction =
+  | "call"
+  | "message"
+  | "meeting"
+  | "follow_up"
+  | "none";
+
+export type RecruitingSelectionStatus = "active" | "replaced";
+export type SettlementState = "active" | "support_needed" | "stopped";
+
+export type SettlementBlocker =
+  | "customer_prospecting"
+  | "consultation_prep"
+  | "product_understanding"
+  | "work_tools"
+  | "time_management"
+  | "organization_adjustment"
+  | "personal"
+  | "none";
+
+export type SettlementNextSupport =
+  | "consultation_prep"
+  | "training"
+  | "activity_plan"
+  | "tool_help"
+  | "leader_meeting"
+  | "schedule_only"
+  | "close";
+
+export interface RecruitingTemplate {
+  id: number;
+  code: string;
+  kind: "headline" | "support" | "faq" | "share";
+  title: string;
+  body: string;
+  sort_order: number;
+}
+
+export interface RecruitingPlanner {
+  display_name: string;
+  affiliation: string;
+  title: string;
+  profile_image: string | null;
+}
+
+export interface RecruitingCandidateCampaign {
+  id: number;
+  name: string;
+  channel: "relationship";
+}
+
+export interface RecruitingJoinedAgent {
+  id: number;
+  display_name: string;
+  profile_image: string | null;
+}
+
+export interface RecruitingActiveCandidate {
+  id: number;
+  campaign_id: number | null;
+  campaign: RecruitingCandidateCampaign | null;
+  name: string;
+  phone: string;
+  career_band: RecruitingCareerBand;
+  current_affiliation: string;
+  region: string;
+  contact_window: RecruitingContactWindow;
+  stage: RecruitingStage;
+  selection_status: "active";
+  next_action: RecruitingNextAction | "";
+  next_action_at: string | null;
+  last_contacted_at: string | null;
+  ended_at: string | null;
+  joined_at: string | null;
+  joined_agent: RecruitingJoinedAgent | null;
+  created_at: string;
+  updated_at: string;
+  duplicate_contact: boolean;
+  closed_message: string;
+}
+
+export interface RecruitingReplacedCandidate {
+  id: number;
+  stage: "ended";
+  selection_status: "replaced";
+  closed_message: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type RecruitingCandidate =
+  | RecruitingActiveCandidate
+  | RecruitingReplacedCandidate;
+
+export interface RecruitingSummary {
+  stage_counts: Record<RecruitingStage, number>;
+  due_today: number;
+  overdue: number;
+  joined_this_month: number;
+  settlement_due: number;
+}
+
+export interface RecruitingCandidateQuery {
+  page?: number;
+  q?: string;
+  stage?: RecruitingStage;
+  campaign?: number;
+  career_band?: RecruitingCareerBand;
+  due?: boolean | "overdue";
+}
+
+export interface RecruitingCandidatePatch {
+  name?: string;
+  phone?: string;
+  career_band?: RecruitingCareerBand;
+  current_affiliation?: string;
+  region?: string;
+  contact_window?: RecruitingContactWindow;
+  next_action?: RecruitingNextAction | "";
+  next_action_at?: string | null;
+}
+
+export interface RecruitingCandidateTransition {
+  stage: RecruitingStage;
+  next_action?: RecruitingNextAction | "";
+  next_action_at?: string | null;
+}
+
+export interface RecruitingTeamInvite {
+  join_path: string;
+  expires_at: string;
+}
+
+export interface RecruitingPage {
+  planner: RecruitingPlanner;
+  headline_template_id: number | null;
+  headline: RecruitingTemplate | null;
+  templates: RecruitingTemplate[];
+  activity_region: string;
+  is_published: boolean;
+}
+
+export interface RecruitingPagePatch {
+  headline_template_id?: number | null;
+  template_ids?: number[];
+  activity_region?: string;
+  is_published?: boolean;
+}
+
+export interface RecruitingCampaign {
+  id: number;
+  name: string;
+  channel: "relationship";
+  is_active: boolean;
+  public_path: string;
+  public_url: string;
+  visits: number;
+  applications: number;
+  joins: number;
+  created_at: string;
+}
+
+export interface RecruitingSettlement {
+  id: number;
+  candidate_id: number;
+  joined_agent_name: string;
+  week: 1 | 4 | 8 | 13;
+  due_on: string;
+  state: SettlementState;
+  blocker: SettlementBlocker | "";
+  next_support: SettlementNextSupport | "";
+  completed_at: string | null;
+}
+
+export interface RecruitingSettlementUpdate {
+  id: number;
+  week: 1 | 4 | 8 | 13;
+  state: SettlementState;
+  blocker: SettlementBlocker | "";
+  next_support: SettlementNextSupport | "";
+  completed_at: string | null;
+}
+
+export interface RecruitingSettlementComplete {
+  state: SettlementState;
+  blocker?: SettlementBlocker | "";
+  next_support?: SettlementNextSupport | "";
+}
+
+export interface TeamRecruitingMember {
+  user_id: number;
+  display_name: string;
+  active_recruiting: number;
+  joined_this_month: number;
+  settlement_due: number;
+}
+
+export interface TeamRecruitingSummary {
+  members: TeamRecruitingMember[];
+  not_shared_count: number;
+  team_totals: {
+    active_recruiting: number;
+    joined_this_month: number;
+    settlement_due: number;
+  };
+}
+
+export interface PublicRecruitingPage {
+  planner: RecruitingPlanner;
+  headline: RecruitingTemplate | null;
+  support: RecruitingTemplate[];
+  faq: RecruitingTemplate[];
+  activity_region: string;
+  consent_version: string;
+  consent_text: string;
+}
+
+export interface PublicRecruitingApplication {
+  name: string;
+  phone: string;
+  career_band: RecruitingCareerBand;
+  current_affiliation?: string;
+  region: string;
+  contact_window: RecruitingContactWindow;
+  submission_key: string;
+  prior_manage_token?: string | null;
+  agreed: boolean;
+}
+
+export interface PublicRecruitingSubmitted {
+  submitted: true;
+  message: string;
+  manage_url: string;
+}
+
+export interface PublicRecruitingChoiceRequired {
+  submitted: false;
+  choice_required: true;
+  current_leader: Pick<RecruitingPlanner, "display_name" | "affiliation">;
+  new_leader: Pick<RecruitingPlanner, "display_name" | "affiliation">;
+  choice_token: string;
+}
+
+export interface PublicRecruitingVerificationRequired {
+  submitted: false;
+  verification_required: true;
+  message: string;
+}
+
+export type PublicRecruitingApplicationResult =
+  | PublicRecruitingSubmitted
+  | PublicRecruitingChoiceRequired
+  | PublicRecruitingVerificationRequired;
+
+export type PublicRecruitingManage =
+  | {
+      contact_stopped: true;
+      submitted_at: string;
+      message: string;
+    }
+  | {
+      contact_stopped: false;
+      stage: RecruitingStage;
+      submitted_at: string;
+      leader: RecruitingPlanner;
+    };
+
+export interface RecruitingJoinInfo {
+  display_name: string;
+  affiliation: string;
+  title: string;
+  profile_image: string | null;
+  headline: string;
+}
+
+export interface RecruitingJoinAcceptResult {
+  stage: RecruitingStage;
+  joined_now: boolean;
+  manager_promoted_now: boolean;
+}
+
+export async function getRecruitingSummary(): Promise<RecruitingSummary> {
+  return request<RecruitingSummary>("GET", "/recruiting/summary/", undefined, true);
+}
+
+export async function listRecruitingCandidates(
+  filters: RecruitingCandidateQuery = {},
+): Promise<PaginatedResult<RecruitingCandidate>> {
+  const query = new URLSearchParams();
+  if (filters.page && Number.isInteger(filters.page) && filters.page > 0) {
+    query.set("page", String(filters.page));
+  }
+  if (filters.q?.trim()) query.set("q", filters.q.trim());
+  if (filters.stage) query.set("stage", filters.stage);
+  if (filters.campaign !== undefined) query.set("campaign", String(filters.campaign));
+  if (filters.career_band) query.set("career_band", filters.career_band);
+  if (filters.due === true) query.set("due", "true");
+  if (filters.due === "overdue") query.set("due", "overdue");
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return request<PaginatedResult<RecruitingCandidate>>(
+    "GET",
+    `/recruiting/candidates/${suffix}`,
+    undefined,
+    true,
+  );
+}
+
+export async function getRecruitingCandidate(id: number): Promise<RecruitingCandidate> {
+  return request<RecruitingCandidate>(
+    "GET",
+    `/recruiting/candidates/${id}/`,
+    undefined,
+    true,
+  );
+}
+
+export async function updateRecruitingCandidate(
+  id: number,
+  payload: RecruitingCandidatePatch,
+): Promise<RecruitingActiveCandidate> {
+  return request<RecruitingActiveCandidate>(
+    "PATCH",
+    `/recruiting/candidates/${id}/`,
+    payload,
+    true,
+  );
+}
+
+export async function transitionRecruitingCandidate(
+  id: number,
+  payload: RecruitingCandidateTransition,
+): Promise<RecruitingCandidate> {
+  return request<RecruitingCandidate>(
+    "POST",
+    `/recruiting/candidates/${id}/transition/`,
+    payload,
+    true,
+  );
+}
+
+export async function issueRecruitingTeamInvite(id: number): Promise<RecruitingTeamInvite> {
+  return request<RecruitingTeamInvite>(
+    "POST",
+    `/recruiting/candidates/${id}/team-invite/`,
+    undefined,
+    true,
+  );
+}
+
+export async function listRecruitingSettlements(): Promise<RecruitingSettlement[]> {
+  return request<RecruitingSettlement[]>("GET", "/recruiting/settlements/", undefined, true);
+}
+
+export async function completeRecruitingSettlement(
+  id: number,
+  payload: RecruitingSettlementComplete,
+): Promise<RecruitingSettlementUpdate> {
+  return request<RecruitingSettlementUpdate>(
+    "POST",
+    `/recruiting/settlement-checks/${id}/complete/`,
+    payload,
+    true,
+  );
+}
+
+export async function reopenRecruitingSettlement(
+  id: number,
+): Promise<RecruitingSettlementUpdate> {
+  return request<RecruitingSettlementUpdate>(
+    "POST",
+    `/recruiting/settlement-checks/${id}/reopen/`,
+    undefined,
+    true,
+  );
+}
+
+export async function getRecruitingPage(): Promise<RecruitingPage> {
+  return request<RecruitingPage>("GET", "/recruiting/page/", undefined, true);
+}
+
+export async function updateRecruitingPage(
+  payload: RecruitingPagePatch,
+): Promise<RecruitingPage> {
+  return request<RecruitingPage>("PATCH", "/recruiting/page/", payload, true);
+}
+
+export async function listRecruitingTemplates(): Promise<RecruitingTemplate[]> {
+  return request<RecruitingTemplate[]>("GET", "/recruiting/templates/", undefined, true);
+}
+
+export async function getRecruitingCampaign(): Promise<RecruitingCampaign> {
+  return request<RecruitingCampaign>("GET", "/recruiting/campaign/", undefined, true);
+}
+
+export async function setRecruitingCampaignActive(
+  isActive: boolean,
+): Promise<RecruitingCampaign> {
+  return request<RecruitingCampaign>(
+    "PATCH",
+    "/recruiting/campaign/",
+    { is_active: isActive },
+    true,
+  );
+}
+
+export async function reissueRecruitingCampaign(): Promise<RecruitingCampaign> {
+  return request<RecruitingCampaign>(
+    "PATCH",
+    "/recruiting/campaign/",
+    { reissue: true },
+    true,
+  );
+}
+
+export async function recordRecruitingCampaignCopied(): Promise<{ recorded: boolean }> {
+  return request<{ recorded: boolean }>(
+    "POST",
+    "/recruiting/campaign/copied/",
+    undefined,
+    true,
+  );
+}
+
+export async function getTeamRecruitingSummary(): Promise<TeamRecruitingSummary> {
+  return request<TeamRecruitingSummary>("GET", "/recruiting/team-summary/", undefined, true);
+}
+
+export async function getPublicRecruitingPage(token: string): Promise<PublicRecruitingPage> {
+  return request<PublicRecruitingPage>(
+    "GET",
+    `/r/${encodeURIComponent(token)}/`,
+  );
+}
+
+export async function applyPublicRecruitingCampaign(
+  token: string,
+  payload: PublicRecruitingApplication,
+): Promise<PublicRecruitingApplicationResult> {
+  return request<PublicRecruitingApplicationResult>(
+    "POST",
+    `/r/${encodeURIComponent(token)}/`,
+    payload,
+  );
+}
+
+export async function submitPublicRecruitingLeaderChoice(
+  token: string,
+  choice: "keep_current" | "switch_to_new",
+): Promise<PublicRecruitingSubmitted> {
+  return request<PublicRecruitingSubmitted>(
+    "POST",
+    `/r/choice/${encodeURIComponent(token)}/`,
+    { choice },
+  );
+}
+
+export async function getPublicRecruitingManage(token: string): Promise<PublicRecruitingManage> {
+  return request<PublicRecruitingManage>(
+    "GET",
+    `/r/manage/${encodeURIComponent(token)}/`,
+  );
+}
+
+export async function stopPublicRecruitingManage(
+  token: string,
+): Promise<{ contact_stopped: true; message: string }> {
+  return request<{ contact_stopped: true; message: string }>(
+    "POST",
+    `/r/manage/${encodeURIComponent(token)}/`,
+    { action: "stop_contact" },
+  );
+}
+
+export async function getRecruitingJoinInfo(token: string): Promise<RecruitingJoinInfo> {
+  return request<RecruitingJoinInfo>(
+    "GET",
+    `/recruiting/join/${encodeURIComponent(token)}/`,
+  );
+}
+
+export async function acceptRecruitingJoin(
+  token: string,
+  confirmSwitch = false,
+): Promise<RecruitingJoinAcceptResult> {
+  return request<RecruitingJoinAcceptResult>(
+    "POST",
+    `/recruiting/join/${encodeURIComponent(token)}/`,
+    { confirm_switch: confirmSwitch },
+    true,
+  );
+}

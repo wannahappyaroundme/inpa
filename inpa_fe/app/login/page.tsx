@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, Suspense } from "react";
 import { login, resendVerification, tokenStore, ApiError } from "@/lib/api";
+import {
+  consumeAuthReturn,
+  processAuthReturnNext,
+} from "@/lib/auth-return";
 import { GoogleSignInButton } from "@/components/google-signin-button";
 
 // ─── Small Logo ───────────────────────────────────────────────────────────────
@@ -49,8 +53,9 @@ function LoginForm() {
     if (params.get("verified") === "true") setVerifiedBanner(true);
     if (params.get("reset") === "done") setResetBanner(true);
     if (params.get("session") === "expired") setExpiredBanner(true);
+    processAuthReturnNext(params.get("next"));
     // Redirect if already logged in
-    if (tokenStore.get()) router.replace("/home");
+    if (tokenStore.get()) router.replace(consumeAuthReturn() ?? "/home");
   }, [params, router]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -62,10 +67,11 @@ function LoginForm() {
     try {
       const res = await login({ email, password });
       tokenStore.set(res.token);
+      processAuthReturnNext(params.get("next"));
       if (!res.onboarding_completed) {
         router.replace("/onboarding");
       } else {
-        router.replace("/home");
+        router.replace(consumeAuthReturn() ?? "/home");
       }
     } catch (err) {
       if (err instanceof ApiError) {
