@@ -120,6 +120,10 @@ REST_FRAMEWORK = {
         'job_runner': '10/hour',      # 일일 배치 트리거 /jobs/run-daily/ — 토큰 대입/재실행 폭탄 방어
         'invite_info': '30/hour',     # 팀 초대 정보 공개 조회(/manager/invite-info/) — 토큰 대입 방어
         'feedback': '10/hour',        # 피드백 위젯 공개 제출(/feedback/) — 익명 스팸 방어
+        'recruiting_public': '120/hour',
+        'recruiting_apply': '10/hour',
+        'recruiting_apply_campaign': '30/day',
+        'recruiting_join': '20/hour',
     },
 }
 
@@ -299,3 +303,8 @@ REQUIRE_CUSTOMER_SELF_CONSENT = env.bool('REQUIRE_CUSTOMER_SELF_CONSENT', defaul
 BOOKING_ENABLED = env.bool('BOOKING_ENABLED', default=True)
 BOOKING_EMAIL_ENABLED = env.bool('BOOKING_EMAIL_ENABLED', default=False)
 BOOKING_TOKEN_TTL_HOURS = env.int('BOOKING_TOKEN_TTL_HOURS', default=72)
+
+# 설계사 영입은 개인정보 동의 경로가 완성된 뒤 운영에서 명시적으로 연다.
+RECRUITING_ENABLED = env.bool('RECRUITING_ENABLED', default=False)
+RECRUITING_RETENTION_DAYS = env.int('RECRUITING_RETENTION_DAYS', default=180)
+RECRUITING_TOMBSTONE_DAYS = env.int('RECRUITING_TOMBSTONE_DAYS', default=30)
