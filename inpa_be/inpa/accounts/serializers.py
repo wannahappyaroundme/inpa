@@ -4,6 +4,7 @@ import re
 
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -69,6 +70,7 @@ class RegisterSerializer(serializers.Serializer):
         validate_password(data['password'])
         return data
 
+    @transaction.atomic
     def create(self, data):
         user = User.objects.create_user(email=data['email'], password=data['password'])
         now = timezone.now()

@@ -23,8 +23,17 @@ def link_agent_to_manager(*, agent, manager, confirm_switch=False) -> TeamLinkRe
     if agent.pk == manager.pk:
         raise ValueError('self_management')
 
-    agent_profile = Profile.objects.select_for_update().get(user=agent)
-    manager_profile = Profile.objects.select_for_update().get(user=manager)
+    locked_profiles = list(
+        Profile.objects
+        .select_for_update()
+        .filter(user_id__in=[agent.pk, manager.pk])
+        .order_by('user_id')
+    )
+    if len(locked_profiles) != 2:
+        raise Profile.DoesNotExist
+    profiles_by_user_id = {profile.user_id: profile for profile in locked_profiles}
+    agent_profile = profiles_by_user_id[agent.pk]
+    manager_profile = profiles_by_user_id[manager.pk]
     previous_manager_id = agent_profile.manager_id
 
     if previous_manager_id and previous_manager_id != manager.pk and not confirm_switch:

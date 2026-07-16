@@ -32,20 +32,40 @@ from .serializers import (
     PasswordResetConfirmSerializer, PasswordResetRequestSerializer, ProfileSerializer,
     RegisterSerializer,
 )
+from .team import TeamSwitchConfirmationRequired, link_agent_to_manager
 from .tokens import (
     check_password_reset_token, get_user_from_uid, make_email_verify_token,
     make_password_reset_pair, read_email_verify_token,
 )
 
 
-# ── 지점장 연결 헬퍼 (이메일 → User). 본인 지정/없는 이메일은 무시(미연결). ──
-def _link_manager(profile, manager_email):
+# ── 지점장 연결 헬퍼 (이메일 → User). 없는 이메일은 기존처럼 무시(미연결). ──
+def _link_manager(profile, manager_email, *, confirm_switch=False):
     if not manager_email:
         return
     mgr = User.objects.filter(email=manager_email).first()
-    if mgr and mgr != profile.user:
-        profile.manager = mgr
-        profile.save(update_fields=['manager'])
+    if mgr:
+        return link_agent_to_manager(
+            agent=profile.user,
+            manager=mgr,
+            confirm_switch=confirm_switch,
+        )
+
+
+def _confirm_manager_switch(data):
+    value = data.get('confirm_manager_switch')
+    return value is True or (isinstance(value, str) and value.lower() == 'true')
+
+
+TEAM_SWITCH_CONFIRMATION_BODY = {
+    'code': 'team_switch_confirmation_required',
+    'detail': '관리자 변경을 확인한 뒤 다시 시도하면 새 관리자와 연결돼요.',
+}
+
+SELF_MANAGEMENT_BODY = {
+    'code': 'self_management',
+    'detail': '다른 관리자를 선택하면 바로 연결할 수 있어요.',
+}
 
 
 logger = logging.getLogger(__name__)
@@ -422,13 +442,25 @@ class ProfileView(APIView):
 
     def patch(self, request):
         # request.data 는 JSON·멀티파트(프로필 사진 업로드) 모두 DRF 기본 파서가 처리.
-        profile, _ = Profile.objects.get_or_create(user=request.user)
-        serializer = ProfileSerializer(profile, data=request.data, partial=True,
-                                       context={'request': request})
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        # 지점장 연결(이메일→User). 본인 지정 금지. 없는 이메일은 조용히 무시(미연결).
-        _link_manager(profile, request.data.get('manager_email'))
+        try:
+            with transaction.atomic():
+                profile, _ = Profile.objects.get_or_create(user=request.user)
+                serializer = ProfileSerializer(profile, data=request.data, partial=True,
+                                               context={'request': request})
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                _link_manager(
+                    profile,
+                    request.data.get('manager_email'),
+                    confirm_switch=_confirm_manager_switch(request.data),
+                )
+                profile.refresh_from_db()
+        except TeamSwitchConfirmationRequired:
+            return Response(TEAM_SWITCH_CONFIRMATION_BODY, status=status.HTTP_409_CONFLICT)
+        except ValueError as exc:
+            if str(exc) != 'self_management':
+                raise
+            return Response(SELF_MANAGEMENT_BODY, status=status.HTTP_400_BAD_REQUEST)
         return Response(ProfileSerializer(profile, context={'request': request}).data)
 
 
@@ -476,18 +508,33 @@ class OnboardingAttestView(APIView):
     def post(self, request):
         serializer = OnboardingAttestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        profile, _ = Profile.objects.get_or_create(user=request.user)
-        data = serializer.validated_data
-        if 'affiliation' in data:
-            profile.affiliation = data['affiliation'] or None
-        if 'agent_type' in data:
-            profile.agent_type = data['agent_type']
-        if data.get('affiliation_type'):
-            profile.affiliation_type = data['affiliation_type']
-        if 'career_years' in data:
-            profile.career_years = data['career_years']
-        profile.license_self_declared = data.get('license_self_declared', profile.license_self_declared)
-        profile.onboarding_completed_at = timezone.now()
-        profile.save()
-        _link_manager(profile, data.get('manager_email'))
+        try:
+            with transaction.atomic():
+                profile, _ = Profile.objects.get_or_create(user=request.user)
+                data = serializer.validated_data
+                if 'affiliation' in data:
+                    profile.affiliation = data['affiliation'] or None
+                if 'agent_type' in data:
+                    profile.agent_type = data['agent_type']
+                if data.get('affiliation_type'):
+                    profile.affiliation_type = data['affiliation_type']
+                if 'career_years' in data:
+                    profile.career_years = data['career_years']
+                profile.license_self_declared = data.get(
+                    'license_self_declared', profile.license_self_declared
+                )
+                profile.onboarding_completed_at = timezone.now()
+                profile.save()
+                _link_manager(
+                    profile,
+                    data.get('manager_email'),
+                    confirm_switch=_confirm_manager_switch(request.data),
+                )
+                profile.refresh_from_db()
+        except TeamSwitchConfirmationRequired:
+            return Response(TEAM_SWITCH_CONFIRMATION_BODY, status=status.HTTP_409_CONFLICT)
+        except ValueError as exc:
+            if str(exc) != 'self_management':
+                raise
+            return Response(SELF_MANAGEMENT_BODY, status=status.HTTP_400_BAD_REQUEST)
         return Response(ProfileSerializer(profile).data)
