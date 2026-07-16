@@ -1,10 +1,14 @@
 """Single write path for linking an agent to a manager."""
+import logging
 from dataclasses import dataclass
 
 from django.db import transaction
 from django.utils import timezone
 
 from .models import Profile
+
+
+logger = logging.getLogger(__name__)
 
 
 class TeamSwitchConfirmationRequired(Exception):
@@ -58,6 +62,28 @@ def link_agent_to_manager(*, agent, manager, confirm_switch=False) -> TeamLinkRe
         manager_profile.save(update_fields=[
             'manager_promoted_at', 'manager_promotion_seen_at',
         ])
+
+    if promoted_now:
+        manager_id = manager.pk
+
+        def create_manager_promotion_notification():
+            try:
+                from inpa.recruiting.jobs import create_recruiting_notification_once
+
+                create_recruiting_notification_once(
+                    owner_id=manager_id,
+                    notif_type='manager_promoted',
+                    title='관리자 기능이 열렸어요',
+                    body='첫 팀원이 합류해 팀 관리 흐름을 시작할 수 있어요.',
+                    dedupe_key=f'manager-promoted:{manager_id}',
+                )
+            except Exception as exc:  # 알림 실패는 팀 연결과 역할 활성화를 되돌리지 않는다.
+                logger.warning(
+                    'team callback failed callback=manager_promotion_notification exception=%s',
+                    type(exc).__name__,
+                )
+
+        transaction.on_commit(create_manager_promotion_notification)
 
     return TeamLinkResult(
         manager_id=manager.pk,

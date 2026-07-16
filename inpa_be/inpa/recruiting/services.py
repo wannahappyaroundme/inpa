@@ -134,6 +134,30 @@ def _schedule_event(*, owner, event_type, campaign=None, candidate=None, metadat
     transaction.on_commit(create_event)
 
 
+def _schedule_application_notification(candidate):
+    owner_id = candidate.owner_id
+    audit_ref = candidate.audit_ref
+
+    def create_notification():
+        try:
+            from .jobs import create_recruiting_notification_once
+
+            create_recruiting_notification_once(
+                owner_id=owner_id,
+                notif_type="recruiting_application",
+                title="새 영입 지원이 도착했어요",
+                body="가능한 시간대를 확인하고 첫 연락을 준비해보세요.",
+                dedupe_key=f"recruiting:application:{audit_ref}",
+            )
+        except Exception as exc:  # 알림 실패는 저장된 지원을 되돌리지 않는다.
+            logger.warning(
+                "recruiting callback failed callback=application_notification exception=%s",
+                type(exc).__name__,
+            )
+
+    transaction.on_commit(create_notification)
+
+
 def get_or_create_recruiting_page(user):
     page, created = RecruitingPage.objects.get_or_create(owner=user)
     update_fields = []
@@ -293,6 +317,7 @@ def create_candidate_submission(*, campaign, data, ip_address=None):
         event_type=RecruitingEvent.EventType.APPLICATION_SUBMITTED,
         metadata={"source": campaign.channel},
     )
+    _schedule_application_notification(candidate)
     return SubmissionResult(candidate=candidate, created=True)
 
 
@@ -405,6 +430,7 @@ def apply_leader_choice(*, token, choice):
         event_type=RecruitingEvent.EventType.APPLICATION_SUBMITTED,
         metadata={"source": new.campaign.channel if new.campaign else ""},
     )
+    _schedule_application_notification(new)
     return new
 
 

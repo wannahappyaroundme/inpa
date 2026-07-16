@@ -32,6 +32,10 @@ from inpa.analysis.models import SeedMarker
 from inpa.booking.models import Meeting
 from inpa.customers.models import Customer
 from inpa.insurances.models import CustomerInsurance
+from inpa.recruiting.jobs import (
+    cleanup_expired_recruiting_candidates,
+    produce_recruiting_reminders,
+)
 from inpa.schedule.models import ScheduleItem
 
 from .models import REMINDER_DEFAULTS, Notification, NotifType, ReminderRule
@@ -452,6 +456,7 @@ PRODUCERS = (
     (NotifType.SHARE_UNREAD.value, produce_share_unread),
     # 알림 생산자는 아니지만 같은 (today)→int 계약 + 실패 격리·하트비트 보존이 그대로 맞아 재사용(#16).
     (NotifType.SIGNUP_VERIFY_FLATLINE.value, check_signup_verification_flatline),
+    ('recruiting_reminders', produce_recruiting_reminders),
 )
 
 
@@ -468,24 +473,44 @@ def run_daily_jobs(today=None):
         try:
             counts[name] = producer(today)
         except Exception as exc:  # noqa: BLE001 — 생산자 간 격리(부분 실패 허용)
-            logger.exception('daily job producer failed: %s', name)
+            logger.warning(
+                'daily job failed producer=%s exception=%s',
+                name,
+                type(exc).__name__,
+            )
             counts[name] = 0
-            errors[name] = f'{type(exc).__name__}: {exc}'
+            errors[name] = type(exc).__name__
     total_created = sum(counts.values())  # 알림 생산 수(정리 단계 삭제 수와 분리)
     # 정리 단계 — 알림 생산자와 별개(인바운드 리드 보유기간 파기). 실패 격리 동일.
     try:
         counts['lead_retention_deleted'] = cleanup_expired_leads(today)
     except Exception as exc:  # noqa: BLE001
-        logger.exception('daily cleanup failed: lead_retention')
+        logger.warning(
+            'daily job failed cleanup=lead_retention exception=%s',
+            type(exc).__name__,
+        )
         counts['lead_retention_deleted'] = 0
-        errors['lead_retention'] = f'{type(exc).__name__}: {exc}'
+        errors['lead_retention'] = type(exc).__name__
     # 정리 단계 — 공유(/s) 스냅샷 보유기간 파기(spec 2026-07-08). 실패 격리 동일.
     try:
         counts['share_snapshot_retention_deleted'] = cleanup_expired_share_snapshots(timezone.now())
     except Exception as exc:  # noqa: BLE001
-        logger.exception('daily cleanup failed: share_snapshot_retention')
+        logger.warning(
+            'daily job failed cleanup=share_snapshot_retention exception=%s',
+            type(exc).__name__,
+        )
         counts['share_snapshot_retention_deleted'] = 0
-        errors['share_snapshot_retention'] = f'{type(exc).__name__}: {exc}'
+        errors['share_snapshot_retention'] = type(exc).__name__
+    # 영입 개인정보 정리는 기능 공개 여부와 무관하게 계속한다.
+    try:
+        counts['recruiting_retention_deleted'] = cleanup_expired_recruiting_candidates()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            'daily job failed cleanup=recruiting_retention exception=%s',
+            type(exc).__name__,
+        )
+        counts['recruiting_retention_deleted'] = 0
+        errors['recruiting_retention'] = type(exc).__name__
     if not errors:
         SeedMarker.objects.update_or_create(
             key=HEARTBEAT_KEY, defaults={'version': today.isoformat()})
