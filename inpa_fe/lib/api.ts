@@ -314,7 +314,11 @@ export interface ProfileResponse {
   manager_share_opt_in: boolean;
   manager_share_level: "none" | "activity" | "full";  // 관리자 공유 단계
   manager_email: string | null;
+  is_manager: boolean;
+  manager_promoted_at: string | null;
+  manager_promotion_seen_at: string | null;
   managed_agents_count: number;
+  recruiting_enabled: boolean;
   license_self_declared: boolean;
   license_no: string | null;
   career_years: number | null;
@@ -351,6 +355,7 @@ export interface ProfileUpdatePayload {
   manager_share_opt_in?: boolean;
   manager_share_level?: "none" | "activity" | "full";
   manager_email?: string;
+  confirm_manager_switch?: boolean;
   booking_msg_template?: string;
   booking_location?: string;
   booking_default_duration?: number;
@@ -389,6 +394,7 @@ export interface OnboardingAttestPayload {
   agent_type?: number | null;
   affiliation_type?: number | null;
   manager_email?: string;
+  confirm_manager_switch?: boolean;
   license_self_declared?: boolean;
   career_years?: number | null;
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ManagerSwitchConfirmModal } from "@/components/manager-switch-confirm-modal";
 import { useAuthGuard } from "@/lib/useAuthGuard";
-import { attestOnboarding, ApiError } from "@/lib/api";
+import { attestOnboarding, getProfile, ApiError, type OnboardingAttestPayload } from "@/lib/api";
 
 interface TourStep {
   emoji: string;
@@ -73,8 +74,26 @@ export default function OnboardingPage() {
   const [phase, setPhase] = useState<"tour" | "setup">("tour");
   const [affiliationType, setAffiliationType] = useState<number | null>(null);
   const [managerEmail, setManagerEmail] = useState("");
+  const [currentManagerEmail, setCurrentManagerEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingManagerSwitch, setPendingManagerSwitch] = useState<OnboardingAttestPayload | null>(null);
+
+  useEffect(() => {
+    if (!ready) return;
+    let active = true;
+    getProfile()
+      .then((profile) => {
+        if (!active) return;
+        const currentEmail = profile.manager_email ?? "";
+        setCurrentManagerEmail(currentEmail);
+        setManagerEmail((value) => value || currentEmail);
+      })
+      .catch(() => { /* useAuthGuard 처리 */ });
+    return () => {
+      active = false;
+    };
+  }, [ready]);
 
   if (!ready) return null;
 
@@ -82,20 +101,53 @@ export default function OnboardingPage() {
   const current = STEPS[step];
 
   async function finish() {
+    const payload: OnboardingAttestPayload = {
+      affiliation_type: affiliationType,
+      manager_email: managerEmail.trim() || undefined,
+    };
     setError(null);
     setSaving(true);
     try {
-      await attestOnboarding({
-        affiliation_type: affiliationType,
-        manager_email: managerEmail.trim() || undefined,
-      });
+      await attestOnboarding(payload);
       router.replace("/home");
     } catch (err) {
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        err.code === "team_switch_confirmation_required"
+      ) {
+        setPendingManagerSwitch(payload);
+        setSaving(false);
+        return;
+      }
       const msg =
         err instanceof ApiError ? err.message : "저장 중 오류가 발생했습니다.";
       setError(msg || "저장 중 오류가 발생했습니다.");
       setSaving(false);
     }
+  }
+
+  async function confirmManagerSwitch() {
+    if (!pendingManagerSwitch) return;
+    setError(null);
+    setSaving(true);
+    try {
+      await attestOnboarding({
+        ...pendingManagerSwitch,
+        confirm_manager_switch: true,
+      });
+      router.replace("/home");
+    } catch (err) {
+      setPendingManagerSwitch(null);
+      setError(err instanceof ApiError ? err.message : "저장 중 오류가 발생했습니다.");
+      setSaving(false);
+    }
+  }
+
+  function cancelManagerSwitch() {
+    setPendingManagerSwitch(null);
+    setManagerEmail(currentManagerEmail);
+    setError(null);
   }
 
   function next() {
@@ -236,6 +288,13 @@ export default function OnboardingPage() {
           설계사님의 업무이며, 산출물은 <b className="text-[var(--ink-3)]">AI가 정리한 참고 자료</b>입니다.
         </p>
       </div>
+      <ManagerSwitchConfirmModal
+        open={pendingManagerSwitch !== null}
+        email={pendingManagerSwitch?.manager_email ?? ""}
+        saving={saving}
+        onConfirm={confirmManagerSwitch}
+        onCancel={cancelManagerSwitch}
+      />
     </div>
   );
 }
