@@ -241,12 +241,12 @@ FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
 # (FREE_TIER_UNLIMITED 관례와 동일).
 FIRST_PAID_BONUS_ENABLED = env.bool('FIRST_PAID_BONUS_ENABLED', default=False)
 
-# ── 팀(매니저) 기능 권한 게이트 (Manager 요금제, spec 2026-07-09) ─────────────
-# ★ 기본 False(dormant) — 베타 중엔 Manager 결제자가 없으므로 켜면 팀 기능이 전원 잠긴다.
+# ── 팀 기능 capability 게이트 (Plus + legacy Manager/Super) ──────────────────
+# ★ 기본 False(dormant) — 유료 전환 전에 켜면 capability 없는 구독자의 팀 기능이 잠긴다.
 #   COMPARE_AI_ENABLED와 동일 관례: ship dormant, 유료 전환 시점에 env로만 flip(재배포 무관).
-#   True면 /manager 대시보드·팀 초대 링크가 Plan.can_use_team=True인 활성 구독자(Manager 요금제)
-#   전용이 되고, 그 외는 402 {code:'manager_plan_required'}. FREE_TIER_UNLIMITED(쿼터 우회)과는
-#   독립된 capability 게이트다.
+#   True면 /manager 대시보드·팀 초대 링크가 Plan.can_use_team=True인 활성·미만료 구독자
+#   (Plus·legacy Manager·Super)에게만 열리고, 그 외는 402 {code:'manager_plan_required'}.
+#   FREE_TIER_UNLIMITED(쿼터 우회)과는 독립된 capability 게이트다.
 MANAGER_PLAN_GATE_ENABLED = env.bool('MANAGER_PLAN_GATE_ENABLED', default=False)
 
 # ── 인바운드 리드 보유기간 자동 파기 (PIPA 보유기간, PM 확정 180일) ─────────
