@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
@@ -18,6 +21,7 @@ from .serializers import (
     RecruitingPageSerializer,
 )
 from .services import _schedule_event, get_or_create_recruiting_page, transition_candidate
+from .tokens import RECRUITING_JOIN_MAX_AGE_SECONDS, make_recruiting_join_token
 
 
 class RecruitingEnabledMixin:
@@ -105,6 +109,35 @@ class RecruitingCandidateViewSet(RecruitingEnabledMixin, viewsets.ModelViewSet):
         except DjangoValidationError as exc:
             raise ValidationError(exc.messages) from exc
         return Response(self.get_serializer(updated).data)
+
+    @action(detail=True, methods=["post"], url_path="team-invite")
+    def team_invite(self, request, pk=None):
+        candidate = RecruitingCandidate.objects.filter(pk=pk, owner=request.user).first()
+        if candidate is None:
+            raise NotFound()
+        if (
+            candidate.selection_status != RecruitingCandidate.SelectionStatus.ACTIVE
+            or candidate.contact_opt_out_at is not None
+            or candidate.stage == RecruitingCandidate.Stage.ENDED
+            or candidate.joined_user_id is not None
+        ):
+            return Response(
+                {
+                    "code": "recruiting_join_link_unavailable",
+                    "message": "현재 지원 흐름을 확인하면 다음 합류 안내를 이어갈 수 있어요.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        token = make_recruiting_join_token(candidate)
+        expires_at = timezone.localtime(
+            timezone.now() + timedelta(seconds=RECRUITING_JOIN_MAX_AGE_SECONDS)
+        ).isoformat()
+        return Response(
+            {
+                "join_path": f"/recruiting/join/{token}",
+                "expires_at": expires_at,
+            }
+        )
 
 
 class RecruitingPageView(RecruitingEnabledMixin, APIView):

@@ -15,7 +15,11 @@ from .models import (
 admin.site.register(RecruitingCopyTemplate)
 admin.site.register(RecruitingPage)
 admin.site.register(RecruitingCampaign)
-admin.site.register(RecruitingCandidate)
+
+
+@admin.register(RecruitingCandidate)
+class RecruitingCandidateAdmin(admin.ModelAdmin):
+    exclude = ("identity_ref",)
 admin.site.register(RecruitingConsentLog)
 admin.site.register(RecruitingActivity)
 admin.site.register(SettlementCheck)

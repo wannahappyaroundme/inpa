@@ -6,6 +6,7 @@ from .models import (
     RecruitingCandidate,
     RecruitingCopyTemplate,
     RecruitingPage,
+    SettlementCheck,
 )
 from .services import normalize_phone
 
@@ -233,3 +234,35 @@ class LeaderChoiceSerializer(serializers.Serializer):
 
 class ManageCandidateActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=("stop_contact",))
+
+
+class TeamJoinAcceptSerializer(serializers.Serializer):
+    confirm_switch = serializers.BooleanField(required=False, default=False)
+
+
+class SettlementCheckCompleteSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(choices=SettlementCheck.State.choices)
+    blocker = serializers.ChoiceField(
+        choices=SettlementCheck.Blocker.choices,
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+    next_support = serializers.ChoiceField(
+        choices=SettlementCheck.NextSupport.choices,
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+
+    def validate(self, attrs):
+        if attrs["state"] == SettlementCheck.State.SUPPORT_NEEDED:
+            if attrs.get("blocker") in {"", SettlementCheck.Blocker.NONE}:
+                raise serializers.ValidationError(
+                    {"blocker": "도움이 필요한 부분을 선택해주세요."}
+                )
+            if not attrs.get("next_support"):
+                raise serializers.ValidationError(
+                    {"next_support": "다음 지원 방법을 선택해주세요."}
+                )
+        return attrs

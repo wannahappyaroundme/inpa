@@ -6,6 +6,7 @@ from .public_views import (
     PublicRecruitingLeaderChoiceView,
     PublicRecruitingManageView,
 )
+from .join_views import RecruitingJoinView, SettlementCheckCompleteView
 from .views import (
     RecruitingCampaignCopiedView,
     RecruitingCampaignView,
@@ -25,6 +26,12 @@ urlpatterns = router.urls + [
     path("recruiting/templates/", RecruitingTemplateListView.as_view(), name="templates"),
     path("recruiting/campaign/", RecruitingCampaignView.as_view(), name="campaign"),
     path("recruiting/campaign/copied/", RecruitingCampaignCopiedView.as_view(), name="campaign-copied"),
+    path("recruiting/join/<str:token>/", RecruitingJoinView.as_view(), name="join"),
+    path(
+        "recruiting/settlement-checks/<int:pk>/complete/",
+        SettlementCheckCompleteView.as_view(),
+        name="settlement-complete",
+    ),
     path("r/manage/<uuid:token>/", PublicRecruitingManageView.as_view(), name="public-manage"),
     path("r/choice/<str:token>/", PublicRecruitingLeaderChoiceView.as_view(), name="public-choice"),
     path("r/<uuid:token>/", PublicRecruitingCampaignView.as_view(), name="public-page"),

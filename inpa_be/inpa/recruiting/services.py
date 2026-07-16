@@ -7,7 +7,10 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
+
+from inpa.accounts.team import link_agent_to_manager
 
 from .consent_texts import RECRUITING_CONSENT_VERSION
 from .models import (
@@ -18,6 +21,7 @@ from .models import (
     RecruitingCopyTemplate,
     RecruitingEvent,
     RecruitingPage,
+    SettlementCheck,
 )
 from .tokens import make_leader_choice_token, read_leader_choice_token
 
@@ -79,6 +83,7 @@ class PendingSubmissionVerificationRequired(Exception):
 
 
 RECRUITING_APPLICATION_DAILY_CAP = 30
+SETTLEMENT_DAYS = {1: 7, 4: 28, 8: 56, 13: 91}
 
 
 @dataclass(frozen=True)
@@ -495,5 +500,219 @@ def stop_candidate_contact(*, candidate):
         event_type=RecruitingActivity.EventType.CONTACT_STOPPED,
         from_stage=previous_stage,
         to_stage=RecruitingCandidate.Stage.ENDED,
+    )
+    return locked
+
+
+@transaction.atomic
+def accept_team_join(*, candidate, agent, expected_owner_id=None, confirm_switch=False):
+    """Link profiles first, then serialize every candidate identity row.
+
+    Profile locks are the global order for two competing join links. Any candidate
+    revalidation failure rolls the profile change back with this outer transaction.
+    """
+    expected_owner_id = expected_owner_id or candidate.owner_id
+    team_result = link_agent_to_manager(
+        agent=agent,
+        manager=candidate.owner,
+        confirm_switch=confirm_switch,
+    )
+
+    locked_group = list(
+        RecruitingCandidate.objects.select_for_update()
+        .filter(Q(identity_ref=candidate.identity_ref) | Q(joined_user=agent))
+        .order_by("pk")
+    )
+    locked = next((row for row in locked_group if row.pk == candidate.pk), None)
+    if locked is None or locked.owner_id != expected_owner_id:
+        raise ValueError("candidate_owner_mismatch")
+    if locked.joined_user_id == agent.pk and locked.stage == locked.Stage.TEAM_JOIN:
+        return locked, False
+    if locked.joined_user_id is not None and locked.joined_user_id != agent.pk:
+        raise ValueError("candidate_joined_to_another_account")
+    if (
+        locked.selection_status != locked.SelectionStatus.ACTIVE
+        or locked.contact_opt_out_at is not None
+        or locked.stage == locked.Stage.ENDED
+    ):
+        raise ValueError("inactive_candidate_selection")
+
+    now = timezone.now()
+    joined_date = timezone.localdate()
+    previous_stage = locked.stage
+    locked.joined_user = agent
+    locked.joined_at = now
+    locked.stage = locked.Stage.TEAM_JOIN
+    locked.name = "팀 합류 설계사"
+    locked.phone = ""
+    locked.current_affiliation = ""
+    locked.region = ""
+    locked.next_action = ""
+    locked.next_action_at = None
+    locked.save(
+        update_fields=[
+            "joined_user",
+            "joined_at",
+            "stage",
+            "name",
+            "phone",
+            "current_affiliation",
+            "region",
+            "next_action",
+            "next_action_at",
+            "updated_at",
+        ]
+    )
+    locked.consents.filter(revoked_at__isnull=True).update(revoked_at=now)
+    for week, days in SETTLEMENT_DAYS.items():
+        SettlementCheck.objects.get_or_create(
+            candidate=locked,
+            week=week,
+            defaults={"due_on": joined_date + timedelta(days=days)},
+        )
+
+    activities = [
+        RecruitingActivity(
+            candidate=locked,
+            candidate_ref=locked.audit_ref,
+            actor=agent,
+            event_type=RecruitingActivity.EventType.TEAM_JOINED,
+            from_stage=previous_stage,
+            to_stage=RecruitingCandidate.Stage.TEAM_JOIN,
+        )
+    ]
+    previous_rows = [
+        row
+        for row in locked_group
+        if row.pk != locked.pk and row.stage != RecruitingCandidate.Stage.ENDED
+    ]
+    for previous in previous_rows:
+        previous_stage = previous.stage
+        previous.selection_status = RecruitingCandidate.SelectionStatus.REPLACED
+        previous.stage = RecruitingCandidate.Stage.ENDED
+        previous.ended_at = now
+        previous.retention_expires_at = now + timedelta(days=settings.RECRUITING_RETENTION_DAYS)
+        previous.name = "담당자 변경"
+        previous.phone = ""
+        previous.current_affiliation = ""
+        previous.region = ""
+        previous.next_action = ""
+        previous.next_action_at = None
+        previous.save(
+            update_fields=[
+                "selection_status",
+                "stage",
+                "ended_at",
+                "retention_expires_at",
+                "name",
+                "phone",
+                "current_affiliation",
+                "region",
+                "next_action",
+                "next_action_at",
+                "updated_at",
+            ]
+        )
+        previous.consents.filter(revoked_at__isnull=True).update(revoked_at=now)
+        previous.settlement_checks.filter(completed_at__isnull=True).update(
+            state=SettlementCheck.State.STOPPED,
+            blocker=SettlementCheck.Blocker.NONE,
+            next_support=SettlementCheck.NextSupport.CLOSE,
+            completed_at=now,
+            updated_at=now,
+        )
+        activities.append(
+            RecruitingActivity(
+                candidate=previous,
+                candidate_ref=previous.audit_ref,
+                event_type=RecruitingActivity.EventType.LEADER_CHANGED,
+                from_stage=previous_stage,
+                to_stage=RecruitingCandidate.Stage.ENDED,
+            )
+        )
+    RecruitingActivity.objects.bulk_create(activities)
+    _schedule_event(
+        owner=locked.owner,
+        campaign=locked.campaign,
+        candidate=locked,
+        event_type=RecruitingEvent.EventType.TEAM_JOIN,
+        metadata={},
+    )
+    if team_result.promoted_now:
+        _schedule_event(
+            owner=locked.owner,
+            event_type=RecruitingEvent.EventType.MANAGER_PROMOTED,
+            metadata={},
+        )
+    return locked, True
+
+
+@transaction.atomic
+def complete_settlement_check(*, check, owner, state, blocker="", next_support=""):
+    locked = SettlementCheck.objects.select_for_update().get(pk=check.pk)
+    candidate = RecruitingCandidate.objects.get(pk=locked.candidate_id)
+    if candidate.owner_id != owner.pk:
+        raise ValueError("settlement_owner_mismatch")
+    if locked.completed_at is not None:
+        return locked
+
+    valid_states = set(SettlementCheck.State.values)
+    if state not in valid_states:
+        raise ValidationError("정착 상태를 다시 선택해주세요.")
+    if state == SettlementCheck.State.SUPPORT_NEEDED:
+        if blocker in {"", SettlementCheck.Blocker.NONE} or not next_support:
+            raise ValidationError("필요한 도움과 다음 지원을 함께 선택해주세요.")
+    elif state == SettlementCheck.State.STOPPED:
+        blocker = SettlementCheck.Blocker.NONE
+        next_support = SettlementCheck.NextSupport.CLOSE
+    else:
+        blocker = SettlementCheck.Blocker.NONE
+        next_support = SettlementCheck.NextSupport.SCHEDULE_ONLY
+
+    now = timezone.now()
+    locked.state = state
+    locked.blocker = blocker
+    locked.next_support = next_support
+    locked.completed_at = now
+    locked.save(
+        update_fields=["state", "blocker", "next_support", "completed_at", "updated_at"]
+    )
+    if state == SettlementCheck.State.STOPPED:
+        future = list(
+            SettlementCheck.objects.select_for_update()
+            .filter(
+                candidate_id=candidate.pk,
+                week__gt=locked.week,
+                completed_at__isnull=True,
+            )
+            .order_by("pk")
+        )
+        for item in future:
+            item.state = SettlementCheck.State.STOPPED
+            item.blocker = SettlementCheck.Blocker.NONE
+            item.next_support = SettlementCheck.NextSupport.CLOSE
+            item.completed_at = now
+            item.updated_at = now
+        if future:
+            SettlementCheck.objects.bulk_update(
+                future,
+                ["state", "blocker", "next_support", "completed_at", "updated_at"],
+            )
+
+    RecruitingActivity.objects.create(
+        candidate=candidate,
+        candidate_ref=candidate.audit_ref,
+        actor=owner,
+        event_type=RecruitingActivity.EventType.SETTLEMENT_COMPLETED,
+        from_stage=RecruitingCandidate.Stage.TEAM_JOIN,
+        to_stage=RecruitingCandidate.Stage.TEAM_JOIN,
+    )
+    RecruitingEvent.objects.create(
+        owner=owner,
+        campaign=candidate.campaign,
+        candidate=candidate,
+        event_type=RecruitingEvent.EventType.SETTLEMENT_COMPLETED,
+        channel=candidate.campaign.channel if candidate.campaign else "",
+        metadata={"week": locked.week, "state": locked.state},
     )
     return locked
