@@ -1,17 +1,24 @@
 """Team linking and sticky manager-role regressions."""
 from datetime import timedelta
 import importlib
+from io import BytesIO
+from pathlib import Path
+import tempfile
 from unittest import mock
 
 from django.apps import apps as django_apps
+from django.core.files.storage import FileSystemStorage
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import OperationalError, connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+from PIL import Image
 from rest_framework.test import APIClient
 
 from inpa.billing.models import Plan, Subscription, UsageMeter
 
+from . import views as account_views
 from .invite import make_invite_token, resolve_invite_manager
 from .models import Profile, User
 from .serializers import RegisterSerializer
@@ -288,6 +295,15 @@ class ExistingManagerLinkApiTests(TestCase):
         Profile.objects.create(user=user)
         return user
 
+    def _profile_image_upload(self):
+        content = BytesIO()
+        Image.new('RGB', (2, 2), color='white').save(content, format='PNG')
+        return SimpleUploadedFile(
+            'profile.png',
+            content.getvalue(),
+            content_type='image/png',
+        )
+
     def test_profile_switch_requires_confirmation_and_rolls_back_changes(self):
         response = self.client.patch(
             '/api/v1/auth/profile/',
@@ -320,6 +336,65 @@ class ExistingManagerLinkApiTests(TestCase):
         self.agent.profile.refresh_from_db()
         self.assertEqual(self.agent.profile.name, '변경된 이름')
         self.assertEqual(self.agent.profile.manager_id, self.second_manager.pk)
+
+    def test_confirmed_profile_switch_links_before_other_profile_writes(self):
+        observed_names = []
+        real_link_manager = account_views._link_manager
+
+        def observe_then_link(profile, manager_email, **kwargs):
+            observed_names.append(Profile.objects.get(pk=profile.pk).name)
+            return real_link_manager(profile, manager_email, **kwargs)
+
+        with mock.patch(
+            'inpa.accounts.views._link_manager',
+            side_effect=observe_then_link,
+        ):
+            response = self.client.patch(
+                '/api/v1/auth/profile/',
+                {
+                    'name': '연결 뒤 저장할 이름',
+                    'manager_email': self.second_manager.email,
+                    'confirm_manager_switch': True,
+                },
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(observed_names, ['기존 이름'])
+        self.agent.profile.refresh_from_db()
+        self.assertEqual(self.agent.profile.name, '연결 뒤 저장할 이름')
+        self.assertEqual(self.agent.profile.manager_id, self.second_manager.pk)
+
+    def test_unconfirmed_profile_switch_does_not_store_uploaded_image(self):
+        image_field = Profile._meta.get_field('profile_image')
+
+        with tempfile.TemporaryDirectory() as media_root:
+            storage = FileSystemStorage(location=media_root)
+            with (
+                override_settings(MEDIA_ROOT=media_root),
+                mock.patch.object(image_field, 'storage', storage),
+                mock.patch.object(storage, 'save', wraps=storage.save) as storage_save,
+            ):
+                response = self.client.patch(
+                    '/api/v1/auth/profile/',
+                    {
+                        'name': '바뀌면 안 되는 이름',
+                        'manager_email': self.second_manager.email,
+                        'profile_image': self._profile_image_upload(),
+                    },
+                    format='multipart',
+                )
+
+            stored_files = [
+                path for path in Path(media_root).rglob('*') if path.is_file()
+            ]
+
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(response.json()['code'], 'team_switch_confirmation_required')
+        storage_save.assert_not_called()
+        self.assertEqual(stored_files, [])
+        self.agent.profile.refresh_from_db()
+        self.assertFalse(self.agent.profile.profile_image)
 
     def test_first_profile_manager_link_keeps_existing_behavior(self):
         self.agent.profile.manager = None
@@ -396,6 +471,46 @@ class ExistingManagerLinkApiTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.agent.profile.refresh_from_db()
         self.assertEqual(self.agent.profile.affiliation, '변경된 소속')
+        self.assertTrue(self.agent.profile.license_self_declared)
+        self.assertIsNotNone(self.agent.profile.onboarding_completed_at)
+        self.assertEqual(self.agent.profile.manager_id, self.second_manager.pk)
+
+    def test_confirmed_onboarding_switch_links_before_other_profile_writes(self):
+        observed_profiles = []
+        real_link_manager = account_views._link_manager
+
+        def observe_then_link(profile, manager_email, **kwargs):
+            current = Profile.objects.get(pk=profile.pk)
+            observed_profiles.append({
+                'affiliation': current.affiliation,
+                'license_self_declared': current.license_self_declared,
+                'onboarding_completed_at': current.onboarding_completed_at,
+            })
+            return real_link_manager(profile, manager_email, **kwargs)
+
+        with mock.patch(
+            'inpa.accounts.views._link_manager',
+            side_effect=observe_then_link,
+        ):
+            response = self.client.post(
+                '/api/v1/auth/onboarding/attest/',
+                {
+                    'affiliation': '연결 뒤 저장할 소속',
+                    'manager_email': self.second_manager.email,
+                    'license_self_declared': True,
+                    'confirm_manager_switch': True,
+                },
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(observed_profiles, [{
+            'affiliation': '기존 소속',
+            'license_self_declared': False,
+            'onboarding_completed_at': None,
+        }])
+        self.agent.profile.refresh_from_db()
+        self.assertEqual(self.agent.profile.affiliation, '연결 뒤 저장할 소속')
         self.assertTrue(self.agent.profile.license_self_declared)
         self.assertIsNotNone(self.agent.profile.onboarding_completed_at)
         self.assertEqual(self.agent.profile.manager_id, self.second_manager.pk)

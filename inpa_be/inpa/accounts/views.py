@@ -442,19 +442,23 @@ class ProfileView(APIView):
 
     def patch(self, request):
         # request.data 는 JSON·멀티파트(프로필 사진 업로드) 모두 DRF 기본 파서가 처리.
+        # serializer validation은 파일을 저장하지 않으므로 먼저 끝낸다. 레거시 사용자
+        # 프로필은 그 뒤 팀 row lock 전에 만들어 두고, 확인 뒤에만 실제 저장한다.
+        profile = Profile.objects.filter(user=request.user).first()
+        serializer = ProfileSerializer(profile, data=request.data, partial=True,
+                                       context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        profile, _ = Profile.objects.get_or_create(user=request.user)
         try:
             with transaction.atomic():
-                profile, _ = Profile.objects.get_or_create(user=request.user)
-                serializer = ProfileSerializer(profile, data=request.data, partial=True,
-                                               context={'request': request})
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
                 _link_manager(
                     profile,
                     request.data.get('manager_email'),
                     confirm_switch=_confirm_manager_switch(request.data),
                 )
                 profile.refresh_from_db()
+                serializer.instance = profile
+                serializer.save()
         except TeamSwitchConfirmationRequired:
             return Response(TEAM_SWITCH_CONFIRMATION_BODY, status=status.HTTP_409_CONFLICT)
         except ValueError as exc:
@@ -508,10 +512,17 @@ class OnboardingAttestView(APIView):
     def post(self, request):
         serializer = OnboardingAttestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        # 팀 서비스의 정렬 row lock보다 앞서 레거시 프로필 존재를 보장한다.
+        profile, _ = Profile.objects.get_or_create(user=request.user)
+        data = serializer.validated_data
         try:
             with transaction.atomic():
-                profile, _ = Profile.objects.get_or_create(user=request.user)
-                data = serializer.validated_data
+                _link_manager(
+                    profile,
+                    data.get('manager_email'),
+                    confirm_switch=_confirm_manager_switch(request.data),
+                )
+                profile.refresh_from_db()
                 if 'affiliation' in data:
                     profile.affiliation = data['affiliation'] or None
                 if 'agent_type' in data:
@@ -525,12 +536,6 @@ class OnboardingAttestView(APIView):
                 )
                 profile.onboarding_completed_at = timezone.now()
                 profile.save()
-                _link_manager(
-                    profile,
-                    data.get('manager_email'),
-                    confirm_switch=_confirm_manager_switch(request.data),
-                )
-                profile.refresh_from_db()
         except TeamSwitchConfirmationRequired:
             return Response(TEAM_SWITCH_CONFIRMATION_BODY, status=status.HTTP_409_CONFLICT)
         except ValueError as exc:
