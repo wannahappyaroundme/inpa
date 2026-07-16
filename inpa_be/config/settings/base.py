@@ -41,6 +41,7 @@ LOCAL_APPS = [
     'inpa.booking',        # 미팅 예약 (Calendly식 내장 — 슬롯/미팅, 공개 /b/<token>, owner 전용)
     'inpa.dashboard',      # 대시보드 월별 목표 (수동 설정 + 실적 계산, owner 전용)
     'inpa.schedule',       # 개인 일정/할일/고정 차단 (캘린더, owner 전용 — 예약과 별도)
+    'inpa.recruiting',     # 설계사 영입 페이지·지원자·정착 관리 (고객 도메인과 완전 분리)
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
