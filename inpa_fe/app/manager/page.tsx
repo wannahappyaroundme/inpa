@@ -3,8 +3,9 @@
 // 관리자(지점장·팀장) 조직관리 대시보드 — 동의(manager_share_opt_in)한 소속 설계사 KPI '집계만'.
 // ★ 개별 고객 이름·병력 등 PII는 절대 표시 안 함(BE가 집계 수치만 반환). 성과 수치는 '추정' 라벨.
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { Wallet, UserPlus, Users, AlertTriangle, Link2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
+import { Wallet, UserPlus, Users, AlertTriangle } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { Card, StatCard, SectionTitle } from "@/components/ui";
 import { BarChart } from "@/components/charts";
@@ -12,7 +13,7 @@ import { UpgradeModal } from "@/components/upgrade-modal";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   getManagerDashboard,
-  createTeamInviteLink,
+  getProfile,
   SALES_STAGES,
   funnelConversion,
   ApiError,
@@ -127,79 +128,22 @@ function RankCard({ rank, a }: { rank: number; a: ManagerAgentKpi }) {
   );
 }
 
-// 팀 초대 링크 카드(#24) — 링크 생성·복사(공유 위젯 패턴 재사용). 동의 침해 없음:
-// 가입 시 팀 연결만 되고, 성과 공유 여부는 가입한 본인이 설정에서 직접 선택한다.
-function TeamInviteCard() {
-  const [link, setLink] = useState<string | null>(null);
-  const [ttlDays, setTtlDays] = useState(7);
-  const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const generate = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await createTeamInviteLink();
-      setLink(r.url);
-      if (r.ttl_days) setTtlDays(r.ttl_days);
-    } catch (e: unknown) {
-      // 팀 게이트가 그 사이 켜지거나 구독이 만료된 경우(드문 레이스) 업그레이드 쪽으로 안내.
-      if (e instanceof ApiError && e.code === "manager_plan_required") {
-        setError("팀 초대는 Manager 요금제에서 만들 수 있어요.");
-      } else {
-        setError("링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
-      }
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
-  const copy = useCallback(async () => {
-    if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* 미지원 환경 무시 */
-    }
-  }, [link]);
-
+function RecruitingCtaCard() {
   return (
     <Card className="mt-4 p-4 sm:p-5">
       <div className="flex items-center gap-2">
-        <Link2 size={16} className="text-brand" />
-        <span className="text-[15px] font-bold text-ink">팀 초대 링크</span>
+        <UserPlus size={17} className="text-brand" />
+        <span className="text-[15px] font-bold text-ink">함께 일할 설계사 찾기</span>
       </div>
       <p className="mt-1 text-[12px] text-ink3 leading-5">
-        이 링크로 가입한 설계사는 내 팀으로 연결돼요. 성과 공유 여부는 본인이 설정에서 선택해요. (링크는 {ttlDays}일 유효)
+        내 영입 페이지를 보내고, 대화부터 합류 뒤 정착까지 한곳에서 이어가세요.
       </p>
-      {error && <p className="mt-2 text-[12px] text-danger">{error}</p>}
-      {link ? (
-        <div className="mt-2.5 flex items-center gap-2">
-          <input
-            readOnly
-            value={link}
-            onFocus={(e) => e.currentTarget.select()}
-            className="flex-1 min-w-0 rounded-xl border border-line bg-surface2 px-3 py-2 text-[12px] text-ink2 truncate"
-          />
-          <button
-            onClick={copy}
-            className="shrink-0 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 active:scale-[0.98] transition"
-          >
-            {copied ? "복사됨" : "링크 복사"}
-          </button>
-        </div>
-      ) : (
-        <button
-          onClick={generate}
-          disabled={busy}
-          className="mt-2.5 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-60 active:scale-[0.98] transition"
-        >
-          {busy ? "만드는 중..." : "초대 링크 만들기"}
-        </button>
-      )}
+      <Link
+        href="/recruiting"
+        className="mt-3 inline-flex min-h-10 items-center rounded-xl bg-brand px-4 text-[13px] font-bold text-white active:scale-[0.98] transition"
+      >
+        설계사 영입 열기
+      </Link>
     </Card>
   );
 }
@@ -238,6 +182,7 @@ export default function ManagerPage() {
   // 팀 기능 게이트(spec 2026-07-09): dashboard가 402 manager_plan_required면 대시보드 대신 안내 카드.
   const [planGated, setPlanGated] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [recruitingEnabled, setRecruitingEnabled] = useState(false);
 
   useEffect(() => {
     if (!ready) return;
@@ -251,6 +196,13 @@ export default function ManagerPage() {
         setError(e instanceof Error ? e.message : "불러오지 못했어요.");
       })
       .finally(() => setLoading(false));
+  }, [ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    getProfile()
+      .then((profile) => setRecruitingEnabled(profile.recruiting_enabled))
+      .catch(() => setRecruitingEnabled(false));
   }, [ready]);
 
   const ranked = useMemo(
@@ -279,8 +231,7 @@ export default function ManagerPage() {
 
         {!planGated && (
         <>
-        {/* 팀 초대 링크 — 팀이 아직 없어도 항상 노출(팀을 만드는 첫 행동) */}
-        <TeamInviteCard />
+        {recruitingEnabled && <RecruitingCtaCard />}
 
         {error && (
           <div className="mt-4 rounded-xl border border-danger/30 bg-danger-tint px-4 py-2.5 text-[13px] text-danger">{error}</div>

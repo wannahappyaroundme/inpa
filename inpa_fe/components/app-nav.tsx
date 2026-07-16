@@ -5,9 +5,14 @@ import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Users, Phone, Calendar, BarChart3, MessageSquareText,
   SlidersHorizontal, ClipboardList, Gift, LineChart, Shield, Bell,
-  ChevronRight, type LucideIcon,
+  ChevronRight, UserPlus, type LucideIcon,
 } from "lucide-react";
 import { getProfile, getUnreadCount, tokenStore } from "@/lib/api";
+import { ManagerPromotionModal } from "./recruiting/manager-promotion-modal";
+import {
+  getNavigationAccess,
+  shouldOpenManagerPromotion,
+} from "./recruiting/recruiting-integration";
 import { BottomNav } from "./bottom-nav";
 import { FeedbackWidget } from "./feedback-widget";
 
@@ -23,6 +28,7 @@ function Logo({ size = 26 }: { size?: number }) {
 export type NavKey =
   | "home"
   | "customers"
+  | "recruiting"
   | "call-list"
   | "analysis"
   | "schedule"
@@ -73,8 +79,11 @@ export function AppNav({ active }: { active?: NavKey }) {
   const [boardUnread, setBoardUnread] = useState(0);   // 게시판(댓글·좋아요)
   const [promoUnread, setPromoUnread] = useState(0);   // 판촉물(주문상태·전자자료 준비)
   const [adminUnread, setAdminUnread] = useState(0);   // 관리자(전자자료 요청 — 어드민)
+  const [recruitingUnread, setRecruitingUnread] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isManager, setIsManager] = useState(false);
+  const [recruitingEnabled, setRecruitingEnabled] = useState(false);
+  const [managerPromotionOpen, setManagerPromotionOpen] = useState(false);
   const [initial, setInitial] = useState("이");
   const [name, setName] = useState("");
   const [sub, setSub] = useState("");
@@ -86,14 +95,18 @@ export function AppNav({ active }: { active?: NavKey }) {
         .then((r) => {
           setUnread(r.unread_count); setCustUnread(r.customers); setSchedUnread(r.schedule);
           setBoardUnread(r.board); setPromoUnread(r.promotion); setAdminUnread(r.admin);
+          setRecruitingUnread(r.recruiting);
         })
         .catch(() => { /* 무시 */ });
     poll();
     const timer = setInterval(poll, 60000);
     getProfile()
       .then((p) => {
+        const access = getNavigationAccess(p);
         setIsAdmin(p.is_admin);
-        setIsManager((p.managed_agents_count ?? 0) > 0);
+        setIsManager(access.isManager);
+        setRecruitingEnabled(access.recruitingEnabled);
+        setManagerPromotionOpen(shouldOpenManagerPromotion(p));
         if (p.email) setInitial(p.email[0].toUpperCase());
         setName(p.name?.trim() || (p.email ? p.email.split("@")[0] : "설계사"));
         setSub(p.affiliation?.trim() || p.title?.trim() || p.email || "");
@@ -108,6 +121,7 @@ export function AppNav({ active }: { active?: NavKey }) {
       case "schedule": return schedUnread;
       case "board": return boardUnread;
       case "promotion": return promoUnread;
+      case "recruiting": return recruitingUnread;
       default: return 0;
     }
   };
@@ -115,6 +129,9 @@ export function AppNav({ active }: { active?: NavKey }) {
   const items: Item[] = [
     { key: "home", href: "/home", label: "대시보드", icon: LayoutDashboard },
     { key: "customers", href: "/customers", label: "고객", icon: Users },
+    ...(recruitingEnabled
+      ? [{ key: "recruiting" as const, href: "/recruiting", label: "설계사 영입", icon: UserPlus }]
+      : []),
     { key: "call-list", href: "/call-list", label: "오늘 전화", icon: Phone },
     { key: "schedule", href: "/schedule", label: "일정", icon: Calendar },
     { key: "analysis", href: "/analysis", label: "분석", icon: BarChart3 },
@@ -198,15 +215,22 @@ export function AppNav({ active }: { active?: NavKey }) {
         active={active}
         isAdmin={isAdmin}
         isManager={isManager}
+        recruitingEnabled={recruitingEnabled}
         custUnread={custUnread}
         schedUnread={schedUnread}
         boardUnread={boardUnread}
         promoUnread={promoUnread}
         adminUnread={adminUnread}
+        recruitingUnread={recruitingUnread}
       />
 
       {/* 의견 위젯 — 인증 서비스 화면 우하단(클릭할 때만 열림) */}
       <FeedbackWidget />
+      <ManagerPromotionModal
+        open={managerPromotionOpen}
+        recruitingEnabled={recruitingEnabled}
+        onAcknowledged={() => setManagerPromotionOpen(false)}
+      />
     </>
   );
 }

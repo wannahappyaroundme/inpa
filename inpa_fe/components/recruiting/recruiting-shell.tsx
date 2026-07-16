@@ -35,7 +35,7 @@ export function RecruitingShell() {
 
   return (
     <div className="min-h-dvh overflow-x-clip">
-      <AppNav />
+      <AppNav active="recruiting" />
       <main className="mx-auto min-w-0 max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>

@@ -368,6 +368,18 @@ export async function updateProfile(payload: ProfileUpdatePayload): Promise<Prof
   return request<ProfileResponse>("PATCH", "/auth/profile/", payload, true);
 }
 
+/** POST /api/v1/auth/manager-promotion/ack/ — 첫 관리자 승격 안내 확인 */
+export async function acknowledgeManagerPromotion(): Promise<{
+  manager_promotion_seen_at: string | null;
+}> {
+  return request<{ manager_promotion_seen_at: string | null }>(
+    "POST",
+    "/auth/manager-promotion/ack/",
+    undefined,
+    true,
+  );
+}
+
 /** PATCH /api/v1/auth/profile/ — 프로필 사진 멀티파트 업로드. 저장은 명함과 동일 저장소(프로드=R2). */
 export async function uploadProfileImage(file: File): Promise<ProfileResponse> {
   const form = new FormData();
@@ -1702,7 +1714,11 @@ export type NotificationType =
   | "coverage_flag_requested"
   | "signup_verify_flatline"
   | "inquiry_answered"
-  | "inquiry_received";
+  | "inquiry_received"
+  | "recruiting_application"
+  | "recruiting_followup"
+  | "recruiting_settlement"
+  | "manager_promoted";
 
 export interface NotificationItem {
   id: number;
@@ -1736,7 +1752,7 @@ export async function listNotifications(
 }
 
 /** GET /api/v1/notifications/unread-count/ — 벨 배지 */
-// unread_count = 전체(받은함·벨). 나머지 = 그 부분집합(네비 메뉴별 배지). 13종 파티션.
+// unread_count = 전체(받은함·벨). 나머지 = 그 부분집합(네비 메뉴별 배지). 각 유형은 한 카테고리에만 포함.
 export interface UnreadCount {
   unread_count: number;
   customers: number;
@@ -1744,6 +1760,7 @@ export interface UnreadCount {
   board: number;
   promotion: number;
   admin: number;
+  recruiting: number;
 }
 export async function getUnreadCount(): Promise<UnreadCount> {
   return request<UnreadCount>("GET", "/notifications/unread-count/", undefined, true);
