@@ -10,6 +10,7 @@ interface ConfirmationDialogProps {
   confirmLabel: string;
   pendingLabel: string;
   pending: boolean;
+  cancelLabel?: string;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -21,6 +22,7 @@ export function ConfirmationDialog({
   confirmLabel,
   pendingLabel,
   pending,
+  cancelLabel = "그대로 둘게요",
   onConfirm,
   onClose,
 }: ConfirmationDialogProps) {
@@ -110,7 +112,7 @@ export function ConfirmationDialog({
             onClick={onClose}
             className="min-h-12 flex-1 rounded-2xl border border-line bg-surface px-4 text-[14px] font-semibold text-ink2 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >
-            그대로 둘게요
+            {cancelLabel}
           </button>
           <button
             type="button"
