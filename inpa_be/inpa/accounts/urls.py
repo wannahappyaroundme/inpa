@@ -15,6 +15,8 @@ urlpatterns = [
     path('password-reset/confirm/', views.PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     path('password/change/', views.PasswordChangeView.as_view(), name='password-change'),
     path('profile/', views.ProfileView.as_view(), name='profile'),
+    path('manager-promotion/ack/', views.ManagerPromotionAckView.as_view(),
+         name='manager-promotion-ack'),
     path('withdraw/', views.WithdrawView.as_view(), name='withdraw'),
     path('onboarding/attest/', views.OnboardingAttestView.as_view(), name='onboarding-attest'),
     # ── 구글 연동 ──

@@ -2,6 +2,7 @@
 import logging
 import re
 
+from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
@@ -97,11 +98,13 @@ class RegisterSerializer(serializers.Serializer):
             agent_type=data.get('agent_type'),
             title=(data.get('title') or ''),
             license_no=(data.get('license_no') or None),
-            manager=manager,
             utm_source=(data.get('utm_source') or ''),
             utm_medium=(data.get('utm_medium') or ''),
             utm_campaign=(data.get('utm_campaign') or ''),
         )
+        if manager is not None:
+            from .team import link_agent_to_manager
+            link_agent_to_manager(agent=user, manager=manager)
         return user
 
 
@@ -109,6 +112,8 @@ class ProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source='user.email', read_only=True)
     managed_agents_count = serializers.SerializerMethodField()
     manager_email = serializers.SerializerMethodField()
+    is_manager = serializers.SerializerMethodField()
+    recruiting_enabled = serializers.SerializerMethodField()
     google_calendar_connected = serializers.SerializerMethodField()
     has_usable_password = serializers.SerializerMethodField()
 
@@ -117,7 +122,8 @@ class ProfileSerializer(serializers.ModelSerializer):
         # ★ google_sub / google_calendar_refresh_token 은 절대 노출 금지(여기에 넣지 않는다).
         fields = ('email', 'name', 'phone', 'affiliation', 'agent_type', 'affiliation_type',
                   'cohort_opt_in', 'manager_share_opt_in', 'manager_share_level',
-                  'manager_email', 'managed_agents_count',
+                  'manager_email', 'is_manager', 'manager_promoted_at',
+                  'manager_promotion_seen_at', 'managed_agents_count', 'recruiting_enabled',
                   'license_self_declared', 'license_no', 'career_years',
                   'booking_msg_template', 'booking_location', 'booking_default_duration',
                   'booking_buffer_min', 'title', 'intro_text', 'profile_image',
@@ -126,6 +132,8 @@ class ProfileSerializer(serializers.ModelSerializer):
                   'email_verified_at', 'is_admin', 'is_dormant', 'has_usable_password')
         read_only_fields = ('email', 'onboarding_completed_at', 'ref_code', 'email_verified_at',
                             'is_admin', 'is_dormant', 'manager_email', 'managed_agents_count',
+                            'is_manager', 'manager_promoted_at', 'manager_promotion_seen_at',
+                            'recruiting_enabled',
                             'google_calendar_connected', 'has_usable_password')
 
     def validate_phone(self, value):
@@ -153,6 +161,13 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     def get_manager_email(self, obj):
         return obj.manager.email if obj.manager_id else None
+
+    def get_is_manager(self, obj):
+        from .team import profile_has_manager_role
+        return profile_has_manager_role(obj)
+
+    def get_recruiting_enabled(self, obj):
+        return bool(getattr(settings, 'RECRUITING_ENABLED', False))
 
     def get_google_calendar_connected(self, obj):
         return bool(obj.google_calendar_refresh_token)

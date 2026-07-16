@@ -86,6 +86,8 @@ class Profile(models.Model):
     # 지점장/매니저 — 동의 기반 코칭 뷰의 토대. SET_NULL+nullable이라 owner 격리 무손상.
     manager = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
                                 null=True, blank=True, related_name='managed_agents')
+    manager_promoted_at = models.DateTimeField(null=True, blank=True)
+    manager_promotion_seen_at = models.DateTimeField(null=True, blank=True)
     # 익명 코호트 벤치마크(기준선 권위·데이터 해자) 수집 동의. 기본 거부.
     cohort_opt_in = models.BooleanField(default=False)
     # 지점장(manager)에게 내 KPI 집계 공유 동의. 기본 거부 → 동의 없으면 지점 대시보드 미포함.

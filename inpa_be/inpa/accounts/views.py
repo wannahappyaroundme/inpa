@@ -432,6 +432,22 @@ class ProfileView(APIView):
         return Response(ProfileSerializer(profile, context={'request': request}).data)
 
 
+class ManagerPromotionAckView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        now = timezone.now()
+        Profile.objects.filter(
+            user=request.user,
+            manager_promoted_at__isnull=False,
+            manager_promotion_seen_at__isnull=True,
+        ).update(manager_promotion_seen_at=now)
+        profile, _ = Profile.objects.get_or_create(user=request.user)
+        return Response({
+            'manager_promotion_seen_at': profile.manager_promotion_seen_at,
+        })
+
+
 class WithdrawView(APIView):
     permission_classes = [IsAuthenticated]
 
