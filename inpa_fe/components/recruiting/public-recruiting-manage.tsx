@@ -17,6 +17,7 @@ import {
   getStopFailurePresentation,
   isSafeRecruitingToken,
   readStoredManageToken,
+  shouldFocusManageTerminalHeading,
   type StorageLike,
 } from "./public-recruiting-view-model";
 import {
@@ -50,7 +51,7 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
   const [stopPending, setStopPending] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
   const generationRef = useRef(0);
-  const successHeadingRef = useRef<HTMLHeadingElement>(null);
+  const terminalHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const clearStoredMatch = useCallback(() => {
     const storage = browserStorage();
@@ -91,8 +92,8 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
   }, [load]);
 
   useEffect(() => {
-    if (state === "ready" && data?.contact_stopped) {
-      focusIfConnected(successHeadingRef.current);
+    if (shouldFocusManageTerminalHeading(state, Boolean(data?.contact_stopped))) {
+      focusIfConnected(terminalHeadingRef.current);
     }
   }, [data, state]);
 
@@ -143,6 +144,7 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
     return (
       <PublicRecruitingNotice
         role="alert"
+        headingRef={terminalHeadingRef}
         title="지원 상태는 새 링크에서 이어서 확인할 수 있어요."
         description="이 링크를 보내주신 설계사에게 새 링크를 받아보세요."
       />
@@ -166,6 +168,7 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
     return (
       <PublicRecruitingNotice
         role="status"
+        headingRef={terminalHeadingRef}
         title="인파 계정에서 팀 연결을 확인할 수 있어요."
         description={message || "연결 상태를 확인하고 정보 정리는 문의함에서 요청할 수 있어요."}
         action={
@@ -183,7 +186,7 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
       <PublicRecruitingFrame>
         <section role="status" className="rounded-3xl border border-line bg-surface px-5 py-10 text-center shadow-card sm:px-8">
           <h1
-            ref={successHeadingRef}
+            ref={terminalHeadingRef}
             tabIndex={-1}
             className="text-[20px] font-extrabold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >

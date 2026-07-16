@@ -19,6 +19,7 @@ import {
   getJoinErrorKind,
   isSafeRecruitingToken,
   prepareRecruitingJoinAuthReturn,
+  shouldFocusJoinTerminalHeading,
 } from "./public-recruiting-view-model";
 import {
   PUBLIC_PRIMARY_BUTTON,
@@ -43,7 +44,7 @@ export function RecruitingJoin({ token }: { token: string }) {
   const [joined, setJoined] = useState(false);
   const infoGenerationRef = useRef(0);
   const authGenerationRef = useRef(0);
-  const successHeadingRef = useRef<HTMLHeadingElement>(null);
+  const terminalHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const loadInfo = useCallback(async () => {
     const generation = ++infoGenerationRef.current;
@@ -109,8 +110,10 @@ export function RecruitingJoin({ token }: { token: string }) {
   }, [checkAuth, loadInfo]);
 
   useEffect(() => {
-    if (joined) focusIfConnected(successHeadingRef.current);
-  }, [joined]);
+    if (shouldFocusJoinTerminalHeading(infoState, joined)) {
+      focusIfConnected(terminalHeadingRef.current);
+    }
+  }, [infoState, joined]);
 
   async function accept(confirmSwitch: boolean) {
     if (joinPending) return;
@@ -156,6 +159,7 @@ export function RecruitingJoin({ token }: { token: string }) {
     return (
       <PublicRecruitingNotice
         role="alert"
+        headingRef={terminalHeadingRef}
         title="새 합류 링크에서 이어갈 수 있어요."
         description="리더에게 새 합류 링크를 받으면 바로 이어갈 수 있어요."
       />
@@ -175,7 +179,7 @@ export function RecruitingJoin({ token }: { token: string }) {
     return (
       <PublicRecruitingNotice
         role="status"
-        headingRef={successHeadingRef}
+        headingRef={terminalHeadingRef}
         title="함께할 준비가 끝났어요."
         description="팀 연결이 완료됐어요. 이제 인파에서 함께 일할 흐름을 이어갈 수 있어요."
         action={<Link href="/home" className={PUBLIC_PRIMARY_BUTTON}>인파 홈으로 가기</Link>}

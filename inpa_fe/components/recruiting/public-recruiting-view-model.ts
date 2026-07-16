@@ -178,6 +178,20 @@ export function focusIfConnected(target: FocusTarget | null): boolean {
   return true;
 }
 
+export function shouldFocusManageTerminalHeading(
+  state: string,
+  contactStopped: boolean,
+): boolean {
+  return state === "account" || state === "unavailable" || (state === "ready" && contactStopped);
+}
+
+export function shouldFocusJoinTerminalHeading(
+  infoState: string,
+  joined: boolean,
+): boolean {
+  return infoState === "expired" || joined;
+}
+
 export function prepareRecruitingJoinAuthReturn(
   token: unknown,
   actions: {
