@@ -115,6 +115,15 @@ export function getAdjacentProductScreenIndex(
   return (currentIndex + offset + PRODUCT_SCREENS.length) % PRODUCT_SCREENS.length;
 }
 
+export function getProductTabKeyAction(
+  key: string,
+): "select" | "move-left" | "move-right" | "none" {
+  if (key === "Enter" || key === " ") return "select";
+  if (key === "ArrowLeft") return "move-left";
+  if (key === "ArrowRight") return "move-right";
+  return "none";
+}
+
 export function getProductGalleryIds(id: ProductScreenId) {
   return {
     tabId: `landing-test-product-tab-${id}`,

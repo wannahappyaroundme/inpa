@@ -16,6 +16,7 @@ import {
   type ProductScreenId,
   getAdjacentProductScreenIndex,
   getProductGalleryIds,
+  getProductTabKeyAction,
 } from "@/lib/test-landing-content";
 
 const FOCUSABLE_SELECTOR = [
@@ -63,11 +64,22 @@ export function TestProductGallery() {
     event: KeyboardEvent<HTMLButtonElement>,
     currentIndex: number,
   ) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const action = getProductTabKeyAction(event.key);
+
+    if (action === "none") return;
 
     event.preventDefault();
+
+    if (action === "select") {
+      selectScreen(currentIndex, true);
+      return;
+    }
+
     selectScreen(
-      getAdjacentProductScreenIndex(currentIndex, event.key),
+      getAdjacentProductScreenIndex(
+        currentIndex,
+        action === "move-left" ? "ArrowLeft" : "ArrowRight",
+      ),
       true,
     );
   };

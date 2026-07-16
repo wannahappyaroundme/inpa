@@ -7,6 +7,7 @@ import {
   buildServiceUrl,
   getAdjacentProductScreenIndex,
   getProductGalleryIds,
+  getProductTabKeyAction,
 } from "./test-landing-content";
 
 test("제품 증거는 실제 화면 5개를 정해진 순서로 제공한다", () => {
@@ -53,6 +54,15 @@ test("제품 탭 화살표 이동은 양 끝에서 순환한다", () => {
   );
   assert.equal(getAdjacentProductScreenIndex(2, "ArrowLeft"), 1);
   assert.equal(getAdjacentProductScreenIndex(2, "ArrowRight"), 3);
+});
+
+test("제품 탭 키는 이동과 선택 동작을 명확히 구분한다", () => {
+  assert.deepEqual(
+    ["Enter", " ", "ArrowLeft", "ArrowRight", "Escape"].map((key) =>
+      getProductTabKeyAction(key),
+    ),
+    ["select", "select", "move-left", "move-right", "none"],
+  );
 });
 
 test("제품 탭과 확대 제목은 화면별 고유 ID를 가진다", () => {
