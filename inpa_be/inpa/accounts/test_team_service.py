@@ -16,7 +16,7 @@ from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 
-from inpa.billing.models import Plan, Subscription, UsageMeter
+from inpa.billing.models import Coupon, CouponRedemption, Plan, Subscription, UsageMeter
 
 from . import views as account_views
 from .invite import make_invite_token, resolve_invite_manager
@@ -46,6 +46,13 @@ def _subscription_snapshot():
 
 def _usage_snapshot():
     return list(UsageMeter.objects.order_by("pk").values())
+
+
+def _coupon_snapshot():
+    return {
+        'coupons': list(Coupon.objects.order_by('pk').values()),
+        'redemptions': list(CouponRedemption.objects.order_by('pk').values()),
+    }
 
 
 class TeamLinkServiceTests(TestCase):
@@ -146,6 +153,45 @@ class TeamLinkServiceTests(TestCase):
 
         self.assertEqual(_subscription_snapshot(), subscriptions_before)
         self.assertEqual(_usage_snapshot(), usage_before)
+
+    def test_first_team_promotion_preserves_all_billing_and_share_data(self):
+        _, link_agent_to_manager, _ = _team_api()
+        now = timezone.now()
+        Subscription.objects.filter(user=self.manager).update(
+            plan=self.free_plan,
+            status='cancelled',
+            started_at=now - timedelta(days=70),
+            expires_at=now - timedelta(days=10),
+        )
+        self.agent.profile.manager_share_level = Profile.SHARE_FULL
+        self.agent.profile.manager_share_opt_in = True
+        self.agent.profile.save(update_fields=[
+            'manager_share_level', 'manager_share_opt_in',
+        ])
+        coupon = Coupon.objects.create(
+            code='INPA-LINKSAFE', plan=self.manager_plan, duration_days=30,
+            max_redemptions=2, redeemed_count=1,
+        )
+        CouponRedemption.objects.create(
+            coupon=coupon,
+            user=self.manager,
+            granted_until=now + timedelta(days=20),
+        )
+        UsageMeter.objects.create(
+            user=self.manager, action='ocr', year_month='2026-07', count=4,
+        )
+        subscriptions_before = _subscription_snapshot()
+        coupons_before = _coupon_snapshot()
+        usage_before = _usage_snapshot()
+
+        link_agent_to_manager(agent=self.agent, manager=self.manager)
+
+        self.agent.profile.refresh_from_db()
+        self.assertEqual(_subscription_snapshot(), subscriptions_before)
+        self.assertEqual(_coupon_snapshot(), coupons_before)
+        self.assertEqual(_usage_snapshot(), usage_before)
+        self.assertEqual(self.agent.profile.manager_share_level, Profile.SHARE_FULL)
+        self.assertTrue(self.agent.profile.manager_share_opt_in)
 
     def test_self_management_is_rejected(self):
         _, link_agent_to_manager, _ = _team_api()

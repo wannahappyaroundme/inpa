@@ -61,7 +61,7 @@ def free_tier_unlimited() -> bool:
 # 허용된 kind 목록 (정본 5종 — dev/02 §16 + spec 2026-07-09 'customer')
 _ALLOWED_KINDS = frozenset({'ocr', 'ai_compare', 'analysis', 'promotion', 'customer'})
 
-# 구독이 '유효'하다고 볼 상태(user_can_use_team 와 동형 판정 — 만료·해지 폴백).
+# 한도 계산에서 '유효'하다고 볼 상태. 팀 capability는 별도 계약으로 active만 허용한다.
 _EFFECTIVE_STATUSES = frozenset({'active', 'trial'})
 
 
@@ -74,8 +74,8 @@ def resolve_effective_plan(user):
       3) expires_at 이 없거나(=무기한) 아직 지나지 않았다.
     그 밖(구독 없음·비활성·해지·만료)은 Free 한도로 폴백한다.
 
-    ★ user_can_use_team 과 status 판정 의미를 맞춘다 — 표시(사용량 화면)와
-      실제 강제(_consume)가 어긋나지 않도록 이 헬퍼를 공용으로 쓴다.
+    ★ 이 함수는 사용량 화면과 실제 강제(_consume)의 단일 진실 소스다.
+      팀 capability는 user_can_use_team이 active만 허용하므로 trial 처리만 의도적으로 다르다.
     """
     from .models import Subscription  # 순환 import 방지
 
@@ -177,10 +177,11 @@ def _consume(user, kind: str, n: int) -> dict:
 
 
 def user_can_use_team(user) -> bool:
-    """Manager 요금제 팀 기능 캐퍼빌리티 게이트 (spec 2026-07-09 manager-plan-gate).
+    """팀 기능 capability 게이트.
 
     활성(status='active')·미만료(expires_at) 구독이면서 그 plan.can_use_team=True 일 때만 True.
-    구독이 없거나, 비활성/만료 구독이거나, plan.can_use_team=False(예: free/plus/super)면 False.
+    구독이 없거나, 비활성/만료 구독이거나, plan.can_use_team=False(예: free)면 False.
+    플랜 코드를 직접 판단하지 않으므로 Plus와 legacy Manager/Super도 같은 계약을 따른다.
 
     ★ 이 함수는 순수 판별만 한다 — 실제로 막을지는 호출부(뷰)가
       settings.MANAGER_PLAN_GATE_ENABLED 를 함께 확인해서 결정한다(기본 False=게이트 미적용).

@@ -85,6 +85,7 @@ class Command(BaseCommand):
                 'description': PLUS_DESCRIPTION,
                 'limit_ocr': 100, 'limit_ai_compare': 50,
                 'limit_analysis': 50, 'limit_promotion': 100, 'limit_customer': 30,
+                'can_use_team': True,
             },
         )
         manager, manager_created = Plan.objects.get_or_create(
@@ -96,7 +97,7 @@ class Command(BaseCommand):
                 'description': MANAGER_DESCRIPTION,
                 'limit_ocr': 100, 'limit_ai_compare': 50,
                 'limit_analysis': 50, 'limit_promotion': 100, 'limit_customer': 30,
-                'can_use_team': True,  # 팀 기능 게이트(spec 2026-07-09) — manager 전용 capability
+                'can_use_team': True,  # legacy Manager 호환 capability
             },
         )
         # get_or_create의 defaults는 신규 생성 시에만 적용된다. can_use_team 필드가 나중에
@@ -116,6 +117,7 @@ class Command(BaseCommand):
                 # null = 무제한 sentinel (models.Plan.get_limit)
                 'limit_ocr': None, 'limit_ai_compare': None,
                 'limit_analysis': None, 'limit_promotion': None, 'limit_customer': None,
+                'can_use_team': True,
             },
         )
 
