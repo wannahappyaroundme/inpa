@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_STAGE_TRANSITIONS = {
     RecruitingCandidate.Stage.NEW: {
         RecruitingCandidate.Stage.CONTACT,
+        RecruitingCandidate.Stage.RECONTACT,
         RecruitingCandidate.Stage.ENDED,
     },
     RecruitingCandidate.Stage.CONTACT: {
@@ -41,13 +42,13 @@ ALLOWED_STAGE_TRANSITIONS = {
         RecruitingCandidate.Stage.ENDED,
     },
     RecruitingCandidate.Stage.PREPARING: {
+        RecruitingCandidate.Stage.CONVERSATION,
         RecruitingCandidate.Stage.RECONTACT,
         RecruitingCandidate.Stage.ENDED,
     },
-    RecruitingCandidate.Stage.TEAM_JOIN: set(),
+    RecruitingCandidate.Stage.TEAM_JOIN: {RecruitingCandidate.Stage.ENDED},
     RecruitingCandidate.Stage.RECONTACT: {
         RecruitingCandidate.Stage.CONTACT,
-        RecruitingCandidate.Stage.CONVERSATION,
         RecruitingCandidate.Stage.ENDED,
     },
     RecruitingCandidate.Stage.ENDED: {RecruitingCandidate.Stage.RECONTACT},
@@ -63,6 +64,17 @@ STAGE_EVENT_TYPES = {
 
 class TeamAccountManagementRequired(Exception):
     pass
+
+
+class RecruitingApplicationLimitReached(Exception):
+    pass
+
+
+class PendingSubmissionVerificationRequired(Exception):
+    pass
+
+
+RECRUITING_APPLICATION_DAILY_CAP = 30
 
 
 @dataclass(frozen=True)
@@ -156,22 +168,25 @@ def _existing_submission_result(*, existing, data, phone):
         manage_token=data.get("prior_manage_token"),
         phone=phone,
     )
-    if (
-        existing.selection_status == RecruitingCandidate.SelectionStatus.PENDING
-        and prior is not None
-        and prior.identity_ref == existing.identity_ref
-        and prior.owner_id != existing.owner_id
-    ):
-        return SubmissionResult(
-            candidate=existing,
-            created=False,
-            choice_required=True,
-            choice_token=make_leader_choice_token(
-                old_candidate_id=prior.pk,
-                new_candidate_id=existing.pk,
-            ),
-            prior_candidate=prior,
-        )
+    if existing.selection_status == RecruitingCandidate.SelectionStatus.PENDING:
+        if (
+            prior is not None
+            and prior.identity_ref == existing.identity_ref
+            and prior.owner_id != existing.owner_id
+        ):
+            return SubmissionResult(
+                candidate=existing,
+                created=False,
+                choice_required=True,
+                choice_token=make_leader_choice_token(
+                    old_candidate_id=prior.pk,
+                    new_candidate_id=existing.pk,
+                ),
+                prior_candidate=prior,
+            )
+        raise PendingSubmissionVerificationRequired
+    if existing.selection_status != RecruitingCandidate.SelectionStatus.ACTIVE:
+        raise PendingSubmissionVerificationRequired
     return SubmissionResult(candidate=existing, created=False)
 
 
@@ -181,6 +196,13 @@ def create_candidate_submission(*, campaign, data, ip_address=None):
         raise ValidationError("개인정보 수집과 영입 상담 연락에 동의하면 바로 지원할 수 있어요.")
     phone = normalize_phone(data.get("phone", ""))
     submission_key = _coerce_submission_key(data.get("submission_key"))
+    # PostgreSQL에서는 캠페인 단위로 신규 제출을 직렬화한다. SQLite 테스트에서는
+    # 잠금 호출 계약만 확인하며, 실제 동시성은 PostgreSQL 통합 검증 대상으로 남긴다.
+    campaign = (
+        RecruitingCampaign.objects.select_for_update()
+        .select_related("page__owner__profile")
+        .get(pk=campaign.pk)
+    )
 
     existing = RecruitingCandidate.objects.select_related("owner__profile").filter(
         campaign=campaign,
@@ -198,6 +220,12 @@ def create_candidate_submission(*, campaign, data, ip_address=None):
         return SubmissionResult(candidate=prior, created=False)
 
     is_pending = prior is not None and prior.owner_id != owner.pk
+    todays_submissions = RecruitingCandidate.objects.filter(
+        campaign=campaign,
+        created_at__date=timezone.localdate(),
+    ).count()
+    if todays_submissions >= RECRUITING_APPLICATION_DAILY_CAP:
+        raise RecruitingApplicationLimitReached
     try:
         with transaction.atomic():
             candidate = RecruitingCandidate.objects.create(
@@ -384,6 +412,9 @@ def transition_candidate(*, candidate, actor, to_stage, next_action="", next_act
     locked.next_action_at = next_action_at
     if to_stage == locked.Stage.CONTACT:
         locked.last_contacted_at = timezone.now()
+    if to_stage == locked.Stage.RECONTACT:
+        locked.ended_at = None
+        locked.retention_expires_at = None
     if to_stage == locked.Stage.ENDED:
         locked.ended_at = timezone.now()
         anchor = max(locked.ended_at, locked.last_contacted_at or locked.ended_at)

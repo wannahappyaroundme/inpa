@@ -174,6 +174,7 @@ class RecruitingCandidateSerializer(serializers.ModelSerializer):
             owner=obj.owner,
             phone=obj.phone,
             selection_status=RecruitingCandidate.SelectionStatus.ACTIVE,
+            contact_opt_out_at__isnull=True,
         ).exclude(pk=obj.pk).exists()
 
     def get_closed_message(self, obj):

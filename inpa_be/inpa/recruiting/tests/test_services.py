@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
@@ -13,6 +14,8 @@ from inpa.recruiting.models import (
     RecruitingPage,
 )
 from inpa.recruiting.services import (
+    ALLOWED_STAGE_TRANSITIONS,
+    RecruitingApplicationLimitReached,
     apply_leader_choice,
     create_candidate_submission,
     stop_candidate_contact,
@@ -180,3 +183,138 @@ class RecruitingSubmissionServiceTests(TestCase):
         self.assertEqual(activity.event_type, RecruitingActivity.EventType.STAGE_CHANGED)
         self.assertEqual(activity.from_stage, RecruitingCandidate.Stage.NEW)
         self.assertEqual(activity.to_stage, RecruitingCandidate.Stage.CONTACT)
+
+    def test_recontact_clears_previous_end_and_retention_timestamps(self):
+        candidate = self.submit().candidate
+        candidate.stage = RecruitingCandidate.Stage.ENDED
+        candidate.ended_at = timezone.now()
+        candidate.retention_expires_at = timezone.now() + timedelta(days=30)
+        candidate.save(
+            update_fields=["stage", "ended_at", "retention_expires_at", "updated_at"]
+        )
+
+        updated = transition_candidate(
+            candidate=candidate,
+            actor=self.owner,
+            to_stage=RecruitingCandidate.Stage.RECONTACT,
+        )
+
+        self.assertIsNone(updated.ended_at)
+        self.assertIsNone(updated.retention_expires_at)
+
+    def test_allowed_stage_transitions_match_the_approved_table(self):
+        approved = {
+            RecruitingCandidate.Stage.NEW: {
+                RecruitingCandidate.Stage.CONTACT,
+                RecruitingCandidate.Stage.RECONTACT,
+                RecruitingCandidate.Stage.ENDED,
+            },
+            RecruitingCandidate.Stage.CONTACT: {
+                RecruitingCandidate.Stage.CONVERSATION,
+                RecruitingCandidate.Stage.RECONTACT,
+                RecruitingCandidate.Stage.ENDED,
+            },
+            RecruitingCandidate.Stage.CONVERSATION: {
+                RecruitingCandidate.Stage.PREPARING,
+                RecruitingCandidate.Stage.RECONTACT,
+                RecruitingCandidate.Stage.ENDED,
+            },
+            RecruitingCandidate.Stage.PREPARING: {
+                RecruitingCandidate.Stage.CONVERSATION,
+                RecruitingCandidate.Stage.RECONTACT,
+                RecruitingCandidate.Stage.ENDED,
+            },
+            RecruitingCandidate.Stage.RECONTACT: {
+                RecruitingCandidate.Stage.CONTACT,
+                RecruitingCandidate.Stage.ENDED,
+            },
+            RecruitingCandidate.Stage.TEAM_JOIN: {RecruitingCandidate.Stage.ENDED},
+            RecruitingCandidate.Stage.ENDED: {RecruitingCandidate.Stage.RECONTACT},
+        }
+        self.assertEqual(ALLOWED_STAGE_TRANSITIONS, approved)
+
+        for source, allowed_targets in approved.items():
+            for target in RecruitingCandidate.Stage.values:
+                candidate = RecruitingCandidate.objects.create(
+                    owner=self.owner,
+                    campaign=self.campaign,
+                    name="단계 확인",
+                    phone="01012345678",
+                    career_band=RecruitingCandidate.CareerBand.ONE_TO_THREE,
+                    region="서울",
+                    contact_window=RecruitingCandidate.ContactWindow.ANYTIME,
+                    stage=source,
+                )
+                with self.subTest(source=source, target=target):
+                    if target in allowed_targets:
+                        updated = transition_candidate(
+                            candidate=candidate,
+                            actor=self.owner,
+                            to_stage=target,
+                        )
+                        self.assertEqual(updated.stage, target)
+                    else:
+                        with self.assertRaises(ValidationError):
+                            transition_candidate(
+                                candidate=candidate,
+                                actor=self.owner,
+                                to_stage=target,
+                            )
+
+    def _prefill_daily_candidates(self, count):
+        RecruitingCandidate.objects.bulk_create(
+            [
+                RecruitingCandidate(
+                    owner=self.owner,
+                    campaign=self.campaign,
+                    name=f"지원자 {index}",
+                    phone=f"010{index:08d}",
+                    career_band=RecruitingCandidate.CareerBand.ONE_TO_THREE,
+                    region="서울",
+                    contact_window=RecruitingCandidate.ContactWindow.ANYTIME,
+                    submission_key=uuid.uuid4(),
+                )
+                for index in range(count)
+            ]
+        )
+
+    def test_idempotent_retry_does_not_consume_daily_limit(self):
+        self._prefill_daily_candidates(29)
+        submission_key = uuid.uuid4()
+
+        first = self.submit(submission_key=submission_key)
+        retry = self.submit(submission_key=submission_key)
+
+        self.assertEqual(first.candidate.pk, retry.candidate.pk)
+        self.assertEqual(
+            RecruitingCandidate.objects.filter(campaign=self.campaign).count(),
+            30,
+        )
+
+    def test_thirty_first_new_submission_is_rejected_without_row(self):
+        self._prefill_daily_candidates(30)
+        rejected_key = uuid.uuid4()
+
+        with self.assertRaises(RecruitingApplicationLimitReached):
+            self.submit(submission_key=rejected_key)
+
+        self.assertFalse(
+            RecruitingCandidate.objects.filter(
+                campaign=self.campaign,
+                submission_key=rejected_key,
+            ).exists()
+        )
+        self.assertEqual(
+            RecruitingCandidate.objects.filter(campaign=self.campaign).count(),
+            30,
+        )
+
+    def test_new_submission_locks_campaign_before_daily_limit_check(self):
+        original = RecruitingCampaign.objects.select_for_update
+        with patch(
+            "inpa.recruiting.services.RecruitingCampaign.objects.select_for_update",
+            wraps=original,
+        ) as select_for_update:
+            self.submit()
+
+        select_for_update.assert_called_once_with()

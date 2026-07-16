@@ -1,9 +1,6 @@
 import logging
-from datetime import datetime, time, timedelta
 
-from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import AllowAny
@@ -19,6 +16,8 @@ from .serializers import (
     RecruitingCopyTemplateSerializer,
 )
 from .services import (
+    PendingSubmissionVerificationRequired,
+    RecruitingApplicationLimitReached,
     TeamAccountManagementRequired,
     _schedule_event,
     apply_leader_choice,
@@ -29,7 +28,6 @@ from .views import RecruitingEnabledMixin
 
 
 logger = logging.getLogger(__name__)
-APPLICATION_DAILY_CAP = 30
 SUBMITTED_MESSAGE = "지원 내용을 잘 받았어요. 담당 설계사가 선택한 시간대에 연락드릴게요."
 STOPPED_MESSAGE = "연락을 멈췄어요. 남은 정보도 정리 절차에 따라 처리됩니다."
 RENEWED_MESSAGE = "담당 설계사에게 새 링크를 받아 지원을 이어가세요."
@@ -76,21 +74,6 @@ def _safe_validation_detail(exc):
     if hasattr(exc, "message_dict"):
         return exc.message_dict
     return exc.messages
-
-
-def _check_campaign_daily_cap(campaign):
-    local_date = timezone.localdate()
-    key = f"recruiting-apply:{campaign.pk}:{local_date.isoformat()}"
-    tomorrow = local_date + timedelta(days=1)
-    expires_at = timezone.make_aware(datetime.combine(tomorrow, time.min))
-    timeout = max(60, int((expires_at - timezone.now()).total_seconds()))
-    try:
-        if cache.add(key, 1, timeout=timeout):
-            return True
-        return cache.incr(key) <= APPLICATION_DAILY_CAP
-    except Exception as exc:
-        logger.warning("recruiting campaign cap unavailable: %s", type(exc).__name__)
-        return True
 
 
 class PublicRecruitingCampaignView(RecruitingEnabledMixin, APIView):
@@ -150,12 +133,13 @@ class PublicRecruitingCampaignView(RecruitingEnabledMixin, APIView):
             return _renewed_response()
         serializer = PublicRecruitingApplicationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        submission_key = serializer.validated_data["submission_key"]
-        is_retry = RecruitingCandidate.objects.filter(
-            campaign=campaign,
-            submission_key=submission_key,
-        ).exists()
-        if not is_retry and not _check_campaign_daily_cap(campaign):
+        try:
+            result = create_candidate_submission(
+                campaign=campaign,
+                data=serializer.validated_data,
+                ip_address=request.META.get("REMOTE_ADDR"),
+            )
+        except RecruitingApplicationLimitReached:
             return Response(
                 {
                     "code": "recruiting_apply_daily_limit",
@@ -163,11 +147,14 @@ class PublicRecruitingCampaignView(RecruitingEnabledMixin, APIView):
                 },
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
-        try:
-            result = create_candidate_submission(
-                campaign=campaign,
-                data=serializer.validated_data,
-                ip_address=request.META.get("REMOTE_ADDR"),
+        except PendingSubmissionVerificationRequired:
+            return Response(
+                {
+                    "submitted": False,
+                    "verification_required": True,
+                    "message": "이전 신청 관리 링크를 확인하면 담당자 선택을 이어갈 수 있어요.",
+                },
+                status=status.HTTP_200_OK,
             )
         except DjangoValidationError as exc:
             raise ValidationError(_safe_validation_detail(exc)) from exc

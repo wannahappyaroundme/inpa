@@ -40,6 +40,7 @@ class RecruitingCandidateViewSet(RecruitingEnabledMixin, viewsets.ModelViewSet):
                     RecruitingCandidate.SelectionStatus.ACTIVE,
                     RecruitingCandidate.SelectionStatus.REPLACED,
                 ),
+                contact_opt_out_at__isnull=True,
             )
             .select_related("campaign", "joined_user")
             .prefetch_related("settlement_checks")
@@ -63,6 +64,30 @@ class RecruitingCandidateViewSet(RecruitingEnabledMixin, viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         raise MethodNotAllowed("POST")
+
+    @transaction.atomic
+    def partial_update(self, request, *args, **kwargs):
+        candidate = (
+            RecruitingCandidate.objects.select_for_update()
+            .filter(
+                pk=kwargs.get("pk"),
+                owner=request.user,
+                selection_status__in=(
+                    RecruitingCandidate.SelectionStatus.ACTIVE,
+                    RecruitingCandidate.SelectionStatus.REPLACED,
+                ),
+                contact_opt_out_at__isnull=True,
+            )
+            .first()
+        )
+        if candidate is None:
+            raise NotFound()
+        if candidate.selection_status != RecruitingCandidate.SelectionStatus.ACTIVE:
+            raise ValidationError("진행이 종료된 지원자 정보는 수정하지 않고 기록으로 확인할 수 있어요.")
+        serializer = self.get_serializer(candidate, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
     @action(detail=True, methods=["post"])
     def transition(self, request, pk=None):

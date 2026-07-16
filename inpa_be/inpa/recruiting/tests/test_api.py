@@ -1,4 +1,5 @@
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from inpa.accounts.models import Profile, User
@@ -106,3 +107,50 @@ class RecruitingCandidateApiTests(TestCase):
         self.assertFalse(old_campaign.is_active)
         self.assertEqual(old_campaign.public_token, old_token)
         self.assertNotIn(str(old_token), campaign_response.data["public_url"])
+
+    def test_opted_out_candidate_is_hidden_from_list_detail_and_patch(self):
+        self.candidate.contact_opt_out_at = timezone.now()
+        self.candidate.stage = RecruitingCandidate.Stage.ENDED
+        self.candidate.save(update_fields=["contact_opt_out_at", "stage", "updated_at"])
+        self.client.force_authenticate(self.owner)
+
+        listed = self.client.get("/api/v1/recruiting/candidates/")
+        detailed = self.client.get(f"/api/v1/recruiting/candidates/{self.candidate.pk}/")
+        patched = self.client.patch(
+            f"/api/v1/recruiting/candidates/{self.candidate.pk}/",
+            {"name": "다시 노출"},
+            format="json",
+        )
+
+        self.assertNotIn(self.candidate.pk, [item["id"] for item in listed.data["results"]])
+        self.assertEqual(detailed.status_code, 404)
+        self.assertEqual(patched.status_code, 404)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.name, "내 지원자")
+
+    def test_replaced_candidate_generic_card_cannot_be_patched(self):
+        self.candidate.selection_status = RecruitingCandidate.SelectionStatus.REPLACED
+        self.candidate.stage = RecruitingCandidate.Stage.ENDED
+        self.candidate.name = "담당 변경"
+        self.candidate.phone = ""
+        self.candidate.save(
+            update_fields=["selection_status", "stage", "name", "phone", "updated_at"]
+        )
+        self.client.force_authenticate(self.owner)
+
+        detailed = self.client.get(f"/api/v1/recruiting/candidates/{self.candidate.pk}/")
+        patched = self.client.patch(
+            f"/api/v1/recruiting/candidates/{self.candidate.pk}/",
+            {"name": "다시 기록"},
+            format="json",
+        )
+
+        self.assertEqual(detailed.status_code, 200)
+        self.assertEqual(
+            detailed.data["closed_message"],
+            "후보가 다른 담당자를 선택해 대화가 종료되었어요.",
+        )
+        self.assertNotIn("phone", detailed.data)
+        self.assertEqual(patched.status_code, 400)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.name, "담당 변경")

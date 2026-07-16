@@ -113,6 +113,106 @@ class RecruitingPublicApiTests(TestCase):
         pending.refresh_from_db()
         self.assertEqual(pending.selection_status, RecruitingCandidate.SelectionStatus.ACTIVE)
 
+    def _make_pending_choice(self):
+        old_response = self.apply()
+        prior_manage_token = old_response.data["manage_url"].rsplit("/", 1)[-1]
+        submission_key = str(uuid.uuid4())
+        choice_response = self.apply(
+            campaign=self.other_campaign,
+            submission_key=submission_key,
+            prior_manage_token=prior_manage_token,
+        )
+        return prior_manage_token, submission_key, choice_response
+
+    def assert_verification_required_without_private_tokens(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["submitted"])
+        self.assertTrue(response.data["verification_required"])
+        self.assertNotIn("manage_url", response.data)
+        self.assertNotIn("choice_token", response.data)
+        self.assertNotIn("current_leader", response.data)
+        self.assertNotIn("new_leader", response.data)
+
+    def test_pending_retry_without_prior_token_requires_verification(self):
+        _, submission_key, _ = self._make_pending_choice()
+
+        retry = self.apply(
+            campaign=self.other_campaign,
+            submission_key=submission_key,
+        )
+
+        self.assert_verification_required_without_private_tokens(retry)
+
+    def test_pending_retry_with_invalid_prior_token_requires_verification(self):
+        _, submission_key, _ = self._make_pending_choice()
+
+        retry = self.apply(
+            campaign=self.other_campaign,
+            submission_key=submission_key,
+            prior_manage_token="invalid-browser-token",
+        )
+
+        self.assert_verification_required_without_private_tokens(retry)
+
+    def test_pending_retry_with_changed_prior_token_requires_verification(self):
+        _, submission_key, _ = self._make_pending_choice()
+        unrelated = RecruitingCandidate.objects.create(
+            owner=self.owner,
+            campaign=self.campaign,
+            name="다른 신청",
+            phone="01012345678",
+            career_band=RecruitingCandidate.CareerBand.ONE_TO_THREE,
+            region="서울",
+            contact_window=RecruitingCandidate.ContactWindow.ANYTIME,
+        )
+
+        retry = self.apply(
+            campaign=self.other_campaign,
+            submission_key=submission_key,
+            prior_manage_token=str(unrelated.manage_token),
+        )
+
+        self.assert_verification_required_without_private_tokens(retry)
+
+    def test_pending_retry_with_matching_prior_token_replays_choice(self):
+        prior_manage_token, submission_key, first_choice = self._make_pending_choice()
+
+        retry = self.apply(
+            campaign=self.other_campaign,
+            submission_key=submission_key,
+            prior_manage_token=prior_manage_token,
+        )
+
+        self.assertEqual(retry.status_code, 200)
+        self.assertTrue(retry.data["choice_required"])
+        self.assertEqual(retry.data["current_leader"], first_choice.data["current_leader"])
+        self.assertEqual(retry.data["new_leader"], first_choice.data["new_leader"])
+        self.assertEqual(RecruitingCandidate.objects.count(), 2)
+
+    def test_public_daily_limit_returns_positive_429_without_creating_row(self):
+        RecruitingCandidate.objects.bulk_create(
+            [
+                RecruitingCandidate(
+                    owner=self.owner,
+                    campaign=self.campaign,
+                    name=f"지원자 {index}",
+                    phone=f"010{index:08d}",
+                    career_band=RecruitingCandidate.CareerBand.ONE_TO_THREE,
+                    region="서울",
+                    contact_window=RecruitingCandidate.ContactWindow.ANYTIME,
+                    submission_key=uuid.uuid4(),
+                )
+                for index in range(30)
+            ]
+        )
+
+        response = self.apply()
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.data["code"], "recruiting_apply_daily_limit")
+        self.assertIn("다시 지원", response.data["message"])
+        self.assertEqual(RecruitingCandidate.objects.filter(campaign=self.campaign).count(), 30)
+
     def test_public_response_never_reveals_existing_owner_or_candidate(self):
         old = self.apply()
         self.assertEqual(old.status_code, 201)
