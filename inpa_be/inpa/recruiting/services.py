@@ -158,8 +158,10 @@ def _schedule_application_notification(candidate):
     transaction.on_commit(create_notification)
 
 
-def get_or_create_recruiting_page(user):
+def get_or_create_recruiting_page(user, *, lock=False):
     page, created = RecruitingPage.objects.get_or_create(owner=user)
+    if lock:
+        page = RecruitingPage.objects.select_for_update().get(pk=page.pk)
     update_fields = []
     if created or page.headline_template_id is None:
         headline = RecruitingCopyTemplate.objects.filter(
@@ -172,12 +174,15 @@ def get_or_create_recruiting_page(user):
     if update_fields:
         update_fields.append("updated_at")
         page.save(update_fields=update_fields)
-    campaign, _ = RecruitingCampaign.objects.get_or_create(
-        page=page,
-        channel=RecruitingCampaign.Channel.RELATIONSHIP,
-        is_active=True,
-        defaults={"name": "개인 소개"},
-    )
+    campaign = page.campaigns.filter(
+        channel=RecruitingCampaign.Channel.RELATIONSHIP
+    ).order_by("-created_at", "-pk").first()
+    if campaign is None:
+        campaign = RecruitingCampaign.objects.create(
+            page=page,
+            channel=RecruitingCampaign.Channel.RELATIONSHIP,
+            name="개인 소개",
+        )
     return page, campaign
 
 

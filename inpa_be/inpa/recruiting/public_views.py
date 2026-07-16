@@ -9,6 +9,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .models import RecruitingCampaign, RecruitingCandidate, RecruitingCopyTemplate, RecruitingEvent
+from .consent_texts import RECRUITING_CONSENT_VERSION, RECRUITING_CONTACT_CONSENT
 from .serializers import (
     LeaderChoiceSerializer,
     ManageCandidateActionSerializer,
@@ -125,6 +126,8 @@ class PublicRecruitingCampaignView(RecruitingEnabledMixin, APIView):
                 "support": RecruitingCopyTemplateSerializer(support, many=True).data,
                 "faq": RecruitingCopyTemplateSerializer(faq, many=True).data,
                 "activity_region": page.activity_region,
+                "consent_version": RECRUITING_CONSENT_VERSION,
+                "consent_text": RECRUITING_CONTACT_CONSENT,
             }
         )
 
@@ -223,11 +226,18 @@ class PublicRecruitingManageView(RecruitingEnabledMixin, APIView):
     def get(self, request, token):
         candidate = self._candidate(token)
         if candidate.contact_opt_out_at:
-            return Response({"contact_stopped": True, "message": STOPPED_MESSAGE})
+            return Response(
+                {
+                    "contact_stopped": True,
+                    "submitted_at": candidate.created_at,
+                    "message": STOPPED_MESSAGE,
+                }
+            )
         return Response(
             {
                 "contact_stopped": False,
                 "stage": candidate.stage,
+                "submitted_at": candidate.created_at,
                 "leader": _profile_payload(candidate.owner),
             }
         )

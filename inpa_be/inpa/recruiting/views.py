@@ -25,6 +25,7 @@ from .models import (
 )
 from .serializers import (
     CandidateTransitionSerializer,
+    RecruitingCampaignActionSerializer,
     RecruitingCampaignSerializer,
     RecruitingCandidateSerializer,
     RecruitingCopyTemplateSerializer,
@@ -157,7 +158,7 @@ class RecruitingCandidateViewSet(RecruitingEnabledMixin, viewsets.ModelViewSet):
                 ),
                 contact_opt_out_at__isnull=True,
             )
-            .select_related("campaign", "joined_user")
+            .select_related("campaign", "joined_user__profile")
             .prefetch_related("settlement_checks")
             .order_by("stage", "next_action_at", "-created_at")
         )
@@ -266,8 +267,7 @@ class RecruitingPageView(RecruitingEnabledMixin, APIView):
 
     def patch(self, request):
         with transaction.atomic():
-            page, _ = get_or_create_recruiting_page(request.user)
-            page = type(page).objects.select_for_update().get(pk=page.pk)
+            page, _ = get_or_create_recruiting_page(request.user, lock=True)
             serializer = RecruitingPageSerializer(page, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             was_published = page.is_published
@@ -294,19 +294,37 @@ class RecruitingCampaignView(RecruitingEnabledMixin, APIView):
         return Response(RecruitingCampaignSerializer(campaign).data)
 
     def patch(self, request):
-        if request.data.get("reissue") is not True:
-            raise ValidationError({"reissue": "새 개인 링크를 발급하려면 다시 확인해주세요."})
+        action_serializer = RecruitingCampaignActionSerializer(data=request.data)
+        action_serializer.is_valid(raise_exception=True)
         with transaction.atomic():
-            page, campaign = get_or_create_recruiting_page(request.user)
-            campaign = RecruitingCampaign.objects.select_for_update().get(pk=campaign.pk)
-            campaign.is_active = False
-            campaign.save(update_fields=["is_active", "updated_at"])
-            replacement = RecruitingCampaign.objects.create(
-                page=page,
-                name="개인 소개",
-                channel=RecruitingCampaign.Channel.RELATIONSHIP,
+            page, campaign = get_or_create_recruiting_page(request.user, lock=True)
+            relationship_campaigns = page.campaigns.filter(
+                channel=RecruitingCampaign.Channel.RELATIONSHIP
             )
-        return Response(RecruitingCampaignSerializer(replacement).data)
+            if action_serializer.validated_data.get("reissue"):
+                relationship_campaigns.filter(is_active=True).update(
+                    is_active=False, updated_at=timezone.now()
+                )
+                campaign = RecruitingCampaign.objects.create(
+                    page=page,
+                    name="개인 소개",
+                    channel=RecruitingCampaign.Channel.RELATIONSHIP,
+                )
+            else:
+                is_active = action_serializer.validated_data["is_active"]
+                if is_active:
+                    relationship_campaigns.filter(is_active=True).exclude(
+                        pk=campaign.pk
+                    ).update(is_active=False, updated_at=timezone.now())
+                else:
+                    relationship_campaigns.filter(is_active=True).update(
+                        is_active=False, updated_at=timezone.now()
+                    )
+                campaign.refresh_from_db()
+                if campaign.is_active != is_active:
+                    campaign.is_active = is_active
+                    campaign.save(update_fields=["is_active", "updated_at"])
+        return Response(RecruitingCampaignSerializer(campaign).data)
 
 
 class RecruitingCampaignCopiedView(RecruitingEnabledMixin, APIView):

@@ -5,6 +5,7 @@ from .models import (
     RecruitingCampaign,
     RecruitingCandidate,
     RecruitingCopyTemplate,
+    RecruitingEvent,
     RecruitingPage,
     SettlementCheck,
 )
@@ -96,27 +97,105 @@ class RecruitingPageSerializer(serializers.ModelSerializer):
 
 
 class RecruitingCampaignSerializer(serializers.ModelSerializer):
+    public_path = serializers.SerializerMethodField()
     public_url = serializers.SerializerMethodField()
+    visits = serializers.SerializerMethodField()
+    applications = serializers.SerializerMethodField()
+    joins = serializers.SerializerMethodField()
 
     class Meta:
         model = RecruitingCampaign
-        fields = ("id", "name", "channel", "is_active", "public_url", "created_at")
+        fields = (
+            "id",
+            "name",
+            "channel",
+            "is_active",
+            "public_path",
+            "public_url",
+            "visits",
+            "applications",
+            "joins",
+            "created_at",
+        )
         read_only_fields = fields
 
-    def get_public_url(self, obj):
+    def get_public_path(self, obj):
         return f"/r/{obj.public_token}"
+
+    def get_public_url(self, obj):
+        return self.get_public_path(obj)
+
+    def get_visits(self, obj):
+        return obj.recruitingevent_set.filter(
+            event_type=RecruitingEvent.EventType.PAGE_VIEW
+        ).count()
+
+    def _active_candidate_event_count(self, obj, event_type):
+        return obj.recruitingevent_set.filter(
+            event_type=event_type,
+            candidate__selection_status=RecruitingCandidate.SelectionStatus.ACTIVE,
+        ).count()
+
+    def get_applications(self, obj):
+        return self._active_candidate_event_count(
+            obj, RecruitingEvent.EventType.APPLICATION_SUBMITTED
+        )
+
+    def get_joins(self, obj):
+        return self._active_candidate_event_count(obj, RecruitingEvent.EventType.TEAM_JOIN)
+
+
+class RecruitingCampaignActionSerializer(serializers.Serializer):
+    is_active = serializers.BooleanField(required=False)
+    reissue = serializers.BooleanField(required=False)
+
+    def to_internal_value(self, data):
+        if not isinstance(data, dict):
+            raise serializers.ValidationError("링크에서 바꿀 내용을 선택해주세요.")
+        unknown = set(data) - {"is_active", "reissue"}
+        if unknown:
+            raise serializers.ValidationError(
+                {key: "링크 설정에서 제공하는 항목을 선택해주세요." for key in sorted(unknown)}
+            )
+        invalid_types = {
+            key: "켜기 또는 끄기 값으로 선택해주세요."
+            for key in data
+            if type(data[key]) is not bool
+        }
+        if invalid_types:
+            raise serializers.ValidationError(invalid_types)
+        return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        if len(attrs) != 1:
+            raise serializers.ValidationError("링크 상태 변경과 새 링크 발급 중 하나를 선택해주세요.")
+        if "reissue" in attrs and not attrs["reissue"]:
+            raise serializers.ValidationError(
+                {"reissue": "새 개인 링크 발급을 확인하면 바로 바꿀 수 있어요."}
+            )
+        return attrs
+
+
+class CandidateCampaignSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RecruitingCampaign
+        fields = ("id", "name", "channel")
+        read_only_fields = fields
 
 
 class RecruitingCandidateSerializer(serializers.ModelSerializer):
     duplicate_contact = serializers.SerializerMethodField()
     closed_message = serializers.SerializerMethodField()
     campaign_id = serializers.IntegerField(read_only=True)
+    campaign = CandidateCampaignSerializer(read_only=True)
+    joined_agent = serializers.SerializerMethodField()
 
     class Meta:
         model = RecruitingCandidate
         fields = (
             "id",
             "campaign_id",
+            "campaign",
             "name",
             "phone",
             "career_band",
@@ -124,10 +203,13 @@ class RecruitingCandidateSerializer(serializers.ModelSerializer):
             "region",
             "contact_window",
             "stage",
+            "selection_status",
             "next_action",
             "next_action_at",
             "last_contacted_at",
             "ended_at",
+            "joined_at",
+            "joined_agent",
             "created_at",
             "updated_at",
             "duplicate_contact",
@@ -137,8 +219,11 @@ class RecruitingCandidateSerializer(serializers.ModelSerializer):
             "id",
             "campaign_id",
             "stage",
+            "selection_status",
             "last_contacted_at",
             "ended_at",
+            "joined_at",
+            "joined_agent",
             "created_at",
             "updated_at",
             "duplicate_contact",
@@ -183,11 +268,29 @@ class RecruitingCandidateSerializer(serializers.ModelSerializer):
             return "후보가 다른 담당자를 선택해 대화가 종료되었어요."
         return ""
 
+    def get_joined_agent(self, obj):
+        joined_user = obj.joined_user
+        profile = getattr(joined_user, "profile", None) if joined_user else None
+        if profile is None:
+            return None
+        image_url = None
+        if profile.profile_image:
+            try:
+                image_url = profile.profile_image.url
+            except Exception:
+                image_url = None
+        return {
+            "id": joined_user.pk,
+            "display_name": (profile.name or profile.affiliation or "합류 설계사").strip(),
+            "profile_image": image_url,
+        }
+
     def to_representation(self, instance):
         if instance.selection_status == RecruitingCandidate.SelectionStatus.REPLACED:
             return {
                 "id": instance.pk,
                 "stage": RecruitingCandidate.Stage.ENDED,
+                "selection_status": RecruitingCandidate.SelectionStatus.REPLACED,
                 "closed_message": "후보가 다른 담당자를 선택해 대화가 종료되었어요.",
                 "created_at": instance.created_at,
                 "updated_at": instance.updated_at,
