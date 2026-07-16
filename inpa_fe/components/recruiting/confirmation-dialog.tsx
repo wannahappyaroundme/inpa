@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 
+import { focusIfConnected } from "./public-recruiting-view-model";
+
 interface ConfirmationDialogProps {
   open: boolean;
   title: string;
@@ -76,7 +78,7 @@ export function ConfirmationDialog({
     return () => {
       cancelAnimationFrame(frame);
       document.removeEventListener("keydown", onKeyDown);
-      restoreFocusRef.current?.focus();
+      focusIfConnected(restoreFocusRef.current);
     };
   }, [open]);
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 import type { RecruitingPlanner } from "../../lib/api";
 
@@ -65,11 +65,13 @@ export function PublicRecruitingNotice({
   description,
   action,
   role,
+  headingRef,
 }: {
   title: string;
   description: string;
   action?: ReactNode;
   role?: "alert" | "status";
+  headingRef?: Ref<HTMLHeadingElement>;
 }) {
   return (
     <PublicRecruitingFrame>
@@ -77,7 +79,13 @@ export function PublicRecruitingNotice({
         role={role}
         className="rounded-3xl border border-line bg-surface px-5 py-10 text-center shadow-card sm:px-8"
       >
-        <h1 className="break-words text-[20px] font-extrabold text-ink">{title}</h1>
+        <h1
+          ref={headingRef}
+          tabIndex={headingRef ? -1 : undefined}
+          className="break-words text-[20px] font-extrabold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          {title}
+        </h1>
         <p className="mt-3 break-words text-[14px] leading-6 text-ink3">{description}</p>
         {action && <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">{action}</div>}
       </section>

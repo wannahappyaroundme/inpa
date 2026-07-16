@@ -1,4 +1,5 @@
 import type {
+  PublicRecruitingApplication,
   PublicRecruitingApplicationResult,
   RecruitingCareerBand,
   RecruitingContactWindow,
@@ -34,12 +35,32 @@ export function isSafeRecruitingToken(value: unknown): value is string {
   );
 }
 
-export function getOrCreateSubmissionKey(
-  current: string | null,
-  create: () => string,
-): string {
+export function getOrCreateSubmissionAttempt(
+  current: PublicRecruitingApplication | null,
+  values: PublicApplicationFormValues,
+  options: {
+    createSubmissionKey: () => string;
+    priorManageToken: string | null;
+  },
+): PublicRecruitingApplication {
   if (current) return current;
-  return create();
+  return {
+    name: normalizePublicApplicationText(values.name),
+    phone: values.phone.trim(),
+    career_band: values.careerBand as RecruitingCareerBand,
+    current_affiliation: normalizePublicApplicationText(values.currentAffiliation),
+    region: normalizePublicApplicationText(values.region),
+    contact_window: values.contactWindow as RecruitingContactWindow,
+    submission_key: options.createSubmissionKey(),
+    prior_manage_token: options.priorManageToken,
+    agreed: values.agreed,
+  };
+}
+
+export function shouldResetSubmissionAttempt(
+  error: { status: number } | null,
+): boolean {
+  return error?.status === 400;
 }
 
 export function readStoredManageToken(storage: StorageLike | null): string | null {
@@ -94,6 +115,15 @@ export function extractManageToken(path: unknown): string | null {
   return match[1];
 }
 
+export function storeManagePath(
+  storage: StorageLike | null,
+  path: unknown,
+): string | null {
+  const token = extractManageToken(path);
+  writeStoredManageToken(storage, token);
+  return token;
+}
+
 export type ApplicationResultKind =
   | "submitted"
   | "choice_required"
@@ -123,6 +153,43 @@ export function getJoinErrorKind(error: {
   if (error.status === 410) return "expired";
   if (error.status === 409 || error.status === 400) return "message";
   return "retry";
+}
+
+export function getLeaderChoiceFailureAction(
+  error: { status: number } | null,
+): "restart_application" | "retry_choice" {
+  return error?.status === 400 ? "restart_application" : "retry_choice";
+}
+
+export function getStopFailurePresentation(
+  inlineError: string,
+): { dialogOpen: false; inlineError: string } {
+  return { dialogOpen: false, inlineError };
+}
+
+export interface FocusTarget {
+  isConnected: boolean;
+  focus(): void;
+}
+
+export function focusIfConnected(target: FocusTarget | null): boolean {
+  if (!target?.isConnected) return false;
+  target.focus();
+  return true;
+}
+
+export function prepareRecruitingJoinAuthReturn(
+  token: unknown,
+  actions: {
+    remember(path: string): boolean;
+    clear(): void;
+  },
+): boolean {
+  if (!isSafeRecruitingToken(token)) {
+    actions.clear();
+    return false;
+  }
+  return actions.remember(`/recruiting/join/${token}`);
 }
 
 export function validatePublicApplication(

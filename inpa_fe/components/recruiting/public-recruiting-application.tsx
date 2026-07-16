@@ -8,6 +8,7 @@ import {
   applyPublicRecruitingCampaign,
   getPublicRecruitingPage,
   submitPublicRecruitingLeaderChoice,
+  type PublicRecruitingApplication as PublicRecruitingApplicationPayload,
   type PublicRecruitingApplicationResult,
   type PublicRecruitingChoiceRequired,
   type PublicRecruitingPage,
@@ -15,14 +16,14 @@ import {
 } from "../../lib/api";
 import { CAREER_LABELS, CONTACT_LABELS } from "./recruiting-labels";
 import {
-  extractManageToken,
   getApplicationResultKind,
-  getOrCreateSubmissionKey,
+  getLeaderChoiceFailureAction,
+  getOrCreateSubmissionAttempt,
   isSafeRecruitingToken,
-  normalizePublicApplicationText,
   readStoredManageToken,
+  shouldResetSubmissionAttempt,
+  storeManagePath,
   validatePublicApplication,
-  writeStoredManageToken,
   type PublicApplicationFormValues,
   type StorageLike,
 } from "./public-recruiting-view-model";
@@ -81,7 +82,9 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
   const [leaderChoice, setLeaderChoice] = useState<LeaderChoice | null>(null);
   const [choicePending, setChoicePending] = useState(false);
   const [choiceError, setChoiceError] = useState<string | null>(null);
-  const submissionKeyRef = useRef<string | null>(null);
+  const [attemptLocked, setAttemptLocked] = useState(false);
+  const [applicationRetryMessage, setApplicationRetryMessage] = useState<string | null>(null);
+  const submissionAttemptRef = useRef<PublicRecruitingApplicationPayload | null>(null);
   const loadGenerationRef = useRef(0);
 
   const loadPage = useCallback(async () => {
@@ -117,49 +120,19 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
   }
 
   function completeSubmission(response: PublicRecruitingSubmitted) {
-    const nextManageToken = extractManageToken(response.manage_url);
-    if (nextManageToken) {
-      writeStoredManageToken(browserStorage(), nextManageToken);
-    }
+    const nextManageToken = storeManagePath(browserStorage(), response.manage_url);
     setManageToken(nextManageToken);
     setResult(response);
-    submissionKeyRef.current = null;
+    submissionAttemptRef.current = null;
+    setAttemptLocked(false);
+    setApplicationRetryMessage(null);
   }
 
-  async function submitApplication(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!page || pending) return;
-    setError(null);
-    const validationError = validatePublicApplication(form);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    let submissionKey: string;
-    try {
-      submissionKey = getOrCreateSubmissionKey(
-        submissionKeyRef.current,
-        () => window.crypto.randomUUID(),
-      );
-    } catch {
-      setError("브라우저를 새로 열면 지원 내용을 안전하게 보낼 수 있어요.");
-      return;
-    }
-    submissionKeyRef.current = submissionKey;
+  async function sendApplicationAttempt(attempt: PublicRecruitingApplicationPayload) {
     setPending(true);
+    setApplicationRetryMessage(null);
     try {
-      const response = await applyPublicRecruitingCampaign(token, {
-        name: normalizePublicApplicationText(form.name),
-        phone: form.phone.trim(),
-        career_band: form.careerBand as Exclude<typeof form.careerBand, "">,
-        current_affiliation: normalizePublicApplicationText(form.currentAffiliation),
-        region: normalizePublicApplicationText(form.region),
-        contact_window: form.contactWindow as Exclude<typeof form.contactWindow, "">,
-        submission_key: submissionKey,
-        prior_manage_token: readStoredManageToken(browserStorage()),
-        agreed: true,
-      });
+      const response = await applyPublicRecruitingCampaign(token, attempt);
       const kind = getApplicationResultKind(response);
       if (kind === "submitted") {
         completeSubmission(response as PublicRecruitingSubmitted);
@@ -170,16 +143,61 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
     } catch (submitError) {
       if (isTerminalLinkError(submitError)) {
         setLoadState("unavailable");
-      } else if (submitError instanceof ApiError && submitError.status === 429) {
-        setError(submitError.message || "잠시 후 같은 내용으로 다시 보내주세요.");
-      } else if (submitError instanceof ApiError && submitError.status === 400) {
-        setError(submitError.message || "입력한 내용을 한 번 더 확인해주세요.");
+      } else if (
+        shouldResetSubmissionAttempt(
+          submitError instanceof ApiError ? submitError : null,
+        )
+      ) {
+        submissionAttemptRef.current = null;
+        setAttemptLocked(false);
+        setError(
+          submitError instanceof ApiError && submitError.message
+            ? submitError.message
+            : "입력한 내용을 한 번 더 확인해주세요.",
+        );
       } else {
-        setError("연결을 확인한 뒤 같은 내용으로 다시 보내주세요.");
+        setAttemptLocked(true);
+        setApplicationRetryMessage("처음 보낸 내용 그대로 지원 상태를 다시 확인해주세요.");
+        setError(
+          submitError instanceof ApiError && submitError.status === 429 && submitError.message
+            ? submitError.message
+            : "연결을 확인한 뒤 같은 내용으로 다시 보내주세요.",
+        );
       }
     } finally {
       setPending(false);
     }
+  }
+
+  async function submitApplication(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!page || pending) return;
+    setError(null);
+
+    if (submissionAttemptRef.current) {
+      await sendApplicationAttempt(submissionAttemptRef.current);
+      return;
+    }
+
+    const validationError = validatePublicApplication(form);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    let attempt: PublicRecruitingApplicationPayload;
+    try {
+      attempt = getOrCreateSubmissionAttempt(null, form, {
+        createSubmissionKey: () => window.crypto.randomUUID(),
+        priorManageToken: readStoredManageToken(browserStorage()),
+      });
+    } catch {
+      setError("브라우저를 새로 열면 지원 내용을 안전하게 보낼 수 있어요.");
+      return;
+    }
+    submissionAttemptRef.current = attempt;
+    setAttemptLocked(true);
+    await sendApplicationAttempt(attempt);
   }
 
   async function submitLeaderChoice() {
@@ -201,7 +219,22 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
       );
       completeSubmission(response);
     } catch (submitError) {
-      if (isTerminalLinkError(submitError)) {
+      if (
+        getLeaderChoiceFailureAction(
+          submitError instanceof ApiError ? submitError : null,
+        ) === "restart_application"
+      ) {
+        setResult(null);
+        setLeaderChoice(null);
+        setChoiceError(null);
+        setAttemptLocked(true);
+        setError(
+          submitError instanceof ApiError && submitError.message
+            ? submitError.message
+            : "지원 상태를 다시 확인해주세요.",
+        );
+        setApplicationRetryMessage("처음 보낸 내용으로 지원 상태를 다시 확인해주세요.");
+      } else if (isTerminalLinkError(submitError)) {
         setChoiceError("이 링크를 보내주신 설계사에게 새 링크를 받아보세요.");
       } else if (submitError instanceof ApiError && submitError.status === 429) {
         setChoiceError("잠시 후 선택한 담당자로 다시 이어가주세요.");
@@ -361,7 +394,7 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
             <h2 className="text-[19px] font-extrabold text-ink">먼저 편하게 이야기 나눠보세요.</h2>
             <p className="mt-2 text-[13px] leading-6 text-ink3">현재 소속과 경력에 맞춰 담당 설계사가 직접 연락드려요.</p>
             <form onSubmit={submitApplication} className="mt-6 space-y-5" noValidate>
-              <fieldset disabled={pending} className="space-y-5">
+              <fieldset disabled={pending || attemptLocked} className="space-y-5">
                 <legend className="sr-only">설계사 동료 지원 정보</legend>
                 <div>
                   <InputLabel htmlFor="recruit-name">이름</InputLabel>
@@ -403,9 +436,14 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
                 </label>
               </fieldset>
               {error && <p role="alert" className="text-[13px] leading-5 text-cnone">{error}</p>}
+              {applicationRetryMessage && <p className="text-[13px] leading-6 text-ink3">{applicationRetryMessage}</p>}
               {pending && <p role="status" aria-live="polite" className="text-[13px] text-ink3">지원 내용을 보내고 있어요.</p>}
               <button type="submit" disabled={pending} className={`${PUBLIC_PRIMARY_BUTTON} w-full`}>
-                {pending ? "보내는 중이에요" : "먼저 이야기 나눠보기"}
+                {pending
+                  ? "보내는 중이에요"
+                  : attemptLocked
+                    ? "같은 내용으로 지원 상태 다시 확인하기"
+                    : "먼저 이야기 나눠보기"}
               </button>
             </form>
           </section>

@@ -13,6 +13,8 @@ import { ConfirmationDialog } from "./confirmation-dialog";
 import { formatDate, STAGE_LABELS } from "./recruiting-labels";
 import {
   clearMatchingManageToken,
+  focusIfConnected,
+  getStopFailurePresentation,
   isSafeRecruitingToken,
   readStoredManageToken,
   type StorageLike,
@@ -48,6 +50,7 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
   const [stopPending, setStopPending] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
   const generationRef = useRef(0);
+  const successHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const clearStoredMatch = useCallback(() => {
     const storage = browserStorage();
@@ -87,6 +90,12 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
     };
   }, [load]);
 
+  useEffect(() => {
+    if (state === "ready" && data?.contact_stopped) {
+      focusIfConnected(successHeadingRef.current);
+    }
+  }, [data, state]);
+
   async function stopContact() {
     if (stopPending) return;
     setStopPending(true);
@@ -116,9 +125,13 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
         setConfirmOpen(false);
         setState("unavailable");
       } else if (error instanceof ApiError && error.status === 429) {
-        setStopError("잠시 후 연락 중단 요청을 다시 보내주세요.");
+        const presentation = getStopFailurePresentation("잠시 후 연락 중단 요청을 다시 보내주세요.");
+        setConfirmOpen(presentation.dialogOpen);
+        setStopError(presentation.inlineError);
       } else {
-        setStopError("연결을 확인한 뒤 연락 중단 요청을 다시 보내주세요.");
+        const presentation = getStopFailurePresentation("연결을 확인한 뒤 연락 중단 요청을 다시 보내주세요.");
+        setConfirmOpen(presentation.dialogOpen);
+        setStopError(presentation.inlineError);
       }
     } finally {
       setStopPending(false);
@@ -169,7 +182,13 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
     return (
       <PublicRecruitingFrame>
         <section role="status" className="rounded-3xl border border-line bg-surface px-5 py-10 text-center shadow-card sm:px-8">
-          <h1 className="text-[20px] font-extrabold text-ink">연락 중단 요청을 반영했어요.</h1>
+          <h1
+            ref={successHeadingRef}
+            tabIndex={-1}
+            className="text-[20px] font-extrabold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            연락 중단 요청을 반영했어요.
+          </h1>
           <p className="mt-3 text-[14px] leading-6 text-ink3">{message || data.message}</p>
           <dl className="mx-auto mt-5 max-w-xs rounded-2xl bg-surface2 p-4">
             <dt className="text-[12px] text-ink3">지원한 날</dt>

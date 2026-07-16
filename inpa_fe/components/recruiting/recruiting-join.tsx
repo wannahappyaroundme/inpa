@@ -14,7 +14,12 @@ import {
 } from "../../lib/api";
 import { clearAuthReturn, rememberAuthReturn } from "../../lib/auth-return";
 import { ConfirmationDialog } from "./confirmation-dialog";
-import { getJoinErrorKind, isSafeRecruitingToken } from "./public-recruiting-view-model";
+import {
+  focusIfConnected,
+  getJoinErrorKind,
+  isSafeRecruitingToken,
+  prepareRecruitingJoinAuthReturn,
+} from "./public-recruiting-view-model";
 import {
   PUBLIC_PRIMARY_BUTTON,
   PUBLIC_SECONDARY_BUTTON,
@@ -38,8 +43,7 @@ export function RecruitingJoin({ token }: { token: string }) {
   const [joined, setJoined] = useState(false);
   const infoGenerationRef = useRef(0);
   const authGenerationRef = useRef(0);
-
-  const joinPath = `/recruiting/join/${token}`;
+  const successHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const loadInfo = useCallback(async () => {
     const generation = ++infoGenerationRef.current;
@@ -66,11 +70,15 @@ export function RecruitingJoin({ token }: { token: string }) {
 
   const checkAuth = useCallback(async () => {
     const generation = ++authGenerationRef.current;
-    if (!isSafeRecruitingToken(token)) {
+    if (
+      !prepareRecruitingJoinAuthReturn(token, {
+        remember: rememberAuthReturn,
+        clear: clearAuthReturn,
+      })
+    ) {
       setAuthState("logged_out");
       return;
     }
-    rememberAuthReturn(joinPath);
     if (!tokenStore.get()) {
       setAuthState("logged_out");
       return;
@@ -89,7 +97,7 @@ export function RecruitingJoin({ token }: { token: string }) {
       if (tokenStore.get()) setAuthState("retry");
       else setAuthState("logged_out");
     }
-  }, [joinPath, router, token]);
+  }, [router, token]);
 
   useEffect(() => {
     void loadInfo();
@@ -99,6 +107,10 @@ export function RecruitingJoin({ token }: { token: string }) {
       authGenerationRef.current += 1;
     };
   }, [checkAuth, loadInfo]);
+
+  useEffect(() => {
+    if (joined) focusIfConnected(successHeadingRef.current);
+  }, [joined]);
 
   async function accept(confirmSwitch: boolean) {
     if (joinPending) return;
@@ -163,6 +175,7 @@ export function RecruitingJoin({ token }: { token: string }) {
     return (
       <PublicRecruitingNotice
         role="status"
+        headingRef={successHeadingRef}
         title="함께할 준비가 끝났어요."
         description="팀 연결이 완료됐어요. 이제 인파에서 함께 일할 흐름을 이어갈 수 있어요."
         action={<Link href="/home" className={PUBLIC_PRIMARY_BUTTON}>인파 홈으로 가기</Link>}
