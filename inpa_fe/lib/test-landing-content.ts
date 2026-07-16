@@ -36,6 +36,8 @@ export type ProductScreen = {
   description: string;
   image: `/landing-test/${ProductScreenId}.webp`;
   imageAlt: string;
+  width: number;
+  height: number;
   highlights: readonly [string, string] | readonly [string, string, string];
   privacyNote?: string;
 };
@@ -49,6 +51,8 @@ export const PRODUCT_SCREENS: readonly ProductScreen[] = [
       "목표와 이번 달 활동, 오늘 일정을 한 화면에서 보고 다음 행동을 정합니다.",
     image: "/landing-test/dashboard.webp",
     imageAlt: "인파 대시보드 실제 화면: 월 목표, 영업 단계, 오늘 일정",
+    width: 1200,
+    height: 570,
     highlights: ["월 목표와 현재 흐름", "고객 단계별 현황", "오늘 일정과 빠른 실행"],
   },
   {
@@ -59,6 +63,8 @@ export const PRODUCT_SCREENS: readonly ProductScreen[] = [
       "DB, TA, FA, 청약 흐름과 연락 시점을 함께 보며 고객별 다음 할 일을 이어갑니다.",
     image: "/landing-test/customers.webp",
     imageAlt: "인파 고객 관리 실제 화면: 단계별 고객 현황",
+    width: 1200,
+    height: 525,
     highlights: ["단계별 고객 보기", "연락 시점과 상태 확인", "고객 정보와 다음 할 일 연결"],
     privacyNote: "일부 개인정보 보호 처리",
   },
@@ -70,6 +76,8 @@ export const PRODUCT_SCREENS: readonly ProductScreen[] = [
       "등록한 증권의 담보를 같은 항목으로 모으고, 설계사님 기준에 따라 색으로 확인합니다.",
     image: "/landing-test/coverage.webp",
     imageAlt: "인파 보장 정리 실제 화면: 담보별 넉넉, 적정, 부족 표시",
+    width: 1440,
+    height: 1089,
     highlights: ["100개 이상 담보 항목", "넉넉, 적정, 부족 표시", "설계사님 기준 적용"],
   },
   {
@@ -80,6 +88,8 @@ export const PRODUCT_SCREENS: readonly ProductScreen[] = [
       "담보와 보험료 변화를 나란히 정리해 고객 안내 전에 확인할 내용을 준비합니다.",
     image: "/landing-test/compare.webp",
     imageAlt: "인파 비교 분석 실제 화면: 현재와 제안 담보 비교",
+    width: 1440,
+    height: 442,
     highlights: ["담보별 금액 차이", "보험료 유형별 구분", "고객 안내용 내용 복사"],
   },
   {
@@ -90,9 +100,28 @@ export const PRODUCT_SCREENS: readonly ProductScreen[] = [
       "고객이 고른 상담 시간을 확인하고, 개인 일정과 함께 한 달 흐름으로 관리합니다.",
     image: "/landing-test/schedule.webp",
     imageAlt: "인파 일정 관리 실제 화면: 달력과 상담 예약 요청",
+    width: 1440,
+    height: 590,
     highlights: ["상담 가능한 시간 설정", "예약 요청 확인", "개인 일정과 함께 보기"],
   },
 ];
+
+export function getAdjacentProductScreenIndex(
+  currentIndex: number,
+  key: "ArrowLeft" | "ArrowRight",
+): number {
+  const offset = key === "ArrowLeft" ? -1 : 1;
+
+  return (currentIndex + offset + PRODUCT_SCREENS.length) % PRODUCT_SCREENS.length;
+}
+
+export function getProductGalleryIds(id: ProductScreenId) {
+  return {
+    tabId: `landing-test-product-tab-${id}`,
+    panelId: `landing-test-product-panel-${id}`,
+    dialogTitleId: `landing-test-product-dialog-title-${id}`,
+  } as const;
+}
 
 export const WORKFLOW_STEPS = [
   {

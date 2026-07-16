@@ -20,6 +20,7 @@ import {
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { InpaMark } from "@/components/inpa-logo";
+import { TestProductGallery } from "@/components/test-product-gallery";
 import {
   AUDIENCES,
   DIFFERENTIATORS,
@@ -218,8 +219,8 @@ export function TestLanding() {
             <Image
               src={dashboard.image}
               alt={dashboard.imageAlt}
-              width={1200}
-              height={570}
+              width={dashboard.width}
+              height={dashboard.height}
               priority
               sizes="(max-width: 1024px) 100vw, 58vw"
               className="mt-2 h-auto w-full rounded-2xl border border-[var(--line)]"
@@ -262,45 +263,7 @@ export function TestLanding() {
             </p>
           </div>
 
-          <div className="mt-12 grid gap-6 md:grid-cols-2">
-            {PRODUCT_SCREENS.map((screen, index) => (
-              <article
-                key={screen.id}
-                data-screen-id={screen.id}
-                className={`overflow-hidden rounded-3xl border border-[var(--line)] bg-white shadow-card ${index === 0 ? "md:col-span-2" : ""}`}
-              >
-                <div className={`relative bg-[#edf1f8] ${index === 0 ? "aspect-[1200/570]" : "aspect-[16/9]"}`}>
-                  <Image
-                    src={screen.image}
-                    alt={screen.imageAlt}
-                    fill
-                    sizes={index === 0 ? "(max-width: 768px) 100vw, 1200px" : "(max-width: 768px) 100vw, 50vw"}
-                    className="object-contain object-top"
-                  />
-                </div>
-                <div className="p-6 sm:p-7">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-[var(--accent-tint)] px-3 py-1 text-xs font-extrabold text-[var(--brand)]">{screen.label}</span>
-                    {screen.privacyNote && (
-                      <span className="rounded-full bg-[var(--surface-2)] px-3 py-1 text-xs font-semibold text-[var(--ink-3)]">
-                        {screen.privacyNote}
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="mt-4 break-keep text-xl font-extrabold text-[var(--ink)]">{screen.title}</h3>
-                  <p className="mt-2 break-keep text-sm leading-6 text-[var(--ink-2)]">{screen.description}</p>
-                  <ul className="mt-5 grid gap-2 sm:grid-cols-3">
-                    {screen.highlights.map((highlight) => (
-                      <li key={highlight} className="flex items-start gap-2 text-sm font-semibold text-[var(--ink-2)]">
-                        <Check className="mt-0.5 shrink-0 text-[var(--success-ink)]" size={16} strokeWidth={2.4} aria-hidden />
-                        <span className="break-keep">{highlight}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </article>
-            ))}
-          </div>
+          <TestProductGallery />
         </div>
       </section>
 

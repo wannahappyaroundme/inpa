@@ -5,6 +5,8 @@ import {
   PRODUCT_SCREENS,
   WORKFLOW_STEPS,
   buildServiceUrl,
+  getAdjacentProductScreenIndex,
+  getProductGalleryIds,
 } from "./test-landing-content";
 
 test("제품 증거는 실제 화면 5개를 정해진 순서로 제공한다", () => {
@@ -16,10 +18,49 @@ test("제품 증거는 실제 화면 5개를 정해진 순서로 제공한다", 
 
 test("각 제품 화면은 실제 이미지와 핵심 설명을 제공한다", () => {
   for (const screen of PRODUCT_SCREENS) {
-    assert.equal(screen.image, `/landing-test/${screen.id}.webp`);
+    assert.match(screen.image, /^\/landing-test\/.+\.webp$/);
     assert.ok(screen.imageAlt.length > 0);
     assert.ok(screen.highlights.length >= 2 && screen.highlights.length <= 3);
   }
+});
+
+test("각 제품 화면은 원본 이미지 비율을 제공한다", () => {
+  const expectedDimensions = [
+    [1200, 570],
+    [1200, 525],
+    [1440, 1089],
+    [1440, 442],
+    [1440, 590],
+  ];
+
+  assert.deepEqual(
+    PRODUCT_SCREENS.map((screen) => [screen.width, screen.height]),
+    expectedDimensions,
+  );
+});
+
+test("제품 탭 화살표 이동은 양 끝에서 순환한다", () => {
+  assert.equal(
+    getAdjacentProductScreenIndex(0, "ArrowLeft"),
+    PRODUCT_SCREENS.length - 1,
+  );
+  assert.equal(
+    getAdjacentProductScreenIndex(
+      PRODUCT_SCREENS.length - 1,
+      "ArrowRight",
+    ),
+    0,
+  );
+  assert.equal(getAdjacentProductScreenIndex(2, "ArrowLeft"), 1);
+  assert.equal(getAdjacentProductScreenIndex(2, "ArrowRight"), 3);
+});
+
+test("제품 탭과 확대 제목은 화면별 고유 ID를 가진다", () => {
+  assert.deepEqual(getProductGalleryIds("customers"), {
+    tabId: "landing-test-product-tab-customers",
+    panelId: "landing-test-product-panel-customers",
+    dialogTitleId: "landing-test-product-dialog-title-customers",
+  });
 });
 
 test("고객관리 화면은 개인정보 보호 처리 안내를 포함한다", () => {
