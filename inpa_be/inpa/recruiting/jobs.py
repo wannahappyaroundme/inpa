@@ -77,6 +77,7 @@ def produce_recruiting_reminders(run_date=None):
             candidate__stage=RecruitingCandidate.Stage.TEAM_JOIN,
             candidate__selection_status=RecruitingCandidate.SelectionStatus.ACTIVE,
             candidate__contact_opt_out_at__isnull=True,
+            candidate__joined_user__isnull=False,
         )
         .select_related("candidate")
         .order_by("pk")
@@ -129,6 +130,10 @@ def cleanup_expired_recruiting_candidates(now=None):
             if candidate is None or candidate.retention_expires_at is None:
                 continue
             if candidate.retention_expires_at > now:
+                continue
+            # joined_user는 현재 합류 계정, joined_at은 계정 삭제 후에도 남는 합류 증거다.
+            # 어느 쪽이든 있으면 일반 지원자 개인정보 정리 대상으로 보지 않는다.
+            if candidate.joined_user_id is not None or candidate.joined_at is not None:
                 continue
 
             if candidate.contact_opt_out_at is not None:

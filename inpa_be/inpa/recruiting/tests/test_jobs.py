@@ -258,6 +258,29 @@ class RecruitingJobTests(TestCase):
             1,
         )
 
+    def test_team_join_stage_without_joined_account_has_no_settlement_reminder(self):
+        candidate = self._candidate(
+            stage=RecruitingCandidate.Stage.TEAM_JOIN,
+            joined_user=None,
+            joined_at=None,
+            name="팀 합류 설계사",
+            phone="",
+            current_affiliation="",
+            region="",
+        )
+        SettlementCheck.objects.create(
+            candidate=candidate,
+            week=1,
+            due_on=self.today,
+        )
+
+        self.assertEqual(produce_recruiting_reminders(self.today), 0)
+        self.assertFalse(
+            Notification.objects.filter(
+                notif_type=NotifType.RECRUITING_SETTLEMENT
+            ).exists()
+        )
+
     def test_opted_out_candidate_is_never_reminded(self):
         candidate = self._candidate(next_action_at=self._kst(self.today))
         stop_candidate_contact(candidate=candidate)
@@ -390,6 +413,45 @@ class RecruitingJobTests(TestCase):
         )
         self.assertEqual(cleanup_expired_recruiting_candidates(), 0)
         self.assertTrue(RecruitingCandidate.objects.filter(pk=malformed.pk).exists())
+
+    def test_expired_opt_out_with_joined_account_is_never_deleted(self):
+        joined = self._user("optout-joined@inpa.local", "합류 설계사")
+        candidate = self._candidate(
+            stage=RecruitingCandidate.Stage.ENDED,
+            joined_user=joined,
+            joined_at=timezone.now() - timedelta(days=40),
+            name="정리 요청",
+            phone="",
+            current_affiliation="",
+            region="",
+            ended_at=timezone.now() - timedelta(days=31),
+            contact_opt_out_at=timezone.now() - timedelta(days=31),
+            retention_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        self.assertEqual(cleanup_expired_recruiting_candidates(), 0)
+        candidate.refresh_from_db()
+        self.assertEqual(candidate.joined_user, joined)
+        self.assertIsNotNone(candidate.joined_at)
+
+    def test_expired_opt_out_with_historical_join_timestamp_is_never_deleted(self):
+        candidate = self._candidate(
+            stage=RecruitingCandidate.Stage.ENDED,
+            joined_user=None,
+            joined_at=timezone.now() - timedelta(days=40),
+            name="정리 요청",
+            phone="",
+            current_affiliation="",
+            region="",
+            ended_at=timezone.now() - timedelta(days=31),
+            contact_opt_out_at=timezone.now() - timedelta(days=31),
+            retention_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        self.assertEqual(cleanup_expired_recruiting_candidates(), 0)
+        candidate.refresh_from_db()
+        self.assertIsNone(candidate.joined_user)
+        self.assertIsNotNone(candidate.joined_at)
 
     def test_feature_off_skips_reminders_but_runner_still_cleans_retention(self):
         candidate = self._candidate(
