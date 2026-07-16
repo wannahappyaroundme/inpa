@@ -11,6 +11,7 @@ from inpa.recruiting.models import (
     RecruitingConsentLog,
     RecruitingPage,
 )
+from inpa.recruiting.services import RecruitingLinkUnavailable
 
 
 @override_settings(RECRUITING_ENABLED=True)
@@ -212,6 +213,27 @@ class RecruitingPublicApiTests(TestCase):
         self.assertEqual(response.data["code"], "recruiting_apply_daily_limit")
         self.assertIn("다시 지원", response.data["message"])
         self.assertEqual(RecruitingCandidate.objects.filter(campaign=self.campaign).count(), 30)
+
+    def test_submission_race_with_link_deactivation_returns_410_without_candidate(self):
+        with patch(
+            "inpa.recruiting.public_views.create_candidate_submission",
+            side_effect=RecruitingLinkUnavailable,
+        ):
+            response = self.apply()
+
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.data["code"], "recruiting_link_renewed")
+        self.assertFalse(RecruitingCandidate.objects.exists())
+
+    def test_unpublished_page_post_returns_410_without_candidate(self):
+        self.campaign.page.is_published = False
+        self.campaign.page.save(update_fields=["is_published", "updated_at"])
+
+        response = self.apply()
+
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.data["code"], "recruiting_link_renewed")
+        self.assertFalse(RecruitingCandidate.objects.exists())
 
     def test_public_response_never_reveals_existing_owner_or_candidate(self):
         old = self.apply()

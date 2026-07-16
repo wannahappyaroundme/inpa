@@ -1,6 +1,7 @@
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from inpa.accounts.models import Profile, User
 from inpa.recruiting.models import RecruitingCampaign, RecruitingCandidate, RecruitingPage
@@ -107,6 +108,23 @@ class RecruitingCandidateApiTests(TestCase):
         self.assertFalse(old_campaign.is_active)
         self.assertEqual(old_campaign.public_token, old_token)
         self.assertNotIn(str(old_token), campaign_response.data["public_url"])
+
+    def test_page_patch_locks_page_before_publish_state_change(self):
+        self.client.force_authenticate(self.owner)
+        original = RecruitingPage.objects.select_for_update
+        with patch(
+            "inpa.recruiting.models.RecruitingPage.objects.select_for_update",
+            wraps=original,
+        ) as select_for_update:
+            response = self.client.patch(
+                "/api/v1/recruiting/page/",
+                {"is_published": False},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        select_for_update.assert_called_once_with()
+        self.assertFalse(response.data["is_published"])
 
     def test_opted_out_candidate_is_hidden_from_list_detail_and_patch(self):
         self.candidate.contact_opt_out_at = timezone.now()

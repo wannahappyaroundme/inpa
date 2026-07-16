@@ -16,11 +16,31 @@ from inpa.recruiting.models import (
 from inpa.recruiting.services import (
     ALLOWED_STAGE_TRANSITIONS,
     RecruitingApplicationLimitReached,
+    RecruitingLinkUnavailable,
     apply_leader_choice,
     create_candidate_submission,
     stop_candidate_contact,
     transition_candidate,
 )
+
+
+class NoRelatedJoinLockQuerySet:
+    """잠금 queryset에 select_related가 다시 붙으면 즉시 실패시킨다."""
+
+    def __init__(self, queryset):
+        self.queryset = queryset
+
+    def select_related(self, *args, **kwargs):
+        raise AssertionError("select_for_update 경로에는 select_related를 연결하지 않아요.")
+
+    def filter(self, *args, **kwargs):
+        return type(self)(self.queryset.filter(*args, **kwargs))
+
+    def get(self, *args, **kwargs):
+        return self.queryset.get(*args, **kwargs)
+
+    def __iter__(self):
+        return iter(self.queryset)
 
 
 @override_settings(RECRUITING_ENABLED=True)
@@ -309,12 +329,72 @@ class RecruitingSubmissionServiceTests(TestCase):
             30,
         )
 
-    def test_new_submission_locks_campaign_before_daily_limit_check(self):
-        original = RecruitingCampaign.objects.select_for_update
+    def test_submission_locks_campaign_then_page_without_related_joins(self):
+        lock_order = []
+
+        def campaign_lock():
+            lock_order.append("campaign")
+            return NoRelatedJoinLockQuerySet(RecruitingCampaign.objects.all())
+
+        def page_lock():
+            lock_order.append("page")
+            return NoRelatedJoinLockQuerySet(RecruitingPage.objects.all())
+
         with patch(
             "inpa.recruiting.services.RecruitingCampaign.objects.select_for_update",
-            wraps=original,
-        ) as select_for_update:
+            side_effect=campaign_lock,
+        ), patch(
+            "inpa.recruiting.services.RecruitingPage.objects.select_for_update",
+            side_effect=page_lock,
+        ):
             self.submit()
 
-        select_for_update.assert_called_once_with()
+        self.assertEqual(lock_order, ["campaign", "page"])
+
+    def test_leader_choice_candidate_lock_has_no_related_join(self):
+        old = self.submit().candidate
+        pending = self.submit(
+            campaign=self.other_campaign,
+            prior_manage_token=str(old.manage_token),
+        )
+        with patch(
+            "inpa.recruiting.services.RecruitingCandidate.objects.select_for_update",
+            return_value=NoRelatedJoinLockQuerySet(RecruitingCandidate.objects.all()),
+        ):
+            selected = apply_leader_choice(
+                token=pending.choice_token,
+                choice="keep_current",
+            )
+
+        self.assertEqual(selected.pk, old.pk)
+
+    def test_transition_candidate_lock_has_no_related_join(self):
+        candidate = self.submit().candidate
+        with patch(
+            "inpa.recruiting.services.RecruitingCandidate.objects.select_for_update",
+            return_value=NoRelatedJoinLockQuerySet(RecruitingCandidate.objects.all()),
+        ):
+            updated = transition_candidate(
+                candidate=candidate,
+                actor=self.owner,
+                to_stage=RecruitingCandidate.Stage.CONTACT,
+            )
+
+        self.assertEqual(updated.stage, RecruitingCandidate.Stage.CONTACT)
+
+    def test_stale_active_campaign_is_rechecked_after_lock(self):
+        stale_campaign = RecruitingCampaign.objects.get(pk=self.campaign.pk)
+        RecruitingCampaign.objects.filter(pk=self.campaign.pk).update(is_active=False)
+
+        with self.assertRaises(RecruitingLinkUnavailable):
+            self.submit(campaign=stale_campaign)
+
+        self.assertFalse(RecruitingCandidate.objects.filter(campaign=self.campaign).exists())
+
+    def test_unpublished_page_is_rechecked_after_lock(self):
+        RecruitingPage.objects.filter(pk=self.campaign.page_id).update(is_published=False)
+
+        with self.assertRaises(RecruitingLinkUnavailable):
+            self.submit()
+
+        self.assertFalse(RecruitingCandidate.objects.filter(campaign=self.campaign).exists())

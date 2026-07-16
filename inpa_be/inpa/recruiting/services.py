@@ -70,6 +70,10 @@ class RecruitingApplicationLimitReached(Exception):
     pass
 
 
+class RecruitingLinkUnavailable(Exception):
+    pass
+
+
 class PendingSubmissionVerificationRequired(Exception):
     pass
 
@@ -196,13 +200,11 @@ def create_candidate_submission(*, campaign, data, ip_address=None):
         raise ValidationError("개인정보 수집과 영입 상담 연락에 동의하면 바로 지원할 수 있어요.")
     phone = normalize_phone(data.get("phone", ""))
     submission_key = _coerce_submission_key(data.get("submission_key"))
-    # PostgreSQL에서는 캠페인 단위로 신규 제출을 직렬화한다. SQLite 테스트에서는
-    # 잠금 호출 계약만 확인하며, 실제 동시성은 PostgreSQL 통합 검증 대상으로 남긴다.
-    campaign = (
-        RecruitingCampaign.objects.select_for_update()
-        .select_related("page__owner__profile")
-        .get(pk=campaign.pk)
-    )
+    # PostgreSQL은 nullable OUTER JOIN이 붙은 FOR UPDATE를 거부하므로 본체 행만 잠근다.
+    campaign = RecruitingCampaign.objects.select_for_update().get(pk=campaign.pk)
+    page = RecruitingPage.objects.select_for_update().get(pk=campaign.page_id)
+    if not campaign.is_active or not page.is_published:
+        raise RecruitingLinkUnavailable
 
     existing = RecruitingCandidate.objects.select_related("owner__profile").filter(
         campaign=campaign,
@@ -215,7 +217,7 @@ def create_candidate_submission(*, campaign, data, ip_address=None):
         manage_token=data.get("prior_manage_token"),
         phone=phone,
     )
-    owner = campaign.page.owner
+    owner = page.owner
     if prior is not None and prior.owner_id == owner.pk:
         return SubmissionResult(candidate=prior, created=False)
 
@@ -289,9 +291,9 @@ def apply_leader_choice(*, token, choice):
     old_id, new_id = read_leader_choice_token(token)
     locked = {
         item.pk: item
-        for item in RecruitingCandidate.objects.select_for_update()
-        .select_related("campaign")
-        .filter(pk__in=(old_id, new_id))
+        for item in RecruitingCandidate.objects.select_for_update().filter(
+            pk__in=(old_id, new_id)
+        )
     }
     old = locked.get(old_id)
     new = locked.get(new_id)
@@ -396,7 +398,7 @@ def apply_leader_choice(*, token, choice):
 
 @transaction.atomic
 def transition_candidate(*, candidate, actor, to_stage, next_action="", next_action_at=None):
-    locked = type(candidate).objects.select_for_update().select_related("campaign").get(pk=candidate.pk)
+    locked = type(candidate).objects.select_for_update().get(pk=candidate.pk)
     if (
         locked.selection_status != locked.SelectionStatus.ACTIVE
         or locked.contact_opt_out_at

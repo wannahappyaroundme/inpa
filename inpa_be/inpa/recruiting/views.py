@@ -116,13 +116,15 @@ class RecruitingPageView(RecruitingEnabledMixin, APIView):
         return Response(RecruitingPageSerializer(page).data)
 
     def patch(self, request):
-        page, _ = get_or_create_recruiting_page(request.user)
-        serializer = RecruitingPageSerializer(page, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        was_published = page.is_published
-        page = serializer.save()
-        if not was_published and page.is_published:
-            _schedule_event(owner=request.user, event_type=RecruitingEvent.EventType.PAGE_PUBLISHED)
+        with transaction.atomic():
+            page, _ = get_or_create_recruiting_page(request.user)
+            page = type(page).objects.select_for_update().get(pk=page.pk)
+            serializer = RecruitingPageSerializer(page, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            was_published = page.is_published
+            page = serializer.save()
+            if not was_published and page.is_published:
+                _schedule_event(owner=request.user, event_type=RecruitingEvent.EventType.PAGE_PUBLISHED)
         page = type(page).objects.select_related("owner__profile", "headline_template").prefetch_related("templates").get(pk=page.pk)
         return Response(RecruitingPageSerializer(page).data)
 

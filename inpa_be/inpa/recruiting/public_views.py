@@ -18,6 +18,7 @@ from .serializers import (
 from .services import (
     PendingSubmissionVerificationRequired,
     RecruitingApplicationLimitReached,
+    RecruitingLinkUnavailable,
     TeamAccountManagementRequired,
     _schedule_event,
     apply_leader_choice,
@@ -139,6 +140,8 @@ class PublicRecruitingCampaignView(RecruitingEnabledMixin, APIView):
                 data=serializer.validated_data,
                 ip_address=request.META.get("REMOTE_ADDR"),
             )
+        except RecruitingLinkUnavailable:
+            return _renewed_response()
         except RecruitingApplicationLimitReached:
             return Response(
                 {
