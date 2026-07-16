@@ -7,7 +7,7 @@ import { register, getInviteInfo, tokenStore, ApiError, type InviteInfo } from "
 import {
   consumeAuthReturn,
   peekAuthReturn,
-  processAuthReturnNext,
+  processAuthReturnSearch,
 } from "@/lib/auth-return";
 import { readCapturedUtm } from "@/lib/useUtmCapture";
 import { GoogleSignInButton } from "@/components/google-signin-button";
@@ -42,8 +42,7 @@ export default function RegisterPage() {
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
 
   useEffect(() => {
-    const next = new URLSearchParams(window.location.search).get("next");
-    setAuthReturnPath(processAuthReturnNext(next));
+    setAuthReturnPath(processAuthReturnSearch(window.location.search));
     if (tokenStore.get()) router.replace(consumeAuthReturn() ?? "/home");
   }, [router]);
 

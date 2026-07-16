@@ -1,6 +1,7 @@
 const AUTH_RETURN_STORAGE_KEY = "inpa_auth_return";
 const AUTH_RETURN_TTL_MS = 24 * 60 * 60 * 1000;
-const AUTH_RETURN_PATH = /^\/recruiting\/join\/[A-Za-z0-9._:-]+\/?$/;
+const AUTH_RETURN_PATH = /^\/recruiting\/join\/([A-Za-z0-9._:-]+)\/?$/;
+const ENCODED_NEXT_KEY = /^(?:n|%6[eE])(?:e|%65)(?:x|%78)(?:t|%74)$/;
 
 interface StoredAuthReturn {
   path: string;
@@ -25,7 +26,9 @@ function removeStoredReturn(storage: Storage): void {
 }
 
 export function isSafeAuthReturnPath(path: unknown): path is string {
-  return typeof path === "string" && AUTH_RETURN_PATH.test(path);
+  if (typeof path !== "string") return false;
+  const match = AUTH_RETURN_PATH.exec(path);
+  return match !== null && match[1] !== "." && match[1] !== "..";
 }
 
 export function clearAuthReturn(): void {
@@ -89,4 +92,46 @@ export function processAuthReturnNext(next: unknown): string | null {
     return null;
   }
   return rememberAuthReturn(next) ? next : null;
+}
+
+export function processAuthReturnSearch(rawSearch: unknown): string | null {
+  if (
+    typeof rawSearch !== "string" ||
+    (rawSearch !== "" && !rawSearch.startsWith("?"))
+  ) {
+    clearAuthReturn();
+    return null;
+  }
+
+  const rawNextValues: string[] = [];
+  let hasEncodedNextKey = false;
+  const rawQuery = rawSearch.startsWith("?") ? rawSearch.slice(1) : rawSearch;
+  for (const pair of rawQuery ? rawQuery.split("&") : []) {
+    const separator = pair.indexOf("=");
+    const rawKey = separator === -1 ? pair : pair.slice(0, separator);
+    if (rawKey === "next") {
+      rawNextValues.push(separator === -1 ? "" : pair.slice(separator + 1));
+    } else if (ENCODED_NEXT_KEY.test(rawKey)) {
+      hasEncodedNextKey = true;
+    }
+  }
+
+  if (rawNextValues.length === 0 && !hasEncodedNextKey) {
+    return peekAuthReturn();
+  }
+  if (rawNextValues.length !== 1 || hasEncodedNextKey) {
+    clearAuthReturn();
+    return null;
+  }
+
+  const rawNext = rawNextValues[0];
+  if (
+    rawNext.includes("%") ||
+    rawNext.includes("+") ||
+    !isSafeAuthReturnPath(rawNext)
+  ) {
+    clearAuthReturn();
+    return null;
+  }
+  return rememberAuthReturn(rawNext) ? rawNext : null;
 }

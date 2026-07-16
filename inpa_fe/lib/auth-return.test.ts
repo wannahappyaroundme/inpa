@@ -7,6 +7,7 @@ import {
   isSafeAuthReturnPath,
   peekAuthReturn,
   processAuthReturnNext,
+  processAuthReturnSearch,
   rememberAuthReturn,
 } from "./auth-return";
 
@@ -72,6 +73,8 @@ test("외부·불완전·중첩·인코딩 경로를 모두 거부한다", () =>
     "/recruiting/join/token?next=/home",
     "/recruiting/join/token#section",
     "/recruiting/join/token%3Aencoded",
+    "/recruiting/join/.",
+    "/recruiting/join/..",
     null,
     undefined,
     123,
@@ -137,4 +140,73 @@ test("안전한 next는 저장하고 위험한 next는 이전 저장값까지 �
 
   assert.equal(processAuthReturnNext("https://evil.com"), null);
   assert.equal(storage.getItem(STORAGE_KEY), null);
+});
+
+test("raw query의 정확한 next 경로를 저장한다", () => {
+  useBrowserStorage();
+
+  assert.equal(
+    processAuthReturnSearch("?verified=true&next=/recruiting/join/signed:token"),
+    "/recruiting/join/signed:token",
+  );
+  assert.equal(peekAuthReturn(), "/recruiting/join/signed:token");
+});
+
+test("percent-encoded next 값과 더하기 값은 이전 저장값까지 지운다", () => {
+  const storage = useBrowserStorage();
+  const rejected = [
+    "?next=%2Frecruiting%2Fjoin%2Fsigned%3Atoken",
+    "?next=/recruiting/join/%2e%2e",
+    "?next=/recruiting/join/signed+token",
+  ];
+
+  for (const rawSearch of rejected) {
+    rememberAuthReturn("/recruiting/join/stale");
+    assert.equal(processAuthReturnSearch(rawSearch), null, rawSearch);
+    assert.equal(storage.getItem(STORAGE_KEY), null, rawSearch);
+  }
+});
+
+test("percent-encoded next key는 이전 저장값까지 지운다", () => {
+  const storage = useBrowserStorage();
+  rememberAuthReturn("/recruiting/join/stale");
+
+  assert.equal(processAuthReturnSearch("?n%65xt=/recruiting/join/token"), null);
+  assert.equal(storage.getItem(STORAGE_KEY), null);
+});
+
+test("중복되거나 빈 next는 이전 저장값까지 지운다", () => {
+  const storage = useBrowserStorage();
+  const rejected = [
+    "?next=/recruiting/join/one&next=/recruiting/join/two",
+    "?next=",
+    "?next",
+  ];
+
+  for (const rawSearch of rejected) {
+    rememberAuthReturn("/recruiting/join/stale");
+    assert.equal(processAuthReturnSearch(rawSearch), null, rawSearch);
+    assert.equal(storage.getItem(STORAGE_KEY), null, rawSearch);
+  }
+});
+
+test("raw query의 점 토큰은 router 정규화 전에 거부한다", () => {
+  const storage = useBrowserStorage();
+
+  for (const token of [".", ".."]) {
+    rememberAuthReturn("/recruiting/join/stale");
+    assert.equal(processAuthReturnSearch(`?next=/recruiting/join/${token}`), null);
+    assert.equal(storage.getItem(STORAGE_KEY), null);
+  }
+});
+
+test("raw query에 next가 없으면 저장된 반환 경로를 보존한다", () => {
+  useBrowserStorage();
+  rememberAuthReturn("/recruiting/join/preserved");
+
+  assert.equal(
+    processAuthReturnSearch("?verified=true"),
+    "/recruiting/join/preserved",
+  );
+  assert.equal(peekAuthReturn(), "/recruiting/join/preserved");
 });

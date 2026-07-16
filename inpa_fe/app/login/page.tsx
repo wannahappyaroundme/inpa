@@ -6,7 +6,7 @@ import { useState, useEffect, Suspense } from "react";
 import { login, resendVerification, tokenStore, ApiError } from "@/lib/api";
 import {
   consumeAuthReturn,
-  processAuthReturnNext,
+  processAuthReturnSearch,
 } from "@/lib/auth-return";
 import { GoogleSignInButton } from "@/components/google-signin-button";
 
@@ -53,7 +53,7 @@ function LoginForm() {
     if (params.get("verified") === "true") setVerifiedBanner(true);
     if (params.get("reset") === "done") setResetBanner(true);
     if (params.get("session") === "expired") setExpiredBanner(true);
-    processAuthReturnNext(params.get("next"));
+    processAuthReturnSearch(window.location.search);
     // Redirect if already logged in
     if (tokenStore.get()) router.replace(consumeAuthReturn() ?? "/home");
   }, [params, router]);
@@ -67,7 +67,7 @@ function LoginForm() {
     try {
       const res = await login({ email, password });
       tokenStore.set(res.token);
-      processAuthReturnNext(params.get("next"));
+      processAuthReturnSearch(window.location.search);
       if (!res.onboarding_completed) {
         router.replace("/onboarding");
       } else {

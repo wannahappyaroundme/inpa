@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { googleLogin, tokenStore, ApiError } from "@/lib/api";
 import {
   consumeAuthReturn,
-  processAuthReturnNext,
+  processAuthReturnSearch,
 } from "@/lib/auth-return";
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
@@ -51,8 +51,7 @@ export function GoogleSignInButton() {
           try {
             const res = await googleLogin(resp.credential);
             tokenStore.set(res.token);
-            const next = new URLSearchParams(window.location.search).get("next");
-            processAuthReturnNext(next);
+            processAuthReturnSearch(window.location.search);
             router.replace(
               res.onboarding_completed
                 ? consumeAuthReturn() ?? "/home"
