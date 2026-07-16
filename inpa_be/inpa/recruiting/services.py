@@ -696,17 +696,10 @@ def complete_settlement_check(*, check, owner, state, blocker="", next_support="
         return locked
 
     now = timezone.now()
-    reopen_future_check = (
-        locked.state == SettlementCheck.State.STOPPED
-        and state == SettlementCheck.State.ACTIVE
-        and locked.due_on > timezone.localdate()
-    )
     locked.state = state
     locked.blocker = blocker
     locked.next_support = next_support
-    if reopen_future_check:
-        locked.completed_at = None
-    elif locked.completed_at is None:
+    if locked.completed_at is None:
         locked.completed_at = now
     locked.save(
         update_fields=["state", "blocker", "next_support", "completed_at", "updated_at"]
@@ -747,5 +740,45 @@ def complete_settlement_check(*, check, owner, state, blocker="", next_support="
         candidate=candidate,
         event_type=RecruitingEvent.EventType.SETTLEMENT_COMPLETED,
         metadata={"week": locked.week, "state": locked.state},
+    )
+    return locked
+
+
+@transaction.atomic
+def reopen_settlement_check(*, check, owner):
+    locked = SettlementCheck.objects.select_for_update().get(pk=check.pk)
+    candidate = RecruitingCandidate.objects.get(pk=locked.candidate_id)
+    if candidate.owner_id != owner.pk:
+        raise ValueError("settlement_owner_mismatch")
+    if locked.state == SettlementCheck.State.ACTIVE and locked.completed_at is None:
+        return locked
+    if (
+        locked.state != SettlementCheck.State.STOPPED
+        or locked.due_on <= timezone.localdate()
+        or locked.completed_at is None
+    ):
+        raise ValidationError("정착 일정의 날짜와 상태를 확인하면 재개할 수 있어요.")
+
+    locked.state = SettlementCheck.State.ACTIVE
+    locked.blocker = SettlementCheck.Blocker.NONE
+    locked.next_support = SettlementCheck.NextSupport.SCHEDULE_ONLY
+    locked.completed_at = None
+    locked.save(
+        update_fields=["state", "blocker", "next_support", "completed_at", "updated_at"]
+    )
+    RecruitingActivity.objects.create(
+        candidate=candidate,
+        candidate_ref=candidate.audit_ref,
+        actor=owner,
+        event_type=RecruitingActivity.EventType.SETTLEMENT_REOPENED,
+        from_stage=RecruitingCandidate.Stage.TEAM_JOIN,
+        to_stage=RecruitingCandidate.Stage.TEAM_JOIN,
+    )
+    _schedule_event(
+        owner=owner,
+        campaign=candidate.campaign,
+        candidate=candidate,
+        event_type=RecruitingEvent.EventType.SETTLEMENT_REOPENED,
+        metadata={"week": locked.week, "state": SettlementCheck.State.ACTIVE},
     )
     return locked

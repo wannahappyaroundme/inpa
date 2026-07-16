@@ -28,6 +28,7 @@ def _join_api():
         TeamJoinResult,
         accept_team_join,
         complete_settlement_check,
+        reopen_settlement_check,
     )
     from inpa.recruiting.tokens import (
         RECRUITING_CHOICE_SALT,
@@ -39,6 +40,7 @@ def _join_api():
     return {
         "accept": accept_team_join,
         "complete": complete_settlement_check,
+        "reopen": reopen_settlement_check,
         "result_type": TeamJoinResult,
         "choice_salt": RECRUITING_CHOICE_SALT,
         "join_salt": RECRUITING_JOIN_SALT,
@@ -587,6 +589,14 @@ class SettlementCheckTests(TestCase):
         ]
         self.client = APIClient()
 
+    def test_reopen_has_dedicated_activity_and_event_enums(self):
+        self.assertIn(
+            "settlement_reopened", RecruitingActivity.EventType.values
+        )
+        self.assertIn(
+            "settlement_reopened", RecruitingEvent.EventType.values
+        )
+
     def test_support_needed_requires_blocker_and_next_support(self):
         self.client.force_authenticate(self.owner)
         response = self.client.post(
@@ -767,14 +777,15 @@ class SettlementCheckTests(TestCase):
         previous_activity_ids = list(
             RecruitingActivity.objects.filter(candidate=self.candidate).values_list("pk", flat=True)
         )
+        completed_activity_count = RecruitingActivity.objects.filter(
+            candidate=self.candidate,
+            event_type=RecruitingActivity.EventType.SETTLEMENT_COMPLETED,
+        ).count()
 
         with self.captureOnCommitCallbacks(execute=True):
-            reopened = _join_api()["complete"](
+            reopened = _join_api()["reopen"](
                 check=future,
                 owner=self.owner,
-                state=SettlementCheck.State.ACTIVE,
-                blocker="",
-                next_support="",
             )
 
         self.assertEqual(reopened.state, SettlementCheck.State.ACTIVE)
@@ -787,6 +798,40 @@ class SettlementCheckTests(TestCase):
         self.assertEqual(
             RecruitingActivity.objects.filter(candidate=self.candidate).count(), 2
         )
+        self.assertEqual(
+            RecruitingActivity.objects.filter(
+                candidate=self.candidate,
+                event_type=RecruitingActivity.EventType.SETTLEMENT_COMPLETED,
+            ).count(),
+            completed_activity_count,
+        )
+        self.assertEqual(
+            RecruitingActivity.objects.filter(
+                candidate=self.candidate,
+                event_type=RecruitingActivity.EventType.SETTLEMENT_REOPENED,
+            ).count(),
+            1,
+        )
+        reopen_event = RecruitingEvent.objects.get(
+            candidate=self.candidate,
+            event_type=RecruitingEvent.EventType.SETTLEMENT_REOPENED,
+        )
+        self.assertEqual(reopen_event.metadata, {"week": 4, "state": "active"})
+
+        reopened_at = reopened.updated_at
+        activity_count = RecruitingActivity.objects.filter(candidate=self.candidate).count()
+        event_count = RecruitingEvent.objects.filter(candidate=self.candidate).count()
+        with self.captureOnCommitCallbacks(execute=True):
+            repeated = _join_api()["reopen"](check=future, owner=self.owner)
+        self.assertIsNone(repeated.completed_at)
+        self.assertEqual(repeated.updated_at, reopened_at)
+        self.assertEqual(
+            RecruitingActivity.objects.filter(candidate=self.candidate).count(),
+            activity_count,
+        )
+        self.assertEqual(
+            RecruitingEvent.objects.filter(candidate=self.candidate).count(), event_count
+        )
 
     def test_reopened_active_check_can_be_completed_later(self):
         with self.captureOnCommitCallbacks(execute=True):
@@ -798,15 +843,41 @@ class SettlementCheckTests(TestCase):
                 next_support="",
             )
         future = SettlementCheck.objects.get(pk=self.checks[1].pk)
+        self.client.force_authenticate(self.owner)
         with self.captureOnCommitCallbacks(execute=True):
-            reopened = _join_api()["complete"](
-                check=future,
-                owner=self.owner,
-                state=SettlementCheck.State.ACTIVE,
-                blocker="",
-                next_support="",
+            reopen_response = self.client.post(
+                f"/api/v1/recruiting/settlement-checks/{future.pk}/reopen/",
+                {},
+                format="json",
             )
+        self.assertEqual(reopen_response.status_code, 200, reopen_response.content)
+        reopened = SettlementCheck.objects.get(pk=future.pk)
         self.assertIsNone(reopened.completed_at)
+        completed_before = RecruitingActivity.objects.filter(
+            candidate=self.candidate,
+            event_type=RecruitingActivity.EventType.SETTLEMENT_COMPLETED,
+        ).count()
+
+        updated_at = reopened.updated_at
+        activity_count = RecruitingActivity.objects.filter(candidate=self.candidate).count()
+        event_count = RecruitingEvent.objects.filter(candidate=self.candidate).count()
+        with self.captureOnCommitCallbacks(execute=True):
+            repeated_response = self.client.post(
+                f"/api/v1/recruiting/settlement-checks/{future.pk}/reopen/",
+                {},
+                format="json",
+            )
+        self.assertEqual(repeated_response.status_code, 200, repeated_response.content)
+        reopened.refresh_from_db()
+        self.assertIsNone(reopened.completed_at)
+        self.assertEqual(reopened.updated_at, updated_at)
+        self.assertEqual(
+            RecruitingActivity.objects.filter(candidate=self.candidate).count(),
+            activity_count,
+        )
+        self.assertEqual(
+            RecruitingEvent.objects.filter(candidate=self.candidate).count(), event_count
+        )
 
         with self.captureOnCommitCallbacks(execute=True):
             completed = _join_api()["complete"](
@@ -819,7 +890,144 @@ class SettlementCheckTests(TestCase):
 
         self.assertIsNotNone(completed.completed_at)
         self.assertEqual(
-            RecruitingActivity.objects.filter(candidate=self.candidate).count(), 3
+            RecruitingActivity.objects.filter(
+                candidate=self.candidate,
+                event_type=RecruitingActivity.EventType.SETTLEMENT_COMPLETED,
+            ).count(),
+            completed_before + 1,
+        )
+
+        completed_at = completed.completed_at
+        activity_count = RecruitingActivity.objects.filter(candidate=self.candidate).count()
+        event_count = RecruitingEvent.objects.filter(candidate=self.candidate).count()
+        with self.captureOnCommitCallbacks(execute=True):
+            retried = _join_api()["complete"](
+                check=future,
+                owner=self.owner,
+                state=SettlementCheck.State.ACTIVE,
+                blocker="",
+                next_support="",
+            )
+        self.assertEqual(retried.completed_at, completed_at)
+        self.assertEqual(
+            RecruitingActivity.objects.filter(candidate=self.candidate).count(),
+            activity_count,
+        )
+        self.assertEqual(
+            RecruitingEvent.objects.filter(candidate=self.candidate).count(), event_count
+        )
+
+    def test_complete_stopped_to_active_never_reopens_implicitly(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state=SettlementCheck.State.STOPPED,
+                blocker="",
+                next_support="",
+            )
+        future = SettlementCheck.objects.get(pk=self.checks[1].pk)
+        first_completed_at = future.completed_at
+
+        with self.captureOnCommitCallbacks(execute=True):
+            changed = _join_api()["complete"](
+                check=future,
+                owner=self.owner,
+                state=SettlementCheck.State.ACTIVE,
+                blocker="",
+                next_support="",
+            )
+
+        self.assertEqual(changed.state, SettlementCheck.State.ACTIVE)
+        self.assertEqual(changed.completed_at, first_completed_at)
+        self.assertEqual(
+            RecruitingActivity.objects.filter(
+                candidate=self.candidate,
+                event_type=RecruitingActivity.EventType.SETTLEMENT_REOPENED,
+            ).count(),
+            0,
+        )
+
+    def test_reopen_rejects_past_or_nonstopped_completed_checks_with_positive_detail(self):
+        now = timezone.now()
+        cases = (
+            (self.checks[0], SettlementCheck.State.STOPPED, timezone.localdate() - timedelta(days=1)),
+            (self.checks[1], SettlementCheck.State.SUPPORT_NEEDED, timezone.localdate() + timedelta(days=1)),
+            (self.checks[2], SettlementCheck.State.ACTIVE, timezone.localdate() + timedelta(days=1)),
+        )
+        for check, state, due_on in cases:
+            SettlementCheck.objects.filter(pk=check.pk).update(
+                state=state,
+                blocker=(
+                    SettlementCheck.Blocker.CUSTOMER_PROSPECTING
+                    if state == SettlementCheck.State.SUPPORT_NEEDED
+                    else SettlementCheck.Blocker.NONE
+                ),
+                next_support=(
+                    SettlementCheck.NextSupport.ACTIVITY_PLAN
+                    if state == SettlementCheck.State.SUPPORT_NEEDED
+                    else SettlementCheck.NextSupport.SCHEDULE_ONLY
+                ),
+                due_on=due_on,
+                completed_at=now,
+            )
+            self.client.force_authenticate(self.owner)
+            with self.subTest(state=state, due_on=due_on):
+                response = self.client.post(
+                    f"/api/v1/recruiting/settlement-checks/{check.pk}/reopen/",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("확인", str(response.json()))
+
+    def test_reopen_is_owner_only(self):
+        SettlementCheck.objects.filter(pk=self.checks[1].pk).update(
+            state=SettlementCheck.State.STOPPED,
+            blocker=SettlementCheck.Blocker.NONE,
+            next_support=SettlementCheck.NextSupport.CLOSE,
+            completed_at=timezone.now(),
+        )
+        self.client.force_authenticate(self.other)
+        response = self.client.post(
+            f"/api/v1/recruiting/settlement-checks/{self.checks[1].pk}/reopen/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_reopen_analytics_failure_keeps_required_reopen_history(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            _join_api()["complete"](
+                check=self.checks[0],
+                owner=self.owner,
+                state=SettlementCheck.State.STOPPED,
+                blocker="",
+                next_support="",
+            )
+        future = SettlementCheck.objects.get(pk=self.checks[1].pk)
+
+        with mock.patch(
+            "inpa.recruiting.services.RecruitingEvent.objects.create",
+            side_effect=RuntimeError("analytics down"),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                reopened = _join_api()["reopen"](check=future, owner=self.owner)
+
+        reopened.refresh_from_db()
+        self.assertEqual(reopened.state, SettlementCheck.State.ACTIVE)
+        self.assertIsNone(reopened.completed_at)
+        self.assertTrue(
+            RecruitingActivity.objects.filter(
+                candidate=self.candidate,
+                event_type=RecruitingActivity.EventType.SETTLEMENT_REOPENED,
+            ).exists()
+        )
+        self.assertFalse(
+            RecruitingEvent.objects.filter(
+                candidate=self.candidate,
+                event_type=RecruitingEvent.EventType.SETTLEMENT_REOPENED,
+            ).exists()
         )
 
     def test_analytics_failure_does_not_rollback_required_settlement_history(self):

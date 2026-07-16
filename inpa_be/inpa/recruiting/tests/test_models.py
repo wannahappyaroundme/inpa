@@ -261,6 +261,7 @@ class RecruitingModelTests(TestCase):
                 "leader_changed",
                 "team_joined",
                 "settlement_completed",
+                "settlement_reopened",
                 "candidate_purged",
             },
         )

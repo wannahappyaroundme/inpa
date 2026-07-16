@@ -12,7 +12,11 @@ from inpa.accounts.team import TeamSwitchConfirmationRequired
 
 from .models import RecruitingCandidate, SettlementCheck
 from .serializers import SettlementCheckCompleteSerializer, TeamJoinAcceptSerializer
-from .services import accept_team_join, complete_settlement_check
+from .services import (
+    accept_team_join,
+    complete_settlement_check,
+    reopen_settlement_check,
+)
 from .tokens import read_recruiting_join_token
 from .views import RecruitingEnabledMixin
 
@@ -44,6 +48,17 @@ def _read_candidate(token):
     ):
         raise RecruitingCandidate.DoesNotExist
     return candidate, payload
+
+
+def _settlement_payload(check):
+    return {
+        "id": check.pk,
+        "week": check.week,
+        "state": check.state,
+        "blocker": check.blocker,
+        "next_support": check.next_support,
+        "completed_at": check.completed_at,
+    }
 
 
 class RecruitingJoinView(RecruitingEnabledMixin, APIView):
@@ -150,13 +165,21 @@ class SettlementCheckCompleteView(RecruitingEnabledMixin, APIView):
             )
         except DjangoValidationError as exc:
             return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(
-            {
-                "id": updated.pk,
-                "week": updated.week,
-                "state": updated.state,
-                "blocker": updated.blocker,
-                "next_support": updated.next_support,
-                "completed_at": updated.completed_at,
-            }
-        )
+        return Response(_settlement_payload(updated))
+
+
+class SettlementCheckReopenView(RecruitingEnabledMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        check = SettlementCheck.objects.filter(
+            pk=pk,
+            candidate__owner=request.user,
+        ).first()
+        if check is None:
+            raise NotFound()
+        try:
+            updated = reopen_settlement_check(check=check, owner=request.user)
+        except DjangoValidationError as exc:
+            return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(_settlement_payload(updated))

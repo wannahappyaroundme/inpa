@@ -206,6 +206,7 @@ class RecruitingActivity(models.Model):
         LEADER_CHANGED = "leader_changed", "담당 변경"
         TEAM_JOINED = "team_joined", "팀 합류"
         SETTLEMENT_COMPLETED = "settlement_completed", "정착 확인"
+        SETTLEMENT_REOPENED = "settlement_reopened", "정착 일정 재개"
         CANDIDATE_PURGED = "candidate_purged", "정보 정리"
 
     candidate = models.ForeignKey(
@@ -318,6 +319,7 @@ class RecruitingEvent(models.Model):
         PREPARING_STARTED = "preparing_started", "위촉 준비 시작"
         TEAM_JOIN = "team_join", "팀 합류"
         SETTLEMENT_COMPLETED = "settlement_completed", "정착 확인"
+        SETTLEMENT_REOPENED = "settlement_reopened", "정착 일정 재개"
         MANAGER_PROMOTED = "manager_promoted", "관리자 성장"
 
     owner = models.ForeignKey(
