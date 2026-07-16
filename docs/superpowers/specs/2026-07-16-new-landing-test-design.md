@@ -1,8 +1,8 @@
 # new.inpa.kr/test 서비스 중심 랜딩 설계
 
-> 확정일: 2026-07-16  
-> 목적: `www.inpa.kr`의 빠른 이해·가입 구조와 `new.inpa.kr`의 브랜드·실제 화면을 결합한 최종 후보를 공개 테스트 경로에서 검증한다.  
-> 배포 주소: `https://new.inpa.kr/test`  
+> 확정일: 2026-07-16
+> 목적: `www.inpa.kr`의 빠른 이해·가입 구조와 `new.inpa.kr`의 브랜드·실제 화면을 결합한 최종 후보를 공개 테스트 경로에서 검증한다.
+> 배포 주소: `https://new.inpa.kr/test`
 > 기존 화면 보호: `https://new.inpa.kr/`와 `https://www.inpa.kr/`는 이번 작업에서 변경하지 않는다.
 
 ## 1. 결정 배경
