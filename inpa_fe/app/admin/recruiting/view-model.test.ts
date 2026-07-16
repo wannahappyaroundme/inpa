@@ -8,9 +8,12 @@ import {
   RECRUITING_TEMPLATE_KIND_LABELS,
   createLatestRequestGate,
   getAdminRecruitingFailure,
+  getCandidateContactStatusLabel,
+  getRecruitingActorLabel,
   getRecruitingRolloutCopy,
   getRecruitingTemplateIssue,
   normalizeAdminRecruitingPage,
+  shouldRefreshCandidatesAfterPurge,
 } from "./view-model.js";
 
 const validDraft = {
@@ -132,4 +135,24 @@ test("목록은 가장 최근에 시작한 요청만 화면 상태를 바꿀 수
   gate.invalidate();
   assert.equal(gate.isCurrent(second), false);
   assert.equal(gate.isCurrent(gate.begin()), true);
+});
+
+test("운영 기록 처리자는 계정과 공개 요청, 시스템 처리를 사실대로 구분한다", () => {
+  assert.equal(getRecruitingActorLabel("stage_changed", 17), "처리 계정 #17");
+  assert.equal(getRecruitingActorLabel("contact_stopped", null), "지원자 요청");
+  assert.equal(getRecruitingActorLabel("leader_changed", null), "지원자 선택");
+  assert.equal(getRecruitingActorLabel("candidate_purged", null), "시스템 처리");
+});
+
+test("연락 상태는 중단 기록과 종료·합류 단계에서 확인되는 사실만 표시한다", () => {
+  assert.equal(getCandidateContactStatusLabel("contact", false), "연락 중단 기록 없음");
+  assert.equal(getCandidateContactStatusLabel("ended", false), "대화 종료");
+  assert.equal(getCandidateContactStatusLabel("team_join", false), "팀 합류");
+  assert.equal(getCandidateContactStatusLabel("ended", true), "연락 중단 기록 있음");
+});
+
+test("지원 정보 새로고침은 정리 창이 닫힌 다음에만 시작한다", () => {
+  assert.equal(shouldRefreshCandidatesAfterPurge(false, false), false);
+  assert.equal(shouldRefreshCandidatesAfterPurge(true, true), false);
+  assert.equal(shouldRefreshCandidatesAfterPurge(false, true), true);
 });

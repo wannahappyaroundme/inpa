@@ -17,6 +17,7 @@ import {
   type PromotionOrderDetail,
   type BlogCategory,
 } from "@/lib/api";
+import { normalizeAdminApiError } from "@/lib/admin-api-error";
 
 // ─── re-export frequently used admin functions from api.ts ──────────────────
 export {
@@ -40,18 +41,6 @@ export {
 const API_BASE =
   (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api/v1").replace(/\/$/, "");
 
-function extractAdminErrorDetail(
-  data: Record<string, unknown>,
-  statusText: string,
-): string {
-  const direct = (data["detail"] as string) ?? (data["message"] as string);
-  if (direct) return direct;
-  for (const value of Object.values(data)) {
-    if (Array.isArray(value) && typeof value[0] === "string") return value[0];
-  }
-  return statusText;
-}
-
 async function req<T>(
   method: string,
   path: string,
@@ -73,11 +62,7 @@ async function req<T>(
   try { data = await res.json(); } catch { /* empty body */ }
 
   if (!res.ok) {
-    const code =
-      (data["error"] as string) ??
-      (data["code"] as string) ??
-      String(res.status);
-    const detail = extractAdminErrorDetail(data, res.statusText);
+    const { code, detail } = normalizeAdminApiError(data, res.status, res.statusText);
     throw new ApiError(res.status, code, detail);
   }
   return data as T;
@@ -95,8 +80,7 @@ async function reqVoid(method: string, path: string, body?: unknown): Promise<vo
   if (!res.ok) {
     let data: Record<string, unknown> = {};
     try { data = await res.json(); } catch { /* empty */ }
-    const code = (data["error"] as string) ?? String(res.status);
-    const detail = (data["detail"] as string) ?? res.statusText;
+    const { code, detail } = normalizeAdminApiError(data, res.status, res.statusText);
     throw new ApiError(res.status, code, detail);
   }
 }
@@ -825,7 +809,7 @@ async function reqBlogWrite(
   let data: Record<string, unknown> = {};
   try { data = await res.json(); } catch { /* empty */ }
   if (!res.ok) {
-    const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
+    const { code } = normalizeAdminApiError(data, res.status, res.statusText);
     throw new ApiError(res.status, code, extractBlogDetail(data, res.statusText));
   }
   return data as unknown as BlogAdminSaveResult;
@@ -881,7 +865,7 @@ export async function uploadBlogCover(id: number, file: File): Promise<BlogAdmin
   let data: Record<string, unknown> = {};
   try { data = await res.json(); } catch { /* empty */ }
   if (!res.ok) {
-    const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
+    const { code } = normalizeAdminApiError(data, res.status, res.statusText);
     throw new ApiError(res.status, code, extractBlogDetail(data, res.statusText));
   }
   return data as unknown as BlogAdmin;

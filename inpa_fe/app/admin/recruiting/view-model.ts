@@ -63,6 +63,33 @@ export const PURGE_REASON_LABELS: Record<AdminRecruitingPurgeReason, string> = {
   admin_correction: "운영 정보 바로잡기",
 };
 
+export function getRecruitingActorLabel(
+  eventType: AdminRecruitingEventType,
+  actorId: number | null,
+): string {
+  if (actorId !== null) return `처리 계정 #${actorId}`;
+  if (eventType === "contact_stopped") return "지원자 요청";
+  if (eventType === "leader_changed") return "지원자 선택";
+  return "시스템 처리";
+}
+
+export function getCandidateContactStatusLabel(
+  stage: AdminRecruitingStage,
+  contactOptedOut: boolean,
+): string {
+  if (contactOptedOut) return "연락 중단 기록 있음";
+  if (stage === "ended") return "대화 종료";
+  if (stage === "team_join") return "팀 합류";
+  return "연락 중단 기록 없음";
+}
+
+export function shouldRefreshCandidatesAfterPurge(
+  dialogOpen: boolean,
+  refreshQueued: boolean,
+): boolean {
+  return !dialogOpen && refreshQueued;
+}
+
 export function normalizeAdminRecruitingPage(value: number): number {
   return Number.isSafeInteger(value) && value > 0 ? value : 1;
 }

@@ -38,9 +38,12 @@ import {
   RECRUITING_TEMPLATE_KIND_LABELS,
   createLatestRequestGate,
   getAdminRecruitingFailure,
+  getCandidateContactStatusLabel,
+  getRecruitingActorLabel,
   getRecruitingRolloutCopy,
   getRecruitingTemplateIssue,
   normalizeAdminRecruitingPage,
+  shouldRefreshCandidatesAfterPurge,
   type AdminRecruitingFailure,
   type AdminRecruitingPurgeReason,
   type AdminRecruitingTemplateDraft,
@@ -556,6 +559,7 @@ function CandidateSection() {
   const [failure, setFailure] = useState<AdminRecruitingFailure | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [purgeTarget, setPurgeTarget] = useState<AdminRecruitingCandidateRow | null>(null);
+  const [refreshAfterPurge, setRefreshAfterPurge] = useState(false);
 
   const load = useCallback(
     async (requestedPage: number) => {
@@ -584,14 +588,24 @@ function CandidateSection() {
     void load(page);
   }, [load, page]);
 
+  useEffect(() => {
+    if (!shouldRefreshCandidatesAfterPurge(purgeTarget !== null, refreshAfterPurge)) return;
+    // 창 정리에서 원래 버튼으로 초점을 돌린 뒤, 다음 프레임에 그 행을 새로고침한다.
+    const frame = requestAnimationFrame(() => {
+      setRefreshAfterPurge(false);
+      void load(page);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [load, page, purgeTarget, refreshAfterPurge]);
+
   async function purgeCandidate(reason: AdminRecruitingPurgeReason): Promise<string | null> {
     if (!purgeTarget) return "정리할 지원 정보를 다시 선택해주세요.";
     gate.invalidate();
     try {
       await adminPurgeRecruitingCandidate(purgeTarget.id, reason);
       setSuccess(`${purgeTarget.name_masked} 지원 정보를 정리했습니다.`);
-      await load(page);
       setPurgeTarget(null);
+      setRefreshAfterPurge(true);
       return null;
     } catch (error) {
       return toFailure(error, "지원 정보를 다시 확인한 뒤 정리를 이어가주세요.").message;
@@ -669,14 +683,11 @@ function CandidateSection() {
                       <td className="px-4 py-3 text-ink3 tnum">{formatDate(candidate.created_at)}</td>
                       <td className="px-4 py-3 text-ink3 tnum">{formatDate(candidate.retention_expires_at)}</td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                            candidate.contact_opted_out
-                              ? "bg-warning-tint text-warning-ink"
-                              : "bg-success-tint text-success-ink"
-                          }`}
-                        >
-                          {candidate.contact_opted_out ? "연락 중단" : "연락 가능"}
+                        <span className="rounded-full bg-surface2 px-2.5 py-1 text-[11px] font-bold text-ink2">
+                          {getCandidateContactStatusLabel(
+                            candidate.stage,
+                            candidate.contact_opted_out,
+                          )}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -727,14 +738,11 @@ function CandidateSection() {
                   </div>
                 </dl>
                 <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4 min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between">
-                  <span
-                    className={`w-fit rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                      candidate.contact_opted_out
-                        ? "bg-warning-tint text-warning-ink"
-                        : "bg-success-tint text-success-ink"
-                    }`}
-                  >
-                    {candidate.contact_opted_out ? "연락 중단" : "연락 가능"}
+                  <span className="w-fit rounded-full bg-surface2 px-2.5 py-1 text-[11px] font-bold text-ink2">
+                    {getCandidateContactStatusLabel(
+                      candidate.stage,
+                      candidate.contact_opted_out,
+                    )}
                   </span>
                   <button
                     type="button"
@@ -1389,7 +1397,7 @@ function AuditSection() {
                       <td className="px-4 py-3 text-ink3">{stageLabel(row.from_stage)}</td>
                       <td className="px-4 py-3 text-ink3">{stageLabel(row.to_stage)}</td>
                       <td className="px-4 py-3 text-ink3 tnum">
-                        {row.actor_id === null ? "자동 처리" : `관리자 #${row.actor_id}`}
+                        {getRecruitingActorLabel(row.event_type, row.actor_id)}
                       </td>
                       <td className="px-4 py-3 text-ink3 tnum">{formatDateTime(row.created_at)}</td>
                     </tr>
@@ -1424,7 +1432,7 @@ function AuditSection() {
                     <div>
                       <dt className="text-[11px] font-semibold text-ink3">처리자</dt>
                       <dd className="mt-1 text-[13px] font-semibold text-ink tnum">
-                        {row.actor_id === null ? "자동 처리" : `관리자 #${row.actor_id}`}
+                        {getRecruitingActorLabel(row.event_type, row.actor_id)}
                       </dd>
                     </div>
                   </div>
