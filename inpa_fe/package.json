@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint:copy": "node scripts/check-copy.js"
+    "lint:copy": "node scripts/check-copy.js",
+    "test:unit": "tsx --test app/admin/recruiting/view-model.test.ts app/notifications/notification-action.test.ts components/recruiting/public-recruiting-view-model.test.ts components/recruiting/recruiting-integration.test.ts components/recruiting/recruiting-view-model.test.ts lib/admin-api-error.test.ts lib/auth-return.test.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.63.0",
@@ -27,6 +28,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
+    "tsx": "^4.23.1",
     "typescript": "^5"
   }
 }

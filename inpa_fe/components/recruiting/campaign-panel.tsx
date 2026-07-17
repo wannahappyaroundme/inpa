@@ -184,7 +184,7 @@ export function CampaignPanel({ onMoveToPage }: { onMoveToPage: () => void }) {
         <div className="mt-6 border-t border-line pt-5">
           <h3 className="text-[14px] font-extrabold text-ink">새 주소가 필요할 때</h3>
           <p className="mt-1 text-[12px] leading-5 text-ink3">기존 주소를 정리하고 새 개인 소개 주소로 바꿀 수 있어요.</p>
-          <button type="button" disabled={pending} onClick={() => setConfirmOpen(true)} className="mt-3 min-h-11 rounded-xl border border-line bg-surface px-4 text-[13px] font-bold text-ink2 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">새 링크 만들기</button>
+          <button type="button" disabled={pending} onClick={() => { setError(null); setConfirmOpen(true); }} className="mt-3 min-h-11 rounded-xl border border-line bg-surface px-4 text-[13px] font-bold text-ink2 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">새 링크 만들기</button>
         </div>
       </Card>
 
@@ -195,6 +195,7 @@ export function CampaignPanel({ onMoveToPage }: { onMoveToPage: () => void }) {
         confirmLabel="새 링크 만들기"
         pendingLabel="새 링크 만드는 중..."
         pending={pending}
+        error={error}
         onConfirm={confirmReissue}
         onClose={() => setConfirmOpen(false)}
       />

@@ -156,7 +156,7 @@ function SettlementCard({ item, today, onRefresh }: SettlementCardProps) {
               </label>
             </div>
           )}
-          <button type="button" disabled={saving} onClick={() => state === "stopped" ? setConfirmOpen(true) : void submit()} className="min-h-11 w-full rounded-xl bg-brand px-4 text-[13px] font-bold text-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
+          <button type="button" disabled={saving} onClick={() => { if (state === "stopped") { setError(null); setConfirmOpen(true); } else { void submit(); } }} className="min-h-11 w-full rounded-xl bg-brand px-4 text-[13px] font-bold text-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
             {saving ? "저장하는 중..." : "정착 확인 저장"}
           </button>
         </div>
@@ -169,6 +169,7 @@ function SettlementCard({ item, today, onRefresh }: SettlementCardProps) {
         confirmLabel="활동 중단으로 저장"
         pendingLabel="저장하는 중..."
         pending={saving}
+        error={error}
         onConfirm={() => void submit("stopped")}
         onClose={() => setConfirmOpen(false)}
       />

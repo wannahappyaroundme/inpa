@@ -501,6 +501,7 @@ class ManagerPlanGateTests(TestCase):
         r1 = self.client.get('/api/v1/manager/dashboard/')
         self.assertEqual(r1.status_code, 402, r1.content)
         self.assertEqual(r1.json()['code'], 'manager_plan_required')
+        self.assertEqual(r1.json()['plan'], 'plus')
         self.assertEqual(
             r1.json()['detail'],
             'Plus를 시작하면 팀 관리 기능을 계속 사용할 수 있어요.',
@@ -508,6 +509,7 @@ class ManagerPlanGateTests(TestCase):
         r2 = self.client.post('/api/v1/manager/invite-link/')
         self.assertEqual(r2.status_code, 402, r2.content)
         self.assertEqual(r2.json()['code'], 'manager_plan_required')
+        self.assertEqual(r2.json()['plan'], 'plus')
         self.assertEqual(
             r2.json()['detail'],
             'Plus를 시작하면 팀 관리 기능을 계속 사용할 수 있어요.',

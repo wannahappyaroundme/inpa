@@ -516,6 +516,12 @@ function PurgeDialog({
                   {reason ? PURGE_REASON_LABELS[reason] : "-"}
                 </dd>
               </div>
+              <div className="py-3">
+                <dt className="text-[12px] font-semibold text-ink3">지원 확인 번호</dt>
+                <dd className="mt-1 break-all font-mono text-[11px] font-bold text-ink">
+                  {candidate.support_reference}
+                </dd>
+              </div>
             </dl>
             {error && (
               <div role="alert" className="mt-4 rounded-xl bg-danger-tint px-4 py-3 text-[13px] leading-5 text-danger-ink">
@@ -560,6 +566,8 @@ function CandidateSection() {
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<AdminRecruitingFailure | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [referenceDraft, setReferenceDraft] = useState("");
+  const [reference, setReference] = useState("");
   const [purgeTarget, setPurgeTarget] = useState<AdminRecruitingCandidateRow | null>(null);
   const [refreshAfterPurge, setRefreshAfterPurge] = useState(false);
 
@@ -570,7 +578,7 @@ function CandidateSection() {
       setLoading(true);
       setFailure(null);
       try {
-        const result = await adminListRecruitingCandidates(safePage);
+        const result = await adminListRecruitingCandidates(safePage, reference);
         if (gate.isCurrent(generation)) {
           setData(result);
           setPage(safePage);
@@ -583,7 +591,7 @@ function CandidateSection() {
         if (gate.isCurrent(generation)) setLoading(false);
       }
     },
-    [gate],
+    [gate, reference],
   );
 
   useEffect(() => {
@@ -628,8 +636,45 @@ function CandidateSection() {
       <SectionHeading
         id="candidates-heading"
         title="지원 정보 정리"
-        description="가려진 이름과 전화번호만으로 정리 대상을 확인해 개인 정보 노출을 줄입니다."
+        description="지원자가 알려준 확인 번호로 정확히 찾고, 가려진 정보로 한 번 더 확인합니다."
       />
+      <Card className="mb-4 p-4">
+        <form
+          className="flex flex-col gap-2 sm:flex-row sm:items-end"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setPage(1);
+            setReference(referenceDraft.trim());
+          }}
+        >
+          <label className="min-w-0 flex-1 text-[12px] font-bold text-ink2">
+            지원 확인 번호
+            <input
+              value={referenceDraft}
+              onChange={(event) => setReferenceDraft(event.target.value)}
+              placeholder="전체 번호를 붙여넣어 주세요"
+              autoComplete="off"
+              className={`${FIELD_CLASS} mt-1.5 font-mono text-[12px]`}
+            />
+          </label>
+          <button type="submit" className={`${PRIMARY_BUTTON} sm:w-auto`}>
+            번호로 찾기
+          </button>
+          {reference && (
+            <button
+              type="button"
+              onClick={() => {
+                setReferenceDraft("");
+                setReference("");
+                setPage(1);
+              }}
+              className={`${SECONDARY_BUTTON} sm:w-auto`}
+            >
+              전체 보기
+            </button>
+          )}
+        </form>
+      </Card>
       {success && (
         <div className="mb-4">
           <StatusMessage kind="success">{success}</StatusMessage>
@@ -639,14 +684,33 @@ function CandidateSection() {
       {!loading && failure && <SectionError failure={failure} onRetry={() => void load(page)} />}
       {!loading && !failure && data && rows.length === 0 && (
         <EmptyState
-          title={page > 1 ? "이 페이지 확인을 마쳤어요." : "지원 정보 정리가 모두 끝났어요."}
+          title={
+            reference
+              ? "이 확인 번호와 일치하는 지원 정보가 없어요."
+              : page > 1
+                ? "이 페이지 확인을 마쳤어요."
+                : "지원 정보 정리가 모두 끝났어요."
+          }
           description={
-            page > 1
+            reference
+              ? "지원자에게 받은 전체 번호를 다시 확인해주세요."
+              : page > 1
               ? "이전 페이지에서 남은 정보를 이어서 확인해보세요."
               : "보관 기간이 지난 정보가 생기면 이곳에서 가려진 값으로 확인할 수 있어요."
           }
           action={
-            page > 1 ? (
+            reference ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setReferenceDraft("");
+                  setReference("");
+                }}
+                className={SECONDARY_BUTTON}
+              >
+                전체 지원 정보 보기
+              </button>
+            ) : page > 1 ? (
               <button type="button" onClick={() => setPage(page - 1)} className={SECONDARY_BUTTON}>
                 이전 페이지 보기
               </button>
@@ -672,6 +736,7 @@ function CandidateSection() {
                   <tr>
                     <th scope="col" className="px-4 py-3 text-left font-semibold">지원자</th>
                     <th scope="col" className="px-4 py-3 text-left font-semibold">전화번호</th>
+                    <th scope="col" className="px-4 py-3 text-left font-semibold">확인 번호</th>
                     <th scope="col" className="px-4 py-3 text-left font-semibold">단계</th>
                     <th scope="col" className="px-4 py-3 text-left font-semibold">등록일</th>
                     <th scope="col" className="px-4 py-3 text-left font-semibold">보관 만료일</th>
@@ -684,6 +749,9 @@ function CandidateSection() {
                     <tr key={candidate.id} className="hover:bg-surface2/70">
                       <td className="px-4 py-3 font-bold text-ink">{candidate.name_masked}</td>
                       <td className="px-4 py-3 text-ink2 tnum">{candidate.phone_masked}</td>
+                      <td className="max-w-[220px] break-all px-4 py-3 font-mono text-[11px] text-ink3">
+                        {candidate.support_reference}
+                      </td>
                       <td className="px-4 py-3">
                         <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-bold text-brand-ink">
                           {RECRUITING_STAGE_LABELS[candidate.stage]}
@@ -728,6 +796,9 @@ function CandidateSection() {
                     </p>
                     <p className="mt-1 break-all text-[13px] text-ink2 tnum">
                       {candidate.phone_masked}
+                    </p>
+                    <p className="mt-2 break-all font-mono text-[10px] leading-4 text-ink3">
+                      확인 번호 {candidate.support_reference}
                     </p>
                   </div>
                   <span className="shrink-0 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-bold text-brand-ink">
@@ -836,6 +907,8 @@ function TemplateSection() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const submitLockRef = useRef(false);
+  const editorPanelRef = useRef<HTMLDivElement>(null);
+  const firstEditorFieldRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     const generation = gate.begin();
@@ -856,6 +929,15 @@ function TemplateSection() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const frame = requestAnimationFrame(() => {
+      editorPanelRef.current?.scrollIntoView({ block: "start" });
+      firstEditorFieldRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editor]);
 
   function openCreate() {
     setEditor({ mode: "create" });
@@ -1003,6 +1085,10 @@ function TemplateSection() {
           </div>
 
           {editor && (
+            <div
+              ref={editorPanelRef}
+              className="order-first scroll-mt-4 xl:order-none"
+            >
             <Card className="h-fit min-w-0 overflow-hidden p-4 xl:sticky xl:top-4 xl:p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1035,6 +1121,7 @@ function TemplateSection() {
                         <span className="text-[11px] text-ink3 tnum">{draft.code.length} / 60</span>
                       </div>
                       <input
+                        ref={firstEditorFieldRef}
                         id="template-code"
                         value={draft.code}
                         maxLength={60}
@@ -1104,6 +1191,7 @@ function TemplateSection() {
                     <span className="text-[11px] text-ink3 tnum">{draft.title.length} / 80</span>
                   </div>
                   <input
+                    ref={editor.mode === "edit" ? firstEditorFieldRef : undefined}
                     id="template-title"
                     value={draft.title}
                     maxLength={80}
@@ -1175,6 +1263,7 @@ function TemplateSection() {
                 </button>
               </form>
             </Card>
+            </div>
           )}
         </div>
       )}
@@ -1349,7 +1438,7 @@ function AuditSection() {
       <SectionHeading
         id="audit-heading"
         title="개인 정보 없는 운영 기록"
-        description="후보 참조값, 기록 종류, 단계 변화, 처리자 번호, 날짜만 표시합니다."
+        description="후보 참조값, 기록 종류, 정리 사유, 단계 변화, 처리자 번호, 날짜만 표시합니다."
       />
       {loading && <SectionSkeleton />}
       {!loading && failure && <SectionError failure={failure} onRetry={() => void load(page)} />}
@@ -1388,6 +1477,7 @@ function AuditSection() {
                   <tr>
                     <th scope="col" className="px-4 py-3 text-left font-semibold">후보 참조값</th>
                     <th scope="col" className="px-4 py-3 text-left font-semibold">기록 종류</th>
+                    <th scope="col" className="px-4 py-3 text-left font-semibold">정리 사유</th>
                     <th scope="col" className="px-4 py-3 text-left font-semibold">이전 단계</th>
                     <th scope="col" className="px-4 py-3 text-left font-semibold">다음 단계</th>
                     <th scope="col" className="px-4 py-3 text-left font-semibold">처리자</th>
@@ -1402,6 +1492,9 @@ function AuditSection() {
                       </td>
                       <td className="px-4 py-3 font-semibold text-ink">
                         {RECRUITING_EVENT_LABELS[row.event_type]}
+                      </td>
+                      <td className="px-4 py-3 text-ink3">
+                        {row.reason_code ? PURGE_REASON_LABELS[row.reason_code] : "-"}
                       </td>
                       <td className="px-4 py-3 text-ink3">{stageLabel(row.from_stage)}</td>
                       <td className="px-4 py-3 text-ink3">{stageLabel(row.to_stage)}</td>
@@ -1444,6 +1537,14 @@ function AuditSection() {
                         {getRecruitingActorLabel(row.event_type, row.actor_id)}
                       </dd>
                     </div>
+                    {row.reason_code && (
+                      <div className="min-[360px]:col-span-2">
+                        <dt className="text-[11px] font-semibold text-ink3">정리 사유</dt>
+                        <dd className="mt-1 text-[13px] font-semibold text-ink">
+                          {PURGE_REASON_LABELS[row.reason_code]}
+                        </dd>
+                      </div>
+                    )}
                   </div>
                 </dl>
               </Card>

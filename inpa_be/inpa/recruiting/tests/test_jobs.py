@@ -13,6 +13,7 @@ from inpa.analysis.models import SeedMarker
 from inpa.billing.models import Plan, Subscription
 from inpa.notifications.jobs import run_daily_jobs
 from inpa.notifications.models import Notification, NotifType
+from inpa.recruiting.consent_texts import RECRUITING_CONSENT_VERSION
 from inpa.recruiting.jobs import (
     cleanup_expired_recruiting_candidates,
     create_recruiting_notification_once,
@@ -90,6 +91,7 @@ class RecruitingJobTests(TestCase):
             "region": "서울",
             "contact_window": RecruitingCandidate.ContactWindow.EVENING,
             "submission_key": uuid.uuid4(),
+            "consent_version": RECRUITING_CONSENT_VERSION,
             "agreed": True,
         }
         values.update(overrides)
@@ -103,7 +105,6 @@ class RecruitingJobTests(TestCase):
             result = create_candidate_submission(
                 campaign=self.campaign,
                 data=self._payload(),
-                ip_address="127.0.0.1",
             )
 
         notice = Notification.objects.get(
@@ -326,8 +327,35 @@ class RecruitingJobTests(TestCase):
             event_type=RecruitingActivity.EventType.CANDIDATE_PURGED,
         )
         self.assertIsNone(activity.candidate_id)
+        self.assertEqual(
+            activity.reason_code,
+            RecruitingActivity.ReasonCode.RETENTION,
+        )
         self.assertIsNone(RecruitingEvent.objects.get().candidate_id)
         self.assertFalse(RecruitingConsentLog.objects.exists())
+
+    def test_expired_pending_leader_choice_is_deleted_with_consent(self):
+        candidate = self._candidate(
+            selection_status=RecruitingCandidate.SelectionStatus.PENDING,
+            stage=RecruitingCandidate.Stage.NEW,
+            retention_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        RecruitingConsentLog.objects.create(
+            candidate=candidate,
+            doc_version=RECRUITING_CONSENT_VERSION,
+        )
+
+        self.assertEqual(cleanup_expired_recruiting_candidates(), 1)
+        self.assertFalse(RecruitingCandidate.objects.filter(pk=candidate.pk).exists())
+        self.assertFalse(RecruitingConsentLog.objects.exists())
+        activity = RecruitingActivity.objects.get(
+            candidate_ref=candidate.audit_ref,
+            event_type=RecruitingActivity.EventType.CANDIDATE_PURGED,
+        )
+        self.assertEqual(
+            activity.reason_code,
+            RecruitingActivity.ReasonCode.RETENTION,
+        )
 
     def test_recent_system_activity_extends_retention_and_prevents_delete(self):
         candidate = self._candidate(

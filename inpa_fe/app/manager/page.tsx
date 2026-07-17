@@ -148,9 +148,9 @@ function RecruitingCtaCard() {
   );
 }
 
-// Manager 요금제 팀 기능 게이트(spec 2026-07-09) — 대시보드 대신 안내 카드.
+// Plus 팀 기능 게이트 — 대시보드 대신 안내 카드.
 // ★ 게이트는 기본 꺼져 있어(MANAGER_PLAN_GATE_ENABLED=False) 지금은 이 카드가 뜨지 않는다.
-//   유료 전환 시 BE에서 켜면, Manager 요금제가 없는 설계사에게만 이 안내가 보인다.
+//   유료 전환 시 BE에서 켜면, 팀 기능을 포함한 Plus가 없는 설계사에게만 이 안내가 보인다.
 function ManagerPlanRequiredCard({ onUpgrade }: { onUpgrade: () => void }) {
   return (
     <Card className="mt-4 px-6 py-10 text-center">
@@ -158,11 +158,11 @@ function ManagerPlanRequiredCard({ onUpgrade }: { onUpgrade: () => void }) {
         <Users size={22} />
       </div>
       <h2 className="mt-4 text-[17px] font-extrabold text-ink">
-        팀을 한 화면에서 관리하는 관리자용 요금제
+        Plus 하나로 개인 업무와 팀 관리를 함께
       </h2>
       <p className="mx-auto mt-2 max-w-sm text-[13px] text-ink3 leading-6">
-        팀원 인사 관리, 팀원 개별 실적 관리, 팀 전체 실적 관리를 Manager 요금제에서
-        이용할 수 있어요.
+        Plus를 시작하면 개인 설계 업무와 팀원 관리, 팀 전체 흐름을 한 화면에서 이어갈 수
+        있어요. 첫 팀원 합류 뒤 Manager 역할은 같은 요금으로 자동 활성화됩니다.
       </p>
       <button
         onClick={onUpgrade}

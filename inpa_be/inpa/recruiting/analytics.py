@@ -28,13 +28,21 @@ def _calendar_bounds(today):
 def candidate_metrics(owner, today=None):
     today = today or timezone.localdate()
     day_start, next_day_start, month_start, next_month_start = _calendar_bounds(today)
-    active = RecruitingCandidate.objects.filter(
+    visible = RecruitingCandidate.objects.filter(
         owner=owner,
-        selection_status=RecruitingCandidate.SelectionStatus.ACTIVE,
+        contact_opt_out_at__isnull=True,
+        selection_status__in=(
+            RecruitingCandidate.SelectionStatus.ACTIVE,
+            RecruitingCandidate.SelectionStatus.REPLACED,
+        ),
     )
     stage_counts = {stage: 0 for stage in RecruitingCandidate.Stage.values}
-    for item in active.values("stage").annotate(total=Count("pk")):
+    for item in visible.values("stage").annotate(total=Count("pk")):
         stage_counts[item["stage"]] = item["total"]
+
+    active = visible.filter(
+        selection_status=RecruitingCandidate.SelectionStatus.ACTIVE,
+    )
 
     actionable = active.filter(contact_opt_out_at__isnull=True).exclude(
         stage__in=(RecruitingCandidate.Stage.ENDED, RecruitingCandidate.Stage.TEAM_JOIN)

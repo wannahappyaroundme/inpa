@@ -66,6 +66,12 @@ class RecruitingJoinView(RecruitingEnabledMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "recruiting_public"
 
+    def get_throttles(self):
+        self.throttle_scope = (
+            "recruiting_join" if self.request.method == "POST" else "recruiting_public"
+        )
+        return super().get_throttles()
+
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
         response["X-Robots-Tag"] = "noindex, nofollow"
@@ -105,6 +111,27 @@ class RecruitingJoinView(RecruitingEnabledMixin, APIView):
         serializer.is_valid(raise_exception=True)
         try:
             candidate, payload = _read_candidate(token)
+            profile = getattr(request.user, "profile", None)
+            if (
+                profile is None
+                or profile.onboarding_completed_at is None
+                or not profile.license_self_declared
+            ):
+                return Response(
+                    {
+                        "code": "recruiting_join_onboarding_required",
+                        "message": "설계사 정보를 확인하면 이 리더와 합류를 이어갈 수 있어요.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if serializer.validated_data["manage_token"] != candidate.manage_token:
+                return Response(
+                    {
+                        "code": "recruiting_join_verification_required",
+                        "message": "내 지원 관리 링크를 먼저 확인하면 합류를 이어갈 수 있어요.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
             result = accept_team_join(
                 candidate=candidate,
                 agent=request.user,

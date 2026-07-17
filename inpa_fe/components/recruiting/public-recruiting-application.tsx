@@ -19,11 +19,13 @@ import {
   getApplicationResultKind,
   getLeaderChoiceFailureAction,
   getOrCreateSubmissionAttempt,
+  getPublicApplicationIssue,
   isSafeRecruitingToken,
   readStoredManageToken,
+  resetConsentForRefresh,
   shouldResetSubmissionAttempt,
   storeManagePath,
-  validatePublicApplication,
+  type PublicApplicationField,
   type PublicApplicationFormValues,
   type StorageLike,
 } from "./public-recruiting-view-model";
@@ -47,6 +49,15 @@ const EMPTY_FORM: PublicApplicationFormValues = {
 
 type LoadState = "loading" | "ready" | "unavailable" | "retry";
 type LeaderChoice = "keep_current" | "switch_to_new";
+
+const APPLICATION_FIELD_IDS: Record<PublicApplicationField, string> = {
+  name: "recruit-name",
+  phone: "recruit-phone",
+  careerBand: "recruit-career",
+  region: "recruit-region",
+  contactWindow: "recruit-contact-window",
+  agreed: "recruit-agreed",
+};
 
 function browserStorage(): StorageLike | null {
   try {
@@ -77,6 +88,7 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
   const [form, setForm] = useState<PublicApplicationFormValues>(EMPTY_FORM);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<PublicApplicationField | null>(null);
   const [result, setResult] = useState<PublicRecruitingApplicationResult | null>(null);
   const [manageToken, setManageToken] = useState<string | null>(null);
   const [leaderChoice, setLeaderChoice] = useState<LeaderChoice | null>(null);
@@ -117,6 +129,7 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
     value: PublicApplicationFormValues[Key],
   ) {
     setForm((current) => ({ ...current, [key]: value }));
+    if (errorField === key) setErrorField(null);
   }
 
   function completeSubmission(response: PublicRecruitingSubmitted) {
@@ -150,6 +163,17 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
       ) {
         submissionAttemptRef.current = null;
         setAttemptLocked(false);
+        if (
+          submitError instanceof ApiError &&
+          submitError.code === "recruiting_consent_refresh_required"
+        ) {
+          setForm((current) => resetConsentForRefresh(current));
+          setErrorField("agreed");
+          requestAnimationFrame(() => {
+            document.getElementById(APPLICATION_FIELD_IDS.agreed)?.focus();
+          });
+          void loadPage();
+        }
         setError(
           submitError instanceof ApiError && submitError.message
             ? submitError.message
@@ -173,15 +197,20 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
     event.preventDefault();
     if (!page || pending) return;
     setError(null);
+    setErrorField(null);
 
     if (submissionAttemptRef.current) {
       await sendApplicationAttempt(submissionAttemptRef.current);
       return;
     }
 
-    const validationError = validatePublicApplication(form);
-    if (validationError) {
-      setError(validationError);
+    const validationIssue = getPublicApplicationIssue(form);
+    if (validationIssue) {
+      setError(validationIssue.message);
+      setErrorField(validationIssue.field);
+      requestAnimationFrame(() => {
+        document.getElementById(APPLICATION_FIELD_IDS[validationIssue.field])?.focus();
+      });
       return;
     }
 
@@ -190,6 +219,7 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
       attempt = getOrCreateSubmissionAttempt(null, form, {
         createSubmissionKey: () => window.crypto.randomUUID(),
         priorManageToken: readStoredManageToken(browserStorage()),
+        consentVersion: page.consent_version,
       });
     } catch {
       setError("브라우저를 새로 열면 지원 내용을 안전하게 보낼 수 있어요.");
@@ -398,15 +428,15 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
                 <legend className="sr-only">설계사 동료 지원 정보</legend>
                 <div>
                   <InputLabel htmlFor="recruit-name">이름</InputLabel>
-                  <input id="recruit-name" name="name" autoComplete="name" maxLength={30} value={form.name} onChange={(event) => updateForm("name", event.target.value)} className={FIELD_CLASS} required />
+                  <input id="recruit-name" name="name" autoComplete="name" maxLength={30} value={form.name} onChange={(event) => updateForm("name", event.target.value)} aria-invalid={errorField === "name"} aria-describedby={errorField === "name" ? "recruit-form-error" : undefined} className={FIELD_CLASS} required />
                 </div>
                 <div>
                   <InputLabel htmlFor="recruit-phone">연락처</InputLabel>
-                  <input id="recruit-phone" name="tel" type="tel" inputMode="tel" autoComplete="tel" maxLength={30} placeholder="010-1234-5678" value={form.phone} onChange={(event) => updateForm("phone", event.target.value)} className={FIELD_CLASS} required />
+                  <input id="recruit-phone" name="tel" type="tel" inputMode="tel" autoComplete="tel" maxLength={30} placeholder="010-1234-5678" value={form.phone} onChange={(event) => updateForm("phone", event.target.value)} aria-invalid={errorField === "phone"} aria-describedby={errorField === "phone" ? "recruit-form-error" : undefined} className={FIELD_CLASS} required />
                 </div>
                 <div>
                   <InputLabel htmlFor="recruit-career">보험설계사 경력</InputLabel>
-                  <select id="recruit-career" value={form.careerBand} onChange={(event) => updateForm("careerBand", event.target.value as PublicApplicationFormValues["careerBand"])} className={FIELD_CLASS} required>
+                  <select id="recruit-career" value={form.careerBand} onChange={(event) => updateForm("careerBand", event.target.value as PublicApplicationFormValues["careerBand"])} aria-invalid={errorField === "careerBand"} aria-describedby={errorField === "careerBand" ? "recruit-form-error" : undefined} className={FIELD_CLASS} required>
                     <option value="">경력을 선택해주세요</option>
                     {Object.entries(CAREER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
@@ -417,11 +447,11 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
                 </div>
                 <div>
                   <InputLabel htmlFor="recruit-region">활동 지역</InputLabel>
-                  <input id="recruit-region" name="address-level1" autoComplete="address-level1" maxLength={60} placeholder="예: 서울 강남" value={form.region} onChange={(event) => updateForm("region", event.target.value)} className={FIELD_CLASS} required />
+                  <input id="recruit-region" name="address-level1" autoComplete="address-level1" maxLength={60} placeholder="예: 서울 강남" value={form.region} onChange={(event) => updateForm("region", event.target.value)} aria-invalid={errorField === "region"} aria-describedby={errorField === "region" ? "recruit-form-error" : undefined} className={FIELD_CLASS} required />
                 </div>
                 <div>
                   <InputLabel htmlFor="recruit-contact-window">연락받기 편한 시간</InputLabel>
-                  <select id="recruit-contact-window" value={form.contactWindow} onChange={(event) => updateForm("contactWindow", event.target.value as PublicApplicationFormValues["contactWindow"])} className={FIELD_CLASS} required>
+                  <select id="recruit-contact-window" value={form.contactWindow} onChange={(event) => updateForm("contactWindow", event.target.value as PublicApplicationFormValues["contactWindow"])} aria-invalid={errorField === "contactWindow"} aria-describedby={errorField === "contactWindow" ? "recruit-form-error" : undefined} className={FIELD_CLASS} required>
                     <option value="">시간을 선택해주세요</option>
                     {Object.entries(CONTACT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
@@ -431,11 +461,11 @@ export function PublicRecruitingApplication({ token }: { token: string }) {
                   <p className="pb-2 text-[12px] leading-6 text-ink3">{page.consent_text}</p>
                 </details>
                 <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl focus-within:ring-2 focus-within:ring-brand">
-                  <input type="checkbox" checked={form.agreed} onChange={(event) => updateForm("agreed", event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-[var(--brand)]" required />
+                  <input id="recruit-agreed" type="checkbox" checked={form.agreed} onChange={(event) => updateForm("agreed", event.target.checked)} aria-invalid={errorField === "agreed"} aria-describedby={errorField === "agreed" ? "recruit-form-error" : undefined} className="mt-1 h-5 w-5 shrink-0 accent-[var(--brand)]" required />
                   <span className="text-[13px] leading-6 text-ink2">개인정보 수집과 담당 설계사의 연락에 동의해요. (필수)</span>
                 </label>
               </fieldset>
-              {error && <p role="alert" className="text-[13px] leading-5 text-cnone">{error}</p>}
+              {error && <p id="recruit-form-error" role="alert" className="text-[13px] leading-5 text-danger-ink">{error}</p>}
               {applicationRetryMessage && <p className="text-[13px] leading-6 text-ink3">{applicationRetryMessage}</p>}
               {pending && <p role="status" aria-live="polite" className="text-[13px] text-ink3">지원 내용을 보내고 있어요.</p>}
               <button type="submit" disabled={pending} className={`${PUBLIC_PRIMARY_BUTTON} w-full`}>

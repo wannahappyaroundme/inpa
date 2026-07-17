@@ -69,6 +69,7 @@ class RecruitingActivityAdmin(ReadOnlyAdmin):
         "event_type",
         "from_stage",
         "to_stage",
+        "reason_code",
         "actor_id",
         "created_at",
     )
@@ -79,6 +80,7 @@ class RecruitingActivityAdmin(ReadOnlyAdmin):
         "event_type",
         "from_stage",
         "to_stage",
+        "reason_code",
         "actor_id",
         "created_at",
     )

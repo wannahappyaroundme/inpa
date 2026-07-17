@@ -7,6 +7,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from inpa.accounts.models import Profile, User
+from inpa.recruiting.consent_texts import RECRUITING_CONSENT_VERSION
 from inpa.recruiting.models import (
     RecruitingActivity,
     RecruitingCampaign,
@@ -22,6 +23,7 @@ from inpa.recruiting.services import (
     stop_candidate_contact,
     transition_candidate,
 )
+from inpa.recruiting.tokens import RECRUITING_CHOICE_MAX_AGE_SECONDS
 
 
 class NoRelatedJoinLockQuerySet:
@@ -73,6 +75,7 @@ class RecruitingSubmissionServiceTests(TestCase):
             "region": "서울",
             "contact_window": RecruitingCandidate.ContactWindow.EVENING,
             "submission_key": uuid.uuid4(),
+            "consent_version": RECRUITING_CONSENT_VERSION,
             "agreed": True,
         }
         values.update(overrides)
@@ -82,7 +85,6 @@ class RecruitingSubmissionServiceTests(TestCase):
         return create_candidate_submission(
             campaign=campaign or self.campaign,
             data=self.payload(**overrides),
-            ip_address="127.0.0.1",
         )
 
     def test_same_campaign_and_submission_key_is_idempotent(self):
@@ -132,6 +134,11 @@ class RecruitingSubmissionServiceTests(TestCase):
         self.assertIsNotNone(result.choice_token)
         self.assertEqual(result.candidate.selection_status, RecruitingCandidate.SelectionStatus.PENDING)
         self.assertEqual(result.candidate.identity_ref, old.identity_ref)
+        self.assertGreater(result.candidate.retention_expires_at, timezone.now())
+        self.assertLessEqual(
+            result.candidate.retention_expires_at,
+            timezone.now() + timedelta(seconds=RECRUITING_CHOICE_MAX_AGE_SECONDS + 5),
+        )
 
     def test_keep_choice_closes_only_the_new_pending_application(self):
         old = self.submit().candidate
@@ -167,6 +174,7 @@ class RecruitingSubmissionServiceTests(TestCase):
         self.assertEqual(old.name, "담당 변경")
         self.assertEqual(old.phone, "")
         self.assertEqual(pending.candidate.selection_status, RecruitingCandidate.SelectionStatus.ACTIVE)
+        self.assertIsNone(pending.candidate.retention_expires_at)
         self.assertEqual(pending.candidate.next_action, RecruitingCandidate.NextAction.CALL)
         self.assertLess(
             pending.candidate.next_action_at,

@@ -921,6 +921,7 @@ export interface AdminRecruitingCandidateRow {
   created_at: string;
   retention_expires_at: string | null;
   contact_opted_out: boolean;
+  support_reference: string;
 }
 
 export interface AdminRecruitingTemplate {
@@ -964,13 +965,16 @@ export interface AdminRecruitingAuditRow {
   event_type: AdminRecruitingAuditEventType;
   from_stage: AdminRecruitingStage | "";
   to_stage: AdminRecruitingStage | "";
+  reason_code: AdminRecruitingPurgeReason | "";
   actor_id: number | null;
   created_at: string;
 }
 
-function adminRecruitingPageQuery(page: number): string {
+function adminRecruitingPageQuery(page: number, reference = ""): string {
   const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1;
-  return new URLSearchParams({ page: String(safePage) }).toString();
+  const query = new URLSearchParams({ page: String(safePage) });
+  if (reference.trim()) query.set("reference", reference.trim());
+  return query.toString();
 }
 
 /** GET /api/v1/admin/recruiting/summary/ */
@@ -981,10 +985,11 @@ export async function adminGetRecruitingSummary(): Promise<AdminRecruitingSummar
 /** GET /api/v1/admin/recruiting/candidates/?page= */
 export async function adminListRecruitingCandidates(
   page = 1,
+  reference = "",
 ): Promise<PaginatedResult<AdminRecruitingCandidateRow>> {
   return req<PaginatedResult<AdminRecruitingCandidateRow>>(
     "GET",
-    `/admin/recruiting/candidates/?${adminRecruitingPageQuery(page)}`,
+    `/admin/recruiting/candidates/?${adminRecruitingPageQuery(page, reference)}`,
   );
 }
 

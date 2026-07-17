@@ -236,6 +236,12 @@ class RecruitingCandidateSerializer(serializers.ModelSerializer):
 
     def to_internal_value(self, data):
         forbidden = {
+            "name",
+            "phone",
+            "career_band",
+            "current_affiliation",
+            "region",
+            "contact_window",
             "stage",
             "team_join",
             "selection_status",
@@ -247,7 +253,10 @@ class RecruitingCandidateSerializer(serializers.ModelSerializer):
         supplied = forbidden.intersection(data.keys())
         if supplied:
             raise serializers.ValidationError(
-                {field: "이 항목은 지원 흐름에서 자동으로 기록돼요." for field in sorted(supplied)}
+                {
+                    field: "지원자가 입력한 정보는 그대로 두고 다음 행동과 단계만 관리할 수 있어요."
+                    for field in sorted(supplied)
+                }
             )
         return super().to_internal_value(data)
 
@@ -321,7 +330,17 @@ class PublicRecruitingApplicationSerializer(serializers.Serializer):
     contact_window = serializers.ChoiceField(choices=RecruitingCandidate.ContactWindow.choices)
     submission_key = serializers.UUIDField()
     prior_manage_token = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=100)
+    consent_version = serializers.CharField(max_length=30)
     agreed = serializers.BooleanField()
+
+    def validate_consent_version(self, value):
+        from .consent_texts import RECRUITING_CONSENT_VERSION
+
+        if value != RECRUITING_CONSENT_VERSION:
+            raise serializers.ValidationError(
+                "최신 개인정보 안내를 다시 확인한 뒤 지원 내용을 보내주세요."
+            )
+        return value
 
     def validate_phone(self, value):
         try:
@@ -345,6 +364,7 @@ class ManageCandidateActionSerializer(serializers.Serializer):
 
 class TeamJoinAcceptSerializer(serializers.Serializer):
     confirm_switch = serializers.BooleanField(required=False, default=False)
+    manage_token = serializers.UUIDField()
 
 
 class SettlementCheckCompleteSerializer(serializers.Serializer):

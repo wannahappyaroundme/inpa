@@ -1,12 +1,13 @@
 """De-identified recruiting operations API. No rollout-flag dependency."""
 import re
+import uuid
 from datetime import datetime, time
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import serializers, status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -116,6 +117,7 @@ class AdminRecruitingAuditSerializer(serializers.ModelSerializer):
             "event_type",
             "from_stage",
             "to_stage",
+            "reason_code",
             "actor_id",
             "created_at",
         )
@@ -206,6 +208,15 @@ class AdminRecruitingCandidateListView(APIView):
 
     def get(self, request):
         queryset = RecruitingCandidate.objects.order_by("-created_at", "-pk")
+        reference = (request.query_params.get("reference") or "").strip()
+        if reference:
+            try:
+                reference_uuid = uuid.UUID(reference)
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise ValidationError(
+                    {"reference": "지원 확인 번호 전체를 다시 입력해주세요."}
+                ) from exc
+            queryset = queryset.filter(audit_ref=reference_uuid)
         paginator = PageNumberPagination()
         paginator.page_size = 20
         page = paginator.paginate_queryset(queryset, request)
@@ -218,6 +229,7 @@ class AdminRecruitingCandidateListView(APIView):
                 "created_at": candidate.created_at,
                 "retention_expires_at": candidate.retention_expires_at,
                 "contact_opted_out": candidate.contact_opt_out_at is not None,
+                "support_reference": str(candidate.audit_ref),
             }
             for candidate in page
         ]
@@ -248,6 +260,7 @@ class AdminRecruitingCandidatePurgeView(APIView):
                 candidate=candidate,
                 event_type=RecruitingActivity.EventType.CANDIDATE_PURGED,
                 actor=request.user,
+                reason_code=serializer.validated_data["reason"],
             )
         return Response({"purged": True})
 

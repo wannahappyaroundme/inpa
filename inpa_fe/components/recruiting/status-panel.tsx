@@ -27,6 +27,7 @@ import {
 import { RecruitingEmpty, RecruitingError, RecruitingLoading } from "./recruiting-states";
 import {
   createLatestRequestGate,
+  getBoardColumnPresentation,
   sortRecruitingCandidates,
   type CandidateSortKey,
 } from "./recruiting-view-model";
@@ -297,20 +298,36 @@ export function StatusPanel() {
           </div>
 
           <div className="hidden sm:block">
-            {view === "board" ? (
+            {view === "board" && !hasActiveFilters ? (
               <div className="max-w-full overflow-x-auto rounded-2xl border border-line bg-surface2 p-3">
                 <div className="flex min-w-max gap-3">
                   {STAGES.map((stageValue) => {
                     const items = sorted.filter((candidate) => candidate.stage === stageValue);
+                    const stageCount = summary?.stage_counts[stageValue] ?? items.length;
+                    const column = getBoardColumnPresentation(items.length, stageCount);
+                    const showStageList = () => {
+                      setCurrentPage(1);
+                      setStage(stageValue);
+                    };
                     return (
                       <section key={stageValue} aria-label={STAGE_LABELS[stageValue]} className="w-[300px] shrink-0">
                         <div className="mb-2 flex items-center justify-between px-1">
                           <h2 className="text-[13px] font-extrabold text-ink">{STAGE_LABELS[stageValue]}</h2>
-                          <span className="rounded-full bg-surface px-2 py-1 text-[10px] font-bold text-ink3">{summary?.stage_counts[stageValue] ?? items.length}</span>
+                          <span className="rounded-full bg-surface px-2 py-1 text-[10px] font-bold text-ink3">{stageCount}</span>
                         </div>
                         <div className="space-y-3">
                           {items.map((candidate) => <CandidateCard key={candidate.id} compact candidate={candidate} onChanged={handleCandidateChanged} />)}
-                          {items.length === 0 && <p className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-center text-[11px] text-ink3">이 단계의 지원이 들어오면 여기에 보여요.</p>}
+                          {column.kind === "empty" && <p className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-center text-[11px] text-ink3">이 단계의 지원이 들어오면 여기에 보여요.</p>}
+                          {column.kind === "other_page" && (
+                            <button type="button" onClick={showStageList} className="w-full rounded-2xl border border-line bg-surface px-4 py-6 text-center text-[11px] font-bold leading-5 text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                              다른 페이지에 {column.hiddenCount}명이 있어요. 이 단계 전체 보기
+                            </button>
+                          )}
+                          {column.kind === "partial" && (
+                            <button type="button" onClick={showStageList} className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-[11px] font-bold text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                              나머지 {column.hiddenCount}명도 보기
+                            </button>
+                          )}
                         </div>
                       </section>
                     );

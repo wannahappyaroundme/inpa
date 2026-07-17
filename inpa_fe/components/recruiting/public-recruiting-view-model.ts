@@ -51,6 +51,7 @@ export function getOrCreateSubmissionAttempt(
   options: {
     createSubmissionKey: () => string;
     priorManageToken: string | null;
+    consentVersion: string;
   },
 ): PublicRecruitingApplication {
   if (current) return current;
@@ -63,14 +64,24 @@ export function getOrCreateSubmissionAttempt(
     contact_window: values.contactWindow as RecruitingContactWindow,
     submission_key: options.createSubmissionKey(),
     prior_manage_token: options.priorManageToken,
+    consent_version: options.consentVersion,
     agreed: values.agreed,
   };
 }
 
 export function shouldResetSubmissionAttempt(
-  error: { status: number } | null,
+  error: { status: number; code?: string } | null,
 ): boolean {
-  return error?.status === 400;
+  return (
+    error?.status === 400 ||
+    error?.code === "recruiting_consent_refresh_required"
+  );
+}
+
+export function resetConsentForRefresh(
+  values: PublicApplicationFormValues,
+): PublicApplicationFormValues {
+  return { ...values, agreed: false };
 }
 
 export function readStoredManageToken(storage: StorageLike | null): string | null {
@@ -116,6 +127,18 @@ export function clearMatchingManageToken(
   } catch {
     // Storage may be unavailable in privacy-restricted browsers.
   }
+}
+
+export function syncManageTokenAfterLoad(
+  storage: StorageLike | null,
+  token: unknown,
+  contactStopped: boolean,
+): void {
+  if (contactStopped) {
+    clearMatchingManageToken(storage, token);
+    return;
+  }
+  writeStoredManageToken(storage, token);
 }
 
 export function extractManageToken(path: unknown): string | null {
@@ -219,13 +242,39 @@ export function prepareRecruitingJoinAuthReturn(
 export function validatePublicApplication(
   values: PublicApplicationFormValues,
 ): string | null {
-  if (!values.name.trim()) return "이름을 입력해주세요.";
-  if (!values.phone.trim()) return "연락처를 입력해주세요.";
-  if (!values.careerBand) return "보험설계사 경력을 선택해주세요.";
-  if (!values.region.trim()) return "활동 지역을 입력해주세요.";
-  if (!values.contactWindow) return "연락받기 편한 시간을 선택해주세요.";
+  return getPublicApplicationIssue(values)?.message ?? null;
+}
+
+export type PublicApplicationField =
+  | "name"
+  | "phone"
+  | "careerBand"
+  | "region"
+  | "contactWindow"
+  | "agreed";
+
+export interface PublicApplicationIssue {
+  field: PublicApplicationField;
+  message: string;
+}
+
+export function getPublicApplicationIssue(
+  values: PublicApplicationFormValues,
+): PublicApplicationIssue | null {
+  if (!values.name.trim()) return { field: "name", message: "이름을 입력해주세요." };
+  if (!values.phone.trim()) return { field: "phone", message: "연락처를 입력해주세요." };
+  if (!values.careerBand) {
+    return { field: "careerBand", message: "보험설계사 경력을 선택해주세요." };
+  }
+  if (!values.region.trim()) return { field: "region", message: "활동 지역을 입력해주세요." };
+  if (!values.contactWindow) {
+    return { field: "contactWindow", message: "연락받기 편한 시간을 선택해주세요." };
+  }
   if (!values.agreed) {
-    return "개인정보 수집과 연락에 동의하면 지원 내용을 보낼 수 있어요.";
+    return {
+      field: "agreed",
+      message: "개인정보 수집과 연락에 동의하면 지원 내용을 보낼 수 있어요.",
+    };
   }
   return null;
 }

@@ -306,5 +306,7 @@ BOOKING_TOKEN_TTL_HOURS = env.int('BOOKING_TOKEN_TTL_HOURS', default=72)
 
 # 설계사 영입은 개인정보 동의 경로가 완성된 뒤 운영에서 명시적으로 연다.
 RECRUITING_ENABLED = env.bool('RECRUITING_ENABLED', default=False)
-RECRUITING_RETENTION_DAYS = env.int('RECRUITING_RETENTION_DAYS', default=180)
+# Consent wording and versioning are code-controlled. Changing this period requires
+# a reviewed consent-text version bump, so it is intentionally not an env toggle.
+RECRUITING_RETENTION_DAYS = 180
 RECRUITING_TOMBSTONE_DAYS = env.int('RECRUITING_TOMBSTONE_DAYS', default=30)

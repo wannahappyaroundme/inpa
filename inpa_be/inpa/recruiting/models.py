@@ -193,7 +193,6 @@ class RecruitingConsentLog(models.Model):
     doc_version = models.CharField(max_length=30)
     agreed_at = models.DateTimeField(auto_now_add=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
 
     def __str__(self):
         return f"recruiting-consent:{self.pk}"
@@ -208,6 +207,11 @@ class RecruitingActivity(models.Model):
         SETTLEMENT_COMPLETED = "settlement_completed", "정착 확인"
         SETTLEMENT_REOPENED = "settlement_reopened", "정착 일정 재개"
         CANDIDATE_PURGED = "candidate_purged", "정보 정리"
+
+    class ReasonCode(models.TextChoices):
+        USER_REQUEST = "user_request", "지원자 요청"
+        RETENTION = "retention", "보관 기간 만료"
+        ADMIN_CORRECTION = "admin_correction", "운영 정보 바로잡기"
 
     candidate = models.ForeignKey(
         RecruitingCandidate,
@@ -226,6 +230,11 @@ class RecruitingActivity(models.Model):
     event_type = models.CharField(max_length=30, choices=EventType.choices)
     from_stage = models.CharField(max_length=20, blank=True)
     to_stage = models.CharField(max_length=20, blank=True)
+    reason_code = models.CharField(
+        max_length=30,
+        choices=ReasonCode.choices,
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

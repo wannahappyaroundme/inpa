@@ -79,6 +79,7 @@ export function getCandidateContactStatusLabel(
 ): string {
   if (contactOptedOut) return "연락 중단 기록 있음";
   if (stage === "team_join") return "팀 합류";
+  if (stage === "ended") return "지원 종료";
   return "연락 중단 기록 없음";
 }
 

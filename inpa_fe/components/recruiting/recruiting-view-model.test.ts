@@ -13,6 +13,7 @@ import {
   createLatestRequestGate,
   getActiveSelectedTemplateIds,
   getCandidateDisplayIdentity,
+  getBoardColumnPresentation,
   getRecruitingPageEditorIssue,
   groupSettlementsByDue,
   normalizeRecruitingTab,
@@ -213,6 +214,25 @@ test("모바일 지원자 카드는 다음 행동이 빠른 순이고 날짜 없
   ]);
 
   assert.deepEqual(sorted.map((candidate) => candidate.id), [3, 2, 1, 4]);
+});
+
+test("단계별 열은 다른 페이지의 지원자를 빈 단계라고 표시하지 않는다", () => {
+  assert.deepEqual(getBoardColumnPresentation(0, 0), {
+    kind: "empty",
+    hiddenCount: 0,
+  });
+  assert.deepEqual(getBoardColumnPresentation(0, 3), {
+    kind: "other_page",
+    hiddenCount: 3,
+  });
+  assert.deepEqual(getBoardColumnPresentation(2, 5), {
+    kind: "partial",
+    hiddenCount: 3,
+  });
+  assert.deepEqual(getBoardColumnPresentation(5, 5), {
+    kind: "complete",
+    hiddenCount: 0,
+  });
 });
 
 test("지원자 정렬은 모바일과 목록에서 같은 선택값을 따른다", () => {

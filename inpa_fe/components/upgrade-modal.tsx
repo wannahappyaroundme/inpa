@@ -30,8 +30,7 @@ interface UpgradeModalProps {
   info?: UpgradeModalInfo;
   /**
    * 표시 맥락. 기본(미지정)="credit_exhausted"=한도 초과 안내.
-   * "manager_required"=팀 기능은 Manager 요금제 전용(자격 게이트, 한도 초과 아님) — 헤드라인·
-   * 요금제 안내·요금제 토글이 Manager 하나로 바뀐다. (spec 2026-07-09 manager-plan-gate)
+   * "manager_required"=팀 기능에 Plus가 필요한 상황(한도 초과 아님).
    */
   reason?: "credit_exhausted" | "manager_required";
 }
@@ -73,17 +72,12 @@ function kindShort(kind: string | undefined): string {
 }
 
 // 확정 가격(2026-07-07). base = VAT 별도 월 이용료, vat = 10%, total = 최종 입금액.
-// manager(2026-07-09 팀 기능 게이트) = Plus와 동일가, 팀 관리 capability 전용.
+// 기존 Manager 구독 호환은 백엔드에만 남기고 신규 안내와 결제는 Plus로 통일한다.
 // 연 결제(2026-07-15): 12개월을 10개월 금액으로 = 2개월 무료(약 17% 할인, 2/12).
 //   annualBase = VAT 별도 연 이용료, annualVat = 10%, annualTotal = 최종 입금액.
 const PLAN_PRICING = {
   plus: {
     name: "플러스",
-    base: "19,900원", vat: "1,990원", total: "21,890원",
-    annualBase: "199,000원", annualVat: "19,900원", annualTotal: "218,900원",
-  },
-  manager: {
-    name: "Manager",
     base: "19,900원", vat: "1,990원", total: "21,890원",
     annualBase: "199,000원", annualVat: "19,900원", annualTotal: "218,900원",
   },
@@ -100,7 +94,7 @@ const BANK_ACCOUNT_DISPLAY = "국민은행 459001-04-503030 (예금주: 핀고)"
 export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" }: UpgradeModalProps) {
   const isManagerGate = reason === "manager_required";
   const [payPlan, setPayPlan] = useState<keyof typeof PLAN_PRICING>(
-    isManagerGate ? "manager" : "plus"
+    "plus"
   );
   const [payCycle, setPayCycle] = useState<"monthly" | "annual">("monthly");
   const [copied, setCopied] = useState(false);
@@ -109,12 +103,13 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
 
   useEffect(() => {
     if (!open) return;
+    if (isManagerGate) setPayPlan("plus");
     let alive = true;
     getBillingEvent()
       .then((e) => { if (alive) setBonusEnabled(e.first_paid_bonus_enabled); })
       .catch(() => { if (alive) setBonusEnabled(false); });
     return () => { alive = false; };
-  }, [open]);
+  }, [isManagerGate, open]);
 
   if (!open) return null;
 
@@ -123,7 +118,7 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
     typeof info?.used === "number" && typeof info?.limit === "number" && info.limit !== null;
 
   const visiblePlanCodes: (keyof typeof PLAN_PRICING)[] = isManagerGate
-    ? ["manager"]
+    ? ["plus"]
     : ["plus", "super"];
 
   const pricing = PLAN_PRICING[payPlan];
@@ -162,7 +157,7 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
             className="text-[18px] font-extrabold text-ink leading-snug"
           >
             {isManagerGate
-              ? "Manager 요금제에서 팀을 관리할 수 있어요"
+              ? "Plus 하나로 개인 업무와 팀 관리를 이어가세요"
               : `이번 달 ${kindLabel(info?.kind)} 한도를 다 쓰셨어요`}
           </h2>
           <button
@@ -187,10 +182,10 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
         {/* 본문 */}
         {isManagerGate ? (
           <p className="mt-4 text-[14px] text-ink2 leading-6">
-            팀원 인사 관리, 팀원 개별 실적 관리, 팀 전체 실적 관리를 한 화면에서 확인할 수
+            Plus를 이용하면 개인 설계 업무와 팀원 관리, 팀 전체 흐름을 한 화면에서 확인할 수
             있어요.
             <br />
-            팀을 이끄는 설계사님에게는 Manager 요금제가 딱 맞아요.
+            첫 팀원이 합류하면 Manager 역할은 같은 요금으로 자동 활성화됩니다.
           </p>
         ) : (
           <p className="mt-4 text-[14px] text-ink2 leading-6">
@@ -208,8 +203,8 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
           <ul className="mt-1.5 space-y-1 text-[13px] text-ink2 leading-5">
             {isManagerGate ? (
               <>
-                <li>Manager 월 19,900원 (VAT 별도) · 팀장·지점장·지사장 등 관리자 전용</li>
-                <li>Plus 전체 기능 · 팀원 인사·개별 실적·전체 실적 관리</li>
+                <li>플러스 월 19,900원 (VAT 별도)</li>
+                <li>개인 설계 업무 · 팀원 관리 · 팀 전체 흐름 확인</li>
               </>
             ) : (
               <>
@@ -225,7 +220,7 @@ export function UpgradeModal({ open, onClose, info, reason = "credit_exhausted" 
         <div className="mt-3 rounded-xl border border-line px-4 py-3">
           <p className="text-[13px] font-bold text-ink">계좌이체로 시작하기</p>
 
-          {/* 요금제 선택 토글 — manager_required는 Manager 하나뿐이라 토글 없이 이름만 표시 */}
+          {/* 팀 기능 안내도 신규 결제 상품은 Plus 하나만 표시한다. */}
           {visiblePlanCodes.length > 1 ? (
             <div className="mt-2 grid grid-cols-2 gap-1.5" role="group" aria-label="요금제 선택">
               {visiblePlanCodes.map((code) => (

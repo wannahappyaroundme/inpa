@@ -18,6 +18,7 @@ import {
   isSafeRecruitingToken,
   readStoredManageToken,
   shouldFocusManageTerminalHeading,
+  syncManageTokenAfterLoad,
   type StorageLike,
 } from "./public-recruiting-view-model";
 import {
@@ -71,7 +72,7 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
       const response = await getPublicRecruitingManage(token);
       if (generation !== generationRef.current) return;
       setData(response);
-      if (response.contact_stopped) clearStoredMatch();
+      syncManageTokenAfterLoad(browserStorage(), token, response.contact_stopped);
       setState("ready");
     } catch (error) {
       if (generation !== generationRef.current) return;
@@ -107,6 +108,7 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
       setData({
         contact_stopped: true,
         submitted_at: data?.submitted_at ?? new Date().toISOString(),
+        support_reference: data?.support_reference ?? "",
         message: response.message,
       });
       setMessage(response.message);
@@ -196,6 +198,10 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
           <dl className="mx-auto mt-5 max-w-xs rounded-2xl bg-surface2 p-4">
             <dt className="text-[12px] text-ink3">지원한 날</dt>
             <dd className="mt-1 text-[14px] font-bold text-ink">{formatDate(data.submitted_at)}</dd>
+            <dt className="mt-4 text-[12px] text-ink3">지원 확인 번호</dt>
+            <dd className="mt-1 break-all text-[12px] font-bold text-ink">
+              {data.support_reference}
+            </dd>
           </dl>
         </section>
       </PublicRecruitingFrame>
@@ -224,6 +230,15 @@ export function PublicRecruitingManageView({ token }: { token: string }) {
                     ? "대화 마무리"
                     : "연락 이어가는 중"}
               </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-[12px] text-ink3">지원 확인 번호</dt>
+              <dd className="mt-1 break-all text-[12px] font-bold text-ink">
+                {data.support_reference}
+              </dd>
+              <p className="mt-1 text-[11px] leading-5 text-ink3">
+                정보 정리를 문의할 때 이 번호를 함께 알려주세요.
+              </p>
             </div>
           </dl>
           {data.stage === "team_join" ? (

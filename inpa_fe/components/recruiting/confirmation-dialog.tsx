@@ -12,6 +12,7 @@ interface ConfirmationDialogProps {
   confirmLabel: string;
   pendingLabel: string;
   pending: boolean;
+  error?: string | null;
   cancelLabel?: string;
   onConfirm: () => void;
   onClose: () => void;
@@ -24,6 +25,7 @@ export function ConfirmationDialog({
   confirmLabel,
   pendingLabel,
   pending,
+  error = null,
   cancelLabel = "그대로 둘게요",
   onConfirm,
   onClose,
@@ -106,6 +108,14 @@ export function ConfirmationDialog({
         <p id={descriptionId} className="mt-3 text-[14px] leading-6 text-ink2">
           {description}
         </p>
+        {error && (
+          <p
+            role="alert"
+            className="mt-3 rounded-xl bg-danger-tint px-3 py-2 text-[13px] leading-5 text-danger-ink"
+          >
+            {error}
+          </p>
+        )}
         <div className="mt-6 flex flex-col-reverse gap-2.5 sm:flex-row">
           <button
             ref={cancelRef}

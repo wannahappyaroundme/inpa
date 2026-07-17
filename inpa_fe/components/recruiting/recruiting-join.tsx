@@ -19,7 +19,9 @@ import {
   getJoinErrorKind,
   isSafeRecruitingToken,
   prepareRecruitingJoinAuthReturn,
+  readStoredManageToken,
   shouldFocusJoinTerminalHeading,
+  type StorageLike,
 } from "./public-recruiting-view-model";
 import {
   PUBLIC_PRIMARY_BUTTON,
@@ -32,6 +34,14 @@ import {
 
 type InfoState = "loading" | "ready" | "retry" | "expired";
 type AuthState = "checking" | "logged_out" | "ready" | "retry";
+
+function browserStorage(): StorageLike | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 export function RecruitingJoin({ token }: { token: string }) {
   const router = useRouter();
@@ -117,10 +127,17 @@ export function RecruitingJoin({ token }: { token: string }) {
 
   async function accept(confirmSwitch: boolean) {
     if (joinPending) return;
+    const manageToken = readStoredManageToken(browserStorage());
+    if (!manageToken) {
+      setJoinError(
+        "지원 신청 때 받은 내 지원 관리 링크를 먼저 열면 합류를 이어갈 수 있어요.",
+      );
+      return;
+    }
     setJoinPending(true);
     setJoinError(null);
     try {
-      await acceptRecruitingJoin(token, confirmSwitch);
+      await acceptRecruitingJoin(token, manageToken, confirmSwitch);
       clearAuthReturn();
       setSwitchConfirmOpen(false);
       setJoined(true);

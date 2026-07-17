@@ -28,7 +28,7 @@ from .models import User
 MANAGER_PLAN_REQUIRED_BODY = {
     'detail': 'Plus를 시작하면 팀 관리 기능을 계속 사용할 수 있어요.',
     'code': 'manager_plan_required',
-    'plan': 'manager',
+    'plan': 'plus',
 }
 
 TEAM_INVITE_SALT = 'inpa-team-invite'

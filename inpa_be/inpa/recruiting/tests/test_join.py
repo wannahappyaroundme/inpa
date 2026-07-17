@@ -74,6 +74,8 @@ class RecruitingJoinTests(TestCase):
             name=name,
             affiliation=affiliation,
             title=title,
+            license_self_declared=True,
+            onboarding_completed_at=timezone.now(),
             manager_share_level=Profile.SHARE_FULL,
             manager_share_opt_in=True,
         )
@@ -97,11 +99,14 @@ class RecruitingJoinTests(TestCase):
     def _token(self, candidate=None):
         return _join_api()["make_token"](candidate or self.candidate)
 
-    def _accept(self, token=None, confirm_switch=False, user=None):
+    def _accept(self, token=None, confirm_switch=False, user=None, manage_token=None):
         self.client.force_authenticate(user=user or self.agent)
         return self.client.post(
             f"/api/v1/recruiting/join/{token or self._token()}/",
-            {"confirm_switch": confirm_switch},
+            {
+                "confirm_switch": confirm_switch,
+                "manage_token": str(manage_token or self.candidate.manage_token),
+            },
             format="json",
         )
 
@@ -190,12 +195,17 @@ class RecruitingJoinTests(TestCase):
         self.assertNotIn("identity_ref", str(response.json()))
         self.assertEqual(response["X-Robots-Tag"], "noindex, nofollow")
 
-    def test_join_view_uses_public_throttle_and_noindexes_post_response(self):
+    def test_join_view_uses_dedicated_post_throttle_and_noindexes_response(self):
         from rest_framework.throttling import ScopedRateThrottle
+        from rest_framework.test import APIRequestFactory
         from inpa.recruiting.join_views import RecruitingJoinView
 
         self.assertEqual(RecruitingJoinView.throttle_classes, [ScopedRateThrottle])
         self.assertEqual(RecruitingJoinView.throttle_scope, "recruiting_public")
+        view = RecruitingJoinView()
+        view.request = APIRequestFactory().post("/")
+        view.get_throttles()
+        self.assertEqual(view.throttle_scope, "recruiting_join")
         response = self._accept()
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response["X-Robots-Tag"], "noindex, nofollow")
@@ -204,6 +214,35 @@ class RecruitingJoinTests(TestCase):
             set(response.json()),
             {"stage", "joined_now", "manager_promoted_now"},
         )
+
+    def test_accept_requires_the_candidates_private_manage_token(self):
+        self.client.force_authenticate(self.agent)
+        missing = self.client.post(
+            f"/api/v1/recruiting/join/{self._token()}/",
+            {"confirm_switch": False},
+            format="json",
+        )
+        wrong = self._accept(manage_token=uuid.uuid4())
+
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(wrong.status_code, 409)
+        self.assertEqual(wrong.json()["code"], "recruiting_join_verification_required")
+        self.agent.profile.refresh_from_db()
+        self.assertIsNone(self.agent.profile.manager_id)
+
+    def test_accept_requires_completed_planner_onboarding_on_the_server(self):
+        self.agent.profile.onboarding_completed_at = None
+        self.agent.profile.license_self_declared = False
+        self.agent.profile.save(
+            update_fields=["onboarding_completed_at", "license_self_declared"]
+        )
+
+        response = self._accept()
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "recruiting_join_onboarding_required")
+        self.agent.profile.refresh_from_db()
+        self.assertIsNone(self.agent.profile.manager_id)
 
     def test_accepting_sets_profile_manager_and_candidate_joined(self):
         response = self._accept()

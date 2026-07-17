@@ -135,13 +135,20 @@ class PublicRecruitingCampaignView(RecruitingEnabledMixin, APIView):
         campaign = self._campaign(token)
         if self._is_unavailable(campaign):
             return _renewed_response()
+        if request.data.get("consent_version") != RECRUITING_CONSENT_VERSION:
+            return Response(
+                {
+                    "code": "recruiting_consent_refresh_required",
+                    "message": "최신 개인정보 안내를 다시 불러왔어요. 내용을 확인한 뒤 지원을 이어가주세요.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         serializer = PublicRecruitingApplicationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
             result = create_candidate_submission(
                 campaign=campaign,
                 data=serializer.validated_data,
-                ip_address=request.META.get("REMOTE_ADDR"),
             )
         except RecruitingLinkUnavailable:
             return _renewed_response()
@@ -230,6 +237,7 @@ class PublicRecruitingManageView(RecruitingEnabledMixin, APIView):
                 {
                     "contact_stopped": True,
                     "submitted_at": candidate.created_at,
+                    "support_reference": str(candidate.audit_ref),
                     "message": STOPPED_MESSAGE,
                 }
             )
@@ -238,6 +246,7 @@ class PublicRecruitingManageView(RecruitingEnabledMixin, APIView):
                 "contact_stopped": False,
                 "stage": candidate.stage,
                 "submitted_at": candidate.created_at,
+                "support_reference": str(candidate.audit_ref),
                 "leader": _profile_payload(candidate.owner),
             }
         )

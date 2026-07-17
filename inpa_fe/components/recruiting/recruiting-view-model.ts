@@ -86,6 +86,24 @@ export interface SettlementDueGroups {
   completed: RecruitingSettlement[];
 }
 
+export type BoardColumnPresentation = {
+  kind: "empty" | "other_page" | "partial" | "complete";
+  hiddenCount: number;
+};
+
+export function getBoardColumnPresentation(
+  visibleCount: number,
+  totalCount: number,
+): BoardColumnPresentation {
+  const safeVisible = Math.max(0, visibleCount);
+  const safeTotal = Math.max(safeVisible, totalCount);
+  const hiddenCount = safeTotal - safeVisible;
+  if (safeTotal === 0) return { kind: "empty", hiddenCount: 0 };
+  if (safeVisible === 0) return { kind: "other_page", hiddenCount };
+  if (hiddenCount > 0) return { kind: "partial", hiddenCount };
+  return { kind: "complete", hiddenCount: 0 };
+}
+
 export function groupSettlementsByDue(
   settlements: RecruitingSettlement[],
   today: string,

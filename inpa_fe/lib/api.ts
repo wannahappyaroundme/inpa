@@ -3079,12 +3079,6 @@ export interface RecruitingCandidateQuery {
 }
 
 export interface RecruitingCandidatePatch {
-  name?: string;
-  phone?: string;
-  career_band?: RecruitingCareerBand;
-  current_affiliation?: string;
-  region?: string;
-  contact_window?: RecruitingContactWindow;
   next_action?: RecruitingNextAction | "";
   next_action_at?: string | null;
 }
@@ -3193,6 +3187,7 @@ export interface PublicRecruitingApplication {
   contact_window: RecruitingContactWindow;
   submission_key: string;
   prior_manage_token?: string | null;
+  consent_version: string;
   agreed: boolean;
 }
 
@@ -3225,12 +3220,14 @@ export type PublicRecruitingManage =
   | {
       contact_stopped: true;
       submitted_at: string;
+      support_reference: string;
       message: string;
     }
   | {
       contact_stopped: false;
       stage: RecruitingStage;
       submitted_at: string;
+      support_reference: string;
       leader: RecruitingPlanner;
     };
 
@@ -3450,12 +3447,13 @@ export async function getRecruitingJoinInfo(token: string): Promise<RecruitingJo
 
 export async function acceptRecruitingJoin(
   token: string,
+  manageToken: string,
   confirmSwitch = false,
 ): Promise<RecruitingJoinAcceptResult> {
   return request<RecruitingJoinAcceptResult>(
     "POST",
     `/recruiting/join/${encodeURIComponent(token)}/`,
-    { confirm_switch: confirmSwitch },
+    { confirm_switch: confirmSwitch, manage_token: manageToken },
     true,
   );
 }

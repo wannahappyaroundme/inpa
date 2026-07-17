@@ -23,7 +23,11 @@ from .models import (
     RecruitingPage,
     SettlementCheck,
 )
-from .tokens import make_leader_choice_token, read_leader_choice_token
+from .tokens import (
+    RECRUITING_CHOICE_MAX_AGE_SECONDS,
+    make_leader_choice_token,
+    read_leader_choice_token,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -248,9 +252,11 @@ def _existing_submission_result(*, existing, data, phone):
 
 
 @transaction.atomic
-def create_candidate_submission(*, campaign, data, ip_address=None):
+def create_candidate_submission(*, campaign, data):
     if not data.get("agreed"):
         raise ValidationError("개인정보 수집과 영입 상담 연락에 동의하면 바로 지원할 수 있어요.")
+    if data.get("consent_version") != RECRUITING_CONSENT_VERSION:
+        raise ValidationError("최신 개인정보 안내를 다시 확인한 뒤 지원 내용을 보내주세요.")
     phone = normalize_phone(data.get("phone", ""))
     submission_key = _coerce_submission_key(data.get("submission_key"))
     # PostgreSQL은 nullable OUTER JOIN이 붙은 FOR UPDATE를 거부하므로 본체 행만 잠근다.
@@ -306,6 +312,12 @@ def create_candidate_submission(*, campaign, data, ip_address=None):
                 ),
                 next_action="" if is_pending else RecruitingCandidate.NextAction.CALL,
                 next_action_at=None if is_pending else timezone.now() + timedelta(hours=24),
+                retention_expires_at=(
+                    timezone.now()
+                    + timedelta(seconds=RECRUITING_CHOICE_MAX_AGE_SECONDS)
+                    if is_pending
+                    else None
+                ),
             )
     except IntegrityError:
         existing = RecruitingCandidate.objects.select_related("owner__profile").filter(
@@ -318,7 +330,6 @@ def create_candidate_submission(*, campaign, data, ip_address=None):
     RecruitingConsentLog.objects.create(
         candidate=candidate,
         doc_version=RECRUITING_CONSENT_VERSION,
-        ip_address=ip_address,
     )
     if is_pending:
         return SubmissionResult(
@@ -426,7 +437,16 @@ def apply_leader_choice(*, token, choice):
     new.selection_status = RecruitingCandidate.SelectionStatus.ACTIVE
     new.next_action = RecruitingCandidate.NextAction.CALL
     new.next_action_at = now + timedelta(hours=24)
-    new.save(update_fields=["selection_status", "next_action", "next_action_at", "updated_at"])
+    new.retention_expires_at = None
+    new.save(
+        update_fields=[
+            "selection_status",
+            "next_action",
+            "next_action_at",
+            "retention_expires_at",
+            "updated_at",
+        ]
+    )
     RecruitingActivity.objects.bulk_create(
         [
             RecruitingActivity(
@@ -527,7 +547,9 @@ def stop_candidate_contact(*, candidate):
     )
 
 
-def anonymize_candidate_for_tombstone(*, candidate, event_type, actor=None):
+def anonymize_candidate_for_tombstone(
+    *, candidate, event_type, actor=None, reason_code=""
+):
     """Scrub a locked, unjoined candidate while retaining a short cleanup tombstone."""
     previous_stage = candidate.stage
     now = timezone.now()
@@ -576,6 +598,7 @@ def anonymize_candidate_for_tombstone(*, candidate, event_type, actor=None):
             "actor": actor,
             "from_stage": previous_stage,
             "to_stage": RecruitingCandidate.Stage.ENDED,
+            "reason_code": reason_code,
         },
     )
     return candidate

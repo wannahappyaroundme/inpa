@@ -229,6 +229,27 @@ class RecruitingCandidateApiTests(TestCase):
         self.candidate.refresh_from_db()
         self.assertEqual(self.candidate.name, "내 지원자")
 
+    def test_leader_cannot_replace_applicant_identity_under_existing_consent(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.patch(
+            f"/api/v1/recruiting/candidates/{self.candidate.pk}/",
+            {
+                "name": "다른 사람",
+                "phone": "010-9999-9999",
+                "career_band": RecruitingCandidate.CareerBand.TEN_PLUS,
+                "current_affiliation": "다른 소속",
+                "region": "부산",
+                "contact_window": RecruitingCandidate.ContactWindow.MORNING,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.name, "내 지원자")
+        self.assertEqual(self.candidate.phone, "01011112222")
+
     def test_replaced_candidate_generic_card_cannot_be_patched(self):
         self.candidate.selection_status = RecruitingCandidate.SelectionStatus.REPLACED
         self.candidate.stage = RecruitingCandidate.Stage.ENDED

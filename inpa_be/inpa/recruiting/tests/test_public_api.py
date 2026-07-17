@@ -11,6 +11,7 @@ from inpa.recruiting.models import (
     RecruitingConsentLog,
     RecruitingPage,
 )
+from inpa.recruiting.consent_texts import RECRUITING_CONSENT_VERSION
 from inpa.recruiting.services import RecruitingLinkUnavailable
 
 
@@ -55,10 +56,29 @@ class RecruitingPublicApiTests(TestCase):
             "region": "서울",
             "contact_window": RecruitingCandidate.ContactWindow.EVENING,
             "submission_key": str(uuid.uuid4()),
+            "consent_version": RECRUITING_CONSENT_VERSION,
             "agreed": True,
         }
         values.update(overrides)
         return values
+
+    def test_application_records_the_displayed_consent_version_without_ip(self):
+        response = self.apply()
+
+        self.assertEqual(response.status_code, 201)
+        consent = RecruitingConsentLog.objects.get()
+        self.assertEqual(consent.doc_version, RECRUITING_CONSENT_VERSION)
+        self.assertNotIn(
+            "ip_address",
+            {field.name for field in RecruitingConsentLog._meta.fields},
+        )
+
+    def test_stale_consent_version_requires_the_latest_notice(self):
+        response = self.apply(consent_version="2026-07-16-old")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "recruiting_consent_refresh_required")
+        self.assertFalse(RecruitingCandidate.objects.exists())
 
     def apply(self, campaign=None, **overrides):
         campaign = campaign or self.campaign
@@ -275,6 +295,9 @@ class RecruitingPublicApiTests(TestCase):
         candidate = RecruitingCandidate.objects.get(owner=self.owner)
         RecruitingConsentLog.objects.create(candidate=candidate, doc_version="2026-07-16-v1")
 
+        before = self.client.get(f"/api/v1/r/manage/{candidate.manage_token}/")
+        self.assertEqual(before.data["support_reference"], str(candidate.audit_ref))
+
         response = self.client.post(
             f"/api/v1/r/manage/{candidate.manage_token}/",
             {"action": "stop_contact"},
@@ -292,6 +315,9 @@ class RecruitingPublicApiTests(TestCase):
         self.assertEqual(candidate.stage, RecruitingCandidate.Stage.ENDED)
         self.assertIsNotNone(candidate.contact_opt_out_at)
         self.assertFalse(candidate.consents.exists())
+
+        after = self.client.get(f"/api/v1/r/manage/{candidate.manage_token}/")
+        self.assertEqual(after.data["support_reference"], str(candidate.audit_ref))
 
         repeated = self.client.post(
             f"/api/v1/r/manage/{candidate.manage_token}/",

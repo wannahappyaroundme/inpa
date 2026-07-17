@@ -201,7 +201,6 @@ class RecruitingModelTests(TestCase):
         consent = RecruitingConsentLog.objects.create(
             candidate=candidate,
             doc_version="2026-07-16-v1",
-            ip_address="127.0.0.1",
         )
         activity = RecruitingActivity.objects.create(
             candidate=candidate,

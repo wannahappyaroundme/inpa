@@ -139,7 +139,7 @@ class RecruitingMetricsAdminTests(TestCase):
         self.client.force_authenticate(user=user)
         return self.client.post(path, data, format="json")
 
-    def test_personal_summary_has_all_stage_zeroes_and_excludes_inactive_selections(self):
+    def test_personal_summary_counts_visible_replaced_records_but_excludes_pending(self):
         self._candidate(stage=RecruitingCandidate.Stage.CONTACT)
         self._candidate(owner=self.other, stage=RecruitingCandidate.Stage.CONTACT)
         self._candidate(
@@ -150,6 +150,10 @@ class RecruitingMetricsAdminTests(TestCase):
             stage=RecruitingCandidate.Stage.PREPARING,
             selection_status=RecruitingCandidate.SelectionStatus.REPLACED,
         )
+        self._candidate(
+            stage=RecruitingCandidate.Stage.ENDED,
+            contact_opt_out_at=timezone.now(),
+        )
 
         response = self._get(self.owner, "/api/v1/recruiting/summary/")
 
@@ -157,6 +161,7 @@ class RecruitingMetricsAdminTests(TestCase):
         self.assertIn("stage_counts", response.json())
         expected = {stage: 0 for stage in RecruitingCandidate.Stage.values}
         expected[RecruitingCandidate.Stage.CONTACT] = 1
+        expected[RecruitingCandidate.Stage.PREPARING] = 1
         self.assertEqual(response.json()["stage_counts"], expected)
         self.assertEqual(
             set(response.json()),
@@ -338,7 +343,7 @@ class RecruitingMetricsAdminTests(TestCase):
             {
                 "detail": "Plus를 시작하면 팀 관리 기능을 계속 사용할 수 있어요.",
                 "code": "manager_plan_required",
-                "plan": "manager",
+                "plan": "plus",
             },
         )
 
@@ -438,13 +443,33 @@ class RecruitingMetricsAdminTests(TestCase):
                 "created_at",
                 "retention_expires_at",
                 "contact_opted_out",
+                "support_reference",
             },
         )
         self.assertEqual(item["name_masked"], "홍*동")
         self.assertEqual(item["phone_masked"], "***-****-5678")
+        self.assertEqual(item["support_reference"], str(candidate.audit_ref))
         rendered = _json_text(response)
         for raw in ("홍길동", "01012345678", "극비 소속", "극비 지역", self.owner.email):
             self.assertNotIn(raw, rendered)
+
+    def test_admin_candidate_reference_filter_requires_an_exact_uuid(self):
+        target = self._candidate(name="같은 이름", phone="010-1234-5678")
+        other = self._candidate(name="같은 이름", phone="010-9999-5678")
+
+        matched = self._get(
+            self.admin_user,
+            f"/api/v1/admin/recruiting/candidates/?reference={target.audit_ref}",
+        )
+        invalid = self._get(
+            self.admin_user,
+            "/api/v1/admin/recruiting/candidates/?reference=5678",
+        )
+
+        self.assertEqual(matched.status_code, 200)
+        self.assertEqual([row["id"] for row in matched.json()["results"]], [target.pk])
+        self.assertNotIn(other.pk, [row["id"] for row in matched.json()["results"]])
+        self.assertEqual(invalid.status_code, 400)
 
     def test_admin_phone_mask_reveals_suffix_only_for_valid_length(self):
         from inpa.recruiting.admin_views import _mask_phone
@@ -467,7 +492,6 @@ class RecruitingMetricsAdminTests(TestCase):
         RecruitingConsentLog.objects.create(
             candidate=candidate,
             doc_version="recruiting-contact-v1",
-            ip_address="127.0.0.1",
         )
         real_lock = RecruitingCandidate.objects.select_for_update
         with patch(
@@ -510,6 +534,7 @@ class RecruitingMetricsAdminTests(TestCase):
             event_type=RecruitingActivity.EventType.CANDIDATE_PURGED,
         )
         self.assertEqual(audit.actor_id, self.admin_user.pk)
+        self.assertEqual(audit.reason_code, "user_request")
         rendered = f"{audit} {first.content!r} {second.content!r}"
         self.assertNotIn("홍길동", rendered)
         self.assertNotIn("01012345678", rendered)
@@ -666,7 +691,15 @@ class RecruitingMetricsAdminTests(TestCase):
         item = next(row for row in response.json()["results"] if row["candidate_ref"] == str(activity.candidate_ref))
         self.assertEqual(
             set(item),
-            {"candidate_ref", "event_type", "from_stage", "to_stage", "actor_id", "created_at"},
+            {
+                "candidate_ref",
+                "event_type",
+                "from_stage",
+                "to_stage",
+                "reason_code",
+                "actor_id",
+                "created_at",
+            },
         )
         rendered = _json_text(response)
         for raw in ("감사 민감 이름", "01077778888", self.owner.email, "metadata"):
@@ -719,7 +752,6 @@ class RecruitingMetricsAdminTests(TestCase):
         consent = RecruitingConsentLog.objects.create(
             candidate=candidate,
             doc_version="recruiting-contact-v1",
-            ip_address="127.0.0.1",
         )
         activity = RecruitingActivity.objects.create(
             candidate=candidate,
@@ -769,6 +801,7 @@ class RecruitingMetricsAdminTests(TestCase):
                 "event_type",
                 "from_stage",
                 "to_stage",
+                "reason_code",
                 "actor_id",
                 "created_at",
             ),
@@ -820,7 +853,7 @@ class RecruitingMetricsAdminTests(TestCase):
         )
         self.assertFalse(
             set(admin.site._registry[RecruitingConsentLog].get_fields(request, consent))
-            & {"candidate", "ip_address"}
+            & {"candidate"}
         )
         self.assertFalse(
             set(admin.site._registry[RecruitingActivity].get_fields(request, activity))

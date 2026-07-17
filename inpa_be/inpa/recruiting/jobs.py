@@ -111,6 +111,11 @@ def cleanup_expired_recruiting_candidates(now=None):
         .filter(
             Q(contact_opt_out_at__isnull=False)
             | Q(
+                selection_status=RecruitingCandidate.SelectionStatus.PENDING,
+                joined_user__isnull=True,
+                joined_at__isnull=True,
+            )
+            | Q(
                 contact_opt_out_at__isnull=True,
                 joined_user__isnull=True,
                 stage=RecruitingCandidate.Stage.ENDED,
@@ -148,6 +153,9 @@ def cleanup_expired_recruiting_candidates(now=None):
                 )
                 if not is_valid_tombstone:
                     continue
+            elif candidate.selection_status == RecruitingCandidate.SelectionStatus.PENDING:
+                if candidate.joined_user_id is not None or candidate.joined_at is not None:
+                    continue
             else:
                 is_ended_unjoined = (
                     candidate.joined_user_id is None
@@ -177,6 +185,7 @@ def cleanup_expired_recruiting_candidates(now=None):
                     "candidate": candidate,
                     "from_stage": candidate.stage,
                     "to_stage": RecruitingCandidate.Stage.ENDED,
+                    "reason_code": RecruitingActivity.ReasonCode.RETENTION,
                 },
             )
             candidate.delete()
