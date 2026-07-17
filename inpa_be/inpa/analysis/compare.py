@@ -121,11 +121,17 @@ def _aggregate_side(insurance_list):
 
     acc = {k: 0 for k in keys}
     has_nonnull = {k: False for k in keys}  # ★ 각 키별 non-null 여부 추적
+    has_incomplete_composition = {k: False for k in keys}
     coverage_amounts = {}
 
     for ci in insurance_list:
+        has_mixed_case_premiums = ci.has_mixed_case_premiums()
         for k in keys:
             v = getattr(ci, k, None)
+            if (has_mixed_case_premiums
+                    and k in ci.COVERAGE_PREMIUM_COMPOSITION_FIELDS):
+                v = None
+                has_incomplete_composition[k] = True
             if v is not None:
                 acc[k] += v
                 has_nonnull[k] = True
@@ -134,8 +140,8 @@ def _aggregate_side(insurance_list):
             if amount <= 0:
                 continue
             # 표준 담보명으로 귀속 (한 케이스가 여러 표준 담보에 매핑될 수 있음 → 각각 합산).
-            std_names = [ad.name for ad in case.detail.analysis_detail.all()]
-            if not std_names:
+            std_names = [ad.name for ad in case.effective_analysis_details()]
+            if not std_names and case.mapping_source == 'global':
                 # 표준 담보 매핑이 없으면 카탈로그 담보명으로 폴백(사실 표시 유지).
                 std_names = [case.detail.name]
             for name in std_names:
@@ -144,7 +150,7 @@ def _aggregate_side(insurance_list):
     # ★ 각 키마다 non-null 값이 없으면 None, 있으면 합계(반올림)
     summary = {}
     for k in keys:
-        if not has_nonnull[k]:
+        if has_incomplete_composition[k] or not has_nonnull[k]:
             summary[k] = None
         else:
             summary[k] = round(acc[k]) if isinstance(acc[k], float) else acc[k]
@@ -207,14 +213,18 @@ def _generate_guide_draft(customer, current_summary, proposed_summary, rows, met
         _set_meta(outcome='no_key')
         return None, None
 
+    model_id = getattr(settings, 'CLAUDE_MODEL_PARSE', '')
+    if not model_id:
+        logger.warning('[compare] CLAUDE_MODEL_PARSE not configured')
+        _set_meta(outcome='no_model')
+        return None, None
+
     try:
         import anthropic
     except ImportError:
         logger.warning('[compare] anthropic package not installed')
         _set_meta(outcome='package_missing')
         return None, None
-
-    model_id = getattr(settings, 'CLAUDE_MODEL_PARSE', 'claude-opus-4-8')
 
     # 비교표(사실)를 텍스트로 직렬화 — 프롬프트 입력. 모든 금액은 이미 서버가 계산한 사실값.
     rows_text = '\n'.join(
@@ -323,7 +333,11 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
 
         base_qs = (
             customer.customer_insurance_list
-            .prefetch_related('case_list__detail__analysis_detail')
+            .analysis_ready()
+            .prefetch_related(
+                'case_list__detail__analysis_detail',
+                'case_list__analysis_detail_override',
+                'case_list__detail__chart_detail')
         )
         all_list = list(base_qs)
 
@@ -388,7 +402,7 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
             outcome = guide_meta.get('outcome') or ('success' if text is not None else 'api_error')
             log_claude_usage(
                 'compare_guide',
-                getattr(settings, 'CLAUDE_MODEL_PARSE', 'claude-opus-4-8'),
+                getattr(settings, 'CLAUDE_MODEL_PARSE', ''),
                 usage,
                 user=request.user,
                 outcome=outcome,

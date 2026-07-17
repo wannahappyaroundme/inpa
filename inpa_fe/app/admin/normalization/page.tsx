@@ -61,21 +61,20 @@ function AccuracyCard() {
   }
 
   const pct = (data.accuracy * 100).toFixed(1);
+  const safeDecisionPct = (data.safe_decision_rate * 100).toFixed(1);
   const anchorsOk = data.anchor_passed === data.anchor_total;
 
   return (
     <Card className="p-5 mb-5">
       <div className="flex items-center justify-between mb-1">
-        <h2 className="text-[14px] font-bold text-ink">키워드 매처 재현율 기준선</h2>
+        <h2 className="text-[14px] font-bold text-ink">폴백 골든셋 자동매칭 재현율</h2>
         <span className="text-[11px] text-ink3">
-          골든셋(자체 사전 + 회귀 앵커) 대비 키워드 자동매칭 재현율
+          자체 사전 + 회귀 앵커 기준
         </span>
       </div>
       <p className="text-[11px] text-ink3 mb-3 leading-relaxed">
-        실제 증권 분석은 AI(Claude)와 검수 사전까지 함께 써서 이 수치보다 정확합니다.
-        이 값은 키워드 자동매칭만 따로 떼어 사전·매처를 바꿀 때 정확도가 떨어지는지
-        감시하는 회귀 지표입니다. 낮게 보이는 항목 상당수는 세분류 담보라 키워드만으로는
-        구분이 어려운 경우이며(회귀 앵커는 반드시 통과), 실제 분석에는 영향이 없습니다.
+        {data.evaluation_scope_note} 사전과 매처를 바꿀 때 폴백 자동매칭이
+        떨어지는지 확인하는 회귀 지표입니다.
       </p>
       <div className="flex flex-wrap items-center gap-6">
         <div>
@@ -92,6 +91,11 @@ function AccuracyCard() {
           }`}
         >
           회귀 앵커 {data.anchor_passed} / {data.anchor_total}건 통과
+        </div>
+        <div className="text-[11px] leading-5 text-ink3 tnum">
+          정확 자동매칭 {data.exact_auto_mapped}건 · 사람 확인 {data.safe_human_review}건 ·
+          위험 자동오매핑 {data.unsafe_auto_mapped}건<br />
+          폴백 골든셋 안전 분기 {safeDecisionPct}% (운영 OCR 정확도 아님)
         </div>
       </div>
       {data.sample_failures.length > 0 && (

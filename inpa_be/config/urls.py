@@ -30,10 +30,12 @@ urlpatterns = [
     path('api/v1/', include('inpa.boards.urls')),
     path('api/v1/', include('inpa.promotion.urls')),
     path('api/v1/', include('inpa.admin_console.urls')),
+    path('api/v1/', include('inpa.recruiting.admin_urls')),
     path('api/v1/', include('inpa.analytics.urls')),
     path('api/v1/', include('inpa.booking.urls')),
     path('api/v1/', include('inpa.dashboard.urls')),
     path('api/v1/', include('inpa.schedule.urls')),
+    path('api/v1/', include('inpa.recruiting.urls')),
 ]
 
 # 업로드 미디어(명함 등) — 개발 서버에서만 Django가 서빙. 운영은 whitenoise/오브젝트 스토리지.

@@ -12,7 +12,17 @@ import type { MetadataRoute } from "next";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.inpa.kr";
 
 const ALLOW = ["/$", "/legal/", "/data-policy", "/faq", "/blog"];
-const DISALLOW = ["/s/", "/b/", "/c/", "/d/", "/p/", "/admin", "/api"];
+const DISALLOW = [
+  "/s/",
+  "/b/",
+  "/c/",
+  "/d/",
+  "/p/",
+  "/r/",
+  "/recruiting/join/",
+  "/admin",
+  "/api",
+];
 
 // AI 답변 엔진/검색 크롤러 (공개 페이지 인용·학습 허용).
 const AI_BOTS = [

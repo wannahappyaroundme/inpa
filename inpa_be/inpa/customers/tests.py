@@ -884,7 +884,7 @@ class SeedJobsMarkerTests(TestCase):
         self.assertEqual(JobRiskCode.objects.count(), 1)
 
 
-class ConsentRevokeTests(TestCase):
+class PublicConsentRevocationTests(TestCase):
     """공개 /c 동의 철회(LB#10) — revocable 노출, revoked[] 스탬프, 게이트·스냅샷 정합."""
 
     def setUp(self):
@@ -1030,6 +1030,30 @@ class ConsentRevokeTests(TestCase):
         self.assertFalse(ShareSnapshot.objects.filter(customer=self.customer).exists())
         # 다른 고객의 스냅샷은 무관 — 보존
         self.assertTrue(ShareSnapshot.objects.filter(pk=other_snap.pk).exists())
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_personal_info_revoke_closes_active_public_snapshot_link(self):
+        """개인정보 동의 철회 뒤 공개 링크는 즉시 404이고 본문은 남지 않는다."""
+        from inpa.analytics.models import ShareSnapshot
+        ConsentLog.objects.create(
+            customer=self.customer, scope=ConsentLog.SCOPE_PERSONAL_INFO,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF)
+        snap = ShareSnapshot.objects.create(
+            owner=self.user, customer=self.customer,
+            share_token=self.customer.share_token,
+            payload={'customer': {'name_masked': '김**'}, 'tree': []},
+            payload_version='v2-immutable-analysis',
+            link_expires_at=timezone.now() + datetime.timedelta(days=90),
+            retention_expires_at=timezone.now() + datetime.timedelta(days=180))
+        tok = self._token(['personal_info'])
+
+        response = self.anon.post(
+            f'/api/v1/c/{tok}/', {'revoked': ['personal_info']}, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(ShareSnapshot.objects.filter(pk=snap.pk).exists())
+        self.assertEqual(self.anon.get(
+            f'/api/v1/s/{self.customer.share_token}/').status_code, 404)
 
     def test_marketing_revoke_does_not_touch_share_snapshots(self):
         """personal_info 이외 scope 철회는 공유 기록과 무관(보존)."""

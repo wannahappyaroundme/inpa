@@ -17,6 +17,7 @@
 
 순수 계산 — Claude API 불필요.
 """
+from django.db.models import Max
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -87,6 +88,25 @@ def _age_band(birth_day):
     return f'{(age // 10) * 10}s'
 
 
+def _contributions_by_detail(insurance_list):
+    """Build held-amount provenance from the exact calculated portfolio."""
+    contributions = {}
+    for insurance in insurance_list:
+        for case in insurance.case_list.all():
+            row = {
+                'case_id': case.pk,
+                'insurance_id': insurance.pk,
+                'insurance_name': insurance.name,
+                'raw_name': case.raw_name,
+                'assurance_amount': case.assurance_amount,
+                'source_page': case.source_page,
+                'mapping_source': case.mapping_source,
+            }
+            for detail in case.effective_analysis_details():
+                contributions.setdefault(detail.pk, []).append(row.copy())
+    return contributions
+
+
 class CustomerHeatmapView(APIView):
     """담보 한눈표/히트맵 — GET /api/v1/customers/<customer_pk>/heatmap/
 
@@ -132,9 +152,13 @@ class CustomerHeatmapView(APIView):
         #    ★ 404 판정을 크레딧 차감보다 먼저 해 잘못된 요청에 크레딧을 헛차감하지 않는다.
         #    ★ portfolio_type=1(보유)만 집계 — 제안(2)/템플릿(0)이 '보유 보장금액'으로
         #    섞이지 않게 한다(dashboard/aggregation·churn·manager 와 동일 규칙).
-        insurance_qs = customer.customer_insurance_list.filter(
-            portfolio_type=1).prefetch_related(
-            'case_list__detail__analysis_detail', 'case_list__detail__chart_detail')
+        review_state = customer.customer_insurance_list.analysis_review_state()
+        portfolio_qs = review_state['portfolio_queryset']
+        ready_qs = review_state['ready_queryset']
+        insurance_qs = ready_qs.prefetch_related(
+            'case_list__detail__analysis_detail',
+            'case_list__analysis_detail_override',
+            'case_list__detail__chart_detail')
         insurance_id = request.query_params.get('insurance_id')
         if insurance_id is not None:
             try:
@@ -201,6 +225,7 @@ class CustomerHeatmapView(APIView):
 
         # ── 4) 집계 결과(case_list)를 표준 트리(category→sub→detail)로 재구성 ──
         held_by_detail_id = {c['id']: c.get('total_premium', 0) for c in result['case_list']}
+        contributions_by_detail_id = _contributions_by_detail(insurance_list)
 
         tree = []
         categories = (AnalysisCategory.objects
@@ -212,6 +237,13 @@ class CustomerHeatmapView(APIView):
                 detail_nodes = []
                 for det in sub.details.all().order_by('order', 'id'):
                     held = held_by_detail_id.get(det.id, 0)
+                    contributions = contributions_by_detail_id.get(
+                        det.id, [])
+                    if sum(
+                            row['assurance_amount']
+                            for row in contributions) != held:
+                        raise AssertionError(
+                            'heatmap contribution amount mismatch')
                     status, baseline = _grade(det.name, held)
                     detail_nodes.append({
                         'detail_id': det.id,
@@ -219,6 +251,7 @@ class CustomerHeatmapView(APIView):
                         'held_amount': held,
                         'status': status,
                         'baseline': baseline,
+                        'contributions': contributions,
                     })
                 sub_nodes.append({
                     'sub_category_id': sub.id,
@@ -243,6 +276,13 @@ class CustomerHeatmapView(APIView):
         )
         summary = {k: result[k] for k in summary_keys}
 
+        included_insurance_count = review_state['included_insurance_count']
+        total_insurance_count = review_state['total_insurance_count']
+        pending_review_count = review_state['pending_review_count']
+        last_confirmed_at = ready_qs.aggregate(
+            last_confirmed_at=Max('confirmed_at'))['last_confirmed_at']
+        can_share = review_state['can_share']
+
         # ── 5) 분석 조회 계측 (북극성 ANALYSIS_VIEW) — 관리자 사용량 '분석 조회' 집계용 ──
         #    sender = 조회한 설계사(owner). log_event 는 예외 격리(계측 실패가 응답을 막지 않음).
         #    요청당 1건만 적재(중복 계측 방지). insurance_id 필터 조회도 1회로 센다.
@@ -257,6 +297,15 @@ class CustomerHeatmapView(APIView):
             'baseline_present': bool(baselines),
             'baseline_count': len(baselines),  # graded 근거(설계사가 보유한 살아있는 기준 수)
             'insurance_count': len(insurance_list),
+            'included_insurance_count': included_insurance_count,
+            'excluded_insurance_count': (
+                total_insurance_count - included_insurance_count),
+            'last_confirmed_at': (
+                last_confirmed_at.isoformat()
+                if last_confirmed_at is not None else None),
+            'pending_review_count': pending_review_count,
+            'can_share': can_share,
+            'share_block_reason': review_state['share_block_reason'],
             'summary': summary,
             'insurances': InsuranceFeeSerializer(insurance_list, many=True).data,
             'chart_list': result['chart_list'],

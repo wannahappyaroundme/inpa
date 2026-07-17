@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint:copy": "node scripts/check-copy.js",
-    "test:landing": "tsc --module commonjs --moduleResolution node --target es2020 --esModuleInterop --skipLibCheck --outDir .next/landing-tests lib/new-host-routing.ts lib/new-host-routing.test.ts lib/test-landing-content.ts lib/test-landing-content.test.ts && node --test .next/landing-tests/new-host-routing.test.js .next/landing-tests/test-landing-content.test.js"
+    "test:landing": "tsc --module commonjs --moduleResolution node --target es2020 --esModuleInterop --skipLibCheck --outDir .next/landing-tests lib/new-host-routing.ts lib/new-host-routing.test.ts lib/test-landing-content.ts lib/test-landing-content.test.ts && node --test .next/landing-tests/new-host-routing.test.js .next/landing-tests/test-landing-content.test.js",
+    "test:unit": "tsx --test app/admin/recruiting/view-model.test.ts app/notifications/notification-action.test.ts components/recruiting/public-recruiting-view-model.test.ts components/recruiting/recruiting-integration.test.ts components/recruiting/recruiting-view-model.test.ts lib/admin-api-error.test.ts lib/auth-return.test.ts",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.63.0",
@@ -15,6 +18,7 @@
     "@vercel/speed-insights": "^2.0.0",
     "lucide-react": "^1.21.0",
     "next": "16.2.9",
+    "qrcode": "^1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
@@ -22,10 +26,17 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "tsx": "^4.23.1",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

@@ -73,8 +73,8 @@ class Plan(models.Model):
     )
     # share_link / customer_add(레거시 명칭, 이 필드와 무관) = 절대 차단 금지 → 필드 없음 (dev/23 §1.2)
 
-    # ★ capability 필드(월 액션 한도와 별개) — 관리자가 Django Admin에서 재배포 없이 다른
-    # 플랜에도 부여 가능. seed_billing이 manager 플랜만 True로 시드(spec 2026-07-09 manager-plan-gate).
+    # ★ capability 필드(월 액션 한도와 별개) — 활성·미만료 구독의 플랜이 True일 때 팀 기능 허용.
+    # seed_billing 신규 기본값은 Plus·legacy Manager·Super=True, Free=False다.
     can_use_team = models.BooleanField(
         '팀 관리 기능 사용 가능', default=False,
         help_text='True면 /manager 대시보드·팀 초대 링크를 사용할 수 있어요. '
@@ -257,6 +257,7 @@ class ClaudeApiLog(models.Model):
     """
     ACTION_CHOICES = (
         ('ocr_parse', '증권 OCR 파싱'),
+        ('insurance_extraction', '증권 검토형 추출'),
         ('ocr_verify', '증권 파싱 다중검사'),
         ('compare_guide', '비교 분석 안내서'),
         ('self_diagnosis', '셀프진단(공개)'),
@@ -270,6 +271,21 @@ class ClaudeApiLog(models.Model):
     OUTCOME_TIMEOUT = 'timeout'
     OUTCOME_NO_KEY = 'no_key'
     OUTCOME_PACKAGE_MISSING = 'package_missing'
+    # Review extraction uses these more precise PII-free ledger details.
+    # They deliberately stay outside OUTCOME_CHOICES: changing model choices
+    # would create a schema migration even though the DB column is free text.
+    EXTRACTION_OUTCOME_SCHEMA_INVALID = 'schema_invalid'
+    EXTRACTION_OUTCOME_PRIVACY_REJECTED = 'privacy_rejected'
+    EXTRACTION_OUTCOME_TRANSPORT_FAILURE = 'transport_failure'
+    EXTRACTION_OUTCOME_CONFIG_FAILURE = 'config_failure'
+    EXTRACTION_OUTCOMES = (
+        OUTCOME_SUCCESS,
+        OUTCOME_EMPTY,
+        EXTRACTION_OUTCOME_SCHEMA_INVALID,
+        EXTRACTION_OUTCOME_PRIVACY_REJECTED,
+        EXTRACTION_OUTCOME_TRANSPORT_FAILURE,
+        EXTRACTION_OUTCOME_CONFIG_FAILURE,
+    )
     OUTCOME_CHOICES = (
         (OUTCOME_SUCCESS, '성공'),
         (OUTCOME_EMPTY, '결과 없음'),

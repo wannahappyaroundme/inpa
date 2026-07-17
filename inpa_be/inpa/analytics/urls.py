@@ -13,7 +13,8 @@ from django.urls import path
 from .history import CustomerHistoryView
 from .views import (
     CustomerShareCreateView, CustomerShareSnapshotDetailView,
-    CustomerShareSnapshotListView, ShareAnalysisView, ShareEventView,
+    CustomerShareSnapshotListView, CustomerShareSnapshotRevokeView,
+    ShareAnalysisView, ShareEventView,
 )
 
 app_name = 'analytics'
@@ -29,4 +30,6 @@ urlpatterns = [
          CustomerShareSnapshotListView.as_view(), name='customer-share-snapshot-list'),
     path('customers/<int:customer_pk>/share-snapshots/<int:snap_id>/',
          CustomerShareSnapshotDetailView.as_view(), name='customer-share-snapshot-detail'),
+    path('customers/<int:customer_pk>/share-snapshots/<int:snap_id>/revoke/',
+         CustomerShareSnapshotRevokeView.as_view(), name='customer-share-snapshot-revoke'),
 ]

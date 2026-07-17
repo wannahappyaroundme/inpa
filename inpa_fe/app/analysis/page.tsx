@@ -7,6 +7,8 @@ import { AppNav } from "@/components/app-nav";
 import { DisclaimerFooter } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
+  AnalysisAuthoritySummary,
+  AnalysisEmptyState,
   HeatmapGrid,
   KpiCard,
   fmtWon,
@@ -17,13 +19,17 @@ import {
   OcrUploadButton,
   OcrStatusBanner,
   ConsentModal,
+  InsuranceDuplicateChoice,
 } from "@/components/ocr-upload";
+import { InsuranceImportCards } from "@/components/insurance-import-cards";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { InsuranceCards } from "@/components/insurance-review-cards";
 import { BaselineRequiredModal } from "@/components/baseline-required-modal";
 import { UpgradeModal } from "@/components/upgrade-modal";
 import {
   getHeatmap,
   listAllCustomers,
+  ApiError,
   type HeatmapResponse,
   type InsuranceFee,
   type CustomerListItem,
@@ -72,10 +78,14 @@ function AnalysisPageInner() {
   const [heatmap, setHeatmap] = useState<HeatmapResponse | null>(null);
   const [heatmapLoading, setHeatmapLoading] = useState(false);
   const [heatmapError, setHeatmapError] = useState<string | null>(null);
+  const [heatmapErrorStatus, setHeatmapErrorStatus] = useState<number | null>(null);
 
   const [graded, setGraded] = useState(true);
   const [filter, setFilter] = useState<FilterKey>("all");
   const [manualOpen, setManualOpen] = useState(false);
+  const [reviewInsuranceId, setReviewInsuranceId] = useState<number | null>(null);
+  const [pendingInsuranceId, setPendingInsuranceId] = useState<number | null>(null);
+  const [insuranceRefreshKey, setInsuranceRefreshKey] = useState(0);
   const [baselineModalDismissed, setBaselineModalDismissed] = useState(false);
 
   // ── 보험별 보기 (보유 2개 이상일 때 카드 선택) ──
@@ -87,11 +97,19 @@ function AnalysisPageInner() {
   const [insError, setInsError] = useState<string | null>(null);
   // 카드 연타 시 늦게 도착한 이전 응답이 새 선택을 덮어쓰지 않도록 요청 번호로 가드.
   const insReqRef = useRef(0);
+  const heatmapReqRef = useRef(0);
+
+  useEffect(() => () => {
+    heatmapReqRef.current += 1;
+    insReqRef.current += 1;
+  }, []);
 
   // ── 히트맵 로드 (전체 합산) — 고객 변경/증권 등록 시 보험 선택도 초기화 ──
   const fetchHeatmap = useCallback(async (id: number) => {
+    const req = ++heatmapReqRef.current;
     setHeatmapLoading(true);
     setHeatmapError(null);
+    setHeatmapErrorStatus(null);
     setHeatmap(null);
     insReqRef.current += 1; // 진행 중이던 보험별 조회 무효화
     setSelectedInsId(null);
@@ -100,12 +118,18 @@ function AnalysisPageInner() {
     setInsLoading(false);
     try {
       const data = await getHeatmap(id);
-      setHeatmap(data);
+      if (heatmapReqRef.current === req) setHeatmap(data);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "분석 데이터를 불러오지 못했어요.";
-      setHeatmapError(msg);
+      if (heatmapReqRef.current === req) {
+        const status = e instanceof ApiError ? e.status : null;
+        const msg = status === 404
+          ? "선택한 고객의 분석을 찾을 수 없어요."
+          : e instanceof Error ? e.message : "분석 데이터를 불러오지 못했어요.";
+        setHeatmapErrorStatus(status);
+        setHeatmapError(msg);
+      }
     } finally {
-      setHeatmapLoading(false);
+      if (heatmapReqRef.current === req) setHeatmapLoading(false);
     }
   }, []);
 
@@ -136,7 +160,7 @@ function AnalysisPageInner() {
   // ── OCR 업로드 (공유 훅) ───────────────────
   const ocr = useOcrUpload((id) => {
     void fetchHeatmap(id);
-  });
+  }, 1, selectedId);
 
   // ── 고객 목록 로드 ──────────────────────────
   // ★ 한 동선 유도: ?customer=<id> 로 들어오면 고객 상세 분석 탭으로 리다이렉트.
@@ -147,18 +171,30 @@ function AnalysisPageInner() {
       router.replace(`/customer/${qid}?tab=analysis`);
       return;
     }
+    let active = true;
     setCustomersLoading(true);
     listAllCustomers()
       .then((results) => {
+        if (!active) return;
         setCustomers(results);
         if (results.length > 0) setSelectedId(results[0].id);
       })
-      .catch(() => setCustomers([]))
-      .finally(() => setCustomersLoading(false));
+      .catch(() => {
+        if (active) setCustomers([]);
+      })
+      .finally(() => {
+        if (active) setCustomersLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [ready, searchParams, router]);
 
   useEffect(() => {
     if (selectedId !== null) {
+      setPendingInsuranceId(null);
+      setReviewInsuranceId(null);
+      setManualOpen(false);
       fetchHeatmap(selectedId);
       setBaselineModalDismissed(false);
     }
@@ -233,7 +269,13 @@ function AnalysisPageInner() {
           phase={ocr.phase}
           errorMsg={ocr.error}
           onDismiss={ocr.clearError}
+          onRetry={ocr.retryUpload}
           onManualEntry={selectedId !== null ? () => setManualOpen(true) : undefined}
+        />
+        <InsuranceDuplicateChoice
+          info={ocr.duplicateInfo}
+          onOpenExisting={ocr.openDuplicateInsurance}
+          onReplace={ocr.resolveDuplicateReplace}
         />
 
         {ocr.phase === "consent_required" && (
@@ -254,9 +296,34 @@ function AnalysisPageInner() {
           info={ocr.upgradeInfo}
         />
 
+        {selectedId !== null && (
+          <>
+            <InsuranceImportCards customerId={selectedId} />
+            <div className="mt-5">
+              <InsuranceCards
+                customerId={selectedId}
+                portfolioType={1}
+                refreshKey={insuranceRefreshKey}
+                title="보유 보험"
+                onReview={(insuranceId) => {
+                  setReviewInsuranceId(insuranceId);
+                  setManualOpen(true);
+                }}
+                onPendingInsurance={setPendingInsuranceId}
+              />
+            </div>
+          </>
+        )}
+
+        {!heatmapLoading && !heatmapError && heatmap && (
+          <div className="mt-5">
+            <AnalysisAuthoritySummary heatmap={heatmap} />
+          </div>
+        )}
+
         {/* 기준 미설정 안내 모달 — neutral 이고 보험 있을 때 한 번만 표시(닫으면 해제) */}
         {!heatmapLoading && !heatmapError && heatmap &&
-          heatmap.mode === "neutral" && heatmap.insurance_count > 0 &&
+          heatmap.mode === "neutral" && heatmap.included_insurance_count > 0 &&
           !baselineModalDismissed && (
           <BaselineRequiredModal onDismiss={() => setBaselineModalDismissed(true)} />
         )}
@@ -281,7 +348,7 @@ function AnalysisPageInner() {
                 <div className="text-[14px] font-bold text-ink">전체 한눈에 보기</div>
                 <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
                   <dt className="text-ink3">보험</dt>
-                  <dd className="text-ink2 text-right tnum">{heatmap.insurance_count}건 합산</dd>
+                  <dd className="text-ink2 text-right tnum">{heatmap.included_insurance_count}건 합산</dd>
                   <dt className="text-ink3">월 보험료</dt>
                   <dd className="text-ink2 text-right tnum">{fmtWon(heatmap.summary.monthly_premiums)}</dd>
                 </dl>
@@ -332,7 +399,7 @@ function AnalysisPageInner() {
         {viewError && !viewLoading && (
           <div className="mt-6 rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
             <p className="text-[14px] text-ink3">{viewError}</p>
-            {selectedId !== null && (
+            {selectedId !== null && !(selectedInsId === null && heatmapErrorStatus === 404) && (
               <button
                 onClick={() => {
                   if (selectedInsId === null) fetchHeatmap(selectedId);
@@ -346,40 +413,46 @@ function AnalysisPageInner() {
           </div>
         )}
 
-        {/* ── 빈 상태(보험 없음) ── */}
+        {/* ── 분석 포함 보험이 없는 상태 ── */}
         {!heatmapLoading &&
           !heatmapError &&
           heatmap &&
-          heatmap.insurance_count === 0 && (
-            <div className="mt-6 rounded-2xl border border-dashed border-line px-4 py-12 text-center">
-              <p className="text-[15px] font-semibold text-ink2">증권이 아직 없어요</p>
-              <p className="mt-1 text-[13px] text-ink3">
-                증권을 등록하면 보장 공백이 보여요.
-              </p>
-              <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-2">
-                <OcrUploadButton
-                  customerId={selectedId}
-                  phase={ocr.phase}
-                  onFileChange={ocr.onFileChange}
-                />
-                <button
-                  type="button"
-                  onClick={() => setManualOpen(true)}
-                  className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
-                >
-                  직접 입력
-                </button>
-              </div>
+          heatmap.included_insurance_count === 0 && selectedId !== null && (
+            <div className="mt-6">
+              <AnalysisEmptyState
+                heatmap={heatmap}
+                reviewDisabled={pendingInsuranceId === null}
+                onReview={() => {
+                  if (pendingInsuranceId === null) return;
+                  setReviewInsuranceId(pendingInsuranceId);
+                  setManualOpen(true);
+                }}
+                onManual={() => {
+                  setReviewInsuranceId(null);
+                  setManualOpen(true);
+                }}
+                uploadAction={(
+                  <OcrUploadButton
+                    customerId={selectedId}
+                    phase={ocr.phase}
+                    onFileChange={ocr.onFileChange}
+                  />
+                )}
+              />
             </div>
           )}
 
         {manualOpen && selectedId !== null && (
           <InsuranceManualModal
             customerId={selectedId}
-            onClose={() => setManualOpen(false)}
-            onCreated={() => {
+            initialInsuranceId={reviewInsuranceId}
+            onClose={() => {
               setManualOpen(false);
-              fetchHeatmap(selectedId);
+              setReviewInsuranceId(null);
+            }}
+            onChanged={() => {
+              void fetchHeatmap(selectedId);
+              setInsuranceRefreshKey((value) => value + 1);
             }}
           />
         )}
@@ -399,7 +472,7 @@ function AnalysisPageInner() {
           !viewError &&
           view &&
           heatmap &&
-          heatmap.insurance_count > 0 && (
+          heatmap.included_insurance_count > 0 && (
             <div className="mt-5">
               {selectedCustomer && (
                 <p className="mb-3 text-[13px] text-ink3">

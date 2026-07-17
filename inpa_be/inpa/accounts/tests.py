@@ -457,7 +457,7 @@ class ManagerPlanGateTests(TestCase):
     """팀 기능 권한 게이트(MANAGER_PLAN_GATE_ENABLED, spec 2026-07-09) — 대시보드 + 초대 링크.
 
     ★ 기본 OFF(dormant) — 게이트 없이도 현행 동작(인증 설계사 누구나 이용)이 그대로 보존돼야 한다.
-      ON일 때만 Manager 요금제(billing.Plan.can_use_team=True) 활성·미만료 구독 여부로 402를 가른다.
+      ON일 때만 billing.Plan.can_use_team=True인 활성·미만료 구독 여부로 402를 가른다.
     """
 
     def setUp(self):
@@ -467,6 +467,13 @@ class ManagerPlanGateTests(TestCase):
         self.user, self.client = _verified_planner('gate-agent@test.com')
         self.free_plan, _ = Plan.objects.get_or_create(
             code='free', defaults={'display_name': '무료', 'price_krw': 0})
+        self.plus_plan, _ = Plan.objects.get_or_create(
+            code='plus', defaults={
+                'display_name': 'Plus', 'price_krw': 19900, 'can_use_team': True,
+            })
+        if not self.plus_plan.can_use_team:
+            self.plus_plan.can_use_team = True
+            self.plus_plan.save(update_fields=['can_use_team'])
         self.manager_plan, _ = Plan.objects.get_or_create(
             code='manager', defaults={
                 'display_name': 'Manager', 'price_krw': 19900, 'can_use_team': True,
@@ -494,9 +501,19 @@ class ManagerPlanGateTests(TestCase):
         r1 = self.client.get('/api/v1/manager/dashboard/')
         self.assertEqual(r1.status_code, 402, r1.content)
         self.assertEqual(r1.json()['code'], 'manager_plan_required')
+        self.assertEqual(r1.json()['plan'], 'plus')
+        self.assertEqual(
+            r1.json()['detail'],
+            'Plus를 시작하면 팀 관리 기능을 계속 사용할 수 있어요.',
+        )
         r2 = self.client.post('/api/v1/manager/invite-link/')
         self.assertEqual(r2.status_code, 402, r2.content)
         self.assertEqual(r2.json()['code'], 'manager_plan_required')
+        self.assertEqual(r2.json()['plan'], 'plus')
+        self.assertEqual(
+            r2.json()['detail'],
+            'Plus를 시작하면 팀 관리 기능을 계속 사용할 수 있어요.',
+        )
 
     @override_settings(MANAGER_PLAN_GATE_ENABLED=True)
     def test_gate_on_with_active_manager_subscription_allows(self):
@@ -505,6 +522,54 @@ class ManagerPlanGateTests(TestCase):
         self.assertEqual(r1.status_code, 200, r1.content)
         r2 = self.client.post('/api/v1/manager/invite-link/')
         self.assertEqual(r2.status_code, 200, r2.content)
+
+    @override_settings(MANAGER_PLAN_GATE_ENABLED=True)
+    def test_gate_on_with_active_plus_subscription_allows(self):
+        self._subscribe(self.plus_plan)
+        r1 = self.client.get('/api/v1/manager/dashboard/')
+        self.assertEqual(r1.status_code, 200, r1.content)
+        r2 = self.client.post('/api/v1/manager/invite-link/')
+        self.assertEqual(r2.status_code, 200, r2.content)
+
+    @override_settings(MANAGER_PLAN_GATE_ENABLED=True)
+    def test_expired_plus_keeps_sticky_role_and_restores_access_after_renewal(self):
+        from inpa.accounts.team import profile_has_manager_role
+
+        promoted_at = timezone.now() - timedelta(days=40)
+        profile = self.user.profile
+        profile.manager_promoted_at = promoted_at
+        profile.manager_share_level = Profile.SHARE_FULL
+        profile.manager_share_opt_in = True
+        profile.save(update_fields=[
+            'manager_promoted_at', 'manager_share_level', 'manager_share_opt_in',
+        ])
+        agent, _ = _verified_planner('gate-team-member@test.com')
+        agent.profile.manager = self.user
+        agent.profile.save(update_fields=['manager'])
+        self._subscribe(
+            self.plus_plan, expires_at=timezone.now() - timedelta(days=1),
+        )
+
+        blocked = self.client.get('/api/v1/manager/dashboard/')
+        self.assertEqual(blocked.status_code, 402, blocked.content)
+        profile.refresh_from_db()
+        agent.profile.refresh_from_db()
+        self.assertTrue(profile_has_manager_role(profile))
+        self.assertEqual(profile.manager_promoted_at, promoted_at)
+        self.assertEqual(profile.manager_share_level, Profile.SHARE_FULL)
+        self.assertEqual(agent.profile.manager_id, self.user.pk)
+
+        self._subscribe(
+            self.plus_plan, expires_at=timezone.now() + timedelta(days=30),
+        )
+        restored = self.client.get('/api/v1/manager/dashboard/')
+        self.assertEqual(restored.status_code, 200, restored.content)
+        profile.refresh_from_db()
+        agent.profile.refresh_from_db()
+        self.assertTrue(profile_has_manager_role(profile))
+        self.assertEqual(profile.manager_promoted_at, promoted_at)
+        self.assertEqual(profile.manager_share_level, Profile.SHARE_FULL)
+        self.assertEqual(agent.profile.manager_id, self.user.pk)
 
     @override_settings(MANAGER_PLAN_GATE_ENABLED=True)
     def test_gate_on_with_expired_manager_subscription_blocks_402(self):

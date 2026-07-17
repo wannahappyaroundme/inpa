@@ -35,13 +35,15 @@ from inpa.booking.models import WorkHour
 from inpa.booking.tokens import make_booking_token
 from inpa.core.copyguard import warn_if_advice_words
 from inpa.core.permissions import IsEmailVerified
-from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
 from inpa.customers.models import Customer
 
 from .events import (
     is_bot_ua, is_dedup_view, log_event, viewer_fingerprint,
 )
 from .models import NorthStarEvent, ShareSnapshot
+from .sharing import (
+    PAYLOAD_VERSION_V2, ShareNotReady, create_share_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,20 +87,34 @@ def _gone(reason):
     )
 
 
+def _snapshot_link_status(snapshot, *, now=None):
+    """Derive the internal lifecycle from the public v2 authority rules."""
+    if snapshot.payload_version != PAYLOAD_VERSION_V2:
+        return 'history_only'
+    if snapshot.revoked_at is not None:
+        return 'revoked'
+    current_time = now or timezone.now()
+    if (snapshot.link_expires_at is None
+            or snapshot.link_expires_at <= current_time):
+        return 'expired'
+    return 'active'
+
+
 class _NoIndexMixin:
     """공유뷰 응답에 noindex 헤더 강제 (dev/13 §1.2 — 민감정보 검색 색인 물리 차단)."""
 
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
         response['X-Robots-Tag'] = 'noindex, nofollow'
+        response['Cache-Control'] = 'private, no-store'
         return response
 
 
 class ShareAnalysisView(_NoIndexMixin, APIView):
     """공유뷰 — GET /api/v1/s/<token>/ (AllowAny, 비인증).
 
-    Customer.share_token 으로 조회(만료 share_expires_at 체크) → 담보 한눈표(히트맵)를
-    ★읽기전용·공유용·neutral 강제로 반환. share_view 이벤트 적재(viewer_fp 중복제거).
+    v2 ShareSnapshot 토큰으로 불변 분석 본문과 실시간 행동을 분리해 반환한다.
+    gate OFF 전환 기간에만 과거 Customer 토큰을 임시 허용한다.
     """
     permission_classes = [AllowAny]
     authentication_classes = []  # 공개 — 인증 시도 자체 없음
@@ -106,37 +122,44 @@ class ShareAnalysisView(_NoIndexMixin, APIView):
     throttle_scope = 'share_public'  # DB write/연산 증폭 DoS 방어(유포된 링크 1개로 반복호출 차단)
 
     def get(self, request, token):
-        # ── 1) 토큰 조회 (없음/형식오류 → 404, 존재 은폐) ──────────────
-        try:
-            customer = Customer.objects.get(share_token=token)
-        except (Customer.DoesNotExist, ValueError, Exception):
-            # ValueError: 잘못된 UUID 형식. 그 외도 보수적으로 404.
-            return _gone('SHARE_LINK_INVALID')
+        snapshot, customer, reason = _resolve_public_share(token)
+        if reason:
+            return _gone(reason)
 
-        # ── 2) 만료 체크 (share_expires_at 지났으면 데이터 0) ──────────
-        if customer.share_expires_at is not None and customer.share_expires_at <= timezone.now():
-            return _gone('SHARE_LINK_EXPIRED')
+        ua = request.META.get('HTTP_USER_AGENT', '') or ''
+        is_bot = is_bot_ua(ua)
 
-        # ── 3) 담보 한눈표 (neutral 강제 — baseline 미노출, 부족/충분 단정 금지) ──
-        body = _build_share_payload(customer)
-
-        # ── 4) 고객 열람 시각 갱신 ───────────────────────────────────
-        customer.user_view_at = timezone.now()
-        customer.save(update_fields=['user_view_at'])
+        if snapshot is None:
+            # gate OFF 전환 기간에만 허용되는 과거 Customer 토큰.
+            body = _build_share_payload(customer)
+            if not is_bot:
+                customer.user_view_at = timezone.now()
+                customer.save(update_fields=['user_view_at'])
+            event_token = customer.share_token
+        else:
+            # 분석 본문은 저장값만 사용하고 연락/예약 행동만 요청 시점 값으로 만든다.
+            body = {
+                'snapshot': snapshot.payload,
+                'actions': _build_live_actions(customer),
+            }
+            if not is_bot:
+                ShareSnapshot.objects.filter(
+                    pk=snapshot.pk, first_viewed_at__isnull=True,
+                ).update(first_viewed_at=timezone.now())
+            event_token = snapshot.share_token
 
         # ── 5) share_view 적재 (BE 서버측정, viewer_fp 중복/봇 가드) ──
-        ua = request.META.get('HTTP_USER_AGENT', '') or ''
         fp = viewer_fingerprint(request)
         ref_code = request.query_params.get('ref') or None
-        if is_bot_ua(ua):
+        if is_bot:
             # 카톡 프리뷰/봇 → 신뢰 KPI 분자 제외. raw 로그만 채널 표기로 남긴다.
             log_event(NorthStarEvent.SHARE_VIEW, customer=customer, sender=customer.owner,
-                      share_token=customer.share_token, ref_code=ref_code,
+                      share_token=event_token, ref_code=ref_code,
                       viewer_fp=fp, channel='bot',
                       payload={'ua': ua[:200], 'excluded': 'bot'})
-        elif not is_dedup_view(customer.share_token, fp):
+        elif not is_dedup_view(event_token, fp):
             log_event(NorthStarEvent.SHARE_VIEW, customer=customer, sender=customer.owner,
-                      share_token=customer.share_token, ref_code=ref_code,
+                      share_token=event_token, ref_code=ref_code,
                       viewer_fp=fp, channel='web',
                       payload={'ua': ua[:200]})
         # dedup(24h 내 동일 viewer) → 적재 생략(분모 오염 방지)
@@ -174,6 +197,52 @@ def _planner_phone(customer):
         if value:
             return value
     return None
+
+
+def _build_live_actions(customer):
+    actions = {'planner_contact': _planner_phone(customer)}
+    booking_url = _booking_url(customer)
+    if booking_url:
+        actions['booking_url'] = booking_url
+    return actions
+
+
+def _resolve_public_share(token):
+    """(v2 snapshot|None, customer|None, error reason|None).
+
+    snapshot row가 하나라도 있으면 그 lifecycle을 최종 권위로 삼고 Customer 토큰으로
+    되돌아가지 않는다. gate OFF일 때 snapshot이 전혀 없는 과거 링크만 임시 허용한다.
+    """
+    try:
+        snapshot = (ShareSnapshot.objects.select_related(
+            'customer__owner__profile').filter(share_token=token).first())
+    except (ValueError, TypeError):
+        return None, None, 'SHARE_LINK_INVALID'
+
+    if snapshot is not None:
+        customer = snapshot.customer
+        if snapshot.owner_id != customer.owner_id:
+            return None, None, 'SHARE_LINK_INVALID'
+        link_status = _snapshot_link_status(snapshot)
+        if link_status == 'history_only':
+            return None, None, 'SHARE_LINK_INVALID'
+        if link_status == 'revoked':
+            return None, None, 'SHARE_LINK_REVOKED'
+        if link_status == 'expired':
+            return None, None, 'SHARE_LINK_EXPIRED'
+        return snapshot, customer, None
+
+    if getattr(settings, 'INSURANCE_REVIEW_GATE_ENABLED', False):
+        return None, None, 'SHARE_LINK_INVALID'
+    try:
+        customer = Customer.objects.select_related(
+            'owner__profile').get(share_token=token)
+    except (Customer.DoesNotExist, ValueError, TypeError):
+        return None, None, 'SHARE_LINK_INVALID'
+    if (customer.share_expires_at is not None
+            and customer.share_expires_at <= timezone.now()):
+        return None, None, 'SHARE_LINK_EXPIRED'
+    return None, customer, None
 
 
 def build_coverage_tree(customer, insurance_list, held_only=False):
@@ -241,20 +310,29 @@ def build_coverage_tree(customer, insurance_list, held_only=False):
     return tree, summary
 
 
-def _build_share_payload(customer):
+def _build_share_payload(
+    customer, *, include_live_actions=True, insurance_list=None,
+):
     """공유뷰 페이로드 — '사실'만(neutral 강제, baseline 부재).
 
     held_amount(보유 보장금액)와 status('none'|'neutral')만 노출한다.
     """
     #    ★ portfolio_type=1(보유)만 — 제안(2)/템플릿(0)이 고객 공유뷰·스냅샷에 '보유'로
     #    섞이지 않게 한다(dashboard/aggregation·churn·manager 와 동일 규칙).
-    insurance_list = list(
-        customer.customer_insurance_list
-        .filter(portfolio_type=1)
-        .prefetch_related('case_list__detail__analysis_detail',
-                          'case_list__detail__chart_detail')
-        .all()
-    )
+    if insurance_list is None:
+        insurance_list = list(
+            customer.customer_insurance_list
+            .analysis_ready()
+            .filter(portfolio_type=1)
+            .prefetch_related(
+                'case_list__detail__analysis_detail',
+                'case_list__analysis_detail_override',
+                'case_list__detail__chart_detail')
+            .all()
+        )
+    else:
+        # 스냅샷 생성기는 같은 트랜잭션에서 잠근 정확한 보험 집합을 전달한다.
+        insurance_list = list(insurance_list)
     tree, summary = build_coverage_tree(customer, insurance_list)
 
     payload = {
@@ -268,44 +346,14 @@ def _build_share_payload(customer):
         'summary': summary,
         'tree': tree,
         'disclaimer': SHARE_DISCLAIMER,
-        # 담당 설계사 전화번호(없으면 null) — '전화하기/문자하기' 연락 레이어용(LB#8).
-        'planner_contact': _planner_phone(customer),
     }
-    # ★ '바로 상담 예약' CTA — 예약 가능할 때만 booking_url 포함(없으면 키 부재 → FE 폴백).
-    booking_url = _booking_url(customer)
-    if booking_url:
-        payload['booking_url'] = booking_url
+    if include_live_actions:
+        payload.update(_build_live_actions(customer))
     # ★ 권유 단어 서버측 가드(#23, §97·금소법) — 고정 카피 필드만 검사(로그 관측, 화면은 유지).
     #   공유뷰(/s)와 셀프진단(/d, self_diagnosis.py 가 이 함수를 재사용)의 고정 카피를 함께 커버.
     #   데이터 필드(고객명·담보명·금액)는 검사하지 않는다(오탐 방지).
     warn_if_advice_words({'disclaimer': payload['disclaimer']}, where='share_payload')
     return payload
-
-
-def _current_consent_scopes(customer):
-    """캡처 시점 유효(미철회) 고객 본인(customer_self) 동의 scope 목록 — 스냅샷 감사용."""
-    from inpa.customers.models import ConsentLog
-    return list(
-        ConsentLog.objects.filter(
-            customer=customer,
-            subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
-            revoked_at__isnull=True,
-        ).values_list('scope', flat=True).distinct()
-    )
-
-
-def _current_dict_version():
-    """정규화 사전 버전 — SeedMarker(seed_normalization) 라이브 값 우선, 없으면 코드 SEED_VERSION."""
-    from inpa.analysis.models import SeedMarker
-    live = (SeedMarker.objects.filter(key='seed_normalization')
-            .values_list('version', flat=True).first())
-    if live:
-        return live
-    try:
-        from inpa.analysis.management.commands.seed_normalization import SEED_VERSION
-        return SEED_VERSION
-    except Exception:  # noqa: BLE001 — 임포트 실패해도 스냅샷 캡처는 계속돼야 함
-        return ''
 
 
 class ShareEventView(_NoIndexMixin, APIView):
@@ -331,13 +379,19 @@ class ShareEventView(_NoIndexMixin, APIView):
         """콜백(연락 요청) → 설계사 알림 1건. 같은 공유건은 하루(KST) 1회만(중복 방지).
 
         ★ 새 NotifType 추가 금지(메뉴 배지 파티션 유지) — SELF_DIAGNOSIS_LEAD 재사용
-          (고객 메뉴 배지로 귀속). dedupe 1차 = 같은 share_token의 오늘(KST) 선행
-          callback_request 이벤트 존재 검사(호출부에서 log_event 이전에 판정), 2차 =
-          Notification 부분 유니크 제약(owner+type+target_date+customer) IntegrityError 흡수.
+          (고객 메뉴 배지로 귀속). 같은 날 중복은 Notification 부분 유니크 제약
+          (owner+type+target_date+customer)의 IntegrityError를 성공 상태로 흡수한다.
         """
         from django.db import IntegrityError, transaction
 
         from inpa.notifications.models import NotifType, Notification
+        target_date = timezone.localdate()
+        notification_scope = {
+            'owner': customer.owner,
+            'notif_type': NotifType.SELF_DIAGNOSIS_LEAD,
+            'customer': customer,
+            'target_date': target_date,
+        }
         try:
             with transaction.atomic():
                 Notification.objects.create(
@@ -345,20 +399,24 @@ class ShareEventView(_NoIndexMixin, APIView):
                     title='고객 연락 요청',
                     body=f'{customer.name}님이 보장 안내 화면에서 연락을 요청했어요. '
                          f'전화 한 통으로 이어가 보세요.',
-                    customer=customer, target_date=timezone.localdate())
+                    customer=customer, target_date=target_date)
+            return 'created'
         except IntegrityError:
-            pass  # 같은 고객·같은 날 알림이 이미 있음 — 1건으로 수렴
+            # 같은 고객·같은 날 알림이 실제로 존재할 때만 멱등 성공이다.
+            # 다른 무결성 오류를 중복으로 오인하면 연락 요청이 유실된다.
+            return (
+                'already_notified'
+                if Notification.objects.filter(**notification_scope).exists()
+                else 'failed'
+            )
         except Exception:
-            pass  # 알림 실패가 공개 응답을 깨지 않게 격리(이벤트 로그는 이미 적재)
+            return 'failed'
 
     def post(self, request, token):
-        try:
-            customer = Customer.objects.get(share_token=token)
-        except (Customer.DoesNotExist, ValueError, Exception):
-            return _gone('SHARE_LINK_INVALID')
-
-        if customer.share_expires_at is not None and customer.share_expires_at <= timezone.now():
-            return _gone('SHARE_LINK_EXPIRED')
+        snapshot, customer, reason = _resolve_public_share(token)
+        if reason:
+            return _gone(reason)
+        event_token = snapshot.share_token if snapshot is not None else customer.share_token
 
         event_type = request.data.get('event_type', NorthStarEvent.CLIPBOARD_COPY)
         if event_type not in self._PUBLIC_ALLOWED:
@@ -371,131 +429,129 @@ class ShareEventView(_NoIndexMixin, APIView):
         ref_code = request.query_params.get('ref') or None
 
         if event_type == NorthStarEvent.CALLBACK_REQUEST:
-            # 알림 dedupe 판정은 이벤트 적재 '이전'의 오늘(KST) 선행 이벤트 기준 —
-            # 이벤트 로그는 매번 기록하되 알림은 같은 공유건당 하루 1회.
-            day_start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
-            already_today = NorthStarEvent.objects.filter(
-                event_type=NorthStarEvent.CALLBACK_REQUEST,
-                share_token=customer.share_token,
-                created_at__gte=day_start).exists()
-            log_event(
+            # 알림을 먼저 확정한다. 실패한 요청을 이벤트 성공으로 남기면 재시도 때
+            # 이미 처리된 것으로 오인하므로, 두 결과가 모두 성공해야 완료로 응답한다.
+            notification = self._notify_callback(customer)
+            if notification == 'failed':
+                return Response({
+                    'detail': '연결이 잠시 원활하지 않습니다. 다시 요청해 주세요.',
+                    'code': 'CALLBACK_NOTIFICATION_FAILED',
+                    'event_type': event_type,
+                    'recorded': False,
+                    'notification': 'failed',
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            event = log_event(
                 event_type, customer=customer, sender=customer.owner,
-                share_token=customer.share_token, ref_code=ref_code,
+                share_token=event_token, ref_code=ref_code,
                 viewer_fp=fp, channel='web',
                 payload={'source': 'share_view'},
             )
-            if not already_today:
-                self._notify_callback(customer)
-            return Response({'status': 'logged', 'event_type': event_type},
-                            status=status.HTTP_201_CREATED)
+            if event is None:
+                return Response({
+                    'detail': '요청 기록 연결이 잠시 원활하지 않습니다. 다시 요청해 주세요.',
+                    'code': 'EVENT_LOG_FAILED',
+                    'event_type': event_type,
+                    'recorded': False,
+                    'notification': notification,
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response({
+                'status': 'logged',
+                'event_type': event_type,
+                'recorded': True,
+                'notification': notification,
+            }, status=status.HTTP_201_CREATED)
 
         if event_type == NorthStarEvent.CTA_CLICK:
             # 분석→예약 CTA 클릭 — channel='web'(콜백과 동일, 자동발송 아님). 알림 없음.
-            log_event(
+            event = log_event(
                 event_type, customer=customer, sender=customer.owner,
-                share_token=customer.share_token, ref_code=ref_code,
+                share_token=event_token, ref_code=ref_code,
                 viewer_fp=fp, channel='web',
                 payload={'source': 'share_view'},
             )
-            return Response({'status': 'logged', 'event_type': event_type},
+            if event is None:
+                return Response({
+                    'detail': '요청 기록 연결이 잠시 원활하지 않습니다.',
+                    'code': 'EVENT_LOG_FAILED', 'event_type': event_type,
+                    'recorded': False,
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response({
+                'status': 'logged',
+                'event_type': event_type,
+                'recorded': True,
+            },
                             status=status.HTTP_201_CREATED)
 
         # ★ clipboard_copy 는 channel='clipboard' 고정(자동발송 사칭 금지).
-        log_event(
+        event = log_event(
             event_type, customer=customer, sender=customer.owner,
-            share_token=customer.share_token, ref_code=ref_code,
+            share_token=event_token, ref_code=ref_code,
             viewer_fp=fp, channel='clipboard',
             payload={'delivery': 'clipboard'},
         )
-        return Response({'status': 'logged', 'event_type': event_type},
+        if event is None:
+            return Response({
+                'detail': '요청 기록 연결이 잠시 원활하지 않습니다.',
+                'code': 'EVENT_LOG_FAILED', 'event_type': event_type,
+                'recorded': False,
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({
+            'status': 'logged',
+            'event_type': event_type,
+            'recorded': True,
+        },
                         status=status.HTTP_201_CREATED)
 
 
 class CustomerShareCreateView(APIView):
     """공유 토큰 발급 — POST /api/v1/customers/<customer_pk>/share/ (인증·소유자).
 
-    Customer.share_token 을 rotate(재발급)하고 share_expires_at=now+TTL 을 설정한다.
-    구 token 은 즉시 무효(새 UUID 발급). share_created 이벤트 적재(발송=곱셈 1항).
+    v2 ShareSnapshot을 원자적으로 만들고 이전 링크를 즉시 회수한다.
+    스냅샷 본문, 수명 주기, share_created 이벤트가 모두 성공할 때만 발급된다.
 
     ★ owner 격리: 본인 고객이 아니면 404(존재 은폐).
     크레딧 차감 없음(share_link 는 북극성 차단 금지 대상 — dev/23 §1.2).
     """
     permission_classes = [IsAuthenticated, IsEmailVerified]
 
-    # TTL 기본값 90일(dev/13 §6 Q1 디폴트 — 영구노출 방지 vs 재발송 마찰 균형)
-    SHARE_TTL_DAYS = 90
-
-    def _is_admin(self):
-        profile = getattr(self.request.user, 'profile', None)
-        return bool(getattr(profile, 'is_admin', False))
-
     def _get_customer(self, customer_pk):
         from rest_framework.exceptions import NotFound
-        qs = Customer.objects.all()
-        if not self._is_admin():
-            qs = qs.filter(owner=self.request.user)
         try:
-            return qs.get(pk=customer_pk)
+            return Customer.objects.get(
+                pk=customer_pk, owner=self.request.user)
         except Customer.DoesNotExist:
             raise NotFound('고객을 찾을 수 없습니다.')
 
     def post(self, request, customer_pk):
-        import uuid
-        from datetime import timedelta
-
-        from django.db import transaction
-
-        customer = self._get_customer(customer_pk)
-
-        # rotate — 새 UUID 발급(구 token 즉시 무효) + TTL 설정 + 발송 시각 기록
-        customer.share_token = uuid.uuid4()
-        customer.share_expires_at = timezone.now() + timedelta(days=self.SHARE_TTL_DAYS)
-        customer.share_sent_at = timezone.now()
-        customer.save(update_fields=['share_token', 'share_expires_at', 'share_sent_at'])
-
-        # 발급한 설계사의 ref_code 동반 기록(귀속 매칭 근간)
-        profile = getattr(request.user, 'profile', None)
-        ref_code = getattr(profile, 'ref_code', None)
-
-        log_event(
-            NorthStarEvent.SHARE_CREATED, customer=customer, sender=request.user,
-            share_token=customer.share_token, ref_code=ref_code, channel='web',
-            payload={'customer_id': customer.id, 'ttl_days': self.SHARE_TTL_DAYS},
-        )
-
-        # ── 공유(/s) 스냅샷 캡처 (spec 2026-07-08, 프리런치 #27) ──────────────
-        # 그 순간 고객이 실제로 받을 /s 화면을 그대로 기록(§97 분쟁 시 "그때 무엇을
-        # 보여줬는가" 증거). ★ 캡처 실패가 공유 링크 발급을 절대 막지 않는다 — 예외는
-        # 타입만 로그(PII 로그 레드라인, §7) 하고 링크는 정상 201로 발급된다.
         try:
-            # 보유기간 stamp: 0 이하(파기 중단 스위치)면 기본 180일로 stamp 해 과거시각
-            # 저장을 피한다(파기 재개 시 정상 수명으로 복귀; 파기 자체는 jobs 가드가 막음).
-            retention_days = settings.SHARE_SNAPSHOT_RETENTION_DAYS
-            if retention_days <= 0:
-                retention_days = 180
-            with transaction.atomic():  # savepoint — 캡처 DB오류가 토큰 회전을 오염시키지 않도록
-                snapshot_payload = _build_share_payload(customer)
-                ShareSnapshot.objects.create(
-                    owner=request.user,
-                    customer=customer,
-                    share_token=customer.share_token,
-                    payload=snapshot_payload,
-                    consent_overseas=has_current_overseas_consent(customer),
-                    consent_doc_version=CONSENT_TEXTS_VERSION,
-                    consent_scopes=_current_consent_scopes(customer),
-                    dict_version=_current_dict_version(),
-                    insurance_count=customer.customer_insurance_list.count(),
-                    retention_expires_at=timezone.now() + timedelta(days=retention_days),
-                )
-        except Exception as exc:  # noqa: BLE001 — 격리(링크 발급 우선), 내용 없이 타입만 로그
-            # logger.error(exc_info 없음): §7 PII 로그 레드라인 — 예외 타입명만 남긴다.
-            logger.error('share snapshot capture failed: %s', type(exc).__name__)
+            self._get_customer(customer_pk)
+            snapshot = create_share_snapshot(
+                customer_id=customer_pk,
+                owner=request.user,
+                payload_builder=_build_share_payload,
+            )
+        except ShareNotReady as exc:
+            return Response({
+                'code': 'INSURANCE_REVIEW_REQUIRED',
+                'detail': str(exc),
+            }, status=status.HTTP_409_CONFLICT)
+        except Customer.DoesNotExist:
+            raise NotFound('고객을 찾을 수 없습니다.')
+        except NotFound:
+            raise
+        except Exception as exc:
+            logger.error('share snapshot create failed: %s', type(exc).__name__)
+            return Response({
+                'code': 'SHARE_CREATE_UNAVAILABLE',
+                'detail': '공유 내용을 그대로 두었어요. 잠시 뒤 다시 시도해 주세요.',
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         return Response({
-            'customer_id': customer.id,
-            'share_token': str(customer.share_token),
-            'share_expires_at': customer.share_expires_at.isoformat(),
-            'share_url': f'/s/{customer.share_token}',
+            'customer_id': snapshot.customer_id,
+            'snapshot_id': snapshot.id,
+            'share_token': str(snapshot.share_token),
+            'share_expires_at': snapshot.link_expires_at.isoformat(),
+            'share_url': f'/s/{snapshot.share_token}',
         }, status=status.HTTP_201_CREATED)
 
 
@@ -506,6 +562,11 @@ class _ShareSnapshotScopedView(APIView):
     """
     permission_classes = [IsAuthenticated, IsEmailVerified]
 
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        response['Cache-Control'] = 'private, no-store'
+        return response
+
     def _is_admin(self):
         profile = getattr(self.request.user, 'profile', None)
         return bool(getattr(profile, 'is_admin', False))
@@ -519,12 +580,29 @@ class _ShareSnapshotScopedView(APIView):
         except Customer.DoesNotExist:
             raise NotFound('고객을 찾을 수 없습니다.')
 
+    def _snapshot_queryset(self, customer, *, require_request_owner=False):
+        queryset = ShareSnapshot.objects.filter(
+            customer=customer,
+            owner_id=customer.owner_id,
+        )
+        if require_request_owner:
+            queryset = queryset.filter(owner=self.request.user)
+        return queryset
+
 
 def _snapshot_list_item(snap):
     """목록 응답 — payload 미포함(경량, dev/08 스펙)."""
     return {
         'id': snap.id,
+        'link_status': _snapshot_link_status(snap),
         'captured_at': snap.captured_at.isoformat(),
+        'payload_version': snap.payload_version,
+        'link_expires_at': (
+            snap.link_expires_at.isoformat() if snap.link_expires_at else None),
+        'revoked_at': snap.revoked_at.isoformat() if snap.revoked_at else None,
+        'revoked_reason': snap.revoked_reason,
+        'first_viewed_at': (
+            snap.first_viewed_at.isoformat() if snap.first_viewed_at else None),
         'retention_expires_at': snap.retention_expires_at.isoformat(),
         'insurance_count': snap.insurance_count,
         'consent_overseas': snap.consent_overseas,
@@ -541,7 +619,7 @@ class CustomerShareSnapshotListView(_ShareSnapshotScopedView):
 
     def get(self, request, customer_pk):
         customer = self._get_customer(customer_pk)
-        qs = ShareSnapshot.objects.filter(customer=customer).order_by('-captured_at')
+        qs = self._snapshot_queryset(customer).order_by('-captured_at')
         return Response([_snapshot_list_item(s) for s in qs])
 
 
@@ -555,10 +633,37 @@ class CustomerShareSnapshotDetailView(_ShareSnapshotScopedView):
     def get(self, request, customer_pk, snap_id):
         customer = self._get_customer(customer_pk)
         try:
-            snap = ShareSnapshot.objects.get(pk=snap_id, customer=customer)
+            snap = self._snapshot_queryset(customer).get(pk=snap_id)
         except ShareSnapshot.DoesNotExist:
             raise NotFound('공유 기록을 찾을 수 없습니다.')
         item = _snapshot_list_item(snap)
         item['payload'] = snap.payload
         item['consent_scopes'] = snap.consent_scopes
         return Response(item)
+
+
+class CustomerShareSnapshotRevokeView(_ShareSnapshotScopedView):
+    """POST .../share-snapshots/<id>/revoke/ — 본인 링크만 즉시 닫는다."""
+
+    def post(self, request, customer_pk, snap_id):
+        from django.db import transaction
+        customer = self._get_customer(customer_pk)
+        with transaction.atomic():
+            try:
+                snapshot = (self._snapshot_queryset(
+                    customer, require_request_owner=True,
+                ).select_for_update().get(
+                    pk=snap_id,
+                    payload_version=PAYLOAD_VERSION_V2,
+                ))
+            except ShareSnapshot.DoesNotExist:
+                raise NotFound('공유 기록을 찾을 수 없습니다.')
+            if _snapshot_link_status(snapshot) != 'active':
+                return Response({
+                    'code': 'SHARE_SNAPSHOT_NOT_ACTIVE',
+                    'detail': '현재 사용 중인 공유 기록만 회수할 수 있어요.',
+                }, status=status.HTTP_409_CONFLICT)
+            snapshot.revoked_at = timezone.now()
+            snapshot.revoked_reason = 'manual'
+            snapshot.save(update_fields=['revoked_at', 'revoked_reason'])
+        return Response({'id': snapshot.id, 'status': 'revoked'})

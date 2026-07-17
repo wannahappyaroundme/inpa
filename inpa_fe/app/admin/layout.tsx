@@ -9,6 +9,7 @@ const NAV = [
   { href: "/admin/claude-cost",  label: "Claude 비용",     icon: "💳" },
   { href: "/admin/activation-funnel", label: "활성화 퍼널", icon: "🚀" },
   { href: "/admin/users",        label: "설계사 관리",     icon: "👤" },
+  { href: "/admin/recruiting",   label: "설계사 영입",     icon: "🤝" },
   { href: "/admin/board",        label: "게시판 모더레이션", icon: "📋" },
   { href: "/admin/announcements",label: "공지사항",        icon: "📢" },
   { href: "/admin/blog",         label: "블로그",          icon: "📝" },

@@ -10,10 +10,13 @@ import {
   adminGetFlags,
   getBillingMode,
   setBillingMode,
+  adminGetInsuranceImportSettings,
+  adminUpdateInsuranceImportSettings,
   type AdminPlan,
   type PolicyVersion,
   type FeatureFlags,
   type BillingMode,
+  type AdminInsuranceImportSettingsResponse,
 } from "@/lib/adminApi";
 import { Card } from "@/components/ui";
 
@@ -50,13 +53,75 @@ export default function AdminSettingsPage() {
   const [bonusToggling, setBonusToggling] = useState(false);
   const [bonusMsg, setBonusMsg] = useState<string | null>(null);
 
+  const [importSettings, setImportSettings] = useState<AdminInsuranceImportSettingsResponse | null>(null);
+  const [importSettingsLoading, setImportSettingsLoading] = useState(true);
+  const [importSettingsSaving, setImportSettingsSaving] = useState(false);
+  const [importPerOwner, setImportPerOwner] = useState("");
+  const [importGlobal, setImportGlobal] = useState("");
+  const [manualCarrierCodes, setManualCarrierCodes] = useState("");
+  const [importSettingsError, setImportSettingsError] = useState<string | null>(null);
+  const [importSettingsMessage, setImportSettingsMessage] = useState<string | null>(null);
+
   useEffect(() => {
     if (!ready) return;
     adminListPlans().then(setPlans).finally(() => setPlansLoading(false));
     adminListPolicyVersions().then((r) => setPolicies(r.results)).finally(() => setPolLoading(false));
     adminGetFlags().then(setFlags).finally(() => setFlagsLoading(false));
     getBillingMode().then(setBillingModeState).finally(() => setBillingLoading(false));
+    adminGetInsuranceImportSettings()
+      .then((result) => {
+        setImportSettings(result);
+        setImportPerOwner(String(result.runtime.per_owner_concurrency));
+        setImportGlobal(String(result.runtime.global_concurrency));
+        setManualCarrierCodes(result.runtime.force_manual_carrier_codes.join(", "));
+      })
+      .catch(() => setImportSettingsError("증권 실행 설정을 불러오려면 잠시 후 다시 눌러 주세요."))
+      .finally(() => setImportSettingsLoading(false));
   }, [ready]);
+
+  async function saveInsuranceImportSettings() {
+    const perOwner = Number(importPerOwner);
+    const globalLimit = Number(importGlobal);
+    if (
+      !Number.isInteger(perOwner) || !Number.isInteger(globalLimit) ||
+      perOwner < 1 || perOwner > 100 || globalLimit < 1 || globalLimit > 100
+    ) {
+      setImportSettingsError("동시 작업 수는 1부터 100 사이의 정수로 입력해 주세요.");
+      return;
+    }
+    if (perOwner > globalLimit) {
+      setImportSettingsError("설계사 한 명의 동시 작업 수는 전체 동시 작업 수 이하로 맞춰 주세요.");
+      return;
+    }
+    const codeParts = manualCarrierCodes.trim()
+      ? manualCarrierCodes.split(/[\s,]+/).filter(Boolean)
+      : [];
+    if (codeParts.some((code) => !/^\d+$/.test(code))) {
+      setImportSettingsError("사람 확인으로 돌릴 보험사 코드는 숫자로만 입력해 주세요.");
+      return;
+    }
+    const carrierCodes = [...new Set(codeParts.map(Number))].sort((a, b) => a - b);
+
+    setImportSettingsSaving(true);
+    setImportSettingsError(null);
+    setImportSettingsMessage(null);
+    try {
+      const result = await adminUpdateInsuranceImportSettings({
+        per_owner_concurrency: perOwner,
+        global_concurrency: globalLimit,
+        force_manual_carrier_codes: carrierCodes,
+      });
+      setImportSettings(result);
+      setImportPerOwner(String(result.runtime.per_owner_concurrency));
+      setImportGlobal(String(result.runtime.global_concurrency));
+      setManualCarrierCodes(result.runtime.force_manual_carrier_codes.join(", "));
+      setImportSettingsMessage("저장했어요. 다음으로 가져오는 증권 작업부터 새 설정을 사용합니다.");
+    } catch {
+      setImportSettingsError("입력값을 확인한 뒤 다시 저장해 주세요.");
+    } finally {
+      setImportSettingsSaving(false);
+    }
+  }
 
   async function toggleBillingMode() {
     if (!billingMode) return;
@@ -143,6 +208,121 @@ export default function AdminSettingsPage() {
   return (
     <div className="max-w-3xl">
       <h1 className="text-[22px] font-extrabold text-ink mb-6">운영 설정</h1>
+
+      {/* 증권 자동 정리 실행 설정 */}
+      <section className="mb-8">
+        <h2 className="text-[16px] font-bold text-ink mb-1">증권 자동 정리 실행 설정</h2>
+        <p className="text-[12px] text-ink3 mb-3">
+          여러 설계사가 동시에 증권을 올릴 때 작업별로 분리된 대기 순서와 동시 처리 수를 관리해요.
+        </p>
+        {importSettingsLoading && (
+          <div className="h-44 rounded-2xl bg-line animate-pulse" aria-label="증권 실행 설정 불러오는 중" />
+        )}
+        {!importSettingsLoading && importSettings && (
+          <Card className="p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="import-per-owner" className="block text-[12px] font-semibold text-ink mb-1">
+                  설계사 한 명당 동시 작업
+                </label>
+                <input
+                  id="import-per-owner"
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={importPerOwner}
+                  onChange={(event) => setImportPerOwner(event.target.value)}
+                  className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
+                />
+                <p className="mt-1 text-[11px] text-ink3">한 설계사의 작업이 한꺼번에 차지하는 수를 제한해요.</p>
+              </div>
+              <div>
+                <label htmlFor="import-global" className="block text-[12px] font-semibold text-ink mb-1">
+                  서비스 전체 동시 작업
+                </label>
+                <input
+                  id="import-global"
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={importGlobal}
+                  onChange={(event) => setImportGlobal(event.target.value)}
+                  className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
+                />
+                <p className="mt-1 text-[11px] text-ink3">모든 설계사의 증권 작업을 합친 상한이에요.</p>
+              </div>
+            </div>
+            <div className="mt-3">
+              <label htmlFor="manual-carrier-codes" className="block text-[12px] font-semibold text-ink mb-1">
+                항상 사람 확인으로 보내는 보험사 코드
+              </label>
+              <input
+                id="manual-carrier-codes"
+                value={manualCarrierCodes}
+                onChange={(event) => setManualCarrierCodes(event.target.value)}
+                placeholder="예: 0, 1"
+                className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
+              />
+              <p className="mt-1 text-[11px] text-ink3">쉼표로 나눠 입력해요. 빈칸이면 모든 보험사를 같은 흐름으로 처리해요.</p>
+            </div>
+
+            <div className="mt-4 rounded-xl bg-surface2 p-3">
+              <div className="text-[12px] font-semibold text-ink">배포에서 정한 기준, 읽기 전용</div>
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[12px]">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-ink3">사람 확인 화면 적용</span>
+                  <b className="text-ink">{importSettings.deployment.insurance_review_gate_enabled ? "열림" : "닫힘"}</b>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-ink3">원본 보관 시간</span>
+                  <b className="text-ink tnum">{importSettings.deployment.source_retention_hours}시간</b>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-ink3">
+                이 두 값은 배포 설정에서만 바뀌며, 이 화면에서는 확인만 할 수 있어요.
+              </p>
+            </div>
+
+            {importSettingsError && (
+              <div className="mt-3 rounded-xl bg-danger-tint px-3 py-2 text-[12px] text-danger-ink" role="alert">
+                {importSettingsError}
+              </div>
+            )}
+            {importSettingsMessage && (
+              <div className="mt-3 rounded-xl bg-success-soft px-3 py-2 text-[12px] text-success">
+                {importSettingsMessage}
+              </div>
+            )}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={saveInsuranceImportSettings}
+                disabled={importSettingsSaving}
+                className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-50"
+              >
+                {importSettingsSaving ? "저장 중..." : "실행 설정 저장"}
+              </button>
+              <span className="text-[11px] text-ink3">
+                처리 중인 작업은 시작할 때의 설정을 유지하고, 다음 작업부터 새 설정을 사용해요.
+              </span>
+            </div>
+          </Card>
+        )}
+        {!importSettingsLoading && !importSettings && importSettingsError && (
+          <Card className="p-4">
+            <p className="text-[13px] text-ink2">{importSettingsError}</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-3 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2"
+            >
+              다시 불러오기
+            </button>
+          </Card>
+        )}
+      </section>
 
       {/* 요금제 한도 */}
       <section className="mb-8">

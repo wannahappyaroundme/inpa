@@ -28,11 +28,18 @@ jobs:
 
       # DB 드라이버 = psycopg2-binary(휠, 시스템 라이브러리 불필요). 운영=Postgres(Neon)/로컬=SQLite.
       - name: Install dependencies
-        run: pip install -r inpa_be/requirements.txt
+        run: pip install -r inpa_be/requirements.txt pip-audit==2.10.1
+
+      - name: Audit Python dependencies
+        run: pip-audit -r inpa_be/requirements.txt --progress-spinner off
 
       - name: Django system check
         working-directory: inpa_be
         run: python manage.py check
+
+      - name: Check for missing migrations
+        working-directory: inpa_be
+        run: python manage.py makemigrations --check --dry-run
 
       - name: Run tests
         working-directory: inpa_be
@@ -62,6 +69,18 @@ jobs:
       - name: Copy guard (정직성 카피)
         run: npm run lint:copy
 
+      - name: Landing regression tests
+        run: npm run test:landing
+
+      - name: Frontend unit tests
+        run: npm run test:unit
+
+      - name: Insurance review unit tests
+        run: npm run test:run
+
+      - name: Type check
+        run: npx tsc --noEmit --incremental false
+
       - name: Build
         run: npm run build
         env:
@@ -79,3 +98,45 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # PostgreSQL의 row lock·조건부 unique·transaction isolation만 별도 검증한다.
+  # 기존 backend(SQLite 전체 suite)는 그대로 유지한다.
+  backend-postgres-concurrency:
+    name: Backend (PostgreSQL concurrency)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: inpa_be
+      DATABASE_URL: postgresql://postgres@127.0.0.1:5432/inpa_test
+      DJANGO_SETTINGS_MODULE: config.settings.test_postgres
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: inpa_test
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d inpa_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: inpa_be/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r inpa_be/requirements.txt
+
+      - name: Run PostgreSQL concurrency gates
+        working-directory: inpa_be
+        run: >-
+          python manage.py test
+          inpa.insurances.test_import_concurrency
+          inpa.analytics.test_share_snapshot_concurrency
+          --settings=config.settings.test_postgres --parallel=1 -v 2

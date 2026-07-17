@@ -45,7 +45,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -898,6 +898,12 @@ class AdminNormalizationAccuracyTest(TestCase):
         self.assertIn('passed', body)
         self.assertIn('anchor_total', body)
         self.assertIn('anchor_passed', body)
+        self.assertEqual(body['exact_auto_mapped'], 174)
+        self.assertEqual(body['safe_human_review'], 66)
+        self.assertEqual(body['unsafe_auto_mapped'], 0)
+        self.assertEqual(body['safe_decision_rate'], 1.0)
+        self.assertEqual(body['evaluation_scope'], 'fallback_golden_set_only')
+        self.assertIn('운영 OCR 정확도', body['evaluation_scope_note'])
         self.assertIn('sample_failures', body)
         self.assertEqual(body['min_accuracy'], GOLDEN_SET_MIN_ACCURACY)
         # 앵커는 100% 통과해야 한다(시드 DB 기준).
@@ -1154,6 +1160,611 @@ class AdminClaudeCostTest(TestCase):
         """CC7: days=0 → 기간 제한 없이 전체(데모 제외 3건)."""
         res = self.client_admin.get('/api/v1/admin/claude-cost/?days=0')
         self.assertEqual(res.json()['total_calls'], 3)
+
+    def test_CC8_days_only_zero_is_all_time_and_other_values_are_bounded(self):
+        self.assertEqual(
+            self.client_admin.get(
+                '/api/v1/admin/claude-cost/?days=-9').json()['days'], 1)
+        self.assertEqual(
+            self.client_admin.get(
+                '/api/v1/admin/claude-cost/?days=999').json()['days'], 365)
+        self.assertEqual(
+            self.client_admin.get(
+                '/api/v1/admin/claude-cost/?days=invalid').json()['days'], 30)
+
+
+class AdminInsuranceReviewMetricsTest(TestCase):
+    """운영 지표는 실제 worker snapshot과 PII 없는 원장만 집계한다."""
+
+    def setUp(self):
+        from inpa.billing.models import ClaudeApiLog
+        from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
+        from inpa.insurances.models import (
+            InsuranceExtractionJob,
+            InsuranceExtractionResult,
+        )
+
+        self.ClaudeApiLog = ClaudeApiLog
+        self.Job = InsuranceExtractionJob
+        self.Result = InsuranceExtractionResult
+        self.admin = _make_user('review_metrics_admin@inpa.kr', is_admin=True)
+        self.planner = _make_user('review_metrics_planner@test.kr')
+        self.demo = _make_user('review_metrics_demo@inpa.local')
+        self.client_admin = _auth_client(self.admin)
+        self.now = timezone.now()
+        self.sentinel = 'PII_SENTINEL_CUSTOMER_POLICY_RAW_PATH_7788'
+        self.enum_sentinel = 'PII_ENUM_7788'
+        self.customer = Customer.objects.create(
+            owner=self.planner,
+            name=self.sentinel,
+            mobile_phone_number='010-9999-7788',
+            consent_overseas_at=self.now,
+        )
+        self.demo_customer = Customer.objects.create(
+            owner=self.demo,
+            name='DEMO_SENTINEL_NAME',
+            consent_overseas_at=self.now,
+        )
+        for customer in (self.customer, self.demo_customer):
+            ConsentLog.objects.create(
+                customer=customer,
+                scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                doc_version=CONSENT_TEXTS_VERSION,
+            )
+
+        self.confirmed = self._run_worker_job(
+            number=1, carrier_code=7,
+            input_tokens=11, output_tokens=22,
+            cache_read=33, cache_creation=44,
+        )
+        self._set_timing(
+            self.confirmed,
+            status='confirmed', created_ms=-10_000, started_ms=-9_000,
+            result_ms=-5_000, completed_ms=-5_000, confirmed_ms=0,
+            attempt_count=2, lease_expired_count=1,
+            planner_edit_count=3, confirmed_coverage_count=1,
+        )
+        self.failed = self._run_worker_job(
+            number=2, carrier_code=7, rows=False)
+        self._set_timing(
+            self.failed,
+            status='failed', created_ms=-20_000, started_ms=-18_000,
+            result_ms=-11_000, completed_ms=-10_000,
+        )
+        self.queued = self._make_worker_job(number=3)
+        self.Job.objects.filter(pk=self.queued.pk).update(
+            created_at=self._at(-3_000))
+        self.queued.refresh_from_db()
+        self.invalid_timing = self._run_worker_job(
+            number=4, carrier_code=8)
+        self._set_timing(
+            self.invalid_timing,
+            status='confirmed', created_ms=-4_000, started_ms=-5_000,
+            result_ms=-2_000, completed_ms=-2_000, confirmed_ms=-3_000,
+        )
+        demo_job = self._run_worker_job(
+            number=5, owner=self.demo, customer=self.demo_customer,
+            carrier_code=9, input_tokens=999, output_tokens=999)
+        self._set_timing(
+            demo_job,
+            status='confirmed', created_ms=-10_000, started_ms=-9_000,
+            result_ms=-5_000, completed_ms=-5_000, confirmed_ms=0,
+        )
+
+        planner_logs = self.ClaudeApiLog.objects.filter(user=self.planner)
+        planner_logs.update(cost_krw=Decimal('0.00'))
+        planner_logs.filter(input_tokens=11).update(cost_krw=Decimal('10.00'))
+        self.Result.objects.filter(job=self.confirmed).update(
+            estimated_cost_krw=Decimal('99999.00'),
+            structured_payload={
+                'raw_name': self.sentinel,
+                'file_path': f'/private/{self.sentinel}.pdf',
+            },
+        )
+        summary = self.confirmed.validation_summary
+        summary[self.sentinel] = self.sentinel
+        self.Job.objects.filter(pk=self.confirmed.pk).update(
+            safe_display_name=f'{self.sentinel}.pdf',
+            draft_payload={
+                'policy': {'product_name': self.sentinel},
+                'coverage_rows': [{'raw_name': self.sentinel}],
+            },
+            validation_summary=summary,
+        )
+
+    def _at(self, milliseconds):
+        return self.now + timedelta(milliseconds=milliseconds)
+
+    def _make_worker_job(self, *, number, owner=None, customer=None):
+        from inpa.insurances.import_contract import extracted_source_readability
+        from inpa.insurances.test_import_worker import _extracted
+
+        owner = owner or self.planner
+        customer = customer or self.customer
+        extracted = _extracted()
+        job = self.Job.objects.create(
+            owner=owner,
+            customer=customer,
+            intent='add',
+            portfolio_type=1,
+            status='queued',
+            file_sha256=f'{number:064x}',
+            file_size=extracted.file_size,
+            page_count=extracted.page_count,
+            safe_display_name='policy.pdf',
+            source_storage_key=(
+                f'insurance-imports/{owner.pk}/{customer.pk}/'
+                f'{number}/source.pdf'),
+            source_expires_at=self.now + timedelta(hours=24),
+            validation_summary={
+                '_system': {
+                    'source_readability': extracted_source_readability(
+                        extracted),
+                },
+            },
+        )
+        return job
+
+    def _run_worker_job(
+            self, *, number, owner=None, customer=None, carrier_code=None,
+            rows=True, input_tokens=0, output_tokens=0,
+            cache_read=0, cache_creation=0):
+        from unittest import mock
+
+        from inpa.insurances.import_claude import ExtractionResult
+        from inpa.insurances.tasks import run_insurance_import
+        from inpa.insurances.test_import_worker import (
+            _extracted,
+            _provider_payload,
+        )
+
+        job = self._make_worker_job(
+            number=number, owner=owner, customer=customer)
+        provider = ExtractionResult(
+            payload=_provider_payload(
+                company_code=carrier_code, rows=rows),
+            model_id='claude-opus-4-8',
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_input_tokens=cache_read,
+            cache_creation_input_tokens=cache_creation,
+            latency_ms=123,
+        )
+        with mock.patch(
+                'inpa.insurances.tasks._extract_job_pdf',
+                return_value=_extracted()), mock.patch(
+                    'inpa.insurances.tasks.claude_extract',
+                    return_value=provider), mock.patch(
+                        'inpa.insurances.tasks.delete_source'):
+            run_insurance_import(str(job.pk))
+        job.refresh_from_db()
+        return job
+
+    def _set_timing(
+            self, job, *, status, created_ms, started_ms,
+            result_ms, completed_ms, confirmed_ms=None,
+            attempt_count=None, lease_expired_count=None,
+            planner_edit_count=None, confirmed_coverage_count=None):
+        update = {
+            'status': status,
+            'created_at': self._at(created_ms),
+            'started_at': self._at(started_ms),
+            'completed_at': self._at(completed_ms),
+            'confirmed_at': (
+                self._at(confirmed_ms) if confirmed_ms is not None else None),
+        }
+        for key, value in (
+                ('attempt_count', attempt_count),
+                ('lease_expired_count', lease_expired_count),
+                ('planner_edit_count', planner_edit_count),
+                ('confirmed_coverage_count', confirmed_coverage_count)):
+            if value is not None:
+                update[key] = value
+        self.Job.objects.filter(pk=job.pk).update(**update)
+        result = self.Result.objects.get(job=job, provider='claude')
+        self.Result.objects.filter(pk=result.pk).update(
+            created_at=self._at(result_ms))
+        job.refresh_from_db()
+
+    def test_metrics_use_nearest_rank_explicit_denominators_and_initial_snapshot(self):
+        from unittest import mock
+
+        with mock.patch(
+                'inpa.admin_console.views.timezone.now',
+                return_value=self.now):
+            data = self.client_admin.get(
+                '/api/v1/admin/claude-cost/?days=30').json()
+
+        self.assertEqual(data['total_cost_krw'], 10.0)
+        self.assertEqual(data['total_tokens'], {
+            'input': 11,
+            'output': 22,
+            'cache_read': 33,
+            'cache_creation': 44,
+        })
+        review = data['insurance_review']
+        self.assertEqual(review['job_count'], 4)
+        self.assertEqual(
+            review['status_counts'],
+            {'queued': 1, 'confirmed': 2, 'failed': 1})
+        self.assertEqual(review['queue_wait_ms'], {
+            'sample_count': 2,
+            'invalid_timing_count': 1,
+            'p50': 1000,
+            'p95': 2000,
+        })
+        self.assertEqual(review['current_queue_wait_ms']['sample_count'], 1)
+        self.assertEqual(review['current_queue_wait_ms']['p50'], 3000)
+        self.assertEqual(review['processing_ms'], {
+            'sample_count': 3,
+            'invalid_timing_count': 0,
+            'p50': 4000,
+            'p95': 7000,
+        })
+        self.assertEqual(review['review_ms_proxy'], {
+            'sample_count': 1,
+            'invalid_timing_count': 1,
+            'p50': 5000,
+            'p95': 5000,
+        })
+        self.assertEqual(review['attempts'], {
+            'job_count': 4,
+            'total': 4,
+            'retry_attempts': 1,
+            'retry_jobs': 1,
+            'retry_job_rate': 25.0,
+        })
+        self.assertEqual(review['leases'], {
+            'job_count': 4,
+            'expired': 1,
+            'expired_jobs': 1,
+            'expired_job_rate': 25.0,
+        })
+        validation = review['validation']
+        self.assertEqual(validation['initial_metrics_sample_count'], 3)
+        self.assertEqual(validation['no_provider_job_count'], 1)
+        self.assertEqual(validation['pending_provider_metrics_count'], 0)
+        self.assertEqual(validation['invalid_initial_metrics_count'], 0)
+        self.assertEqual(validation['provider_rows'], 2)
+        self.assertEqual(validation['row_count'], 2)
+        self.assertEqual(validation['state_counts']['invalid'], 2)
+        self.assertEqual(validation['detected_candidates'], 2)
+        self.assertEqual(validation['assigned'], 0)
+        self.assertEqual(validation['unmatched'], 2)
+        self.assertEqual(validation['confirmed_coverages'], 1)
+        self.assertEqual(review['corrections'], {
+            'confirmed_jobs': 2,
+            'jobs_with_edits': 1,
+            'job_correction_rate': 50.0,
+            'edit_actions': 3,
+        })
+        self.assertEqual(review['failures'], {
+            'provider_calls': 3,
+            'failed_calls': 1,
+            'failure_rate': 33.3,
+            'zero_provider_rows': 1,
+        })
+        carrier7 = next(
+            row for row in review['by_carrier']
+            if row['carrier_code'] == 7)
+        self.assertEqual(carrier7, {
+            'carrier_code': 7,
+            'sample_count': 2,
+            'assigned': 0,
+            'unmatched': 1,
+            'unmatched_rate': 100.0,
+        })
+
+    def test_missing_snapshot_denominators_distinguish_no_provider_pending_and_malformed(self):
+        from unittest import mock
+
+        from inpa.insurances.import_contract import PDFImportError
+        from inpa.insurances.tasks import (
+            _reserve_provider_call,
+            claim_import,
+            run_insurance_import,
+        )
+
+        pre_provider = self._make_worker_job(number=20)
+        with mock.patch(
+                'inpa.insurances.tasks._extract_job_pdf',
+                side_effect=PDFImportError('PDF_PARSE_RESOURCE_LIMIT')), \
+                mock.patch('inpa.insurances.tasks.delete_source'):
+            run_insurance_import(str(pre_provider.pk))
+
+        pending = self._make_worker_job(number=21)
+        pending_claim = claim_import(pending.pk)
+        _reserve_provider_call(pending_claim)
+
+        malformed = self._make_worker_job(number=22)
+        self.Job.objects.filter(pk=malformed.pk).update(
+            status='failed',
+            validation_summary={
+                '_system': {
+                    'provider_started': True,
+                    'initial_metrics': {'schema_version': self.sentinel},
+                },
+            },
+        )
+
+        data = self.client_admin.get(
+            '/api/v1/admin/claude-cost/?days=30').json()
+        validation = data['insurance_review']['validation']
+        self.assertEqual(validation['no_provider_job_count'], 2)
+        self.assertEqual(validation['pending_provider_metrics_count'], 1)
+        self.assertEqual(validation['invalid_initial_metrics_count'], 1)
+
+    def test_structurally_valid_snapshot_without_provider_start_is_not_a_sample(self):
+        import copy
+
+        fake = self._make_worker_job(number=23)
+        source_metrics = copy.deepcopy(
+            self.confirmed.validation_summary['_system']['initial_metrics'])
+        self.Job.objects.filter(pk=fake.pk).update(
+            validation_summary={
+                '_system': {
+                    'provider_started': False,
+                    'initial_metrics': source_metrics,
+                },
+            },
+        )
+        self.Result.objects.create(
+            job=fake,
+            provider='claude',
+            model_id='forged-model',
+            outcome='review_required',
+        )
+
+        data = self.client_admin.get(
+            '/api/v1/admin/claude-cost/?days=30').json()
+        validation = data['insurance_review']['validation']
+        self.assertEqual(validation['initial_metrics_sample_count'], 3)
+        self.assertEqual(validation['no_provider_job_count'], 2)
+        self.assertEqual(validation['pending_provider_metrics_count'], 0)
+        self.assertEqual(validation['invalid_initial_metrics_count'], 0)
+
+    def test_provider_snapshot_with_inconsistent_terminal_result_is_invalid(self):
+        import copy
+
+        fake = self._make_worker_job(number=24)
+        source_metrics = copy.deepcopy(
+            self.confirmed.validation_summary['_system']['initial_metrics'])
+        self.Job.objects.filter(pk=fake.pk).update(
+            status='failed',
+            validation_summary={
+                '_system': {
+                    'provider_started': True,
+                    'initial_metrics': source_metrics,
+                },
+            },
+        )
+        self.Result.objects.create(
+            job=fake,
+            provider='claude',
+            model_id='inconsistent-model',
+            outcome='review_required',
+        )
+
+        data = self.client_admin.get(
+            '/api/v1/admin/claude-cost/?days=30').json()
+        validation = data['insurance_review']['validation']
+        self.assertEqual(validation['initial_metrics_sample_count'], 3)
+        self.assertEqual(validation['no_provider_job_count'], 1)
+        self.assertEqual(validation['pending_provider_metrics_count'], 0)
+        self.assertEqual(validation['invalid_initial_metrics_count'], 1)
+
+    def test_processing_percentiles_exclude_canceled_and_superseded_jobs(self):
+        for number, status in ((30, 'canceled'), (31, 'superseded')):
+            job = self._run_worker_job(number=number, carrier_code=7)
+            self._set_timing(
+                job,
+                status=status,
+                created_ms=-100_000,
+                started_ms=-90_000,
+                result_ms=-10_000,
+                completed_ms=-10_000,
+            )
+
+        data = self.client_admin.get(
+            '/api/v1/admin/claude-cost/?days=30').json()
+        self.assertEqual(
+            data['insurance_review']['processing_ms'], {
+                'sample_count': 3,
+                'invalid_timing_count': 0,
+                'p50': 4000,
+                'p95': 7000,
+            },
+        )
+
+    def test_metrics_response_recursively_excludes_raw_payload_and_pii_sentinels(self):
+        import json
+
+        self.ClaudeApiLog.objects.create(
+            action=self.enum_sentinel,
+            model='safe-model',
+            user=self.planner,
+            parse_outcome=self.enum_sentinel,
+            carrier_code=199,
+        )
+        self.Job.objects.filter(pk=self.queued.pk).update(
+            status=self.enum_sentinel)
+
+        data = self.client_admin.get(
+            '/api/v1/admin/claude-cost/?days=30').json()
+        forbidden_keys = {
+            'draft_payload', 'structured_payload', 'masked_lines',
+            'validation_summary', 'safe_display_name', 'raw_name',
+            'product_name', 'customer_name', 'email', 'file_path',
+        }
+
+        def walk(value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    self.assertNotIn(key, forbidden_keys)
+                    walk(child)
+            elif isinstance(value, list):
+                for child in value:
+                    walk(child)
+
+        walk(data)
+        rendered = json.dumps(data, ensure_ascii=False)
+        self.assertNotIn(self.sentinel, rendered)
+        self.assertNotIn(self.enum_sentinel, rendered)
+        self.assertNotIn('010-9999-7788', rendered)
+        self.assertNotIn('DEMO_SENTINEL_NAME', rendered)
+        self.assertIn('other', data['outcome_counts'])
+        self.assertIn(
+            'other', data['insurance_review']['status_counts'])
+        self.assertIn('other', {
+            row['action'] for row in data['by_action']})
+        self.assertNotIn(199, {
+            row['carrier_code'] for row in data['by_carrier']})
+
+
+@override_settings(
+    INSURANCE_REVIEW_GATE_ENABLED=False,
+    INSURANCE_SOURCE_RETENTION_HOURS=24,
+)
+class AdminInsuranceImportSettingsTest(TestCase):
+    def setUp(self):
+        from inpa.insurances.models import InsuranceImportRuntimeConfig
+
+        self.Config = InsuranceImportRuntimeConfig
+        self.admin = _make_user('import_settings_admin@inpa.kr', is_admin=True)
+        self.planner = _make_user('import_settings_planner@test.kr')
+        self.client_admin = _auth_client(self.admin)
+        self.client_planner = _auth_client(self.planner)
+        self.Config.objects.update_or_create(
+            pk=1,
+            defaults={
+                'per_owner_concurrency': 2,
+                'global_concurrency': 4,
+                'force_manual_carrier_codes': [],
+            },
+        )
+        self.url = '/api/v1/admin/settings/insurance-import/'
+
+    def test_admin_gets_runtime_and_read_only_deployment_values(self):
+        response = self.client_admin.get(self.url)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()
+        self.assertEqual(data['runtime']['per_owner_concurrency'], 2)
+        self.assertEqual(data['runtime']['global_concurrency'], 4)
+        self.assertEqual(data['runtime']['force_manual_carrier_codes'], [])
+        self.assertEqual(data['deployment'], {
+            'insurance_review_gate_enabled': False,
+            'source_retention_hours': 24,
+        })
+
+    def test_get_sanitizes_corrupt_runtime_json_at_response_boundary(self):
+        sentinel = 'PII_RUNTIME_CONFIG_7788'
+        self.Config.objects.filter(pk=1).update(
+            force_manual_carrier_codes=[
+                1, 0, 1, True, 9999, sentinel, {'raw': sentinel},
+            ],
+        )
+
+        response = self.client_admin.get(self.url)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            response.json()['runtime']['force_manual_carrier_codes'], [0, 1])
+        self.assertNotIn(sentinel, str(response.json()))
+
+    def test_non_admin_cannot_read_or_patch(self):
+        self.assertEqual(self.client_planner.get(self.url).status_code, 403)
+        self.assertEqual(
+            self.client_planner.patch(
+                self.url, {'global_concurrency': 5}, format='json').status_code,
+            403,
+        )
+
+    def test_patch_validates_allowlist_exact_types_bounds_and_relationship(self):
+        invalid_payloads = (
+            {'per_owner_concurrency': True},
+            {'per_owner_concurrency': 0},
+            {'global_concurrency': 101},
+            {'per_owner_concurrency': 5, 'global_concurrency': 4},
+            {'force_manual_carrier_codes': [9999]},
+            {'force_manual_carrier_codes': '0'},
+            {'deployment': {'insurance_review_gate_enabled': True}},
+            {'insurance_review_gate_enabled': True},
+            {'source_retention_hours': 48},
+            {'unknown': 1},
+        )
+
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                response = self.client_admin.patch(
+                    self.url, payload, format='json')
+                self.assertEqual(response.status_code, 400, response.content)
+
+        config = self.Config.objects.get(pk=1)
+        self.assertEqual(
+            (config.per_owner_concurrency, config.global_concurrency,
+             config.force_manual_carrier_codes),
+            (2, 4, []),
+        )
+
+    def test_patch_deduplicates_sorts_and_updates_all_fields_atomically(self):
+        response = self.client_admin.patch(self.url, {
+            'per_owner_concurrency': 3,
+            'global_concurrency': 6,
+            'force_manual_carrier_codes': [1, 0, 1],
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['runtime'], {
+            'per_owner_concurrency': 3,
+            'global_concurrency': 6,
+            'force_manual_carrier_codes': [0, 1],
+            'updated_at': response.json()['runtime']['updated_at'],
+        })
+        config = self.Config.objects.get(pk=1)
+        self.assertEqual(
+            (config.per_owner_concurrency, config.global_concurrency,
+             config.force_manual_carrier_codes),
+            (3, 6, [0, 1]),
+        )
+
+    def test_claimed_attempt_keeps_snapshot_and_next_claim_reads_patch(self):
+        from inpa.insurances.models import InsuranceExtractionJob
+        from inpa.insurances.tasks import claim_import
+
+        customer = Customer.objects.create(
+            owner=self.planner, name='설정 테스트 고객')
+
+        def make_job(number):
+            return InsuranceExtractionJob.objects.create(
+                owner=self.planner,
+                customer=customer,
+                intent='add',
+                portfolio_type=1,
+                status='queued',
+                file_sha256=f'{number:064x}',
+                file_size=100,
+                safe_display_name='policy.pdf',
+            )
+
+        first_job = make_job(101)
+        second_job = make_job(102)
+        first_claim = claim_import(first_job.pk)
+
+        response = self.client_admin.patch(
+            self.url,
+            {'force_manual_carrier_codes': [0]},
+            format='json',
+        )
+        second_claim = claim_import(second_job.pk)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(first_claim.force_manual_carrier_codes, ())
+        self.assertEqual(second_claim.force_manual_carrier_codes, (0,))
+        first_job.refresh_from_db()
+        self.assertEqual(first_job.attempt_uuid, first_claim.attempt_uuid)
+        self.assertEqual(first_job.status, 'extracting')
 
 
 # ─── AF: 활성화 퍼널 (spec 2026-07-08, 프리런치 #16) ─────────────────────

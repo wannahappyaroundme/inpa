@@ -30,9 +30,9 @@ from inpa.insurances.models import CustomerInsurance
 
 # 팀 기능 게이트(MANAGER_PLAN_GATE_ENABLED, spec 2026-07-09) 응답 — accounts/invite.py와 동일 shape.
 MANAGER_PLAN_REQUIRED_BODY = {
-    'detail': '팀 관리는 Manager 요금제에서 이용할 수 있어요.',
+    'detail': 'Plus를 시작하면 팀 관리 기능을 계속 사용할 수 있어요.',
     'code': 'manager_plan_required',
-    'plan': 'manager',
+    'plan': 'plus',
 }
 
 
@@ -45,8 +45,8 @@ def _mask(label):
 class ManagerDashboardView(APIView):
     """매니저 본인에게 KPI 공유 동의한 소속 설계사들의 집계.
 
-    ★ settings.MANAGER_PLAN_GATE_ENABLED=True(유료 전환 후)면 Manager 요금제
-      (billing.Plan.can_use_team=True) 활성 구독자만 접근 가능 — 402 manager_plan_required.
+    ★ settings.MANAGER_PLAN_GATE_ENABLED=True(유료 전환 후)면
+      billing.Plan.can_use_team=True인 활성 구독자만 접근 가능 — 402 manager_plan_required.
       기본 False(dormant)라 현재는 인증 설계사 누구나 이용 가능(현행 유지).
     """
     permission_classes = [IsAuthenticated, IsEmailVerified]

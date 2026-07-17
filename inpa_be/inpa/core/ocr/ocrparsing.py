@@ -704,10 +704,14 @@ COVERAGE_KEYWORDS = {
     '실손 의료비->상해->상해 처방조제비': ['상해처방조제비', '상해처방조제', '다쳐서처방조제',
                                           '상해통원(처방)', '상해통원[처방]',
                                           '상해처방', '상해약제비'],
-    '실손 의료비->비급여->비급여 MR/MRA': ['비급여도수치료', '비급여체외충격파',
-                                          '비급여MRI', '비급여MR',
-                                          '비급여증식치료', '도수치료·체외충격파',
-                                          '도수치료체외충격파증식치료'],
+    '실손 의료비->비급여->비급여 도수치료': [
+        '비급여도수·체외충격파·증식치료',
+        '비급여도수치료', '비급여체외충격파', '비급여증식치료',
+        '도수치료·체외충격파', '도수치료체외충격파증식치료',
+    ],
+    '실손 의료비->비급여->비급여 MR/MRA': [
+        '비급여MRI', '비급여MRA', '비급여MR',
+    ],
     '실손 의료비->비급여->비급여 주사료': ['비급여주사', '비급여 주사', '비급여주사료'],
     # === 운전자 ===
     '운전자진단비->벌금->대물 벌금': ['벌금', '대물벌금', '벌금(운전자용)'],
@@ -1607,6 +1611,10 @@ def is_keyword_excluded(text, keyword):
 
 
 _EXCLUSION_PAREN_REGEX = re.compile(r'[\(（][^()（）]*(?:제외|제거|빼고)[^()（）]*[\)）]')
+_AMBIGUOUS_COVERAGE_PATTERNS = (
+    re.compile(r'특정[\(（]소액[\)）]암진단(?:비|금)'),
+    re.compile(r'암진단비[\(（]유사암포함[\)）]'),
+)
 
 
 def strip_exclusion_parens(text):
@@ -1620,6 +1628,12 @@ def strip_exclusion_parens(text):
     if not text:
         return text
     return _EXCLUSION_PAREN_REGEX.sub('', text)
+
+
+def is_ambiguous_coverage_name(text):
+    """사람 확인 전에는 하나의 표준 담보로 확정할 수 없는 복합 표기."""
+    compact = re.sub(r'\s+', '', str(text or ''))
+    return any(pattern.search(compact) for pattern in _AMBIGUOUS_COVERAGE_PATTERNS)
 
 
 def _match_coverage(text):
@@ -1636,6 +1650,8 @@ def _match_coverage(text):
     추가로 strip_exclusion_parens() 로 배제 괄호 자체를 제거한 후 매칭 — '암(...제외)진단비'
     → '암진단비' 처럼 외곽 키워드 매칭이 가능해진다.
     """
+    if is_ambiguous_coverage_name(text):
+        return None
     text = strip_exclusion_parens(text)
     no_space = text.replace(' ', '')
     no_space = re.sub(r'[\(（]\s*갱신[용형]?\s*[\)）]', '', no_space)

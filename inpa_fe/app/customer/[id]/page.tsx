@@ -20,6 +20,8 @@ import { Card, DisclaimerFooter, CustomerAvatar, AVATAR_PALETTE } from "@/compon
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   HeatmapGrid,
+  AnalysisAuthoritySummary,
+  AnalysisEmptyState,
   KpiCard,
   fmtAmount,
   fmtWon,
@@ -30,10 +32,13 @@ import {
   OcrUploadButton,
   OcrStatusBanner,
   ConsentModal,
+  InsuranceDuplicateChoice,
 } from "@/components/ocr-upload";
+import { InsuranceImportCards } from "@/components/insurance-import-cards";
 import { BookingModal } from "@/components/booking-modal";
 import { ContactLogModal } from "@/components/contact-log-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { AssignInsRow, InsuranceCards, type SideAssign } from "@/components/insurance-review-cards";
 import { BaselineRequiredModal } from "@/components/baseline-required-modal";
 import { PremiumSplitSection, ComparePremiumSplit } from "@/components/premium-split";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
@@ -55,7 +60,7 @@ import {
   deleteChecklistItem,
   createConsentRequest,
   searchJobs,
-  listManualInsurances,
+  listAllManualInsurances,
   listContactLogs,
   SALES_STAGES,
   CUSTOMER_STATUSES,
@@ -201,6 +206,11 @@ function CustomerDetailInner() {
   const [heatmapLoading, setHeatmapLoading] = useState(false);
   const [heatmapError, setHeatmapError] = useState<string | null>(null);
   const [heatmapUpgradeInfo, setHeatmapUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
+  const heatmapReqRef = useRef(0);
+
+  useEffect(() => () => {
+    heatmapReqRef.current += 1;
+  }, []);
 
   // 히트맵 그리드 UI 상태
   const [graded, setGraded] = useState(true);
@@ -208,13 +218,16 @@ function CustomerDetailInner() {
 
   const fetchHeatmap = useCallback(
     async (id: number) => {
+      const req = ++heatmapReqRef.current;
       setHeatmapLoading(true);
       setHeatmapError(null);
       setHeatmap(null);
       setHeatmapUpgradeInfo(undefined);
       try {
-        setHeatmap(await getHeatmap(id));
+        const next = await getHeatmap(id);
+        if (heatmapReqRef.current === req) setHeatmap(next);
       } catch (e: unknown) {
+        if (heatmapReqRef.current !== req) return;
         if (e instanceof ApiError && e.status === 402) {
           setHeatmapUpgradeInfo(e.creditBody ?? { kind: "analysis" });
         } else {
@@ -223,7 +236,7 @@ function CustomerDetailInner() {
           );
         }
       } finally {
-        setHeatmapLoading(false);
+        if (heatmapReqRef.current === req) setHeatmapLoading(false);
       }
     },
     []
@@ -231,7 +244,7 @@ function CustomerDetailInner() {
 
   const ocr = useOcrUpload((id) => {
     void fetchHeatmap(id);
-  });
+  }, 1, customerId);
 
   // ── 고객 로드 ──
   useEffect(() => {
@@ -1020,62 +1033,10 @@ function ChecklistTab({ customerId }: { customerId: number }) {
   );
 }
 
-// ── 보험별 카드 (보유=portfolio 1 / 제안=portfolio 2) — 한 고객의 여러 보험을 카드로 — PM 06.29 ──
-function InsuranceCard({ it }: { it: ManualInsuranceItem }) {
-  const typeLabel = it.insurance_type === 1 ? "생명" : "손해";
-  const insured = it.insured_name ?? (it.is_same_insured ? "계약자와 동일" : "-");
-  return (
-    <div className="rounded-xl border border-line bg-surface p-3.5">
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-[14px] font-bold text-ink truncate">{it.name ?? "이름 없는 보험"}</div>
-        <span className="shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-surface2 text-ink3 border border-line">{typeLabel}</span>
-      </div>
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-        <dt className="text-ink3">계약자</dt><dd className="text-ink2 text-right truncate">{it.contractor_name ?? "-"}</dd>
-        <dt className="text-ink3">피보험자</dt><dd className="text-ink2 text-right truncate">{insured}</dd>
-        <dt className="text-ink3">월 보험료</dt><dd className="text-ink2 text-right tnum">{fmtWon(it.monthly_premiums)}</dd>
-        <dt className="text-ink3">기간</dt><dd className="text-ink2 text-right">{it.contract_date ?? "-"} ~ {it.expiry_date ?? "-"}</dd>
-      </dl>
-      {(it.monthly_renewal_premium != null || it.monthly_non_renewal_premium != null) && (
-        <div className="mt-1 flex gap-3 text-[12px] text-ink3">
-          {it.monthly_renewal_premium != null && <span>갱신 {fmtWon(it.monthly_renewal_premium)}</span>}
-          {it.monthly_non_renewal_premium != null && <span>비갱신 {fmtWon(it.monthly_non_renewal_premium)}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function InsuranceCards({ customerId, portfolioType, refreshKey, emptyHint, title }: {
-  customerId: number; portfolioType: number; refreshKey?: number; emptyHint?: string; title?: string;
-}) {
-  const [items, setItems] = useState<ManualInsuranceItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    setLoading(true);
-    listManualInsurances(customerId)
-      .then((r) => setItems(r.results.filter((x) => x.portfolio_type === portfolioType)))
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
-  }, [customerId, portfolioType, refreshKey]);
-  if (loading) return <div className="grid sm:grid-cols-2 gap-3">{[1, 2].map((i) => <div key={i} className="h-24 rounded-xl bg-line animate-pulse" />)}</div>;
-  if (items.length === 0)
-    return emptyHint ? <div className="rounded-xl border border-dashed border-line px-4 py-5 text-center text-[13px] text-ink3">{emptyHint}</div> : null;
-  return (
-    <div>
-      {title && <div className="text-[13px] font-bold text-ink mb-2">{title} <span className="text-ink3 tnum">{items.length}</span></div>}
-      <div className="grid sm:grid-cols-2 gap-3">
-        {items.map((it) => <InsuranceCard key={it.id} it={it} />)}
-      </div>
-    </div>
-  );
-}
-
 // ── 자유 A/B 배정 행 (비교 분석 — 보험 아무거나 A안·B안·미포함 중 하나로) ── 2026-07-09 ──
 // ★ 미포함은 '키 삭제'가 아니라 명시적 "none"으로 저장한다: 삭제하면 목록 새로고침(제안 추가 등) 때
 //   '미배정'과 구분이 안 돼 portfolio_type 프리셋으로 되살아나, 설계사가 뺀 보험이 고객 텍스트에
 //   다시 섞이는 버그가 있었다(리뷰 major). "none"으로 남기면 새로고침이 그 배정을 보존한다.
-type SideAssign = "A" | "B" | "none";
 function assignInsurance(
   setter: (updater: (prev: Record<number, SideAssign>) => Record<number, SideAssign>) => void,
   id: number,
@@ -1083,50 +1044,6 @@ function assignInsurance(
 ) {
   setter((prev) => ({ ...prev, [id]: value }));
 }
-function AssignInsRow({ it, value, onChange }: { it: ManualInsuranceItem; value: SideAssign; onChange: (v: SideAssign) => void }) {
-  const sub = [it.contractor_name && `계약 ${it.contractor_name}`, it.insured_name && `피보험 ${it.insured_name}`]
-    .filter(Boolean).join(" · ") || (it.insurance_type === 1 ? "생명" : "손해");
-  const portfolioTag = it.portfolio_type === 1 ? "보유" : "제안";
-  return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2">
-      <span className="flex-1 min-w-0">
-        <span className="flex items-center gap-1.5">
-          <span className="text-[13px] font-semibold text-ink truncate">{it.name ?? "이름 없는 보험"}</span>
-          <span className="shrink-0 text-[10px] font-semibold rounded-full px-1.5 py-0.5 bg-surface2 text-ink3 border border-line">{portfolioTag}</span>
-        </span>
-        <span className="block text-[11px] text-ink3 truncate">{sub}</span>
-      </span>
-      <span className="shrink-0 text-[11px] text-ink2 tnum">{fmtWon(it.monthly_premiums)}</span>
-      <div className="shrink-0 inline-flex rounded-lg border border-line overflow-hidden text-[11px] font-semibold">
-        <button
-          type="button"
-          onClick={() => onChange("A")}
-          aria-pressed={value === "A"}
-          className={`px-2.5 py-1.5 transition ${value === "A" ? "bg-brand text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}
-        >
-          A안
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange("none")}
-          aria-pressed={value === "none"}
-          className={`px-2.5 py-1.5 border-x border-line transition ${value === "none" ? "bg-surface2 text-ink" : "bg-surface text-ink3 hover:bg-surface2"}`}
-        >
-          미포함
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange("B")}
-          aria-pressed={value === "B"}
-          className={`px-2.5 py-1.5 transition ${value === "B" ? "bg-ink text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}
-        >
-          B안
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ── 분석 탭 ───────────────────────────────────────────────────────────────
 type OcrCtl = ReturnType<typeof useOcrUpload>;
 
@@ -1157,6 +1074,8 @@ function AnalysisTab({
 }) {
   const [bookingOpen, setBookingOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
+  const [reviewInsuranceId, setReviewInsuranceId] = useState<number | null>(null);
+  const [pendingInsuranceId, setPendingInsuranceId] = useState<number | null>(null);
   const [insRefresh, setInsRefresh] = useState(0);
   const [baselineModalDismissed, setBaselineModalDismissed] = useState(false);
   useEffect(() => { if (ocr.phase === "success") setInsRefresh((k) => k + 1); }, [ocr.phase]);
@@ -1189,12 +1108,17 @@ function AnalysisTab({
           />
           <button
             type="button"
-            onClick={() => setManualOpen(true)}
+            onClick={() => { setReviewInsuranceId(null); setManualOpen(true); }}
             className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
           >
             직접 입력
           </button>
-          <ShareLinkButton customerId={customerId} />
+          <ShareLinkButton
+            customerId={customerId}
+            authorityLoaded={!loading && !error && heatmap !== null}
+            canShare={heatmap?.can_share ?? false}
+            shareBlockReason={heatmap?.share_block_reason ?? null}
+          />
           <ShareSnapshotButton customerId={customerId} />
         </div>
       </div>
@@ -1204,9 +1128,9 @@ function AnalysisTab({
       {manualOpen && (
         <InsuranceManualModal
           customerId={customerId}
-          onClose={() => setManualOpen(false)}
-          onCreated={() => {
-            setManualOpen(false);
+          initialInsuranceId={reviewInsuranceId}
+          onClose={() => { setManualOpen(false); setReviewInsuranceId(null); }}
+          onChanged={() => {
             onRetry();
             setInsRefresh((k) => k + 1);
           }}
@@ -1217,7 +1141,13 @@ function AnalysisTab({
         phase={ocr.phase}
         errorMsg={ocr.error}
         onDismiss={ocr.clearError}
-        onManualEntry={() => setManualOpen(true)}
+        onRetry={ocr.retryUpload}
+        onManualEntry={() => { setReviewInsuranceId(null); setManualOpen(true); }}
+      />
+      <InsuranceDuplicateChoice
+        info={ocr.duplicateInfo}
+        onOpenExisting={ocr.openDuplicateInsurance}
+        onReplace={ocr.resolveDuplicateReplace}
       />
       {ocr.phase === "consent_required" && (
         <ConsentModal
@@ -1237,30 +1167,37 @@ function AnalysisTab({
         info={ocr.upgradeInfo}
       />
 
+      <InsuranceImportCards customerId={customerId} />
+
       {/* 기준 미설정 안내는 히트맵 컴포넌트(HeatmapGrid) 상단 CTA로 일원화 — 중복 박스 제거(PM 06.29) */}
 
       {/* KPI */}
       {heatmap && (
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <KpiCard label="월 보험료" value={fmtWon(heatmap.summary.monthly_premiums)} />
-          <KpiCard label="총 납입 보험료" value={fmtWon(heatmap.summary.total_premiums)} />
-          <KpiCard label="보험 건수" value={`${heatmap.insurance_count}건`} />
-          <KpiCard
-            label="분석 모드"
-            value={heatmap.mode === "neutral" ? "기준 미설정" : "기준 적용"}
-            valueClass={heatmap.mode === "neutral" ? "text-ink3" : "text-enough"}
-          />
-        </div>
+        <>
+          <div className="mt-4"><AnalysisAuthoritySummary heatmap={heatmap} /></div>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <KpiCard label="월 보험료" value={fmtWon(heatmap.summary.monthly_premiums)} />
+            <KpiCard label="총 납입 보험료" value={fmtWon(heatmap.summary.total_premiums)} />
+            <KpiCard label="분석 모드" value={heatmap.mode === "neutral" ? "기준 미설정" : "기준 적용"} valueClass={heatmap.mode === "neutral" ? "text-ink3" : "text-enough"} />
+          </div>
+        </>
       )}
 
       {/* 보유 보험 — 보험별 카드(여러 개일 수 있음) */}
       <div className="mt-4">
-        <InsuranceCards customerId={customerId} portfolioType={1} refreshKey={insRefresh} title="보유 보험" />
+        <InsuranceCards
+          customerId={customerId}
+          portfolioType={1}
+          refreshKey={insRefresh}
+          title="보유 보험"
+          onReview={(insuranceId) => { setReviewInsuranceId(insuranceId); setManualOpen(true); }}
+          onPendingInsurance={setPendingInsuranceId}
+        />
       </div>
 
       {/* 로딩 */}
       {loading && (
-        <div className="mt-8 space-y-3">
+        <div role="status" aria-label="분석을 불러오는 중" className="mt-8 space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="flex items-start gap-3">
               <div className="w-16 h-6 rounded bg-line animate-pulse shrink-0" />
@@ -1276,7 +1213,7 @@ function AnalysisTab({
 
       {/* 에러 */}
       {error && !loading && (
-        <div className="mt-6 rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
+        <div role="alert" className="mt-6 rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
           <p className="text-[14px] text-ink3">{error}</p>
           <button onClick={onRetry} className="mt-3 text-[13px] font-semibold text-brand">
             다시 시도
@@ -1284,40 +1221,38 @@ function AnalysisTab({
         </div>
       )}
 
-      {/* 보험 없음 */}
-      {!loading && !error && heatmap && heatmap.insurance_count === 0 && (
-        <div className="mt-6 rounded-xl border border-dashed border-line px-4 py-12 text-center">
-          <p className="text-[15px] font-semibold text-ink2">증권이 아직 없어요</p>
-          <p className="mt-1 text-[13px] text-ink3">
-            증권을 등록하면 보장 한눈표가 보여요.
-          </p>
-          <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-2">
-            <OcrUploadButton
-              customerId={customerId}
-              phase={ocr.phase}
-              onFileChange={ocr.onFileChange}
-              consented={consented}
-              onNeedConsent={ocr.openConsent}
-            />
-            <button
-              type="button"
-              onClick={() => setManualOpen(true)}
-              className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
-            >
-              직접 입력
-            </button>
-          </div>
+      {!loading && !error && heatmap && heatmap.included_insurance_count === 0 && (
+        <div className="mt-6">
+          <AnalysisEmptyState
+            heatmap={heatmap}
+            reviewDisabled={heatmap.pending_review_count > 0 && pendingInsuranceId === null}
+            onReview={() => {
+              if (pendingInsuranceId === null) return;
+              setReviewInsuranceId(pendingInsuranceId);
+              setManualOpen(true);
+            }}
+            onManual={() => { setReviewInsuranceId(null); setManualOpen(true); }}
+            uploadAction={(
+              <OcrUploadButton
+                customerId={customerId}
+                phase={ocr.phase}
+                onFileChange={ocr.onFileChange}
+                consented={consented}
+                onNeedConsent={ocr.openConsent}
+              />
+            )}
+          />
         </div>
       )}
 
       {/* 기준 미설정 안내 모달 — neutral 이고 보험 있을 때 한 번만 표시(닫으면 해제) */}
       {!loading && !error && heatmap && heatmap.mode === "neutral" &&
-        heatmap.insurance_count > 0 && !baselineModalDismissed && (
+        heatmap.included_insurance_count > 0 && !baselineModalDismissed && (
         <BaselineRequiredModal onDismiss={() => setBaselineModalDismissed(true)} />
       )}
 
       {/* 히트맵 그리드 */}
-      {!loading && !error && heatmap && heatmap.insurance_count > 0 && (
+      {!loading && !error && heatmap && heatmap.included_insurance_count > 0 && (
         <div className="mt-5">
           <HeatmapGrid
             heatmap={heatmap}
@@ -1328,7 +1263,7 @@ function AnalysisTab({
           />
         </div>
       )}
-      {heatmap && heatmap.insurance_count > 0 && (
+      {heatmap && heatmap.included_insurance_count > 0 && (
         <PremiumSplitSection summary={heatmap.summary} insurances={heatmap.insurances} />
       )}
     </div>
@@ -1359,16 +1294,31 @@ function SwitchTab({ customerId }: { customerId: number }) {
   // 프리셋(회귀 방지 UX), 이후 설계사가 자유 변경. 목록 새로고침 시 기존 배정은 보존, 새 보험만 프리셋.
   const [insurances, setInsurances] = useState<ManualInsuranceItem[]>([]);
   const [assign, setAssign] = useState<Record<number, SideAssign>>({});
-  const [insLoaded, setInsLoaded] = useState(false);
+  const [insLoadStatus, setInsLoadStatus] = useState<"loading" | "success" | "error">("loading");
+  const [insRefreshError, setInsRefreshError] = useState<string | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
+  const [reviewInsuranceId, setReviewInsuranceId] = useState<number | null>(null);
+  const insuranceReqRef = useRef(0);
 
-  const loadInsurances = useCallback(() => {
-    listManualInsurances(customerId)
-      .then((r) => {
-        setInsurances(r.results);
+  const loadInsurances = useCallback((background = false) => {
+    const req = ++insuranceReqRef.current;
+    compareReqRef.current += 1;
+    if (!background) {
+      setInsLoadStatus("loading");
+      setData(null);
+    }
+    setLoading(true);
+    setError(null);
+    setInsRefreshError(null);
+    listAllManualInsurances(customerId)
+      .then((rows) => {
+        if (insuranceReqRef.current !== req) return;
+        setInsurances(rows);
         setAssign((prev) => {
           const next: Record<number, SideAssign> = {};
-          for (const it of r.results) {
+          for (const it of rows) {
+            const selectable = it.review_status === "confirmed" && it.analysis_included && !it.is_cancelled;
+            if (!selectable) { next[it.id] = "none"; continue; }
             // 기존 배정(A·B·none 모두)은 그대로 보존 — 설계사가 뺀 보험을 되살리지 않는다.
             if (it.id in prev) { next[it.id] = prev[it.id]; continue; }
             if (it.portfolio_type === 1) next[it.id] = "A";
@@ -1377,13 +1327,29 @@ function SwitchTab({ customerId }: { customerId: number }) {
           }
           return next;
         });
-        setInsLoaded(true);
+        if (!background) setInsLoadStatus("success");
       })
-      .catch(() => setInsLoaded(true));
+      .catch(() => {
+        if (insuranceReqRef.current !== req) return;
+        if (background) {
+          setInsRefreshError("보험 목록을 다시 불러와 주세요.");
+        } else {
+          setInsurances([]);
+          setInsLoadStatus("error");
+        }
+        setLoading(false);
+      });
   }, [customerId]);
-  useEffect(() => { loadInsurances(); }, [loadInsurances]);
+  useEffect(() => {
+    loadInsurances();
+    return () => {
+      insuranceReqRef.current += 1;
+      compareReqRef.current += 1;
+    };
+  }, [loadInsurances]);
 
   const doCompare = useCallback(() => {
+    if (insLoadStatus !== "success") return;
     setLoading(true);
     setError(null);
     setUpgradeInfo(undefined);
@@ -1422,14 +1388,14 @@ function SwitchTab({ customerId }: { customerId: number }) {
       .finally(() => {
         if (compareReqRef.current === req) setLoading(false);
       });
-  }, [customerId, assign, insurances]);
+  }, [customerId, assign, insLoadStatus, insurances]);
 
   // 제안 추가(업로드/직접) 후 목록 새로고침 → 배정 갱신(기존 보존+신규 프리셋) → 재비교.
-  const propOcr = useOcrUpload(() => { loadInsurances(); }, 2);
+  const propOcr = useOcrUpload(() => { loadInsurances(true); }, 2, customerId);
 
   useEffect(() => {
-    if (insLoaded) doCompare();
-  }, [doCompare, insLoaded]);
+    if (insLoadStatus === "success") doCompare();
+  }, [doCompare, insLoadStatus]);
 
   const aCount = Object.values(assign).filter((v) => v === "A").length;
   const bCount = Object.values(assign).filter((v) => v === "B").length;
@@ -1441,9 +1407,30 @@ function SwitchTab({ customerId }: { customerId: number }) {
     void publishing; // lint 억제
   }
 
+  if (insLoadStatus === "loading") {
+    return (
+      <div role="status" aria-label="보험 목록을 불러오는 중" className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-12 rounded-xl bg-line animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (insLoadStatus === "error") {
+    return (
+      <div role="alert" className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
+        <p className="text-[14px] text-ink3">보험 목록을 불러오지 못했어요.</p>
+        <button type="button" onClick={() => loadInsurances()} className="mt-3 text-[13px] font-semibold text-brand">
+          보험 목록 다시 불러오기
+        </button>
+      </div>
+    );
+  }
+
   if (loading && !data) {
     return (
-      <div className="space-y-3">
+      <div role="status" aria-label="비교 내용을 불러오는 중" className="space-y-3">
         {[1, 2, 3].map((i) => (
           <div key={i} className="h-12 rounded-xl bg-line animate-pulse" />
         ))}
@@ -1512,7 +1499,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
   const labelA = labels.a;
   const labelB = labels.b;
   // 복사 가능 = 양쪽 배정 ≥1 + 재계산 중이 아님(진행 중엔 옛 데이터가 복사되지 않도록 잠근다).
-  const canExport = aCount > 0 && bCount > 0 && !loading;
+  const canExport = aCount > 0 && bCount > 0 && !loading && !insRefreshError;
 
   // ④ 고객에게 보낼 내용 — 중립 사실만(담보·금액·증감 라벨). §97: 판정·권유·switch_warnings(설계사
   // 내부 전용) 절대 미포함, 인파는 복사만 하고 발송하지 않는다(설계사가 직접 카톡·문자로 전달).
@@ -1535,7 +1522,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
           </div>
           <div className="flex items-center gap-1.5">
             <OcrUploadButton customerId={customerId} phase={propOcr.phase} onFileChange={propOcr.onFileChange} inputId="proposal-ocr-input" label="제안서 업로드" />
-            <button type="button" onClick={() => setManualOpen(true)} className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition">직접 입력</button>
+            <button type="button" onClick={() => { setReviewInsuranceId(null); setManualOpen(true); }} className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition">직접 입력</button>
           </div>
         </div>
         {insurances.length === 0 ? (
@@ -1548,6 +1535,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
                 it={it}
                 value={assign[it.id] ?? "none"}
                 onChange={(v) => assignInsurance(setAssign, it.id, v)}
+                onReview={(insuranceId) => { setReviewInsuranceId(insuranceId); setManualOpen(true); }}
               />
             ))}
           </div>
@@ -1556,7 +1544,18 @@ function SwitchTab({ customerId }: { customerId: number }) {
           각 보험을 A안·B안 중 하나로 고르거나 비교에서 빼세요. 제안끼리, 보유끼리도 나란히 비교할 수 있어요.
         </p>
       </div>
-      <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} onManualEntry={() => setManualOpen(true)} />
+      <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} onRetry={propOcr.retryUpload} onManualEntry={() => { setReviewInsuranceId(null); setManualOpen(true); }} />
+      {insRefreshError && (
+        <div role="alert" className="mb-4 rounded-xl border border-line bg-surface2 px-4 py-3 text-[12px] text-ink2">
+          {insRefreshError}
+          <button type="button" onClick={() => loadInsurances(true)} className="ml-2 font-semibold text-brand">다시 불러오기</button>
+        </div>
+      )}
+      <InsuranceDuplicateChoice
+        info={propOcr.duplicateInfo}
+        onOpenExisting={propOcr.openDuplicateInsurance}
+        onReplace={propOcr.resolveDuplicateReplace}
+      />
       {propOcr.phase === "consent_required" && (
         <ConsentModal
           onGenerate={() => propOcr.generateConsentLink(customerId)}
@@ -1572,8 +1571,9 @@ function SwitchTab({ customerId }: { customerId: number }) {
         <InsuranceManualModal
           customerId={customerId}
           defaultPortfolioType={2}
-          onClose={() => setManualOpen(false)}
-          onCreated={() => { setManualOpen(false); loadInsurances(); }}
+          initialInsuranceId={reviewInsuranceId}
+          onClose={() => { setManualOpen(false); setReviewInsuranceId(null); }}
+          onChanged={() => loadInsurances(true)}
         />
       )}
 

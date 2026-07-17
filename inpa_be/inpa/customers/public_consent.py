@@ -118,6 +118,9 @@ class PublicConsentView(_NoIndexMixin, APIView):
             if sc == ConsentLog.SCOPE_PERSONAL_INFO:
                 from inpa.analytics.models import ShareSnapshot
                 ShareSnapshot.objects.filter(customer=customer).delete()
+                # gate OFF 전환 기간의 Customer 토큰 fallback도 즉시 닫는다.
+                customer.share_expires_at = now
+                customer.save(update_fields=['share_expires_at'])
             results.append({'scope': sc, 'revoked': True, 'updated_logs': updated})
         return results
 
