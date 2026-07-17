@@ -16,6 +16,7 @@
 from decimal import Decimal
 from unittest.mock import patch
 
+from django.apps import apps as django_apps
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -714,14 +715,30 @@ class SeedBillingCommandTests(TestCase):
         call_command('seed_billing')  # 멱등
         self.assertEqual(Plan.objects.filter(code='manager').count(), 1)
 
-    def test_seeds_manager_can_use_team_others_false(self):
-        """팀 기능 게이트(spec 2026-07-09) capability: manager만 can_use_team=True."""
+    def test_seeds_paid_team_capability_defaults(self):
+        """신규 플랜 capability: free만 False, plus·legacy manager·super는 True."""
         from django.core.management import call_command
 
         call_command('seed_billing')
-        self.assertTrue(Plan.objects.get(code='manager').can_use_team)
-        for code in ('free', 'plus', 'super'):
-            self.assertFalse(Plan.objects.get(code=code).can_use_team, code)
+        self.assertFalse(Plan.objects.get(code='free').can_use_team)
+        for code in ('plus', 'manager', 'super'):
+            self.assertTrue(Plan.objects.get(code=code).can_use_team, code)
+
+    def test_seed_preserves_pre_existing_plus_and_super_capability(self):
+        """반복 배포 시 관리자가 바꾼 Plus/Super capability를 시드가 덮지 않는다."""
+        from django.core.management import call_command
+
+        Plan.objects.create(
+            code='plus', display_name='Plus', price_krw=19900, can_use_team=False,
+        )
+        Plan.objects.create(
+            code='super', display_name='Super', price_krw=39900, can_use_team=False,
+        )
+
+        call_command('seed_billing')
+
+        self.assertFalse(Plan.objects.get(code='plus').can_use_team)
+        self.assertFalse(Plan.objects.get(code='super').can_use_team)
 
     def test_seed_corrects_can_use_team_on_pre_existing_manager_row(self):
         """can_use_team 필드 도입 전에 만들어진 manager 행(default False)도 재시드로 True 보정."""
@@ -741,6 +758,8 @@ class UserCanUseTeamTests(TestCase):
 
     def setUp(self):
         self.free_plan, self.plus_plan = _get_or_create_plans()
+        self.plus_plan.can_use_team = True
+        self.plus_plan.save(update_fields=['can_use_team'])
         self.manager_plan, _ = Plan.objects.get_or_create(
             code='manager',
             defaults={'display_name': 'Manager', 'price_krw': 19900, 'can_use_team': True,
@@ -750,6 +769,15 @@ class UserCanUseTeamTests(TestCase):
         if not self.manager_plan.can_use_team:
             self.manager_plan.can_use_team = True
             self.manager_plan.save(update_fields=['can_use_team'])
+        self.super_plan, _ = Plan.objects.get_or_create(
+            code='super',
+            defaults={
+                'display_name': 'Super', 'price_krw': 39900, 'can_use_team': True,
+            },
+        )
+        if not self.super_plan.can_use_team:
+            self.super_plan.can_use_team = True
+            self.super_plan.save(update_fields=['can_use_team'])
 
     def test_active_manager_subscription_true(self):
         from .credit import user_can_use_team
@@ -757,10 +785,28 @@ class UserCanUseTeamTests(TestCase):
         _subscribe(user, self.manager_plan)
         self.assertTrue(user_can_use_team(user))
 
-    def test_plus_subscription_false(self):
+    def test_active_plus_subscription_true(self):
         from .credit import user_can_use_team
         user, _ = _make_user('team-plus-sub@test.com')
         _subscribe(user, self.plus_plan)
+        self.assertTrue(user_can_use_team(user))
+
+    def test_active_super_subscription_true(self):
+        from .credit import user_can_use_team
+        user, _ = _make_user('team-super-sub@test.com')
+        _subscribe(user, self.super_plan)
+        self.assertTrue(user_can_use_team(user))
+
+    def test_free_subscription_false(self):
+        from .credit import user_can_use_team
+        user, _ = _make_user('team-free-sub@test.com')
+        _subscribe(user, self.free_plan)
+        self.assertFalse(user_can_use_team(user))
+
+    def test_inactive_capable_subscription_false(self):
+        from .credit import user_can_use_team
+        user, _ = _make_user('team-inactive-sub@test.com')
+        _subscribe(user, self.plus_plan, status='cancelled')
         self.assertFalse(user_can_use_team(user))
 
     def test_expired_manager_subscription_false(self):
@@ -776,6 +822,95 @@ class UserCanUseTeamTests(TestCase):
         user, _ = _make_user('team-nosub@test.com')
         Subscription.objects.filter(user=user).delete()
         self.assertFalse(user_can_use_team(user))
+
+
+class PlusTeamCapabilityMigrationTests(TestCase):
+    """0011은 Plus/Super capability만 1회 보정하고 결제 데이터는 전부 보존한다."""
+
+    @staticmethod
+    def _migration_module():
+        from importlib import import_module
+
+        try:
+            return import_module('inpa.billing.migrations.0011_plus_team_capability')
+        except ModuleNotFoundError:
+            return None
+
+    def setUp(self):
+        self.free = Plan.objects.create(
+            code='free', display_name='Free custom', price_krw=123,
+            description='free admin memo', limit_ocr=7, can_use_team=True,
+        )
+        self.plus = Plan.objects.create(
+            code='plus', display_name='Plus custom', price_krw=23456,
+            description='plus admin memo', limit_ocr=17, can_use_team=False,
+        )
+        self.manager = Plan.objects.create(
+            code='manager', display_name='Manager custom', price_krw=34567,
+            description='manager admin memo', limit_ocr=27, can_use_team=False,
+        )
+        self.super = Plan.objects.create(
+            code='super', display_name='Super custom', price_krw=45678,
+            description='super admin memo', limit_ocr=37, can_use_team=False,
+        )
+        self.user, _ = _make_user('team-capability-migration@test.com')
+        self.subscription = Subscription.objects.get(user=self.user)
+        expires_at = timezone.now() + timedelta(days=19)
+        Subscription.objects.filter(pk=self.subscription.pk).update(
+            plan=self.plus,
+            status='active',
+            started_at=timezone.now() - timedelta(days=11),
+            expires_at=expires_at,
+        )
+        self.coupon = Coupon.objects.create(
+            code='INPA-TEAM11', plan=self.plus, duration_days=19,
+            max_redemptions=3, redeemed_count=1, note='migration invariant',
+        )
+        CouponRedemption.objects.create(
+            coupon=self.coupon, user=self.user, granted_until=expires_at,
+        )
+        UsageMeter.objects.create(
+            user=self.user, action='ocr', year_month='2026-07', count=13,
+        )
+
+    def _snapshot(self):
+        return {
+            'plans': list(Plan.objects.order_by('code').values()),
+            'subscriptions': list(Subscription.objects.order_by('pk').values()),
+            'coupons': list(Coupon.objects.order_by('pk').values()),
+            'redemptions': list(CouponRedemption.objects.order_by('pk').values()),
+            'usage': list(UsageMeter.objects.order_by('pk').values()),
+        }
+
+    def test_forward_changes_only_plus_and_super_capability(self):
+        migration = self._migration_module()
+        self.assertIsNotNone(migration, 'billing migration 0011 is missing')
+        before = self._snapshot()
+
+        migration.enable_plus_and_super_team_capability(django_apps, None)
+
+        after = self._snapshot()
+        expected_plans = []
+        for row in before['plans']:
+            expected = dict(row)
+            if expected['code'] in {'plus', 'super'}:
+                expected['can_use_team'] = True
+            expected_plans.append(expected)
+        self.assertEqual(after['plans'], expected_plans)
+        for table in ('subscriptions', 'coupons', 'redemptions', 'usage'):
+            self.assertEqual(after[table], before[table], table)
+
+    def test_reverse_is_safe_noop(self):
+        migration = self._migration_module()
+        self.assertIsNotNone(migration, 'billing migration 0011 is missing')
+        self.plus.can_use_team = True
+        self.plus.save(update_fields=['can_use_team'])
+        before = self._snapshot()
+        operation = migration.Migration.operations[0]
+
+        operation.reverse_code(None, None)
+
+        self.assertEqual(self._snapshot(), before)
 
 
 class PlusPriceDataMigrationTests(TestCase):

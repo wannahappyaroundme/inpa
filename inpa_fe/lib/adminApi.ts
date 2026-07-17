@@ -17,6 +17,7 @@ import {
   type PromotionOrderDetail,
   type BlogCategory,
 } from "@/lib/api";
+import { normalizeAdminApiError } from "@/lib/admin-api-error";
 
 // ─── re-export frequently used admin functions from api.ts ──────────────────
 export {
@@ -61,14 +62,7 @@ async function req<T>(
   try { data = await res.json(); } catch { /* empty body */ }
 
   if (!res.ok) {
-    const code =
-      (data["error"] as string) ??
-      (data["code"] as string) ??
-      String(res.status);
-    const detail =
-      (data["detail"] as string) ??
-      (data["message"] as string) ??
-      res.statusText;
+    const { code, detail } = normalizeAdminApiError(data, res.status, res.statusText);
     throw new ApiError(res.status, code, detail);
   }
   return data as T;
@@ -86,8 +80,7 @@ async function reqVoid(method: string, path: string, body?: unknown): Promise<vo
   if (!res.ok) {
     let data: Record<string, unknown> = {};
     try { data = await res.json(); } catch { /* empty */ }
-    const code = (data["error"] as string) ?? String(res.status);
-    const detail = (data["detail"] as string) ?? res.statusText;
+    const { code, detail } = normalizeAdminApiError(data, res.status, res.statusText);
     throw new ApiError(res.status, code, detail);
   }
 }
@@ -816,7 +809,7 @@ async function reqBlogWrite(
   let data: Record<string, unknown> = {};
   try { data = await res.json(); } catch { /* empty */ }
   if (!res.ok) {
-    const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
+    const { code } = normalizeAdminApiError(data, res.status, res.statusText);
     throw new ApiError(res.status, code, extractBlogDetail(data, res.statusText));
   }
   return data as unknown as BlogAdminSaveResult;
@@ -872,8 +865,195 @@ export async function uploadBlogCover(id: number, file: File): Promise<BlogAdmin
   let data: Record<string, unknown> = {};
   try { data = await res.json(); } catch { /* empty */ }
   if (!res.ok) {
-    const code = (data["error"] as string) ?? (data["code"] as string) ?? String(res.status);
+    const { code } = normalizeAdminApiError(data, res.status, res.statusText);
     throw new ApiError(res.status, code, extractBlogDetail(data, res.statusText));
   }
   return data as unknown as BlogAdmin;
+}
+
+// ─── Recruiting operations (PII-masked, admin only) ─────────────────────────
+
+export type AdminRecruitingStage =
+  | "new"
+  | "contact"
+  | "conversation"
+  | "preparing"
+  | "team_join"
+  | "recontact"
+  | "ended";
+
+export type AdminRecruitingTemplateKind =
+  | "headline"
+  | "support"
+  | "faq"
+  | "share";
+
+export type AdminRecruitingPurgeReason =
+  | "user_request"
+  | "retention"
+  | "admin_correction";
+
+export type AdminRecruitingAuditEventType =
+  | "stage_changed"
+  | "contact_stopped"
+  | "leader_changed"
+  | "team_joined"
+  | "settlement_completed"
+  | "settlement_reopened"
+  | "candidate_purged";
+
+export interface AdminRecruitingSummary {
+  visits: number;
+  applications: number;
+  joins: number;
+  settlements_completed: number;
+  manager_promotions: number;
+  recruiting_enabled: boolean;
+  retention_days: number;
+  tombstone_days: number;
+}
+
+export interface AdminRecruitingCandidateRow {
+  id: number;
+  name_masked: string;
+  phone_masked: string;
+  stage: AdminRecruitingStage;
+  created_at: string;
+  retention_expires_at: string | null;
+  contact_opted_out: boolean;
+  support_reference: string;
+}
+
+export interface AdminRecruitingTemplate {
+  id: number;
+  code: string;
+  kind: AdminRecruitingTemplateKind;
+  title: string;
+  body: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export interface AdminRecruitingTemplateCreatePayload {
+  code: string;
+  kind: AdminRecruitingTemplateKind;
+  title: string;
+  body: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export interface AdminRecruitingTemplateUpdatePayload {
+  title?: string;
+  body?: string;
+  is_active?: boolean;
+  sort_order?: number;
+}
+
+export interface AdminRecruitingPromotion {
+  user_id: number;
+  display_name: string;
+  manager_promoted_at: string;
+  current_team_count: number;
+  is_manager: boolean;
+  effective_plan_code: string | null;
+  subscription_plan_code: string | null;
+}
+
+export interface AdminRecruitingAuditRow {
+  candidate_ref: string;
+  event_type: AdminRecruitingAuditEventType;
+  from_stage: AdminRecruitingStage | "";
+  to_stage: AdminRecruitingStage | "";
+  reason_code: AdminRecruitingPurgeReason | "";
+  actor_id: number | null;
+  created_at: string;
+}
+
+function adminRecruitingPageQuery(page: number, reference = ""): string {
+  const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1;
+  const query = new URLSearchParams({ page: String(safePage) });
+  if (reference.trim()) query.set("reference", reference.trim());
+  return query.toString();
+}
+
+/** GET /api/v1/admin/recruiting/summary/ */
+export async function adminGetRecruitingSummary(): Promise<AdminRecruitingSummary> {
+  return req<AdminRecruitingSummary>("GET", "/admin/recruiting/summary/");
+}
+
+/** GET /api/v1/admin/recruiting/candidates/?page= */
+export async function adminListRecruitingCandidates(
+  page = 1,
+  reference = "",
+): Promise<PaginatedResult<AdminRecruitingCandidateRow>> {
+  return req<PaginatedResult<AdminRecruitingCandidateRow>>(
+    "GET",
+    `/admin/recruiting/candidates/?${adminRecruitingPageQuery(page, reference)}`,
+  );
+}
+
+/** POST /api/v1/admin/recruiting/candidates/{id}/purge/ */
+export async function adminPurgeRecruitingCandidate(
+  candidateId: number,
+  reason: AdminRecruitingPurgeReason,
+): Promise<{ purged: true }> {
+  return req<{ purged: true }>(
+    "POST",
+    `/admin/recruiting/candidates/${encodeURIComponent(String(candidateId))}/purge/`,
+    { reason },
+  );
+}
+
+/** GET /api/v1/admin/recruiting/templates/ */
+export async function adminListRecruitingTemplates(): Promise<AdminRecruitingTemplate[]> {
+  return req<AdminRecruitingTemplate[]>("GET", "/admin/recruiting/templates/");
+}
+
+/** POST /api/v1/admin/recruiting/templates/ */
+export async function adminCreateRecruitingTemplate(
+  payload: AdminRecruitingTemplateCreatePayload,
+): Promise<AdminRecruitingTemplate> {
+  return req<AdminRecruitingTemplate>(
+    "POST",
+    "/admin/recruiting/templates/",
+    payload,
+  );
+}
+
+/** GET /api/v1/admin/recruiting/templates/{id}/ */
+export async function adminGetRecruitingTemplate(
+  templateId: number,
+): Promise<AdminRecruitingTemplate> {
+  return req<AdminRecruitingTemplate>(
+    "GET",
+    `/admin/recruiting/templates/${encodeURIComponent(String(templateId))}/`,
+  );
+}
+
+/** PATCH /api/v1/admin/recruiting/templates/{id}/ */
+export async function adminUpdateRecruitingTemplate(
+  templateId: number,
+  payload: AdminRecruitingTemplateUpdatePayload,
+): Promise<AdminRecruitingTemplate> {
+  return req<AdminRecruitingTemplate>(
+    "PATCH",
+    `/admin/recruiting/templates/${encodeURIComponent(String(templateId))}/`,
+    payload,
+  );
+}
+
+/** GET /api/v1/admin/recruiting/promotions/ */
+export async function adminListRecruitingPromotions(): Promise<AdminRecruitingPromotion[]> {
+  return req<AdminRecruitingPromotion[]>("GET", "/admin/recruiting/promotions/");
+}
+
+/** GET /api/v1/admin/recruiting/audit/?page= */
+export async function adminListRecruitingAudit(
+  page = 1,
+): Promise<PaginatedResult<AdminRecruitingAuditRow>> {
+  return req<PaginatedResult<AdminRecruitingAuditRow>>(
+    "GET",
+    `/admin/recruiting/audit/?${adminRecruitingPageQuery(page)}`,
+  );
 }

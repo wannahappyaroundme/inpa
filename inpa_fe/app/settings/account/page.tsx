@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
 import { AccountSecurity } from "@/components/account-security";
+import { ManagerSwitchConfirmModal } from "@/components/manager-switch-confirm-modal";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import { getProfile, updateProfile, uploadProfileImage, getGoogleCalendarConnectUrl, disconnectGoogleCalendar, logout, redeemCoupon, ApiError, type ProfileResponse } from "@/lib/api";
 
@@ -24,6 +25,7 @@ export default function AccountSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [couponCode, setCouponCode] = useState("");
+  const [pendingManagerSwitch, setPendingManagerSwitch] = useState<{ manager_email: string } | null>(null);
 
   useEffect(() => {
     if (!ready) return;
@@ -80,11 +82,47 @@ export default function AccountSettingsPage() {
       setManagerEmail(res.manager_email ?? "");
       setMsg(note);
       setTimeout(() => setMsg(null), 1800);
-    } catch {
-      setMsg("저장 실패");
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.code === "team_switch_confirmation_required" &&
+        typeof payload.manager_email === "string"
+      ) {
+        setPendingManagerSwitch({ manager_email: payload.manager_email });
+      } else {
+        setMsg(error instanceof ApiError ? error.message : "저장에 실패했어요. 다시 시도해 주세요.");
+      }
     } finally {
       setSaving(false);
     }
+  }
+
+  async function confirmManagerSwitch() {
+    if (!pendingManagerSwitch) return;
+    setSaving(true);
+    setMsg(null);
+    try {
+      const res = await updateProfile({
+        ...pendingManagerSwitch,
+        confirm_manager_switch: true,
+      });
+      setP(res);
+      setManagerEmail(res.manager_email ?? "");
+      setPendingManagerSwitch(null);
+      setMsg("관리직을 연결했어요");
+      setTimeout(() => setMsg(null), 1800);
+    } catch (error) {
+      setPendingManagerSwitch(null);
+      setMsg(error instanceof ApiError ? error.message : "저장에 실패했어요. 다시 시도해 주세요.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancelManagerSwitch() {
+    setPendingManagerSwitch(null);
+    setManagerEmail(p?.manager_email ?? "");
   }
 
   async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -396,6 +434,13 @@ export default function AccountSettingsPage() {
         </Card>
         </div>
       </main>
+      <ManagerSwitchConfirmModal
+        open={pendingManagerSwitch !== null}
+        email={pendingManagerSwitch?.manager_email ?? ""}
+        saving={saving}
+        onConfirm={confirmManagerSwitch}
+        onCancel={cancelManagerSwitch}
+      />
     </div>
   );
 }

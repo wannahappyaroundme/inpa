@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
+import { getNotificationAction } from "./notification-action";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listNotifications,
@@ -39,6 +40,10 @@ const NOTIF_META: Record<
   signup_verify_flatline:      { icon: "📊", colorClass: "text-ink3",                     label: "가입 인증 점검" },
   inquiry_answered:  { icon: "✉️",  colorClass: "text-brand",                             label: "문의 답변" },
   inquiry_received:  { icon: "📮", colorClass: "text-ink3",                               label: "새 문의" },
+  recruiting_application: { icon: "🙋", colorClass: "text-brand",                         label: "새 지원" },
+  recruiting_followup:    { icon: "☎️", colorClass: "text-brand",                         label: "다음 연락" },
+  recruiting_settlement:  { icon: "🌱", colorClass: "text-success",                       label: "정착 확인" },
+  manager_promoted:       { icon: "👥", colorClass: "text-brand",                         label: "관리자 기능" },
 };
 
 // 미정의 타입 폴백 — '상담 약속'처럼 오해되지 않게 중립 라벨.
@@ -107,16 +112,7 @@ function NotifCard({
     if (!item.is_read) onRead(item.id);
   };
 
-  // 고객 링크 결정
-  const customerHref = item.customer ? `/customers/${item.customer}` : null;
-  // share_unread는 고객 공유탭으로
-  const actionHref =
-    item.notif_type === "share_unread" && item.customer
-      ? `/customers/${item.customer}?tab=share`
-      : customerHref;
-
-  const actionLabel =
-    item.notif_type === "share_unread" ? "재발송 준비 →" : "고객 보기 →";
+  const action = getNotificationAction(item.notif_type, item.customer);
 
   return (
     <Card
@@ -175,16 +171,16 @@ function NotifCard({
 
             {/* 액션 */}
             <div className="mt-2 flex items-center gap-3">
-              {actionHref && (
+              {action && (
                 <Link
-                  href={actionHref}
+                  href={action.href}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (!item.is_read) onRead(item.id);
                   }}
                   className="text-[13px] font-semibold text-brand hover:underline"
                 >
-                  {actionLabel}
+                  {action.label}
                 </Link>
               )}
               {/* 캘린더 이동 */}

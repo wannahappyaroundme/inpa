@@ -62,6 +62,9 @@ jobs:
       - name: Copy guard (정직성 카피)
         run: npm run lint:copy
 
+      - name: Frontend unit tests
+        run: npm run test:unit
+
       - name: Build
         run: npm run build
         env:
