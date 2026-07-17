@@ -6,38 +6,137 @@ calculate_analysis(차트별 한눈표/히트맵 입력) · calculate_total_anal
 
 집계 단위 차이(foliio 무변경):
   - calculate_analysis     : case.detail.chart_detail 자연 매핑 (한 포트폴리오 차트 뷰)
-  - calculate_total_analysis: case.detail.analysis_detail 매핑 (표준 담보 트리 집계 = 히트맵)
+  - calculate_total_analysis: case.effective_analysis_details() 매핑
+    (전역 사전 또는 고객별 override, 표준 담보 트리 집계 = 히트맵)
 """
 import datetime
 
 from dateutil.relativedelta import relativedelta
 
+from inpa.insurances.date_utils import parse_insurance_date
 from inpa.insurances.serializers import CustomerInsuranceSerializer
 
 
-def _safe_strptime(date_str, fmt='%Y.%m.%d'):
+def _safe_strptime(date_str, fmt=None):
     """안전한 날짜 파싱. 실패 시 None 반환."""
     if not date_str:
         return None
+    if fmt in (None, '%Y.%m.%d'):
+        parsed = parse_insurance_date(date_str)
+        return (
+            datetime.datetime.combine(parsed, datetime.time.min)
+            if parsed is not None else None)
     try:
         return datetime.datetime.strptime(date_str, fmt)
     except (ValueError, TypeError):
         return None
 
 
+def _case_is_renewal(case):
+    return case.is_renewal_case
+
+
+def _case_is_nonrenewal(case):
+    return (
+        case.payment_period_type in (1, 2, 4)
+        and not _case_is_renewal(case)
+    )
+
+
+_ABSOLUTE_TOTAL_FIELDS = (
+    'total_premiums',
+    'total_renewal_premium',
+    'total_non_renewal_premium',
+    'total_earned_premium',
+)
+
+_MONTHLY_TOTAL_FIELDS = (
+    'monthly_premiums',
+    'monthly_renewal_premium',
+    'monthly_non_renewal_premium',
+)
+
+
+def _new_total_state():
+    return {'value': 0, 'observed': False, 'unknown': False}
+
+
+def _observe_total(state, value):
+    state['observed'] = True
+    if value is None:
+        state['unknown'] = True
+    else:
+        state['value'] += value
+
+
+def _total_state_value(state):
+    if state['unknown']:
+        return None
+    return state['value'] if state['observed'] else 0
+
+
+def _aggregate_absolute_totals(insurance_list):
+    states = {
+        field: _new_total_state() for field in _ABSOLUTE_TOTAL_FIELDS
+    }
+    for insurance in insurance_list:
+        has_mixed_case_premiums = insurance.has_mixed_case_premiums()
+        for field, state in states.items():
+            value = getattr(insurance, field)
+            if (has_mixed_case_premiums
+                    and field in insurance.COVERAGE_PREMIUM_COMPOSITION_FIELDS):
+                value = None
+            _observe_total(state, value)
+    return {
+        field: _total_state_value(state)
+        for field, state in states.items()
+    }
+
+
+def _aggregate_monthly_totals(insurance_list):
+    states = {
+        field: _new_total_state() for field in _MONTHLY_TOTAL_FIELDS
+    }
+    earned_state = _new_total_state()
+    for insurance in insurance_list:
+        has_mixed_case_premiums = insurance.has_mixed_case_premiums()
+        for field, state in states.items():
+            value = getattr(insurance, field)
+            if (has_mixed_case_premiums
+                    and field in insurance.COVERAGE_PREMIUM_COMPOSITION_FIELDS):
+                value = None
+            _observe_total(state, value)
+        if (insurance.insurance_type == 2
+                or (insurance.insurance_type == 1
+                    and insurance.payment_period_type == 1)):
+            _observe_total(
+                earned_state, insurance.monthly_earned_premium)
+    return {
+        **{
+            field: _total_state_value(state)
+            for field, state in states.items()
+        },
+        'monthly_earned_premium': _total_state_value(earned_state),
+    }
+
+
 def calculate_analysis(birth_day, case_list, chart_list, insurance_list):
-    monthly_premiums = 0  # 월 납입 보험료
-    monthly_renewal_premium = 0  # 월 갱신 보험료
-    monthly_non_renewal_premium = 0  # 월 비갱신 보험료
-    monthly_earned_premium = 0  # 월 적립 보험료
-    total_premiums = 0  # 총 보험료
-    total_renewal_premium = 0  # 총 갱신 보험료
-    total_non_renewal_premium = 0  # 총 비갱신 보험료
-    total_earned_premium = 0  # 총 적립 보험료
+    monthly_totals = _aggregate_monthly_totals(insurance_list)
+    monthly_premiums = monthly_totals['monthly_premiums']
+    monthly_renewal_premium = monthly_totals['monthly_renewal_premium']
+    monthly_non_renewal_premium = monthly_totals[
+        'monthly_non_renewal_premium']
+    monthly_earned_premium = monthly_totals['monthly_earned_premium']
+    absolute_totals = _aggregate_absolute_totals(insurance_list)
+    total_premiums = absolute_totals['total_premiums']
+    total_renewal_premium = absolute_totals['total_renewal_premium']
+    total_non_renewal_premium = absolute_totals[
+        'total_non_renewal_premium']
+    total_earned_premium = absolute_totals['total_earned_premium']
     total_cancellation_refund = 0  # 총 환급금
     total_cancellation_loss = 0  # 총 손실금
     total_prepaid_insurance_premium = 0
-    total_pay_insurance_premium = 0
+    total_pay_state = _new_total_state()
 
     case_list_index = {}
     chart_list_index = {}
@@ -61,31 +160,6 @@ def calculate_analysis(birth_day, case_list, chart_list, insurance_list):
         chart_id_list.append(case.get('id'))
 
     for insurance_index, customer_insurance in enumerate(insurance_list):
-        if customer_insurance.monthly_premiums is not None:
-            monthly_premiums += customer_insurance.monthly_premiums
-        if customer_insurance.monthly_renewal_premium is not None:
-            monthly_renewal_premium += customer_insurance.monthly_renewal_premium
-        if customer_insurance.monthly_non_renewal_premium is not None:
-            monthly_non_renewal_premium += customer_insurance.monthly_non_renewal_premium
-
-        if customer_insurance.monthly_earned_premium is not None:
-            if customer_insurance.insurance_type == 1 and customer_insurance.payment_period_type == 1:
-                monthly_earned_premium += customer_insurance.monthly_earned_premium
-            elif customer_insurance.insurance_type == 2:
-                monthly_earned_premium += customer_insurance.monthly_earned_premium
-
-        if customer_insurance.total_premiums is not None:
-            total_premiums += customer_insurance.total_premiums
-
-        if customer_insurance.total_renewal_premium is not None:
-            total_renewal_premium += customer_insurance.total_renewal_premium
-
-        if customer_insurance.total_non_renewal_premium is not None:
-            total_non_renewal_premium += customer_insurance.total_non_renewal_premium
-
-        if customer_insurance.total_earned_premium is not None:
-            total_earned_premium += customer_insurance.total_earned_premium
-
         # 기납회차 : 계약일, 확인일 Month
         # prepaid_months = 0
         # 기납보험료 : 기납 회차 * 월 보험료
@@ -130,10 +204,19 @@ def calculate_analysis(birth_day, case_list, chart_list, insurance_list):
         _monthly_premiums = customer_insurance.monthly_premiums or 0
         prepaid_insurance_premium = prepaid_months * _monthly_premiums  # 낸 돈
         # 남은회차 아직 필요없음
-        pay_insurance_premium = total_premiums - prepaid_insurance_premium  # 낼 돈
+        insurance_total_premiums = (
+            None
+            if customer_insurance.has_mixed_case_premiums()
+            else customer_insurance.total_premiums
+        )
+        if insurance_total_premiums is None:
+            _observe_total(total_pay_state, None)
+        else:
+            _observe_total(
+                total_pay_state,
+                insurance_total_premiums - prepaid_insurance_premium)
 
         total_prepaid_insurance_premium = total_prepaid_insurance_premium + prepaid_insurance_premium
-        total_pay_insurance_premium = total_pay_insurance_premium + pay_insurance_premium
 
         # 환급금
         cancellation_refund = 0
@@ -149,9 +232,9 @@ def calculate_analysis(birth_day, case_list, chart_list, insurance_list):
         for case in customer_insurance_case_list:
             index = case_list_index[case.detail.id]
 
-            if case.payment_period_type == 1 or case.payment_period_type == 2:
+            if _case_is_nonrenewal(case):
                 case_list[index]['total_non_renewal_premium'] += case.assurance_amount
-            if case.payment_period_type == 3:
+            if _case_is_renewal(case):
                 case_list[index]['total_renewal_premium'] += case.assurance_amount
 
             case_list[index]['total_premium'] = case_list[index]['total_renewal_premium'] + case_list[index][
@@ -200,12 +283,14 @@ def calculate_analysis(birth_day, case_list, chart_list, insurance_list):
 
                 # 가입 < end and start < 만기 (15 < 10 and 0 < 45)
                 if start_old < old_length_end and old_length_start < end_old:
-                    if case.payment_period_type == 1 or case.payment_period_type == 2:
+                    if _case_is_nonrenewal(case):
                         case_list[index]['non_renewal_old_list'][old_index] += case.assurance_amount
-                    if case.payment_period_type == 3:
+                    if _case_is_renewal(case):
                         case_list[index]['renewal_old_list'][old_index] += case.assurance_amount
 
-            chart_detail_id_list = list(case.detail.chart_detail.values_list('id', flat=True))
+            chart_detail_id_list = [
+                detail.id for detail in case.detail.chart_detail.all()
+            ]
             # 일반사망 / 재해사망 override 는 생명보험(insurance_type=1) 에서만 의미 있음.
             # 손해보험(type=2) 의 chart_id=1 은 "상해사망" 버킷이므로, 같은 override 를 적용하면
             # 일반사망 case 의 assurance 가 상해사망 차트에 잘못 합산됨 (2026-05-11 보험71 사례).
@@ -222,15 +307,16 @@ def calculate_analysis(birth_day, case_list, chart_list, insurance_list):
 
                 index = chart_list_index[chart_id]
 
-                if case.payment_period_type == 1 or case.payment_period_type == 2:
+                if _case_is_nonrenewal(case):
                     chart_list[index]['total_non_renewal_premium'] += case.assurance_amount
                     # total_non_renewal_premium = case.assurance_amount
-                if case.payment_period_type == 3:
+                if _case_is_renewal(case):
                     chart_list[index]['total_renewal_premium'] += case.assurance_amount
 
                 chart_list[index]['total_premium'] = chart_list[index]['total_renewal_premium'] + chart_list[index][
                     'total_non_renewal_premium']
 
+    total_pay_insurance_premium = _total_state_value(total_pay_state)
     result = {
         'insurance_list': CustomerInsuranceSerializer(insurance_list, many=True).data,  # 기본정보
         'monthly_premiums': monthly_premiums,
@@ -253,18 +339,22 @@ def calculate_analysis(birth_day, case_list, chart_list, insurance_list):
 
 
 def calculate_total_analysis(birth_day, case_list, chart_list, insurance_list):
-    monthly_premiums = 0  # 월 납입 보험료
-    monthly_renewal_premium = 0  # 월 갱신 보험료
-    monthly_non_renewal_premium = 0  # 월 비갱신 보험료
-    monthly_earned_premium = 0  # 월 적립 보험료
-    total_premiums = 0  # 총 보험료
-    total_renewal_premium = 0  # 총 갱신 보험료
-    total_non_renewal_premium = 0  # 총 비갱신 보험료
-    total_earned_premium = 0  # 총 적립 보험료
+    monthly_totals = _aggregate_monthly_totals(insurance_list)
+    monthly_premiums = monthly_totals['monthly_premiums']
+    monthly_renewal_premium = monthly_totals['monthly_renewal_premium']
+    monthly_non_renewal_premium = monthly_totals[
+        'monthly_non_renewal_premium']
+    monthly_earned_premium = monthly_totals['monthly_earned_premium']
+    absolute_totals = _aggregate_absolute_totals(insurance_list)
+    total_premiums = absolute_totals['total_premiums']
+    total_renewal_premium = absolute_totals['total_renewal_premium']
+    total_non_renewal_premium = absolute_totals[
+        'total_non_renewal_premium']
+    total_earned_premium = absolute_totals['total_earned_premium']
     total_cancellation_refund = 0  # 총 환급금
     total_cancellation_loss = 0  # 총 손실금
     total_prepaid_insurance_premium = 0
-    total_pay_insurance_premium = 0
+    total_pay_state = _new_total_state()
 
     case_list_index = {}
     case_id_list = []
@@ -290,31 +380,6 @@ def calculate_total_analysis(birth_day, case_list, chart_list, insurance_list):
         chart_id_list.append(case.get('id'))
 
     for insurance_index, customer_insurance in enumerate(insurance_list):
-        if customer_insurance.monthly_premiums is not None:
-            monthly_premiums += customer_insurance.monthly_premiums
-        if customer_insurance.monthly_renewal_premium is not None:
-            monthly_renewal_premium += customer_insurance.monthly_renewal_premium
-        if customer_insurance.monthly_non_renewal_premium is not None:
-            monthly_non_renewal_premium += customer_insurance.monthly_non_renewal_premium
-
-        if customer_insurance.monthly_earned_premium is not None:
-            if customer_insurance.insurance_type == 1 and customer_insurance.payment_period_type == 1:
-                monthly_earned_premium += customer_insurance.monthly_earned_premium
-            elif customer_insurance.insurance_type == 2:
-                monthly_earned_premium += customer_insurance.monthly_earned_premium
-
-        if customer_insurance.total_premiums is not None:
-            total_premiums += customer_insurance.total_premiums
-
-        if customer_insurance.total_renewal_premium is not None:
-            total_renewal_premium += customer_insurance.total_renewal_premium
-
-        if customer_insurance.total_non_renewal_premium is not None:
-            total_non_renewal_premium += customer_insurance.total_non_renewal_premium
-
-        if customer_insurance.total_earned_premium is not None:
-            total_earned_premium += customer_insurance.total_earned_premium
-
         now_date = datetime.datetime.now()
         prepaid_months = 0
         # 기납회차 : 계약일, 확인일 Month
@@ -346,11 +411,19 @@ def calculate_total_analysis(birth_day, case_list, chart_list, insurance_list):
         _monthly_premiums = customer_insurance.monthly_premiums or 0
         prepaid_insurance_premium = prepaid_months * _monthly_premiums  # 낸 돈
         # 남은회차 아직 필요없음
-        _total_premiums = customer_insurance.total_premiums or 0
-        pay_insurance_premium = _total_premiums - prepaid_insurance_premium  # 낼 돈
+        insurance_total_premiums = (
+            None
+            if customer_insurance.has_mixed_case_premiums()
+            else customer_insurance.total_premiums
+        )
+        if insurance_total_premiums is None:
+            _observe_total(total_pay_state, None)
+        else:
+            _observe_total(
+                total_pay_state,
+                insurance_total_premiums - prepaid_insurance_premium)
 
         total_prepaid_insurance_premium = total_prepaid_insurance_premium + prepaid_insurance_premium
-        total_pay_insurance_premium = total_pay_insurance_premium + pay_insurance_premium
         # 환급금
         cancellation_refund = 0
         if customer_insurance.cancellation_refund:
@@ -364,16 +437,18 @@ def calculate_total_analysis(birth_day, case_list, chart_list, insurance_list):
         customer_insurance_case_list = customer_insurance.case_list.all()
 
         for case in customer_insurance_case_list:
-            analysis_detail_id_list = list(case.detail.analysis_detail.values_list('id', flat=True))
+            analysis_detail_id_list = [
+                detail.id for detail in case.effective_analysis_details()
+            ]
             for analysis_id in analysis_detail_id_list:
                 if analysis_id not in case_id_list:
                     continue
 
                 index = case_list_index[analysis_id]
 
-                if case.payment_period_type == 1 or case.payment_period_type == 2:
+                if _case_is_nonrenewal(case):
                     case_list[index]['total_non_renewal_premium'] += case.assurance_amount
-                if case.payment_period_type == 3:
+                if _case_is_renewal(case):
                     case_list[index]['total_renewal_premium'] += case.assurance_amount
 
                 case_list[index]['total_premium'] = case_list[index]['total_renewal_premium'] + case_list[index][
@@ -402,9 +477,13 @@ def calculate_total_analysis(birth_day, case_list, chart_list, insurance_list):
                 if _warranty_period_type == 3:  # 날짜
                     _warranty_period_str = str(_warranty_period)
                     if len(_warranty_period_str) == 8:
-                        warranty_period_date = datetime.datetime.strptime(_warranty_period_str, '%Y%m%d')
+                        warranty_period_date = _safe_strptime(
+                            _warranty_period_str, '%Y%m%d')
                     else:
-                        warranty_period_date = datetime.datetime.strptime(_warranty_period_str, '%Y.%m.%d')
+                        warranty_period_date = _safe_strptime(
+                            _warranty_period_str, '%Y.%m.%d')
+                    if not warranty_period_date:
+                        warranty_period_date = now_date
 
                     if birth_day_date:
                         end_old = warranty_period_date.year - birth_day_date.year
@@ -420,27 +499,30 @@ def calculate_total_analysis(birth_day, case_list, chart_list, insurance_list):
 
                     # 가입 < end and start < 만기 (15 < 10 and 0 < 45)
                     if start_old < old_length_end and old_length_start < end_old:
-                        if case.payment_period_type == 1 or case.payment_period_type == 2:
+                        if _case_is_nonrenewal(case):
                             case_list[index]['non_renewal_old_list'][old_index] += case.assurance_amount
-                        if case.payment_period_type == 3:
+                        if _case_is_renewal(case):
                             case_list[index]['renewal_old_list'][old_index] += case.assurance_amount
 
-            chart_detail_id_list = list(case.detail.chart_detail.values_list('id', flat=True))
+            chart_detail_id_list = [
+                detail.id for detail in case.detail.chart_detail.all()
+            ]
             for chart_id in chart_detail_id_list:
                 if chart_id not in chart_id_list:
                     continue
 
                 index = chart_list_index[chart_id]
 
-                if case.payment_period_type == 1 or case.payment_period_type == 2:
+                if _case_is_nonrenewal(case):
                     chart_list[index]['total_non_renewal_premium'] += case.assurance_amount
                     # total_non_renewal_premium = case.assurance_amount
-                if case.payment_period_type == 3:
+                if _case_is_renewal(case):
                     chart_list[index]['total_renewal_premium'] += case.assurance_amount
 
                 chart_list[index]['total_premium'] = chart_list[index]['total_renewal_premium'] + chart_list[index][
                     'total_non_renewal_premium']
 
+    total_pay_insurance_premium = _total_state_value(total_pay_state)
     result = {
         'insurance_list': CustomerInsuranceSerializer(insurance_list, many=True).data,  # 기본정보
         'monthly_premiums': monthly_premiums,

@@ -54,6 +54,17 @@ services:
         sync: false                  # https://<vercel-fe-도메인>
       - key: ANTHROPIC_API_KEY
         sync: false                  # Claude 키(비우면 OCR/AI만 비활성)
+      - key: CLAUDE_MODEL_PARSE
+        sync: false                  # 모델 ID는 코드에 두지 않고 운영에서 주입
+      - key: CLAUDE_MODEL_BULK
+        sync: false                  # 대량 처리 모델 ID도 운영에서 주입
+      - key: INSURANCE_REVIEW_GATE_ENABLED
+        value: "False"               # 스테이징 평가와 PM 승인 전까지 검토형 경로 닫힘
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: inpa-insurance-queue
+          property: connectionString
       - key: FRONTEND_BASE_URL
         sync: false                  # https://<vercel-fe-도메인> (이메일 링크용)
       # ── 일일 배치(리마인더 알림) — GitHub Actions cron(daily-jobs.yml)이 08:00 KST 에
@@ -81,3 +92,142 @@ services:
       # ALLOWED_HOSTS·CSRF 는 Render 가 RENDER_EXTERNAL_HOSTNAME 주입 → prod.py 가 자동 포함.
       # 커스텀 도메인 붙이면 ALLOWED_HOSTS·CSRF_TRUSTED_ORIGINS 를 여기에 추가.
       # 이메일(Resend) 쓸 때: EMAIL_BACKEND/EMAIL_HOST/EMAIL_PORT/EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/EMAIL_USE_SSL/DEFAULT_FROM_EMAIL 추가.
+
+  # 보험증권 가져오기 전용 큐. Blueprint를 동기화하기 전 비용·운영 승인이 필요하다.
+  - type: keyvalue
+    name: inpa-insurance-queue
+    plan: starter
+    region: oregon
+    maxmemoryPolicy: noeviction
+    persistenceMode: journal-snapshot
+    ipAllowList: []
+
+  - type: worker
+    name: inpa-insurance-worker
+    runtime: python
+    # 동시 4건의 PDF 격리 프로세스를 감당하도록 2GB/1CPU를 사용한다.
+    plan: standard
+    region: oregon
+    rootDir: inpa_be
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A config worker -l INFO -Q insurance_imports --concurrency 4
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: INSURANCE_REVIEW_GATE_ENABLED
+        value: "False"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: inpa-insurance-queue
+          property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: SECRET_KEY
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: DATABASE_URL
+      - key: ANTHROPIC_API_KEY
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: ANTHROPIC_API_KEY
+      - key: CLAUDE_MODEL_PARSE
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CLAUDE_MODEL_PARSE
+      - key: CLAUDE_MODEL_BULK
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CLAUDE_MODEL_BULK
+      - key: AWS_STORAGE_BUCKET_NAME
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: AWS_STORAGE_BUCKET_NAME
+      - key: AWS_S3_REGION_NAME
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: AWS_S3_REGION_NAME
+      - key: AWS_ACCESS_KEY_ID
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: AWS_ACCESS_KEY_ID
+      - key: AWS_SECRET_ACCESS_KEY
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: AWS_SECRET_ACCESS_KEY
+      - key: AWS_S3_ENDPOINT_URL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: AWS_S3_ENDPOINT_URL
+
+  - type: cron
+    name: inpa-insurance-source-cleanup
+    runtime: python
+    plan: starter
+    region: oregon
+    rootDir: inpa_be
+    schedule: "0 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python manage.py cleanup_insurance_imports
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: INSURANCE_REVIEW_GATE_ENABLED
+        value: "False"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: inpa-insurance-queue
+          property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: SECRET_KEY
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: DATABASE_URL
+      - key: AWS_STORAGE_BUCKET_NAME
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: AWS_STORAGE_BUCKET_NAME
+      - key: AWS_S3_REGION_NAME
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: AWS_S3_REGION_NAME
+      - key: AWS_ACCESS_KEY_ID
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: AWS_ACCESS_KEY_ID
+      - key: AWS_SECRET_ACCESS_KEY
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: AWS_SECRET_ACCESS_KEY
+      - key: AWS_S3_ENDPOINT_URL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: AWS_S3_ENDPOINT_URL

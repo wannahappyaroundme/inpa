@@ -10,7 +10,7 @@
 //  - 신호등 색: 넉넉=초록 / 적정=노랑 / 부족=빨강 (PM 06.29).
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Flag } from "lucide-react";
 import type { HeatmapResponse, HeatmapDetail, HeatmapStatus } from "@/lib/api";
@@ -95,9 +95,22 @@ export function HeatCell({
   graded: boolean;
   onFlag?: (detail: HeatmapDetail) => void;
 }) {
+  const [contributionsOpen, setContributionsOpen] = useState(false);
   const cls = cellClasses(detail.status, mode);
   const label = statusLabel(detail.status, mode);
   const aria = statusAriaLabel(detail.name, detail.status, mode);
+  const contributionGroups = useMemo(() => {
+    const groups = new Map<number, { name: string; rows: HeatmapDetail["contributions"] }>();
+    for (const contribution of detail.contributions) {
+      const group = groups.get(contribution.insurance_id) ?? {
+        name: contribution.insurance_name || "보험 이름 확인",
+        rows: [],
+      };
+      group.rows.push(contribution);
+      groups.set(contribution.insurance_id, group);
+    }
+    return Array.from(groups.entries());
+  }, [detail.contributions]);
 
   return (
     <div
@@ -110,8 +123,48 @@ export function HeatCell({
       <div className="font-semibold leading-4">{detail.name}</div>
       {graded && (
         <div className="mt-1 flex items-center gap-1.5 text-[11px]">
-          <span className="tnum opacity-80">{fmtAmount(detail.held_amount)}</span>
+          {detail.contributions.length > 0 ? (
+            <button
+              type="button"
+              aria-expanded={contributionsOpen}
+              aria-label={`${detail.name} 합산 근거 보기`}
+              onClick={() => setContributionsOpen((value) => !value)}
+              className="tnum underline decoration-dotted underline-offset-2 opacity-80 hover:opacity-100"
+            >
+              {fmtAmount(detail.held_amount)}
+            </button>
+          ) : (
+            <span className="tnum opacity-80">{fmtAmount(detail.held_amount)}</span>
+          )}
           {label && <span className="opacity-70">· {label}</span>}
+        </div>
+      )}
+      {contributionsOpen && contributionGroups.length > 0 && (
+        <div
+          role="region"
+          aria-label={`${detail.name} 합산 근거`}
+          className="relative z-10 mt-2 min-w-[min(18rem,calc(100vw-3rem))] space-y-2 rounded-lg border border-line bg-surface p-2.5 text-[11px] font-normal text-ink2 shadow-card"
+        >
+          <p className="font-semibold text-ink">합산 금액 {fmtAmount(detail.held_amount)}</p>
+          {contributionGroups.map(([insuranceId, group]) => (
+            <div key={insuranceId} className="border-t border-line pt-2 first:border-t-0 first:pt-0">
+              <p className="font-semibold text-ink">{group.name}</p>
+              <ul className="mt-1 space-y-1">
+                {group.rows.map((row) => (
+                  <li key={row.case_id} className="leading-4">
+                    <span className="font-medium">{row.raw_name}</span>
+                    <span className="text-ink3">
+                      {` · ${fmtAmount(row.assurance_amount)}`}
+                      {row.source_page === null ? " · 페이지 정보 없음" : ` · ${row.source_page}쪽`}
+                      {row.mapping_source === "manual" && " · 직접 입력"}
+                      {row.mapping_source === "planner_override" && " · 직접 바꾼 위치"}
+                      {row.mapping_source === "global" && " · 공통 담보 위치"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       )}
       {onFlag && (
@@ -174,6 +227,73 @@ export function KpiCard({
       <div className="text-[12px] text-ink3">{label}</div>
       <div className={`mt-1 text-[18px] font-extrabold tnum ${valueClass}`}>
         {value}
+      </div>
+    </div>
+  );
+}
+
+function formatConfirmedAt(value: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).format(date);
+}
+
+export function AnalysisAuthoritySummary({ heatmap }: { heatmap: HeatmapResponse }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="보험 분석 상태">
+      <KpiCard label="분석 포함" value={`${heatmap.included_insurance_count}건`} />
+      <KpiCard label="분석 미포함" value={`${heatmap.excluded_insurance_count}건`} />
+      <KpiCard label="마지막 확인" value={formatConfirmedAt(heatmap.last_confirmed_at)} />
+      <KpiCard label="확인 대기" value={`${heatmap.pending_review_count}건`} />
+    </div>
+  );
+}
+
+export function AnalysisEmptyState({
+  heatmap,
+  onReview,
+  onManual,
+  uploadAction,
+  reviewDisabled = false,
+}: {
+  heatmap: HeatmapResponse;
+  onReview: () => void;
+  onManual: () => void;
+  uploadAction?: ReactNode;
+  reviewDisabled?: boolean;
+}) {
+  if (heatmap.included_insurance_count > 0) return null;
+  if (heatmap.pending_review_count > 0) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-8 text-center">
+        <p className="text-[15px] font-semibold text-amber-900">확인할 보험이 있어요</p>
+        <p className="mt-1 text-[13px] text-amber-800">보험 기본정보와 담보를 확인하면 분석에 반영돼요.</p>
+        <button type="button" disabled={reviewDisabled} onClick={onReview} className="mt-3 rounded-xl bg-brand px-4 py-2 text-[13px] font-bold text-white disabled:opacity-50">보험 내용 확인하기</button>
+      </div>
+    );
+  }
+  if (heatmap.excluded_insurance_count > 0) {
+    return (
+      <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
+        <p className="text-[15px] font-semibold text-ink2">분석에 포함된 보험이 없어요</p>
+        <p className="mt-1 text-[13px] text-ink3">위의 보험 기록을 확인하거나 분석할 보험을 새로 등록해 주세요.</p>
+        <button type="button" onClick={onManual} className="mt-3 rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2">보험 직접 입력</button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-dashed border-line px-4 py-10 text-center">
+      <p className="text-[15px] font-semibold text-ink2">첫 보험을 등록해 주세요</p>
+      <p className="mt-1 text-[13px] text-ink3">보험을 등록하면 보장 한눈표가 보여요.</p>
+      <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-2">
+        {uploadAction}
+        <button type="button" onClick={onManual} className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2">보험 직접 입력</button>
       </div>
     </div>
   );

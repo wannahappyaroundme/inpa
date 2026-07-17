@@ -11,7 +11,10 @@
 """
 import uuid
 
-from django.test import TestCase
+from django.conf import settings
+from django.db import connection
+from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -252,6 +255,42 @@ class SharePayloadProposalExclusionTests(TestCase):
         self.assertEqual(held, 50000000)  # 보유만(제안 3억 제외)
 
 
+@override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+class ShareAnalysisEligibilityTests(TestCase):
+    """공개 공유 자료도 분석과 동일한 확정 보험 필터를 사용한다."""
+
+    def setUp(self):
+        self.user, _ = _make_planner('share-ready@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='공유검토고객', birth_day='1985.05.05')
+        standard = _build_std_tree()
+        catalog = _catalog_detail_linked_to(standard)
+        ready = _make_portfolio(self.customer, catalog, 50000000)
+        ready.review_status = 'confirmed'
+        ready.analysis_included = True
+        ready.confirmed_at = timezone.now()
+        ready.save(update_fields=(
+            'review_status', 'analysis_included', 'confirmed_at'))
+        _make_portfolio(self.customer, catalog, 300000000)
+        self.public = APIClient()
+
+    def test_share_payload_contains_only_analysis_ready_insurance(self):
+        from inpa.analytics.views import _build_share_payload
+        body = _build_share_payload(self.customer)
+        held = body['tree'][0]['sub_categories'][0]['details'][0]['held_amount']
+        self.assertEqual(held, 50000000)
+
+    def test_share_creation_rejects_when_any_held_insurance_is_unconfirmed(self):
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        response = client.post(
+            f'/api/v1/customers/{self.customer.id}/share/')
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['code'], 'INSURANCE_REVIEW_REQUIRED')
+        self.assertFalse(ShareSnapshot.objects.filter(
+            customer=self.customer).exists())
+
+
 class ShareViewGateTests(TestCase):
     """4) 만료/회수/없는 토큰 → 404 (데이터 0)."""
 
@@ -351,7 +390,7 @@ class ShareFullFlowTests(TestCase):
         viewer = APIClient()
         r2 = viewer.get(f'/api/v1/s/{token}/')
         self.assertEqual(r2.status_code, 200)
-        self.assertEqual(r2.json()['mode'], 'neutral')
+        self.assertEqual(r2.json()['snapshot']['mode'], 'neutral')
 
         # 3) 공유뷰에서 복사 → clipboard_copy 적재
         r3 = viewer.post(f'/api/v1/s/{token}/event/',
@@ -497,6 +536,7 @@ class ShareContactLayerTests(TestCase):
         body = r.json()
         self.assertIn('planner_contact', body)
         self.assertIsNone(body['planner_contact'])
+        self.assertEqual(r['Cache-Control'], 'private, no-store')
 
     def test_payload_planner_contact_present_when_phone_exists(self):
         """전화번호 필드가 생기면 페이로드에 그대로 실린다(배선 검증)."""
@@ -520,6 +560,13 @@ class ShareContactLayerTests(TestCase):
         r = self.public.post(self._event_url(),
                              {'event_type': 'callback_request'}, format='json')
         self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json(), {
+            'status': 'logged',
+            'event_type': 'callback_request',
+            'recorded': True,
+            'notification': 'created',
+        })
+        self.assertEqual(r['Cache-Control'], 'private, no-store')
         self.assertEqual(NorthStarEvent.objects.filter(
             event_type=NorthStarEvent.CALLBACK_REQUEST,
             share_token=self.customer.share_token).count(), 1)
@@ -539,6 +586,58 @@ class ShareContactLayerTests(TestCase):
         self.assertEqual(NorthStarEvent.objects.filter(
             event_type=NorthStarEvent.CALLBACK_REQUEST).count(), 2)
         self.assertEqual(Notification.objects.filter(owner=self.user).count(), 1)
+        self.assertEqual(r2.json()['notification'], 'already_notified')
+
+    def test_callback_notification_failure_is_retryable_and_not_logged(self):
+        with mock.patch(
+                'inpa.notifications.models.Notification.objects.create',
+                side_effect=RuntimeError('notification unavailable')):
+            response = self.public.post(
+                self._event_url(), {'event_type': 'callback_request'},
+                format='json')
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()['code'],
+                         'CALLBACK_NOTIFICATION_FAILED')
+        self.assertFalse(response.json()['recorded'])
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CALLBACK_REQUEST).count(), 0)
+
+    def test_callback_unexpected_integrity_error_is_not_misreported_as_duplicate(self):
+        from django.db import IntegrityError
+
+        with mock.patch(
+                'inpa.notifications.models.Notification.objects.create',
+                side_effect=IntegrityError('unexpected constraint')):
+            response = self.public.post(
+                self._event_url(), {'event_type': 'callback_request'},
+                format='json')
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()['code'],
+                         'CALLBACK_NOTIFICATION_FAILED')
+        self.assertFalse(response.json()['recorded'])
+        self.assertEqual(Notification.objects.filter(owner=self.user).count(), 0)
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CALLBACK_REQUEST).count(), 0)
+
+    def test_callback_log_failure_reports_failure_and_retry_converges(self):
+        with mock.patch('inpa.analytics.views.log_event', return_value=None):
+            failed = self.public.post(
+                self._event_url(), {'event_type': 'callback_request'},
+                format='json')
+
+        self.assertEqual(failed.status_code, 503)
+        self.assertEqual(failed.json()['code'], 'EVENT_LOG_FAILED')
+        self.assertFalse(failed.json()['recorded'])
+        self.assertEqual(Notification.objects.filter(owner=self.user).count(), 1)
+        retried = self.public.post(
+            self._event_url(), {'event_type': 'callback_request'},
+            format='json')
+        self.assertEqual(retried.status_code, 201)
+        self.assertEqual(retried.json()['notification'], 'already_notified')
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CALLBACK_REQUEST).count(), 1)
 
     def test_callback_on_expired_token_404_no_notification(self):
         self.customer.share_expires_at = timezone.now() - timezone.timedelta(days=1)
@@ -616,17 +715,23 @@ class ShareSnapshotCaptureTests(TestCase):
         self.idet = _catalog_detail_linked_to(self.det)
         _make_portfolio(self.customer, self.idet, assurance_amount=20000000)
 
-    def test_share_creates_exactly_one_snapshot(self):
+    def test_normal_share_uses_current_payload_builder_and_returns_201(self):
         r = self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
         self.assertEqual(r.status_code, 201)
         self.assertEqual(
             ShareSnapshot.objects.filter(customer=self.customer).count(), 1)
+        snapshot = ShareSnapshot.objects.get(customer=self.customer)
+        self.assertEqual(snapshot.insurance_count, 1)
+        detail = snapshot.payload['tree'][0]['sub_categories'][0]['details'][0]
+        self.assertEqual(detail['held_amount'], 20_000_000)
 
     def test_snapshot_payload_matches_build_share_payload(self):
         from inpa.analytics.views import _build_share_payload
         self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
         snap = ShareSnapshot.objects.get(customer=self.customer)
-        self.assertEqual(snap.payload, _build_share_payload(self.customer))
+        self.assertEqual(
+            snap.payload,
+            _build_share_payload(self.customer, include_live_actions=False))
 
     def test_snapshot_stamps_consent_dict_and_insurance_count(self):
         from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
@@ -643,6 +748,71 @@ class ShareSnapshotCaptureTests(TestCase):
         self.assertIn('overseas_medical', snap.consent_scopes)
         self.assertEqual(snap.insurance_count, 1)
         self.assertTrue(snap.dict_version)  # SeedMarker 부재 시 코드 SEED_VERSION 폴백
+
+    def test_snapshot_payload_and_count_use_the_same_insurance_set(self):
+        from inpa.analytics.sharing import create_share_snapshot
+
+        captured = {}
+
+        def payload_builder(customer, *, include_live_actions,
+                            insurance_list):
+            captured['include_live_actions'] = include_live_actions
+            captured['insurance_ids'] = [item.pk for item in insurance_list]
+            return {'insurance_ids': captured['insurance_ids']}
+
+        snapshot = create_share_snapshot(
+            customer_id=self.customer.pk,
+            owner=self.user,
+            payload_builder=payload_builder,
+        )
+
+        self.assertFalse(captured['include_live_actions'])
+        self.assertEqual(snapshot.payload['insurance_ids'],
+                         captured['insurance_ids'])
+        self.assertEqual(snapshot.insurance_count,
+                         len(captured['insurance_ids']))
+
+    def test_share_query_count_does_not_scale_with_coverage_rows(self):
+        def issue_and_count(customer):
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.post(
+                    f'/api/v1/customers/{customer.id}/share/')
+            self.assertEqual(response.status_code, 201, response.content)
+            return len(queries)
+
+        one_coverage_queries = issue_and_count(self.customer)
+
+        many_customer = Customer.objects.create(
+            owner=self.user,
+            name='담보많은고객',
+            birth_day='1985.05.05',
+            gender=1,
+        )
+        many_insurance = _make_portfolio(
+            many_customer,
+            self.idet,
+            assurance_amount=20_000_000,
+        )
+        for index in range(24):
+            CustomerInsuranceDetail.objects.create(
+                insurance=many_insurance,
+                detail=self.idet,
+                assurance_amount=1_000_000 + index,
+                premium=1_000,
+                payment_period_type=1,
+                payment_period=20,
+                warranty_period_type=1,
+                warranty_period='100',
+            )
+
+        many_coverage_queries = issue_and_count(many_customer)
+
+        self.assertLessEqual(
+            many_coverage_queries,
+            one_coverage_queries + 6,
+            (f'1 coverage={one_coverage_queries} queries, '
+             f'25 coverages={many_coverage_queries} queries'),
+        )
 
     def test_retention_expires_at_180_days_from_capture(self):
         self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
@@ -675,14 +845,19 @@ class ShareSnapshotCaptureTests(TestCase):
         self.assertEqual(snap.payload['customer']['name_masked'], '홍**')
         self.assertEqual(snap.payload['customer']['birth_year'], 1985)
 
-    def test_capture_failure_does_not_block_share_link_issuance(self):
-        """_build_share_payload 예외 → 공유 링크는 그대로 201, 스냅샷만 스킵."""
+    def test_capture_failure_blocks_share_link_issuance_atomically(self):
+        """_build_share_payload 예외 → 링크·스냅샷·이벤트 모두 만들지 않는다."""
+        old_token = self.customer.share_token
         with mock.patch('inpa.analytics.views._build_share_payload',
                         side_effect=RuntimeError('boom')):
             r = self.client.post(f'/api/v1/customers/{self.customer.id}/share/')
-        self.assertEqual(r.status_code, 201)
-        self.assertIn('share_token', r.json())
+        self.assertEqual(r.status_code, 503)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.share_token, old_token)
         self.assertEqual(ShareSnapshot.objects.filter(customer=self.customer).count(), 0)
+        self.assertFalse(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.SHARE_CREATED,
+            customer=self.customer).exists())
 
     def test_customer_delete_cascades_share_snapshots(self):
         """고객 삭제 → ShareSnapshot도 함께 삭제(CASCADE, PII 동반 파기)."""
@@ -699,21 +874,24 @@ class ShareSnapshotReadApiTests(TestCase):
         self.user, self.client = _make_planner('snap-read@test.com')
         self.customer = Customer.objects.create(owner=self.user, name='공유기록고객')
 
-    def _create_snapshot(self, customer=None, owner=None):
+    def _create_snapshot(self, customer=None, owner=None, **overrides):
         now = timezone.now()
-        return ShareSnapshot.objects.create(
+        values = dict(
             owner=owner or self.user, customer=customer or self.customer,
             share_token=None, payload={'tree': [], 'summary': {}, 'disclaimer': 'x',
                                        'customer': {'name_masked': '공**'}, 'mode': 'neutral'},
             consent_overseas=False, consent_doc_version='v2-2026-07-04',
             consent_scopes=[], dict_version='v1', insurance_count=0,
             retention_expires_at=now + _timedelta(days=180))
+        values.update(overrides)
+        return ShareSnapshot.objects.create(**values)
 
     def test_list_is_newest_first_and_excludes_payload(self):
         s1 = self._create_snapshot()
         s2 = self._create_snapshot()
         r = self.client.get(f'/api/v1/customers/{self.customer.id}/share-snapshots/')
         self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Cache-Control'], 'private, no-store')
         body = r.json()
         self.assertEqual([item['id'] for item in body], [s2.id, s1.id])
         for item in body:
@@ -724,8 +902,82 @@ class ShareSnapshotReadApiTests(TestCase):
         r = self.client.get(
             f'/api/v1/customers/{self.customer.id}/share-snapshots/{snap.id}/')
         self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Cache-Control'], 'private, no-store')
         self.assertIn('payload', r.json())
         self.assertEqual(r.json()['payload']['customer']['name_masked'], '공**')
+
+    def test_list_derives_lifecycle_before_timezone_date_checks(self):
+        now = timezone.now()
+        history = self._create_snapshot(
+            payload_version='v1-legacy-actions',
+            share_token=uuid.uuid4(),
+            link_expires_at=now + _timedelta(days=30))
+        active = self._create_snapshot(
+            payload_version='v2-immutable-analysis',
+            share_token=uuid.uuid4(),
+            link_expires_at=now + _timedelta(days=30))
+        revoked = self._create_snapshot(
+            payload_version='v2-immutable-analysis',
+            share_token=uuid.uuid4(),
+            revoked_at=now,
+            link_expires_at=now + _timedelta(days=30))
+        expired = self._create_snapshot(
+            payload_version='v2-immutable-analysis',
+            share_token=uuid.uuid4(),
+            link_expires_at=now - _timedelta(microseconds=1))
+
+        statuses = []
+        for zone in ('UTC', 'Asia/Seoul'):
+            with timezone.override(zone):
+                response = self.client.get(
+                    f'/api/v1/customers/{self.customer.id}/share-snapshots/')
+            self.assertEqual(response.status_code, 200, response.content)
+            statuses.append({
+                item['id']: item['link_status'] for item in response.json()
+            })
+
+        expected = {
+            history.pk: 'history_only',
+            active.pk: 'active',
+            revoked.pk: 'revoked',
+            expired.pk: 'expired',
+        }
+        self.assertEqual(statuses, [expected, expected])
+
+    def test_revoke_accepts_only_active_v2_snapshot(self):
+        now = timezone.now()
+        active = self._create_snapshot(
+            payload_version='v2-immutable-analysis',
+            share_token=uuid.uuid4(),
+            link_expires_at=now + _timedelta(days=1))
+        revoked = self._create_snapshot(
+            payload_version='v2-immutable-analysis',
+            share_token=uuid.uuid4(), revoked_at=now,
+            link_expires_at=now + _timedelta(days=1))
+        expired = self._create_snapshot(
+            payload_version='v2-immutable-analysis',
+            share_token=uuid.uuid4(),
+            link_expires_at=now - _timedelta(seconds=1))
+        history = self._create_snapshot(
+            payload_version='v1-legacy-actions',
+            share_token=uuid.uuid4(),
+            link_expires_at=now + _timedelta(days=1))
+
+        accepted = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/share-snapshots/'
+            f'{active.id}/revoke/')
+        self.assertEqual(accepted.status_code, 200, accepted.content)
+        for snapshot in (revoked, expired):
+            response = self.client.post(
+                f'/api/v1/customers/{self.customer.id}/share-snapshots/'
+                f'{snapshot.id}/revoke/')
+            self.assertEqual(response.status_code, 409, response.content)
+            self.assertEqual(
+                response.json()['code'], 'SHARE_SNAPSHOT_NOT_ACTIVE')
+        hidden_history = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/share-snapshots/'
+            f'{history.id}/revoke/')
+        self.assertEqual(hidden_history.status_code, 404, hidden_history.content)
 
     def test_list_owner_isolation_404(self):
         """타 설계사 고객의 스냅샷 목록 조회 → 404(존재 은폐)."""
@@ -749,8 +1001,445 @@ class ShareSnapshotReadApiTests(TestCase):
             f'/api/v1/customers/{self.customer.id}/share-snapshots/{other_snap.id}/')
         self.assertEqual(r.status_code, 404)
 
+    def test_list_excludes_snapshot_with_mismatched_owner(self):
+        foreign, _ = _make_planner('snap-mismatch-list@test.com')
+        mismatched = self._create_snapshot(owner=foreign)
+        response = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/share-snapshots/')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(mismatched.id, [item['id'] for item in response.json()])
+
+    def test_detail_hides_snapshot_with_mismatched_owner(self):
+        foreign, _ = _make_planner('snap-mismatch-detail@test.com')
+        mismatched = self._create_snapshot(owner=foreign)
+        response = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/share-snapshots/{mismatched.id}/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_revoke_hides_snapshot_with_mismatched_owner(self):
+        foreign, _ = _make_planner('snap-mismatch-revoke@test.com')
+        mismatched = self._create_snapshot(owner=foreign)
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/share-snapshots/{mismatched.id}/revoke/')
+        self.assertEqual(response.status_code, 404)
+        mismatched.refresh_from_db()
+        self.assertIsNone(mismatched.revoked_at)
+
     def test_requires_auth(self):
         from rest_framework.test import APIClient
         anon = APIClient()
         r = anon.get(f'/api/v1/customers/{self.customer.id}/share-snapshots/')
         self.assertEqual(r.status_code, 401)
+
+
+@override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+class ShareSnapshotAtomicCreateTests(TestCase):
+    """링크, 불변 본문, 발급 이벤트는 하나의 트랜잭션으로만 생긴다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('snapshot-atomic@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='원자성고객', birth_day='1985.05.05')
+        self.ready = CustomerInsurance.objects.create(
+            customer=self.customer, portfolio_type=1, name='확인보험',
+            review_status='confirmed', analysis_included=True,
+            confirmed_at=timezone.now())
+
+    def test_payload_build_failure_rolls_back_token_snapshot_and_event(self):
+        old_token = self.customer.share_token
+        with mock.patch(
+                'inpa.analytics.views._build_share_payload',
+                side_effect=RuntimeError('synthetic failure')):
+            response = self.client.post(
+                f'/api/v1/customers/{self.customer.id}/share/')
+
+        self.assertEqual(response.status_code, 503)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.share_token, old_token)
+        self.assertIsNone(self.customer.share_sent_at)
+        self.assertEqual(ShareSnapshot.objects.count(), 0)
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.SHARE_CREATED).count(), 0)
+
+    def test_unconfirmed_held_insurance_returns_409_without_link_or_event(self):
+        CustomerInsurance.objects.create(
+            customer=self.customer, portfolio_type=1, name='확인전보험')
+        old_token = self.customer.share_token
+
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/share/')
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['code'], 'INSURANCE_REVIEW_REQUIRED')
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.share_token, old_token)
+        self.assertEqual(ShareSnapshot.objects.count(), 0)
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.SHARE_CREATED).count(), 0)
+
+    def test_no_confirmed_included_insurance_returns_409(self):
+        self.ready.delete()
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/share/')
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['code'], 'INSURANCE_REVIEW_REQUIRED')
+        self.assertEqual(ShareSnapshot.objects.count(), 0)
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.SHARE_CREATED).count(), 0)
+
+    def test_excluded_canceled_and_superseded_insurances_do_not_block_ready_one(self):
+        CustomerInsurance.objects.create(
+            customer=self.customer, portfolio_type=1, name='분석제외',
+            review_status='excluded', analysis_included=False)
+        CustomerInsurance.objects.create(
+            customer=self.customer, portfolio_type=1, name='해지',
+            review_status='draft', analysis_included=False, is_cancelled=True)
+        CustomerInsurance.objects.create(
+            customer=self.customer, portfolio_type=1, name='교체',
+            review_status='superseded', analysis_included=False)
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/share/')
+        self.assertEqual(response.status_code, 201, response.content)
+
+
+@override_settings(INSURANCE_REVIEW_GATE_ENABLED=True, BOOKING_TOKEN_TTL_HOURS=72)
+class ShareSnapshotAuthorityTests(TestCase):
+    """신규 공개 링크는 active v2 ShareSnapshot 하나만 권위로 사용한다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('snapshot-authority@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='불변고객', birth_day='1985.05.05', gender=1)
+        self.standard = _build_std_tree()
+        catalog = _catalog_detail_linked_to(self.standard)
+        self.insurance = _make_portfolio(self.customer, catalog, 20000000)
+        self.insurance.review_status = 'confirmed'
+        self.insurance.analysis_included = True
+        self.insurance.confirmed_at = timezone.now()
+        self.insurance.save(update_fields=(
+            'review_status', 'analysis_included', 'confirmed_at'))
+        self.case = self.insurance.case_list.get()
+        self.public = APIClient()
+
+    def _issue(self):
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/share/')
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json(), ShareSnapshot.objects.get(
+            share_token=response.json()['share_token'])
+
+    def test_public_response_uses_frozen_snapshot_after_live_data_changes(self):
+        issued, snapshot = self._issue()
+        url = f"/api/v1/s/{issued['share_token']}/"
+        first = self.public.get(url).json()['snapshot']
+
+        self.case.assurance_amount = 999999999
+        self.case.save(update_fields=['assurance_amount'])
+        self.standard.name = '발급 뒤 바뀐 전역 담보명'
+        self.standard.save(update_fields=['name'])
+        self.customer.name = '발급 뒤 바뀐 고객명'
+        self.customer.save(update_fields=['name'])
+
+        second = self.public.get(url).json()['snapshot']
+        snapshot.refresh_from_db()
+        self.assertEqual(first, second)
+        self.assertEqual(second, snapshot.payload)
+        self.assertNotIn('발급 뒤 바뀐 전역 담보명', str(second))
+
+    def test_reissue_revokes_previous_link(self):
+        first, first_snapshot = self._issue()
+        second, _ = self._issue()
+        self.assertNotEqual(first['share_token'], second['share_token'])
+        first_snapshot.refresh_from_db()
+        self.assertIsNotNone(first_snapshot.revoked_at)
+        self.assertEqual(first_snapshot.revoked_reason, 'reissued')
+        self.assertEqual(self.public.get(
+            f"/api/v1/s/{first['share_token']}/").status_code, 404)
+        self.assertEqual(self.public.get(
+            f"/api/v1/s/{second['share_token']}/").status_code, 200)
+
+    def test_explicit_revoke_closes_public_view_and_event(self):
+        issued, snapshot = self._issue()
+        revoke = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/share-snapshots/{snapshot.id}/revoke/')
+        self.assertEqual(revoke.status_code, 200)
+        url = f"/api/v1/s/{issued['share_token']}/"
+        self.assertEqual(self.public.get(url).status_code, 404)
+        event = self.public.post(
+            f"{url}event/", {'event_type': 'clipboard_copy'}, format='json')
+        self.assertEqual(event.status_code, 404)
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CLIPBOARD_COPY).count(), 0)
+
+    def test_expired_snapshot_closes_public_view_and_event(self):
+        issued, snapshot = self._issue()
+        snapshot.link_expires_at = timezone.now() - timezone.timedelta(seconds=1)
+        snapshot.save(update_fields=['link_expires_at'])
+        url = f"/api/v1/s/{issued['share_token']}/"
+        self.assertEqual(self.public.get(url).status_code, 404)
+        self.assertEqual(self.public.post(
+            f"{url}event/", {'event_type': 'clipboard_copy'}, format='json').status_code, 404)
+
+    def test_first_view_marks_only_the_snapshot_used(self):
+        _, old_snapshot = self._issue()
+        issued, current_snapshot = self._issue()
+
+        self.public.get(f"/api/v1/s/{issued['share_token']}/")
+
+        old_snapshot.refresh_from_db()
+        current_snapshot.refresh_from_db()
+        self.assertIsNone(old_snapshot.first_viewed_at)
+        self.assertIsNotNone(current_snapshot.first_viewed_at)
+
+    def test_bot_preview_does_not_mark_snapshot_as_first_viewed(self):
+        issued, snapshot = self._issue()
+        url = f"/api/v1/s/{issued['share_token']}/"
+
+        bot_response = self.public.get(
+            url, HTTP_USER_AGENT='KakaoTalk-Scrap/1.0')
+
+        self.assertEqual(bot_response.status_code, 200)
+        snapshot.refresh_from_db()
+        self.assertIsNone(snapshot.first_viewed_at)
+
+        self.assertEqual(self.public.get(url).status_code, 200)
+        snapshot.refresh_from_db()
+        self.assertIsNotNone(snapshot.first_viewed_at)
+
+    def test_revoke_owner_scope_hides_foreign_snapshot(self):
+        _, snapshot = self._issue()
+        _, foreign_client = _make_planner('snapshot-foreign@test.com')
+        response = foreign_client.post(
+            f'/api/v1/customers/{self.customer.id}/share-snapshots/{snapshot.id}/revoke/')
+        self.assertEqual(response.status_code, 404)
+        snapshot.refresh_from_db()
+        self.assertIsNone(snapshot.revoked_at)
+
+    def test_customer_deletion_closes_public_snapshot_link(self):
+        issued, _ = self._issue()
+        token = issued['share_token']
+        self.customer.delete()
+        self.assertEqual(
+            self.public.get(f'/api/v1/s/{token}/').status_code, 404)
+
+    def test_foreign_customer_snapshot_cannot_be_cross_assigned(self):
+        other, other_client = _make_planner('snapshot-other@test.com')
+        other_customer = Customer.objects.create(owner=other, name='다른소유고객')
+        response = other_client.post(
+            f'/api/v1/customers/{self.customer.id}/share/')
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(ShareSnapshot.objects.filter(
+            owner=other, customer=self.customer).exists())
+        self.assertFalse(NorthStarEvent.objects.filter(
+            sender=other, customer=self.customer).exists())
+        self.assertFalse(ShareSnapshot.objects.filter(
+            customer=other_customer, owner=self.user).exists())
+
+    def test_analysis_is_frozen_but_booking_and_phone_actions_are_live(self):
+        from datetime import time
+        from inpa.booking.models import WorkHour
+        WorkHour.objects.create(
+            owner=self.user, weekday=0, start_time=time(9), end_time=time(18))
+        profile = self.user.profile
+        profile.phone = '010-1111-2222'
+        profile.save(update_fields=['phone'])
+        issued, snapshot = self._issue()
+        url = f"/api/v1/s/{issued['share_token']}/"
+
+        with mock.patch(
+                'inpa.analytics.views.make_booking_token',
+                side_effect=['fresh-token-1', 'fresh-token-2']):
+            first = self.public.get(url).json()
+            profile.phone = '010-3333-4444'
+            profile.save(update_fields=['phone'])
+            second = self.public.get(url).json()
+
+        self.assertEqual(first['snapshot'], second['snapshot'])
+        self.assertEqual(first['snapshot'], snapshot.payload)
+        self.assertNotEqual(
+            first['actions']['booking_url'], second['actions']['booking_url'])
+        self.assertEqual(first['actions']['planner_contact'], '010-1111-2222')
+        self.assertEqual(second['actions']['planner_contact'], '010-3333-4444')
+        self.assertNotIn('booking_url', first['snapshot'])
+        self.assertNotIn('planner_contact', first['snapshot'])
+
+    def test_share_link_is_90_days_while_booking_tokens_are_72_hours(self):
+        _, snapshot = self._issue()
+        link_lifetime = snapshot.link_expires_at - snapshot.captured_at
+        self.assertLess(abs(link_lifetime - timezone.timedelta(days=90)),
+                        timezone.timedelta(seconds=5))
+        self.assertEqual(settings.BOOKING_TOKEN_TTL_HOURS, 72)
+
+    def test_four_day_old_booking_action_expires_but_fresh_action_works(self):
+        import time as time_module
+        from datetime import time
+        from django.core import signing
+        from inpa.booking.models import WorkHour
+        from inpa.booking.tokens import read_booking_token
+
+        WorkHour.objects.create(
+            owner=self.user, weekday=0, start_time=time(9), end_time=time(18))
+        issued, _ = self._issue()
+        url = f"/api/v1/s/{issued['share_token']}/"
+        base = time_module.time()
+        with mock.patch('django.core.signing.time.time', return_value=base):
+            first = self.public.get(url).json()
+        with mock.patch(
+                'django.core.signing.time.time',
+                return_value=base + 4 * 24 * 60 * 60):
+            second = self.public.get(url).json()
+            old_token = first['actions']['booking_url'].rsplit('/', 1)[-1]
+            fresh_token = second['actions']['booking_url'].rsplit('/', 1)[-1]
+            with self.assertRaises(signing.SignatureExpired):
+                read_booking_token(old_token)
+            self.assertEqual(read_booking_token(fresh_token), self.customer.pk)
+        self.assertEqual(first['snapshot'], second['snapshot'])
+
+    def test_gate_on_never_falls_back_to_customer_token(self):
+        legacy = Customer.objects.create(owner=self.user, name='스냅샷없는고객')
+        response = self.public.get(f'/api/v1/s/{legacy.share_token}/')
+        self.assertEqual(response.status_code, 404)
+
+
+class ShareSnapshotRolloutCompatibilityTests(TestCase):
+    """gate OFF 과거 링크만 잠시 호환하고 신규 발급은 항상 v2를 쓴다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('snapshot-rollout@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='과거링크고객', birth_day='1985.05.05')
+        self.public = APIClient()
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
+    def test_gate_off_customer_token_keeps_legacy_shape(self):
+        response = self.public.get(f'/api/v1/s/{self.customer.share_token}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('mode', response.json())
+        self.assertNotIn('snapshot', response.json())
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
+    def test_new_link_is_v2_even_while_gate_is_off(self):
+        issued = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/share/')
+        self.assertEqual(issued.status_code, 201)
+        response = self.public.get(
+            f"/api/v1/s/{issued.json()['share_token']}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(set(response.json()), {'snapshot', 'actions'})
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
+    def test_matching_v1_snapshot_is_terminal_and_never_falls_back(self):
+        ShareSnapshot.objects.create(
+            owner=self.user, customer=self.customer,
+            share_token=self.customer.share_token,
+            payload_version='v1-legacy-actions', payload={'mode': 'neutral'},
+            retention_expires_at=timezone.now() + timezone.timedelta(days=180))
+        self.customer.share_sent_at = timezone.now()
+        self.customer.share_expires_at = timezone.now() + timezone.timedelta(days=30)
+        self.customer.save(update_fields=('share_sent_at', 'share_expires_at'))
+        response = self.public.get(f'/api/v1/s/{self.customer.share_token}/')
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
+    def test_revoked_or_expired_v1_snapshot_never_reopens_customer_fallback(self):
+        for state in ('revoked', 'expired'):
+            with self.subTest(state=state):
+                customer = Customer.objects.create(
+                    owner=self.user, name=f'{state}과거고객',
+                    share_sent_at=timezone.now(),
+                    share_expires_at=timezone.now() + timezone.timedelta(days=30))
+                fields = {
+                    'owner': self.user, 'customer': customer,
+                    'share_token': customer.share_token,
+                    'payload_version': 'v1-legacy-actions',
+                    'payload': {'mode': 'neutral'},
+                    'retention_expires_at': (
+                        timezone.now() + timezone.timedelta(days=180)),
+                }
+                if state == 'revoked':
+                    fields['revoked_at'] = timezone.now()
+                else:
+                    fields['link_expires_at'] = (
+                        timezone.now() - timezone.timedelta(seconds=1))
+                ShareSnapshot.objects.create(**fields)
+                response = self.public.get(f'/api/v1/s/{customer.share_token}/')
+                self.assertEqual(response.status_code, 404)
+
+
+class ShareSnapshotAuditCommandTests(TestCase):
+    """과거 링크는 소급 재계산하지 않고 dry-run 수량만 분리한다."""
+
+    def setUp(self):
+        from io import StringIO
+        self.StringIO = StringIO
+        self.user, _ = _make_planner('snapshot-audit@test.com')
+        self.unbacked = Customer.objects.create(
+            owner=self.user, name='기록없는과거링크', share_sent_at=timezone.now())
+        self.v1_customer = Customer.objects.create(
+            owner=self.user, name='행동포함과거기록', share_sent_at=timezone.now())
+        self.v1 = ShareSnapshot.objects.create(
+            owner=self.user, customer=self.v1_customer,
+            share_token=self.v1_customer.share_token,
+            payload={'mode': 'neutral', 'booking_url': '/b/frozen-old-token'},
+            retention_expires_at=timezone.now() + timezone.timedelta(days=180))
+        revoked_token = uuid.uuid4()
+        self.revoked_v1 = ShareSnapshot.objects.create(
+            owner=self.user,
+            customer=Customer.objects.create(
+                owner=self.user, name='이미회수된기록',
+                share_token=revoked_token,
+                share_sent_at=timezone.now(),
+                share_expires_at=timezone.now() + timezone.timedelta(days=30)),
+            payload_version='v1-legacy-actions', share_token=revoked_token,
+            revoked_at=timezone.now(), payload={'booking_url': '/b/revoked'},
+            retention_expires_at=timezone.now() + timezone.timedelta(days=180))
+        expired_token = uuid.uuid4()
+        self.expired_v1 = ShareSnapshot.objects.create(
+            owner=self.user,
+            customer=Customer.objects.create(
+                owner=self.user, name='이미만료된기록',
+                share_token=expired_token,
+                share_sent_at=timezone.now(),
+                share_expires_at=timezone.now() - timezone.timedelta(days=1)),
+            payload_version='v1-legacy-actions', share_token=expired_token,
+            link_expires_at=timezone.now() - timezone.timedelta(days=1),
+            payload={'booking_url': '/b/expired'},
+            retention_expires_at=timezone.now() + timezone.timedelta(days=180))
+
+    def test_dry_run_counts_unbacked_v1_and_frozen_booking_without_backfill(self):
+        from django.core.management import call_command
+        before = ShareSnapshot.objects.count()
+        output = self.StringIO()
+        call_command('audit_share_snapshot_links', stdout=output)
+        text = output.getvalue()
+        self.assertIn('unbacked_legacy_links=1', text)
+        self.assertIn('v1_legacy_snapshots=1', text)
+        self.assertIn('v1_frozen_booking_actions=1', text)
+        self.assertIn('v1_history_snapshots=3', text)
+        self.assertIn('v1_inactive_snapshots=2', text)
+        self.assertIn('dry_run=true', text)
+        self.assertEqual(ShareSnapshot.objects.count(), before)
+        self.assertFalse(ShareSnapshot.objects.filter(
+            customer=self.unbacked).exists())
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
+    def test_explicit_revoke_legacy_closes_customer_and_v1_links(self):
+        from django.core.management import call_command
+        call_command(
+            'audit_share_snapshot_links', '--revoke-legacy',
+            stdout=self.StringIO())
+        after = self.StringIO()
+        call_command('audit_share_snapshot_links', stdout=after)
+        self.assertIn('unbacked_legacy_links=0', after.getvalue())
+        self.assertIn('v1_legacy_snapshots=0', after.getvalue())
+        self.unbacked.refresh_from_db()
+        self.v1_customer.refresh_from_db()
+        self.v1.refresh_from_db()
+        self.assertLessEqual(self.unbacked.share_expires_at, timezone.now())
+        self.assertLessEqual(self.v1_customer.share_expires_at, timezone.now())
+        self.assertIsNotNone(self.v1.revoked_at)
+        public = APIClient()
+        self.assertEqual(public.get(
+            f'/api/v1/s/{self.unbacked.share_token}/').status_code, 404)
+        self.assertEqual(public.get(
+            f'/api/v1/s/{self.v1_customer.share_token}/').status_code, 404)

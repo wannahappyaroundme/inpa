@@ -10,6 +10,7 @@
   7) Notification 생성 API 없음 (FE 직접 생성 차단)
 """
 from datetime import date
+import uuid
 
 from django.test import TestCase
 from django.utils import timezone
@@ -885,6 +886,66 @@ class ShareSnapshotRetentionTests(TestCase):
         second = run_daily_jobs()
         self.assertEqual(second['counts']['share_snapshot_retention_deleted'], 0)
         self.assertEqual(second['errors'], {})
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
+    def test_purge_closes_customer_fallback_when_link_lifetime_is_longer(self):
+        """짧은 보유기간 설정도 삭제 뒤 live DB fallback을 다시 열지 않는다."""
+        token = uuid.uuid4()
+        snapshot = ShareSnapshot.objects.create(
+            owner=self.user, customer=self.customer, share_token=token,
+            payload_version='v2-immutable-analysis', payload={'tree': []},
+            link_expires_at=tz.now() + timedelta(days=30),
+            retention_expires_at=tz.now() - timedelta(days=1))
+        self.customer.share_token = token
+        self.customer.share_sent_at = tz.now()
+        self.customer.share_expires_at = snapshot.link_expires_at
+        self.customer.save(update_fields=(
+            'share_token', 'share_sent_at', 'share_expires_at'))
+
+        self.assertEqual(cleanup_expired_share_snapshots(tz.now()), 1)
+
+        self.customer.refresh_from_db()
+        self.assertLessEqual(self.customer.share_expires_at, tz.now())
+        self.assertEqual(APIClient().get(
+            f'/api/v1/s/{token}/').status_code, 404)
+
+
+class ShareSnapshotUnreadTests(TestCase):
+    """미열람 안내는 Customer의 과거 시각이 아니라 active v2 snapshot이 권위다."""
+
+    def setUp(self):
+        self.user, _ = _make_planner('snapshot-unread@test.com')
+        create_reminder_rules_for_user(self.user)
+        self.customer = Customer.objects.create(owner=self.user, name='스냅샷고객')
+        self.today = tz.localdate()
+
+    def _snapshot(self, **overrides):
+        fields = dict(
+            owner=self.user, customer=self.customer,
+            share_token=uuid.uuid4(), payload_version='v2-immutable-analysis',
+            payload={'tree': []},
+            link_expires_at=tz.now() + timedelta(days=30),
+            retention_expires_at=tz.now() + timedelta(days=180))
+        fields.update(overrides)
+        snapshot = ShareSnapshot.objects.create(**fields)
+        ShareSnapshot.objects.filter(pk=snapshot.pk).update(
+            captured_at=tz.now() - timedelta(days=2))
+        snapshot.refresh_from_db()
+        return snapshot
+
+    def test_active_unread_snapshot_creates_one_notification(self):
+        snapshot = self._snapshot()
+        self.assertEqual(produce_share_unread(self.today), 1)
+        note = Notification.objects.get(notif_type=NotifType.SHARE_UNREAD)
+        self.assertEqual(note.customer, self.customer)
+        self.assertEqual(note.target_date, tz.localtime(snapshot.captured_at).date())
+
+    def test_first_viewed_revoked_and_expired_snapshots_are_skipped(self):
+        self._snapshot(first_viewed_at=tz.now())
+        self._snapshot(revoked_at=tz.now(), revoked_reason='manual')
+        self._snapshot(link_expires_at=tz.now() - timedelta(days=1))
+        self.assertEqual(produce_share_unread(self.today), 0)
+        self.assertEqual(Notification.objects.count(), 0)
 
 
 # ─── 인증 멈춤 데드맨 알람 (spec 2026-07-08, 프리런치 #16) ────────────────

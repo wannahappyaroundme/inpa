@@ -7,7 +7,7 @@
 
 ## 1. Current state (2026-07-16)
 
-- **Phase 1, live in production.** Monorepo: `inpa_be/` (Django 4.2 + DRF, Python 3.11, 13 apps) + `inpa_fe/` (Next.js 16 + React 19 + TS + Tailwind, ~55 routes: public / auth / admin).
+- **Phase 1, live in production.** Monorepo: `inpa_be/` (Django 5.2 LTS + DRF, Python 3.11, 14 apps) + `inpa_fe/` (Next.js 16 + React 19 + TS + Tailwind, ~67 routes: public / auth / admin).
 - **Deployed:** BE → Render (`https://inpa-be.onrender.com`, `/healthz/` → `{"status":"ok","service":"inpa-be"}`, DEBUG=False) · FE → Vercel (`https://in-pa.vercel.app`) · DB → Neon Postgres · email → Resend · CI = GitHub Actions. All $0. Render free tier **sleeps when idle** → first request slow.
 - **Landing decision candidate (2026-07-16, PR #121, DEPLOYED):** `https://new.inpa.kr/test` is the service-first candidate with five real demo screens (dashboard/customers/coverage/compare/schedule), interactive tabs + zoom, UTM-preserving www auth CTAs, and `noindex,nofollow`. Host routing rewrites `/test` → app route `/new/test`; direct `/new/test` redirects to canonical `/test`. Existing `new.inpa.kr/` cinema landing and `www.inpa.kr` service remain unchanged.
 - **Deploy workflow:** commit on the reused feat branch **`feat/benchmark-ui-revamp`** → PR to `master` → **merge auto-deploys** Vercel + Render. ⚠️ **Parallel sessions share this branch** — `git fetch` + `git log origin/master..HEAD` before pushing; PR numbers interleave (not strictly mine).
@@ -26,7 +26,7 @@
 ## 3. Stack
 
 - **FE:** Next.js 16 + React 19 + TypeScript + Tailwind v4. **Design tokens centralized in `app/globals.css`** (`:root` CSS vars → `@theme inline`; custom `@utility shadow-card`). ⚠️ `design/tokens/inpa-tokens.css` is a stale design reference, NOT the active source. **Nav = desktop left sidebar + mobile bottom tab** (`components/app-nav.tsx`; body push via `body:has(.app-sidebar) main{padding-left}`). Logos `design/logo/*.svg`.
-- **BE:** Django 4.2 + DRF + Python 3.11. Reuses foliio's `core/ocr/claude_parser`, `customers/calculate.py` (8 cases, numpy_financial), coverage-normalization **verbatim** (re-porting risk avoidance = core asset).
+- **BE:** Django 5.2 LTS + DRF + Python 3.11. Reuses foliio's `core/ocr/claude_parser`, `customers/calculate.py` (8 cases, numpy_financial), coverage-normalization **verbatim** (re-porting risk avoidance = core asset).
 - **DB:** PostgreSQL (prod = Neon free; local = SQLite). ORM-only, zero code impact, `psycopg2-binary`.
 - **AI:** Anthropic Claude API. Model ids injected via env ONLY — `CLAUDE_MODEL_PARSE` (Opus: comparison/normalization), `CLAUDE_MODEL_BULK` (Haiku: bulk OCR), nightly = Batches. **NEVER hardcode model ids.**
 - **Local-only dirs (gitignored, NEVER commit or quote):** `samples/` = real policy PDFs (PII/sensitive); `benchmark/` = UI reference screenshots; root `data/` = PM's raw data extracts (the operational copy lives under each app's `data/`). Root `*.jpeg`/`calender*.webp` are committed design refs. Root `landing_page.pdf` (untracked, 7.5MB) = PM's new.inpa.kr cinematic-landing 시안 (14p) — keep local, design SSOT for that project is the spec doc.

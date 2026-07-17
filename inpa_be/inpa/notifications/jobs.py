@@ -32,6 +32,10 @@ from inpa.analysis.models import SeedMarker
 from inpa.booking.models import Meeting
 from inpa.customers.models import Customer
 from inpa.insurances.models import CustomerInsurance
+from inpa.recruiting.jobs import (
+    cleanup_expired_recruiting_candidates,
+    produce_recruiting_reminders,
+)
 from inpa.schedule.models import ScheduleItem
 
 from .models import REMINDER_DEFAULTS, Notification, NotifType, ReminderRule
@@ -292,22 +296,28 @@ def produce_task_due(today):
 def produce_share_unread(today):
     """보낸 지 24시간(days_before=0 특별 해석)이 지나도록 열람되지 않은 공유 링크 알림.
 
-    근거 필드(전부 Customer 실필드): share_sent_at(발송 시각, CustomerShareCreateView 기록)
-    / user_view_at(고객 열람 시각, ShareAnalysisView 기록) / share_expires_at(만료).
-    만료된 링크는 제외(더 열 수 없는 링크 재안내 방지). dedupe target_date=발송일(KST)
-    → 같은 발송 건은 평생 1회만 알림(재발송 rotate 시 share_sent_at 갱신 → 새 알림 가능).
+    v2는 ShareSnapshot의 captured_at/first_viewed_at/link_expires_at/revoked_at을 권위로
+    사용한다. gate OFF 전환 기간에만 v2 snapshot이 없는 Customer 링크를 기존 필드로
+    계산한다. 만료·회수 링크는 제외하고, dedupe target_date는 발급일(KST)이다.
     """
     get_rule = _rule_getter(NotifType.SHARE_UNREAD)
     created = 0
     # 기준 시각 = 실행일(today)의 명목 실행 시각 08:00 KST — 다른 생산자처럼 today 에
     # 결정적으로 따른다(재실행·리플레이·테스트에서 벽시계 비의존).
     now = _kst_day_start(today) + dt.timedelta(hours=8)
-    qs = (Customer.objects
-          .filter(share_sent_at__isnull=False)
-          .filter(Q(user_view_at__isnull=True) | Q(user_view_at__lt=F('share_sent_at')))
-          .filter(Q(share_expires_at__isnull=True) | Q(share_expires_at__gt=now))
-          .values_list('id', 'owner_id', 'name', 'share_sent_at'))
-    for cid, owner_id, name, sent_at in qs.iterator():
+    from inpa.analytics.models import ShareSnapshot
+    snapshots = (ShareSnapshot.objects
+                 .filter(
+                     payload_version='v2-immutable-analysis',
+                     share_token__isnull=False,
+                     revoked_at__isnull=True,
+                     first_viewed_at__isnull=True,
+                     link_expires_at__gt=now,
+                 )
+                 .select_related('customer')
+                 .values_list(
+                     'customer_id', 'owner_id', 'customer__name', 'captured_at'))
+    for cid, owner_id, name, sent_at in snapshots.iterator():
         enabled, days = get_rule(owner_id)
         if not enabled:
             continue
@@ -320,6 +330,34 @@ def produce_share_unread(today):
             body=f'{name}님께 보낸 보장 분석 링크가 아직 열리지 않았어요. 한 번 더 안내해 보세요.',
             target_date=timezone.localtime(sent_at).date(), customer_id=cid,
         )
+
+    # gate OFF 배포 전환 기간에는 snapshot이 전혀 없는 과거 Customer 링크만 유지한다.
+    if not getattr(settings, 'INSURANCE_REVIEW_GATE_ENABLED', False):
+        backed_tokens = ShareSnapshot.objects.filter(
+            payload_version='v2-immutable-analysis',
+            share_token__isnull=False,
+        ).values('share_token')
+        legacy = (Customer.objects
+                  .filter(share_sent_at__isnull=False)
+                  .exclude(share_token__in=backed_tokens)
+                  .filter(Q(user_view_at__isnull=True)
+                          | Q(user_view_at__lt=F('share_sent_at')))
+                  .filter(Q(share_expires_at__isnull=True)
+                          | Q(share_expires_at__gt=now))
+                  .values_list('id', 'owner_id', 'name', 'share_sent_at'))
+        for cid, owner_id, name, sent_at in legacy.iterator():
+            enabled, days = get_rule(owner_id)
+            if not enabled:
+                continue
+            threshold = dt.timedelta(days=days or 1)
+            if now - sent_at < threshold:
+                continue
+            created += _create_once(
+                owner_id=owner_id, notif_type=NotifType.SHARE_UNREAD,
+                title='공유 링크 열람 안내',
+                body=f'{name}님께 보낸 보장 분석 링크가 아직 열리지 않았어요. 한 번 더 안내해 보세요.',
+                target_date=timezone.localtime(sent_at).date(), customer_id=cid,
+            )
     return created
 
 
@@ -438,7 +476,14 @@ def cleanup_expired_share_snapshots(now):
     days = int(getattr(settings, 'SHARE_SNAPSHOT_RETENTION_DAYS', 180) or 0)
     if days <= 0:
         return 0
-    deleted, _ = ShareSnapshot.objects.filter(retention_expires_at__lte=now).delete()
+    expired = ShareSnapshot.objects.filter(retention_expires_at__lte=now)
+    tokens = list(expired.exclude(share_token__isnull=True).values_list(
+        'share_token', flat=True))
+    with transaction.atomic():
+        # 보유기간이 링크 수명보다 짧아도 gate OFF의 Customer fallback이 살아나지 않는다.
+        Customer.objects.filter(share_token__in=tokens).update(
+            share_expires_at=now)
+        deleted, _ = expired.delete()
     return deleted
 
 
@@ -452,6 +497,7 @@ PRODUCERS = (
     (NotifType.SHARE_UNREAD.value, produce_share_unread),
     # 알림 생산자는 아니지만 같은 (today)→int 계약 + 실패 격리·하트비트 보존이 그대로 맞아 재사용(#16).
     (NotifType.SIGNUP_VERIFY_FLATLINE.value, check_signup_verification_flatline),
+    ('recruiting_reminders', produce_recruiting_reminders),
 )
 
 
@@ -468,24 +514,44 @@ def run_daily_jobs(today=None):
         try:
             counts[name] = producer(today)
         except Exception as exc:  # noqa: BLE001 — 생산자 간 격리(부분 실패 허용)
-            logger.exception('daily job producer failed: %s', name)
+            logger.warning(
+                'daily job failed producer=%s exception=%s',
+                name,
+                type(exc).__name__,
+            )
             counts[name] = 0
-            errors[name] = f'{type(exc).__name__}: {exc}'
+            errors[name] = type(exc).__name__
     total_created = sum(counts.values())  # 알림 생산 수(정리 단계 삭제 수와 분리)
     # 정리 단계 — 알림 생산자와 별개(인바운드 리드 보유기간 파기). 실패 격리 동일.
     try:
         counts['lead_retention_deleted'] = cleanup_expired_leads(today)
     except Exception as exc:  # noqa: BLE001
-        logger.exception('daily cleanup failed: lead_retention')
+        logger.warning(
+            'daily job failed cleanup=lead_retention exception=%s',
+            type(exc).__name__,
+        )
         counts['lead_retention_deleted'] = 0
-        errors['lead_retention'] = f'{type(exc).__name__}: {exc}'
+        errors['lead_retention'] = type(exc).__name__
     # 정리 단계 — 공유(/s) 스냅샷 보유기간 파기(spec 2026-07-08). 실패 격리 동일.
     try:
         counts['share_snapshot_retention_deleted'] = cleanup_expired_share_snapshots(timezone.now())
     except Exception as exc:  # noqa: BLE001
-        logger.exception('daily cleanup failed: share_snapshot_retention')
+        logger.warning(
+            'daily job failed cleanup=share_snapshot_retention exception=%s',
+            type(exc).__name__,
+        )
         counts['share_snapshot_retention_deleted'] = 0
-        errors['share_snapshot_retention'] = f'{type(exc).__name__}: {exc}'
+        errors['share_snapshot_retention'] = type(exc).__name__
+    # 영입 개인정보 정리는 기능 공개 여부와 무관하게 계속한다.
+    try:
+        counts['recruiting_retention_deleted'] = cleanup_expired_recruiting_candidates()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            'daily job failed cleanup=recruiting_retention exception=%s',
+            type(exc).__name__,
+        )
+        counts['recruiting_retention_deleted'] = 0
+        errors['recruiting_retention'] = type(exc).__name__
     if not errors:
         SeedMarker.objects.update_or_create(
             key=HEARTBEAT_KEY, defaults={'version': today.isoformat()})

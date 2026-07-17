@@ -133,7 +133,7 @@
 | 영역 | 스택 |
 |---|---|
 | 프론트 | Next.js 16 + React 19 + TypeScript + Tailwind |
-| 백엔드 | Django 4.2 + DRF + Python 3.11 (기존 Foliio의 OCR·계산·정규화 로직 재활용) |
+| 백엔드 | Django 5.2 LTS + DRF + Python 3.11 (기존 Foliio의 자동 인식·계산·정규화 로직 재활용) |
 | DB | PostgreSQL (운영 = Neon / 로컬 = SQLite) |
 | AI | Anthropic Claude API (분석·정규화 = Opus, 다건 OCR = Haiku) |
 | 배포 | Vercel(FE) · Render(BE) · Neon(DB) · GitHub Actions(CI). 전부 자동배포, $0 |

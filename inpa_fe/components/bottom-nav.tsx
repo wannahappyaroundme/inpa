@@ -5,6 +5,7 @@
 // 본문 가림 방지: globals.css 의 `body:has(.app-bottom-nav) main { padding-bottom }` 가 처리.
 import Link from "next/link";
 import { useState } from "react";
+import { rollupMoreUnread } from "./recruiting/recruiting-integration";
 import type { NavKey } from "./app-nav";
 
 function Icon({ name }: { name: "home" | "customers" | "schedule" | "analysis" | "more" }) {
@@ -71,20 +72,24 @@ export function BottomNav({
   active,
   isAdmin,
   isManager,
+  recruitingEnabled,
   custUnread = 0,
   schedUnread = 0,
   boardUnread = 0,
   promoUnread = 0,
   adminUnread = 0,
+  recruitingUnread = 0,
 }: {
   active?: NavKey;
   isAdmin: boolean;
   isManager: boolean;
+  recruitingEnabled: boolean;
   custUnread?: number;
   schedUnread?: number;
   boardUnread?: number;
   promoUnread?: number;
   adminUnread?: number;
+  recruitingUnread?: number;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreActive = !!active && !PRIMARY_KEYS.includes(active);
@@ -95,13 +100,23 @@ export function BottomNav({
     { href: "/settings/baseline", label: "기준" },
     { href: "/boards", label: "게시판", badge: boardUnread },
     { href: "/promotion", label: "판촉물", badge: promoUnread },
+    ...(recruitingEnabled
+      ? [{ href: "/recruiting", label: "설계사 영입", badge: recruitingUnread }]
+      : []),
     { href: "/notifications", label: "알림" },
     ...(isManager ? [{ href: "/manager", label: "관리직 KPI" }] : []),
     ...(isAdmin ? [{ href: "/admin", label: "관리자", badge: adminUnread }] : []),
     { href: "/settings/account", label: "내 계정" },
   ];
   // 더보기 안에 숨은 항목들의 합 — 더보기 탭에 롤업 배지로 표시(모바일).
-  const moreBadge = boardUnread + promoUnread + (isAdmin ? adminUnread : 0);
+  const moreBadge = rollupMoreUnread({
+    board: boardUnread,
+    promotion: promoUnread,
+    admin: adminUnread,
+    recruiting: recruitingUnread,
+    isAdmin,
+    recruitingEnabled,
+  });
 
   const tabCls = (on: boolean) =>
     `flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold transition ${

@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import environ
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -41,6 +42,7 @@ LOCAL_APPS = [
     'inpa.booking',        # 미팅 예약 (Calendly식 내장 — 슬롯/미팅, 공개 /b/<token>, owner 전용)
     'inpa.dashboard',      # 대시보드 월별 목표 (수동 설정 + 실적 계산, owner 전용)
     'inpa.schedule',       # 개인 일정/할일/고정 차단 (캘린더, owner 전용 — 예약과 별도)
+    'inpa.recruiting',     # 설계사 영입 페이지·지원자·정착 관리 (고객 도메인과 완전 분리)
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -82,6 +84,11 @@ DATABASES = {
     }
 }
 
+# DB rollbacks don't reset throttle/login counters. The test-only runner clears
+# cache state before each sequential test case and rejects --parallel; runtime
+# cache behavior and limits are unchanged.
+TEST_RUNNER = 'inpa.core.test_runner.CacheIsolatedTestRunner'
+
 # ── 인증 ─────────────────────────────────────────────────────────
 AUTH_USER_MODEL = 'accounts.User'  # 이메일/비밀번호 전용 (카카오 OAuth 폐기)
 
@@ -92,6 +99,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
+
+INSURANCE_IMPORT_THROTTLE_RATES = {
+    'ocr': '20/hour',
+    'insurance_import': '600/hour',
+    'insurance_import_source': '120/hour',
+}
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -112,13 +125,17 @@ REST_FRAMEWORK = {
         'self_diagnosis': '5/hour',
         'consent_public': '10/hour',  # 고객 본인 동의 공개 경로(P3c) — 남용 방어
         'booking_public': '20/hour',  # 미팅 예약 공개 경로 — 슬롯 조회+예약(읽기 잦음)
-        'ocr': '20/hour',             # 인증 OCR(Claude Opus) 비용폭탄 방어 — 유저별
+        **INSURANCE_IMPORT_THROTTLE_RATES,
         'share_public': '60/hour',    # 공유뷰 /s/ — DB write/연산 증폭 DoS 방어
         'auth_email': '5/hour',       # 가입/인증재발송/비번재설정 — 이메일 폭탄 방어
         'admin_login': '5/min',       # 관리자 로그인 무차별 대입 방어(IP 기준)
         'job_runner': '10/hour',      # 일일 배치 트리거 /jobs/run-daily/ — 토큰 대입/재실행 폭탄 방어
         'invite_info': '30/hour',     # 팀 초대 정보 공개 조회(/manager/invite-info/) — 토큰 대입 방어
         'feedback': '10/hour',        # 피드백 위젯 공개 제출(/feedback/) — 익명 스팸 방어
+        'recruiting_public': '120/hour',
+        'recruiting_apply': '10/hour',
+        'recruiting_apply_campaign': '30/day',
+        'recruiting_join': '20/hour',
     },
 }
 
@@ -171,12 +188,60 @@ ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', default='')
 CLAUDE_API_KEY = ANTHROPIC_API_KEY
 
 # ── Claude 모델 정본 (BE 비용 거버넌스) ────────────────────────────
-# 추측 금지·하드코딩 금지: 모델 ID는 settings(env)에서만 주입.
-#  - 정확도-critical(증권 OCR 파싱·담보 정규화·갈아타기 비교) = Opus 4.8
-#  - 대량·저비용(다건 OCR·메시지 생성) = Haiku 4.5
-# 과거 하드코딩 'claude-sonnet-4-20250514' 는 제거됨(claude_parser 가 settings 에서 읽음).
-CLAUDE_MODEL_PARSE = env('CLAUDE_MODEL_PARSE', default='claude-opus-4-8')
-CLAUDE_MODEL_BULK = env('CLAUDE_MODEL_BULK', default='claude-haiku-4-5')
+# 추측 금지·하드코딩 금지: 정확도 경로와 대량 경로 모두 env에서만 주입한다.
+# 비어 있으면 각 호출 지점이 외부 요청 전에 안전하게 중단한다.
+CLAUDE_MODEL_PARSE = env('CLAUDE_MODEL_PARSE', default='')
+CLAUDE_MODEL_BULK = env('CLAUDE_MODEL_BULK', default='')
+
+# ── 보험증권 검토형 가져오기(기본 닫힘) ────────────────────────────
+# 기능 게이트는 운영 검증·승인 전까지 닫아 둔다. 모델 ID 역시 env에서만 주입한다.
+INSURANCE_REVIEW_GATE_ENABLED = env.bool(
+    'INSURANCE_REVIEW_GATE_ENABLED', default=False)
+# 합성 staging 부하 자료 생성·정리는 별도 스위치를 한 번 더 열어야 한다.
+# 운영과 일반 staging 시작값은 항상 닫힘이다.
+INSURANCE_LOAD_TEST_ENABLED = env.bool(
+    'INSURANCE_LOAD_TEST_ENABLED', default=False)
+INSURANCE_SOURCE_RETENTION_HOURS = env.int(
+    'INSURANCE_SOURCE_RETENTION_HOURS', default=24)
+INSURANCE_IMPORT_PER_OWNER_LIMIT = env.int(
+    'INSURANCE_IMPORT_PER_OWNER_LIMIT', default=2)
+INSURANCE_IMPORT_GLOBAL_LIMIT = env.int(
+    'INSURANCE_IMPORT_GLOBAL_LIMIT', default=4)
+INSURANCE_MAX_PAGES = env.int('INSURANCE_MAX_PAGES', default=300)
+INSURANCE_MAX_EXTRACTED_CHARS = env.int(
+    'INSURANCE_MAX_EXTRACTED_CHARS', default=500_000)
+INSURANCE_MAX_CANDIDATES = env.int('INSURANCE_MAX_CANDIDATES', default=2_000)
+INSURANCE_MAX_QUEUED_PER_OWNER = env.int(
+    'INSURANCE_MAX_QUEUED_PER_OWNER', default=10)
+# Untrusted PDF parsing runs in a disposable child. Linux applies CPU and
+# address-space hard limits before pdfplumber is imported; every platform also
+# has the parent-enforced wall timeout.
+INSURANCE_PDF_SANDBOX_CPU_SECONDS = env.int(
+    'INSURANCE_PDF_SANDBOX_CPU_SECONDS', default=60)
+INSURANCE_PDF_SANDBOX_WALL_SECONDS = env.int(
+    'INSURANCE_PDF_SANDBOX_WALL_SECONDS', default=90)
+INSURANCE_PDF_SANDBOX_MEMORY_MB = env.int(
+    'INSURANCE_PDF_SANDBOX_MEMORY_MB', default=384)
+
+# 작업 메시지는 job UUID만 전달하며 역직렬화 가능한 형식을 JSON으로 제한한다.
+CELERY_BROKER_URL = env('REDIS_URL', default='redis://localhost:6379/0')
+CELERY_TASK_DEFAULT_QUEUE = 'insurance_imports'
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_SOFT_TIME_LIMIT = 420
+CELERY_TASK_TIME_LIMIT = 480
+# Child recycling is defense-in-depth for cumulative worker growth. The
+# disposable PDF subprocess limits above are the hard per-document boundary.
+CELERY_WORKER_MAX_TASKS_PER_CHILD = env.int(
+    'CELERY_WORKER_MAX_TASKS_PER_CHILD', default=10)
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = env.int(
+    'CELERY_WORKER_MAX_MEMORY_PER_CHILD', default=180_000)
+CELERY_BROKER_TRANSPORT_OPTIONS = {'visibility_timeout': 600}
 
 # ── Claude 비용 추정 환율 (프리런치 #17, billing/pricing.py) ────────────
 # 원/달러 환율 추정치 — 어드민 관측용 cost_krw 계산에만 쓰인다(정밀 청구서 아님, §6 정직성).
@@ -184,6 +249,7 @@ CLAUDE_USD_KRW_RATE = env.float('CLAUDE_USD_KRW_RATE', default=1400.0)
 
 # ── CORS ─────────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=['http://localhost:3000'])
+CORS_ALLOW_HEADERS = (*default_headers, 'idempotency-key')
 
 # ── i18n ─────────────────────────────────────────────────────────
 LANGUAGE_CODE = 'ko-kr'
@@ -197,6 +263,27 @@ STATIC_URL = 'static/'
 # 로컬·단일 인스턴스용. 운영 다중 인스턴스는 S3 등 오브젝트 스토리지로 전환 필요(추후).
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+AWS_STORAGE_BUCKET_NAME = env('AWS_STORAGE_BUCKET_NAME', default='')
+
+# 보험증권 원본은 공개 media 경로와 분리한다. 운영은 prod.py에서 private R2로 교체한다.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        'OPTIONS': {'location': MEDIA_ROOT, 'base_url': MEDIA_URL},
+    },
+    'insurance_sources': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        'OPTIONS': {
+            'location': BASE_DIR / 'private' / 'insurance_sources',
+            'base_url': None,
+            'file_permissions_mode': 0o600,
+            'directory_permissions_mode': 0o700,
+        },
+    },
+    'staticfiles': {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+    },
+}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -207,6 +294,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'filters': {
+        'redact_insurance_source_tokens': {
+            '()': 'inpa.core.logging_filters.RedactInsuranceSourceTokenFilter',
+        },
+    },
     'formatters': {
         'simple': {
             'format': '{levelname} {asctime} {name} {message}',
@@ -217,6 +309,7 @@ LOGGING = {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
+            'filters': ['redact_insurance_source_tokens'],
         },
     },
     'root': {'handlers': ['console'], 'level': 'INFO'},
@@ -236,12 +329,12 @@ FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
 # (FREE_TIER_UNLIMITED 관례와 동일).
 FIRST_PAID_BONUS_ENABLED = env.bool('FIRST_PAID_BONUS_ENABLED', default=False)
 
-# ── 팀(매니저) 기능 권한 게이트 (Manager 요금제, spec 2026-07-09) ─────────────
-# ★ 기본 False(dormant) — 베타 중엔 Manager 결제자가 없으므로 켜면 팀 기능이 전원 잠긴다.
+# ── 팀 기능 capability 게이트 (Plus + legacy Manager/Super) ──────────────────
+# ★ 기본 False(dormant) — 유료 전환 전에 켜면 capability 없는 구독자의 팀 기능이 잠긴다.
 #   COMPARE_AI_ENABLED와 동일 관례: ship dormant, 유료 전환 시점에 env로만 flip(재배포 무관).
-#   True면 /manager 대시보드·팀 초대 링크가 Plan.can_use_team=True인 활성 구독자(Manager 요금제)
-#   전용이 되고, 그 외는 402 {code:'manager_plan_required'}. FREE_TIER_UNLIMITED(쿼터 우회)과는
-#   독립된 capability 게이트다.
+#   True면 /manager 대시보드·팀 초대 링크가 Plan.can_use_team=True인 활성·미만료 구독자
+#   (Plus·legacy Manager·Super)에게만 열리고, 그 외는 402 {code:'manager_plan_required'}.
+#   FREE_TIER_UNLIMITED(쿼터 우회)과는 독립된 capability 게이트다.
 MANAGER_PLAN_GATE_ENABLED = env.bool('MANAGER_PLAN_GATE_ENABLED', default=False)
 
 # ── 인바운드 리드 보유기간 자동 파기 (PIPA 보유기간, PM 확정 180일) ─────────
@@ -298,3 +391,10 @@ REQUIRE_CUSTOMER_SELF_CONSENT = env.bool('REQUIRE_CUSTOMER_SELF_CONSENT', defaul
 BOOKING_ENABLED = env.bool('BOOKING_ENABLED', default=True)
 BOOKING_EMAIL_ENABLED = env.bool('BOOKING_EMAIL_ENABLED', default=False)
 BOOKING_TOKEN_TTL_HOURS = env.int('BOOKING_TOKEN_TTL_HOURS', default=72)
+
+# 설계사 영입은 개인정보 동의 경로가 완성된 뒤 운영에서 명시적으로 연다.
+RECRUITING_ENABLED = env.bool('RECRUITING_ENABLED', default=False)
+# Consent wording and versioning are code-controlled. Changing this period requires
+# a reviewed consent-text version bump, so it is intentionally not an env toggle.
+RECRUITING_RETENTION_DAYS = 180
+RECRUITING_TOMBSTONE_DAYS = env.int('RECRUITING_TOMBSTONE_DAYS', default=30)

@@ -32,18 +32,22 @@ from pathlib import Path
 
 from inpa.analysis.management.commands.seed_normalization import NORMALIZATION_V0
 from inpa.analysis.models import NormalizationDict
-from inpa.core.ocr.claude_parser import _match_by_keywords
+from inpa.core.ocr.claude_parser import _is_treatment_only, _match_by_keywords
+from inpa.core.ocr.ocrparsing import _is_fixed_benefit_inpatient
 from inpa.insurances.coverage_bridge import resolve_std_detail
 
 DATA_PATH = Path(__file__).resolve().parent / 'data' / 'golden_set.json'
 
 # ── 정확도 회귀 방지선(ratchet) ──
+# 2026-07-17 실측(도수치료 경로 교정 + 복합 암 사람 확인 경계): 0.7250
+#   (174/240). 앵커 23건, 위험 자동오매핑 0건, 사람 확인 66건.
+#   이 비율은 운영 OCR 정확도가 아니라 폴백 키워드의 정확 자동매핑 재현율이다.
 # 2026-07-09c 실측(담보 세분류 개별 인식 (b) 수정 후): 0.7125 (171/240). 앵커 23건.
 #   → 소액암·갑상선암(유사암 경로에서 분리)/특정암(일반암 경로에서 분리)/질병후유장해·
 #     고도후유장해(상해후유장애 경로에서 분리)를 표준 트리 기존 leaf로 개별 라우팅
 #     (PARSER_TO_STD 5건 추가 + COVERAGE_KEYWORDS 5개 전용 경로 신설). 13건 교정
 #     (157→170) + 신규 앵커 '특정암진단비' 1건 추가 통과(170→171/240).
-#   ※ '특정(소액)암진단비'류(괄호 삽입, (e))는 여전히 실패 — 이번 스코프 아님(별도 노트).
+#   ※ 당시 '특정(소액)암진단비'류는 미해결. 2026-07-17 사람 확인 경계로 전환 완료.
 #   ※ 입원일당(c)은 '건드리지 않음': _match_coverage 가 base 입원일당을 의도적으로 None(미매칭)
 #     처리하고 prod 는 Claude _CATEGORY_MAP 으로 배치한다(실손 오염 방지 백스톱, 회귀테스트로 고정).
 #     키워드 이동은 그 설계를 깨므로 반려.
@@ -64,7 +68,8 @@ DATA_PATH = Path(__file__).resolve().parent / 'data' / 'golden_set.json'
 # (c) 위 스코프 한계로 정액 입원일당이 실손 경로로 오분류, (d) '사망보험금'/'사망보장' 같은
 # 범용 키워드가 '재해사망보험금'/'질병사망보장' 등 구체 복합어의 tail-substring 으로 먼저
 # 매칭(§7 substring 트랩과 동일 계열, 2026-07-09 수정 완료), (e) '특정(소액)암진단비'처럼
-# 괄호 삽입어가 키워드 연속성을 끊어 구체 키워드 대신 범용 '암진단' 으로 흡수(이번 스코프 아님).
+# 하나의 표준 위치로 확정하기 어려운 복합 암 표기는 2026-07-17부터 자동 저장을 차단하고
+# 비동기 검토 초안에서 설계사가 원문을 확인해 직접 위치를 선택하도록 전환.
 # (a) 기저 수술·처치는 2026-05-12 PM 정책 '진단 금액만 진단비 버킷'으로 의도적 미매칭(버그 아님).
 # (c) 입원일당은 키워드 매처가 의도적 None(prod는 Claude 카테고리로 배치, 위 참조) — 건드리지 않음.
 # ★ 스코프 노트(2026-07-09c): 이번 수정은 폴백 키워드 매처(COVERAGE_KEYWORDS/PARSER_TO_STD +
@@ -75,7 +80,11 @@ DATA_PATH = Path(__file__).resolve().parent / 'data' / 'golden_set.json'
 #   Claude 프롬프트 미준수 시엔 부모(유사암/일반암/상해후유장해)로 graceful 폴백(크래시 없음).
 #   골든 채점은 폴백 매처만 재현하므로 라이브 세분류는 insurances/tests.py::
 #   CoverageSubtypeSplitLiveTests(mock SDK)로 실증. 실 Claude 스팟체크는 배포 후 권장.
-GOLDEN_SET_MIN_ACCURACY = 0.70
+GOLDEN_SET_MIN_ACCURACY = 174 / 240
+GOLDEN_SET_MIN_EXACT_AUTO_MAPPED = 174
+EVALUATION_SCOPE = 'fallback_golden_set_only'
+EVALUATION_SCOPE_NOTE = (
+    '폴백 키워드 골든셋의 분기 결과이며 운영 OCR 정확도가 아닙니다.')
 
 
 def load_golden_set():
@@ -137,7 +146,9 @@ def evaluate_golden_set(entries=None):
     """골든셋 채점. 순수 함수(부작용 0) — DB 읽기만.
 
     반환: {total, passed, failed, accuracy, anchor_total, anchor_passed,
-           failures:[{company, raw_name, expected, got}], anchor_failures:[...]}
+           exact_auto_mapped, safe_human_review, unsafe_auto_mapped,
+           safe_decision_rate, failures:[...], unsafe_failures:[...],
+           anchor_failures:[...]}
     """
     if entries is None:
         entries = load_golden_set()
@@ -146,6 +157,8 @@ def evaluate_golden_set(entries=None):
     anchor_total = anchor_passed = 0
     failures = []
     anchor_failures = []
+    safe_review_failures = []
+    unsafe_failures = []
 
     for entry in entries:
         company = entry['company']
@@ -169,20 +182,46 @@ def evaluate_golden_set(entries=None):
                 'expected': expected, 'got': got,
             }
             failures.append(failure)
+            if _is_safe_human_review(raw_name, got):
+                safe_review_failures.append(failure)
+            else:
+                unsafe_failures.append(failure)
             if is_anchor:
                 anchor_failures.append(failure)
 
     accuracy = passed / total if total else 0.0
+    exact_auto_mapped = passed
+    safe_human_review = len(safe_review_failures)
+    unsafe_auto_mapped = len(unsafe_failures)
+    safe_decision_rate = (
+        (exact_auto_mapped + safe_human_review) / total if total else 0.0)
     return {
         'total': total,
         'passed': passed,
         'failed': total - passed,
         'accuracy': accuracy,
+        'exact_auto_mapped': exact_auto_mapped,
+        'safe_human_review': safe_human_review,
+        'unsafe_auto_mapped': unsafe_auto_mapped,
+        'safe_decision_rate': safe_decision_rate,
         'anchor_total': anchor_total,
         'anchor_passed': anchor_passed,
         'failures': failures,
+        'safe_review_failures': safe_review_failures,
+        'unsafe_failures': unsafe_failures,
         'anchor_failures': anchor_failures,
     }
+
+
+def _is_safe_human_review(raw_name, got):
+    """폴백 결과가 운영 가드에서 차단되거나 미매칭이면 사람 확인으로 분류."""
+    if got is None:
+        return True
+    if got == '실손입원급여' and _is_fixed_benefit_inpatient(raw_name):
+        return True
+    if got.endswith('진단비') and _is_treatment_only(raw_name):
+        return True
+    return False
 
 
 def find_golden_expected(company, raw_name):

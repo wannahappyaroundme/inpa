@@ -14,6 +14,12 @@ import {
   HeroPosterSection, ProductPreviewSection, AIPipelineSection, BrandDefinitionSection, PlannerJourneySection, SalesProcessMapSection,
   ClosingHeroSection, PersonaSection, PricingFourTiers,
 } from "@/components/brand-story-sections";
+import { BrandLandingProvider } from "@/components/landing-link";
+
+// new.inpa.kr에서 서비스(로그인·가입·블로그·약관 등)는 실제로 www에만 있다 →
+// 랜딩 링크는 www 절대주소를 직접 가리키는 바깥 링크로 렌더한다(교차도메인 RSC 프리페치·CORS 원천 차단).
+// ★ www 통합 시: 이 값을 ""로 바꾸면 모든 링크가 내부 <Link>로 복귀 + PricingFourTiers가 다시 BE를 조회한다.
+const APP_BASE = "https://www.inpa.kr";
 
 // new.inpa.kr 시네마 랜딩 — 게이트(소리 허용) → 소등 → 장면 6개(클릭 전환, 크로스 디졸브) →
 // "불 켜짐" 엔딩 → 스크롤 랜딩. 계측 + UTM 포함.
@@ -238,18 +244,21 @@ export function CinemaLanding() {
     const href = a.getAttribute("href") ?? "";
     if (!href.includes("/register") && !href.includes("/login")) return;
     try {
+      // 랜딩 링크는 www 절대주소(new.inpa.kr)이므로 origin을 보존해야 한다
+      // (pathname만 남기면 다시 상대경로가 되어 교차도메인 리다이렉트 문제로 되돌아간다).
       const url = new URL(href, window.location.origin);
       if (!url.searchParams.has("utm_source")) {
         url.searchParams.set("utm_source", "new_inpa_kr");
         url.searchParams.set("utm_medium", "brand_landing");
         url.searchParams.set("utm_campaign", "cinema");
-        a.setAttribute("href", `${url.pathname}${url.search}`);
+        a.setAttribute("href", `${url.origin}${url.pathname}${url.search}`);
       }
     } catch { /* 원본 href 유지 */ }
     cinemaTrack("cinema_cta", { href });
   }, []);
 
   const landing = (
+    <BrandLandingProvider appBase={APP_BASE}>
     <div onClickCapture={onLandingClickCapture}>
       <LandingHeader />
       <main>
@@ -273,6 +282,7 @@ export function CinemaLanding() {
       </main>
       <LandingFooter />
     </div>
+    </BrandLandingProvider>
   );
 
   if (mode === "landing") return landing;

@@ -1,0 +1,233 @@
+# Inpa insurance review staging blueprint.
+# This file intentionally uses no production service name or shared resource.
+databases:
+  - name: inpa-insurance-db-staging
+    databaseName: inpa_insurance_staging
+    plan: basic-256mb
+    region: oregon
+    ipAllowList: []
+
+services:
+  - type: web
+    name: inpa-be-staging
+    runtime: python
+    plan: starter
+    region: oregon
+    rootDir: inpa_be
+    healthCheckPath: /healthz/
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      DATABASE_URL=postgres://build:build@localhost:5432/build
+      SECRET_KEY=build-only-not-a-secret
+      python manage.py collectstatic --noinput
+    startCommand: >-
+      python manage.py migrate --noinput &&
+      python manage.py createcachetable &&
+      python manage.py seed_normalization &&
+      python manage.py seed_jobs &&
+      python manage.py seed_promotion &&
+      python manage.py seed_billing &&
+      python manage.py seed_boards &&
+      gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inpa-insurance-db-staging
+          property: connectionString
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: FRONTEND_BASE_URL
+        sync: false
+      - key: INSURANCE_REVIEW_GATE_ENABLED
+        value: "False"
+      - key: INSURANCE_LOAD_TEST_ENABLED
+        value: "False"
+      - key: COMPARE_AI_ENABLED
+        value: "False"
+      - key: COMPARE_PUBLISH_ENABLED
+        value: "False"
+      - key: ANALYZE_MEDICAL_ENABLED
+        value: "False"
+      - key: FREE_TIER_UNLIMITED
+        value: "True"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: inpa-insurance-queue-staging
+          property: connectionString
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CLAUDE_MODEL_PARSE
+        sync: false
+      - key: CLAUDE_MODEL_BULK
+        sync: false
+      - key: AWS_STORAGE_BUCKET_NAME
+        value: "inpa-insurance-staging"
+      - key: AWS_S3_REGION_NAME
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_ENDPOINT_URL
+        sync: false
+
+  - type: keyvalue
+    name: inpa-insurance-queue-staging
+    plan: starter
+    region: oregon
+    maxmemoryPolicy: noeviction
+    persistenceMode: journal-snapshot
+    ipAllowList: []
+
+  - type: worker
+    name: inpa-insurance-worker-staging
+    runtime: python
+    # 운영과 같은 동시 4건 부하 검증을 위해 2GB/1CPU를 맞춘다.
+    plan: standard
+    region: oregon
+    rootDir: inpa_be
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A config worker -l INFO -Q insurance_imports --concurrency 4
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: INSURANCE_REVIEW_GATE_ENABLED
+        value: "False"
+      - key: INSURANCE_LOAD_TEST_ENABLED
+        value: "False"
+      - key: COMPARE_AI_ENABLED
+        value: "False"
+      - key: COMPARE_PUBLISH_ENABLED
+        value: "False"
+      - key: ANALYZE_MEDICAL_ENABLED
+        value: "False"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: inpa-insurance-queue-staging
+          property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: SECRET_KEY
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inpa-insurance-db-staging
+          property: connectionString
+      - key: ANTHROPIC_API_KEY
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: ANTHROPIC_API_KEY
+      - key: CLAUDE_MODEL_PARSE
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: CLAUDE_MODEL_PARSE
+      - key: CLAUDE_MODEL_BULK
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: CLAUDE_MODEL_BULK
+      - key: AWS_STORAGE_BUCKET_NAME
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: AWS_STORAGE_BUCKET_NAME
+      - key: AWS_S3_REGION_NAME
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: AWS_S3_REGION_NAME
+      - key: AWS_ACCESS_KEY_ID
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: AWS_ACCESS_KEY_ID
+      - key: AWS_SECRET_ACCESS_KEY
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: AWS_SECRET_ACCESS_KEY
+      - key: AWS_S3_ENDPOINT_URL
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: AWS_S3_ENDPOINT_URL
+
+  - type: cron
+    name: inpa-insurance-source-cleanup-staging
+    runtime: python
+    plan: starter
+    region: oregon
+    rootDir: inpa_be
+    schedule: "0 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python manage.py cleanup_insurance_imports
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: INSURANCE_REVIEW_GATE_ENABLED
+        value: "False"
+      - key: INSURANCE_LOAD_TEST_ENABLED
+        value: "False"
+      - key: COMPARE_AI_ENABLED
+        value: "False"
+      - key: COMPARE_PUBLISH_ENABLED
+        value: "False"
+      - key: ANALYZE_MEDICAL_ENABLED
+        value: "False"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: inpa-insurance-queue-staging
+          property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: SECRET_KEY
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inpa-insurance-db-staging
+          property: connectionString
+      - key: AWS_STORAGE_BUCKET_NAME
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: AWS_STORAGE_BUCKET_NAME
+      - key: AWS_S3_REGION_NAME
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: AWS_S3_REGION_NAME
+      - key: AWS_ACCESS_KEY_ID
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: AWS_ACCESS_KEY_ID
+      - key: AWS_SECRET_ACCESS_KEY
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: AWS_SECRET_ACCESS_KEY
+      - key: AWS_S3_ENDPOINT_URL
+        fromService:
+          type: web
+          name: inpa-be-staging
+          envVarKey: AWS_S3_ENDPOINT_URL

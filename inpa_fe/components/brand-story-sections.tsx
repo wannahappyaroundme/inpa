@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { Check, Users, Phone, BarChart3, CalendarClock, Gift, type LucideIcon } from "lucide-react";
 import { Reveal } from "@/components/reveal";
 import { InpaMark } from "@/components/inpa-logo";
+import { LandingLink, useBrandLanding } from "@/components/landing-link";
 import { getBillingEvent } from "@/lib/api";
 
 // new.inpa.kr 스크롤 파트 전용 브랜드 섹션. 시안 landing_page.pdf p1(포스터)·p9~p14.
@@ -102,7 +102,7 @@ export function ProductPreviewSection() {
           </Reveal>
         </div>
         <Reveal delay={220} className="mt-10">
-          <Link href="/register" className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition shadow-lg">무료로 시작하기</Link>
+          <LandingLink href="/register" className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition shadow-lg">무료로 시작하기</LandingLink>
           <p className="mt-3 text-[13px] text-[var(--ink-3)]">신용카드 불필요 · 이메일로 가입</p>
         </Reveal>
       </div>
@@ -381,13 +381,17 @@ export function PricingFourTiers() {
   // 첫 결제 보너스 이벤트가 실제 켜져 있을 때만 이벤트 문구를 노출(§6 정직성). 기본 false.
   // 연 결제 할인(2개월 무료)은 실제 가격이므로 항상 노출한다.
   const [bonusEnabled, setBonusEnabled] = useState(false);
+  const { appBase } = useBrandLanding();
   useEffect(() => {
+    // new.inpa.kr(브랜드 랜딩)에선 BE를 호출하지 않는다(교차도메인 CORS 회피).
+    // www 통합 시 appBase=""가 되면 자동으로 다시 조회한다.
+    if (appBase) return;
     let alive = true;
     getBillingEvent()
       .then((e) => { if (alive) setBonusEnabled(e.first_paid_bonus_enabled); })
       .catch(() => { if (alive) setBonusEnabled(false); });
     return () => { alive = false; };
-  }, []);
+  }, [appBase]);
   return (
     <section className="py-20 md:py-28 bg-[var(--surface)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -437,7 +441,7 @@ export function PricingFourTiers() {
           </div>
         </Reveal>
         <div className="mt-10 text-center">
-          <Link href="/register" className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition">무료로 시작하기</Link>
+          <LandingLink href="/register" className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition">무료로 시작하기</LandingLink>
         </div>
       </div>
     </section>

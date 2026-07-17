@@ -32,6 +32,7 @@ from .models import (
     BOARD_NOTIF_TYPES,
     CUSTOMER_NOTIF_TYPES,
     PROMOTION_NOTIF_TYPES,
+    RECRUITING_NOTIF_TYPES,
     SCHEDULE_NOTIF_TYPES,
     Notification,
     ReminderRule,
@@ -96,6 +97,7 @@ class NotificationViewSet(OwnedQuerySetMixin, viewsets.GenericViewSet):
             'board': tally(BOARD_NOTIF_TYPES),
             'promotion': tally(PROMOTION_NOTIF_TYPES),
             'admin': tally(ADMIN_NOTIF_TYPES),
+            'recruiting': tally(RECRUITING_NOTIF_TYPES),
         })
 
     # ── POST /notifications/read-all/ ─────────────────────────────

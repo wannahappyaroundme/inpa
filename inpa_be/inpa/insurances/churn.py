@@ -12,6 +12,8 @@
 """
 import datetime
 
+from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound
@@ -96,6 +98,7 @@ def _serialize(ci, today):
         'customer_id': ci.customer_id,
         'customer_name': ci.customer.name,
         'insurance_name': ci.name,
+        'data_version': ci.data_version,
         'current_payment_period': period,            # 계약일 자동계산(또는 수기)
         'payment_status': ci.payment_status,         # 호환 유지(FE 미표시)
         'next_payment_date': ci.next_payment_date.isoformat() if ci.next_payment_date else None,
@@ -147,21 +150,29 @@ class InsuranceChurnView(_OwnerScopedMixin, APIView):
 
     def patch(self, request, pk):
         try:
-            ci = self._owned_held_insurances().get(pk=pk)
+            scoped = self._owned_held_insurances().get(pk=pk)
         except CustomerInsurance.DoesNotExist:
             raise NotFound('보험을 찾을 수 없습니다.')
 
         errors = {}
+        unknown = set(request.data) - {*self.ALLOWED, 'data_version'}
+        for field in unknown:
+            errors[field] = '이 항목은 수정할 수 없어요.'
+        expected_version = request.data.get('data_version')
+        if (type(expected_version) is not int or expected_version < 1):
+            errors['data_version'] = '최신 보험 내용을 확인해 주세요.'
+        changes = {}
         for field in self.ALLOWED:
             if field not in request.data:
                 continue
             val = request.data.get(field)
             if field == 'is_cancelled':
                 # 해지 여부(bool). 빈값 = False.
-                ci.is_cancelled = str(val).lower() in ('1', 'true', 'yes', 'on')
+                changes[field] = str(val).lower() in (
+                    '1', 'true', 'yes', 'on')
                 continue
             if val in ('', None):
-                setattr(ci, field, None)
+                changes[field] = None
                 continue
             if field == 'cancelled_at':
                 # 해지일은 'YYYY-MM-DD' 문자열로 보관(형식 검증만).
@@ -175,7 +186,7 @@ class InsuranceChurnView(_OwnerScopedMixin, APIView):
                 if parsed is None:
                     errors[field] = '날짜 형식(YYYY-MM-DD)이 올바르지 않습니다.'
                 else:
-                    ci.cancelled_at = parsed.isoformat()
+                    changes[field] = parsed.isoformat()
                 continue
             if field == 'next_payment_date':
                 parsed = None
@@ -188,7 +199,7 @@ class InsuranceChurnView(_OwnerScopedMixin, APIView):
                 if parsed is None:
                     errors[field] = '날짜 형식(YYYY-MM-DD)이 올바르지 않습니다.'
                 else:
-                    ci.next_payment_date = parsed
+                    changes[field] = parsed
             elif field == 'payment_status':
                 try:
                     iv = int(val)
@@ -198,7 +209,7 @@ class InsuranceChurnView(_OwnerScopedMixin, APIView):
                 if iv not in (1, 2, 3):
                     errors[field] = '납입상태는 1(정상)/2(연체)/3(납입중단)만 허용됩니다.'
                 else:
-                    ci.payment_status = iv
+                    changes[field] = iv
             else:  # current_payment_period, expected_recovery_amount
                 try:
                     iv = int(val)
@@ -208,15 +219,53 @@ class InsuranceChurnView(_OwnerScopedMixin, APIView):
                 if iv < 0:
                     errors[field] = '0 이상 값만 허용됩니다.'
                 else:
-                    setattr(ci, field, iv)
+                    changes[field] = iv
+
+        if not changes and not errors:
+            errors['non_field_errors'] = '수정할 항목을 입력해 주세요.'
 
         if errors:
             return Response({'code': 'VALIDATION', 'errors': errors},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        ci.save(update_fields=list(self.ALLOWED) + ['updated_at'])
-        if 'is_cancelled' in request.data or 'cancelled_at' in request.data:
-            Customer.objects.filter(pk=ci.customer_id).update(last_contacted_at=timezone.now())
+        with transaction.atomic():
+            customer_qs = Customer.objects.select_for_update().filter(
+                pk=scoped.customer_id)
+            if not self._is_admin():
+                customer_qs = customer_qs.filter(owner=request.user)
+            try:
+                customer = customer_qs.get()
+            except Customer.DoesNotExist as exc:
+                raise NotFound('보험을 찾을 수 없습니다.') from exc
+            try:
+                ci = self._owned_held_insurances().select_for_update().get(
+                    pk=pk, customer=customer)
+            except CustomerInsurance.DoesNotExist as exc:
+                raise NotFound('보험을 찾을 수 없습니다.') from exc
+            if ci.data_version != expected_version:
+                return Response({
+                    'code': 'INSURANCE_VERSION_CHANGED',
+                    'detail': '다른 화면에서 내용이 바뀌었어요. 최신 내용을 확인해 주세요.',
+                    'current_version': ci.data_version,
+                }, status=status.HTTP_409_CONFLICT)
+            now = timezone.now()
+            updated = CustomerInsurance.objects.filter(
+                pk=ci.pk, data_version=expected_version,
+            ).update(
+                **changes,
+                data_version=F('data_version') + 1,
+                updated_at=now,
+            )
+            if updated != 1:
+                return Response({
+                    'code': 'INSURANCE_VERSION_CHANGED',
+                    'detail': '다른 화면에서 내용이 바뀌었어요. 최신 내용을 확인해 주세요.',
+                    'current_version': ci.data_version,
+                }, status=status.HTTP_409_CONFLICT)
+            if {'is_cancelled', 'cancelled_at'}.intersection(changes):
+                customer.last_contacted_at = now
+                customer.save(update_fields=('last_contacted_at',))
+            ci.refresh_from_db()
         return Response(_serialize(ci, timezone.localdate()))  # ★ KST 기준(§7)
 
 
