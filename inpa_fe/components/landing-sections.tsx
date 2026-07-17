@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { LandingLink } from "@/components/landing-link";
 import { InpaMark } from "@/components/inpa-logo";
 import { Reveal, CountUp } from "@/components/reveal";
 import { LineCompareChart } from "@/components/charts";
@@ -37,9 +38,9 @@ export function LandingHeader() {
           <span className="font-extrabold text-[var(--brand-ink)] text-[18px] tracking-tight">인파</span>
         </Link>
         <div className="flex items-center gap-1 sm:gap-2">
-          <Link href="/blog" className="px-3 sm:px-4 py-2 rounded-xl text-[var(--ink-2)] text-[14px] font-semibold min-h-[44px] flex items-center hover:bg-[var(--surface-2)] transition">블로그</Link>
-          <Link href="/login" className="px-3 sm:px-4 py-2 rounded-xl text-[var(--ink-2)] text-[14px] font-semibold min-h-[44px] flex items-center hover:bg-[var(--surface-2)] transition">로그인</Link>
-          <Link href="/register" className="px-3 sm:px-4 py-2 rounded-xl bg-[var(--brand)] text-white text-[14px] font-semibold min-h-[44px] flex items-center hover:opacity-90 transition">무료로 시작하기</Link>
+          <LandingLink href="/blog" className="px-3 sm:px-4 py-2 rounded-xl text-[var(--ink-2)] text-[14px] font-semibold min-h-[44px] flex items-center hover:bg-[var(--surface-2)] transition">블로그</LandingLink>
+          <LandingLink href="/login" className="px-3 sm:px-4 py-2 rounded-xl text-[var(--ink-2)] text-[14px] font-semibold min-h-[44px] flex items-center hover:bg-[var(--surface-2)] transition">로그인</LandingLink>
+          <LandingLink href="/register" className="px-3 sm:px-4 py-2 rounded-xl bg-[var(--brand)] text-white text-[14px] font-semibold min-h-[44px] flex items-center hover:opacity-90 transition">무료로 시작하기</LandingLink>
         </div>
       </div>
     </header>
@@ -68,7 +69,7 @@ export function HeroSection() {
               증권 한 장으로 고객 보장 공백을 한 화면에. AI 비교안내서 초안까지, 최종 검토는 설계사님이.
             </p>
             <div className="mt-9 flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
-              <Link href="/register" className="w-full sm:w-auto px-7 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/90 transition shadow-lg">무료로 시작하기</Link>
+              <LandingLink href="/register" className="w-full sm:w-auto px-7 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/90 transition shadow-lg">무료로 시작하기</LandingLink>
               <a href="#features" className="w-full sm:w-auto px-7 py-4 rounded-2xl border border-white/25 text-white font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/10 transition">기능 둘러보기</a>
             </div>
             <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 베타 기간 전 기능 무료 · 이메일로 가입</p>
@@ -385,7 +386,7 @@ export function PricingSection() {
             <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
               {free.map((f) => (<li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>))}
             </ul>
-            <Link href="/register" className="mt-auto w-full py-3.5 rounded-xl bg-[var(--brand)] text-white font-bold text-[15px] text-center min-h-[50px] flex items-center justify-center hover:opacity-90 transition">무료로 시작하기</Link>
+            <LandingLink href="/register" className="mt-auto w-full py-3.5 rounded-xl bg-[var(--brand)] text-white font-bold text-[15px] text-center min-h-[50px] flex items-center justify-center hover:opacity-90 transition">무료로 시작하기</LandingLink>
           </Reveal>
           <Reveal delay={90} className="rounded-2xl bg-[var(--surface)] border-2 border-[var(--brand)] p-7 flex flex-col gap-3 relative">
             <div className="flex items-center gap-2">
@@ -398,7 +399,7 @@ export function PricingSection() {
             <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
               {plus.map((f) => (<li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>))}
             </ul>
-            <Link href="/register" className="mt-auto w-full py-3.5 rounded-xl border-2 border-[var(--brand)] text-[var(--brand)] font-bold text-[15px] text-center min-h-[50px] flex items-center justify-center hover:bg-[var(--accent-tint)] transition">베타 신청하기</Link>
+            <LandingLink href="/register" className="mt-auto w-full py-3.5 rounded-xl border-2 border-[var(--brand)] text-[var(--brand)] font-bold text-[15px] text-center min-h-[50px] flex items-center justify-center hover:bg-[var(--accent-tint)] transition">베타 신청하기</LandingLink>
           </Reveal>
           <Reveal delay={180} className="rounded-2xl bg-[var(--surface)] border border-[var(--line)] p-7 flex flex-col gap-3">
             <div className="text-[13px] font-semibold text-[var(--ink-3)] uppercase tracking-wide">Super</div>
@@ -408,7 +409,7 @@ export function PricingSection() {
             <ul className="flex flex-col gap-2.5 text-[14px] text-[var(--ink-2)] mt-1">
               {superPlan.map((f) => (<li key={f} className="flex gap-2 items-start"><Check size={17} className="text-[var(--success)] mt-0.5 shrink-0" strokeWidth={2.4} />{f}</li>))}
             </ul>
-            <Link href="/register" className="mt-auto w-full py-3.5 rounded-xl border border-[var(--line)] text-[var(--ink)] font-bold text-[15px] text-center min-h-[50px] flex items-center justify-center hover:bg-[var(--surface-2)] transition">무료로 먼저 확인해보기</Link>
+            <LandingLink href="/register" className="mt-auto w-full py-3.5 rounded-xl border border-[var(--line)] text-[var(--ink)] font-bold text-[15px] text-center min-h-[50px] flex items-center justify-center hover:bg-[var(--surface-2)] transition">무료로 먼저 확인해보기</LandingLink>
           </Reveal>
         </div>
       </div>
@@ -448,7 +449,7 @@ export function FinalCTASection() {
           지금, 첫 고객의<br /><span style={{ color: MINT }}>보장 공백</span>부터 보세요
         </h2>
         <p className="mt-4 text-[16px] text-white/70">증권 한 장이면 시작입니다. 지금은 베타 기간이라 전 기능 무료예요.</p>
-        <Link href="/register" className="mt-8 inline-flex px-8 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] items-center justify-center hover:bg-white/90 transition shadow-lg">무료로 분석 시작하기</Link>
+        <LandingLink href="/register" className="mt-8 inline-flex px-8 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] items-center justify-center hover:bg-white/90 transition shadow-lg">무료로 분석 시작하기</LandingLink>
         <p className="mt-4 text-[13px] text-white/45">신용카드 불필요 · 이메일로 가입</p>
       </Reveal>
     </section>
@@ -465,11 +466,11 @@ export function LandingFooter() {
             <p className="text-[13px] text-white/55 max-w-xs leading-relaxed">보험설계사의 AI 영업 파트너. 발굴부터 보장분석, 비교 분석까지.</p>
           </div>
           <div className="flex flex-col gap-2.5 text-[13px]">
-            <Link href="/blog" className="text-white/70 hover:text-white transition">블로그</Link>
-            <Link href="/faq" className="text-white/70 hover:text-white transition">자주 묻는 질문</Link>
-            <Link href="/legal/terms" className="text-white/70 hover:text-white transition">이용약관</Link>
-            <Link href="/legal/privacy" className="text-white/70 hover:text-white transition">개인정보처리방침</Link>
-            <Link href="/data-policy" className="text-white/70 hover:text-white transition">데이터 처리 안내</Link>
+            <LandingLink href="/blog" className="text-white/70 hover:text-white transition">블로그</LandingLink>
+            <LandingLink href="/faq" className="text-white/70 hover:text-white transition">자주 묻는 질문</LandingLink>
+            <LandingLink href="/legal/terms" className="text-white/70 hover:text-white transition">이용약관</LandingLink>
+            <LandingLink href="/legal/privacy" className="text-white/70 hover:text-white transition">개인정보처리방침</LandingLink>
+            <LandingLink href="/data-policy" className="text-white/70 hover:text-white transition">데이터 처리 안내</LandingLink>
           </div>
         </div>
         <div className="mt-10 pt-6 border-t border-white/15 text-[12px] text-white/40 flex flex-col items-center gap-1 text-center">
