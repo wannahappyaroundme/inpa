@@ -78,9 +78,14 @@ export function getCandidateContactStatusLabel(
   contactOptedOut: boolean,
 ): string {
   if (contactOptedOut) return "연락 중단 기록 있음";
-  if (stage === "ended") return "대화 종료";
   if (stage === "team_join") return "팀 합류";
   return "연락 중단 기록 없음";
+}
+
+export function focusAdminRecruitingTarget(
+  target: { isConnected: boolean; focus: () => void } | null,
+): void {
+  if (target?.isConnected) target.focus();
 }
 
 export function shouldRefreshCandidatesAfterPurge(

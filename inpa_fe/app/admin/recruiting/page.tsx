@@ -37,6 +37,7 @@ import {
   RECRUITING_STAGE_LABELS,
   RECRUITING_TEMPLATE_KIND_LABELS,
   createLatestRequestGate,
+  focusAdminRecruitingTarget,
   getAdminRecruitingFailure,
   getCandidateContactStatusLabel,
   getRecruitingActorLabel,
@@ -553,6 +554,7 @@ function PurgeDialog({
 
 function CandidateSection() {
   const gate = useLatestRequestGate();
+  const candidateSectionRef = useRef<HTMLElement>(null);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<PaginatedResult<AdminRecruitingCandidateRow> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -590,8 +592,9 @@ function CandidateSection() {
 
   useEffect(() => {
     if (!shouldRefreshCandidatesAfterPurge(purgeTarget !== null, refreshAfterPurge)) return;
-    // 창 정리에서 원래 버튼으로 초점을 돌린 뒤, 다음 프레임에 그 행을 새로고침한다.
+    // 정리된 행이 사라져도 초점이 본문으로 빠지지 않도록 남아 있는 구역으로 먼저 옮긴다.
     const frame = requestAnimationFrame(() => {
+      focusAdminRecruitingTarget(candidateSectionRef.current);
       setRefreshAfterPurge(false);
       void load(page);
     });
@@ -615,7 +618,13 @@ function CandidateSection() {
   const rows = data?.results ?? [];
 
   return (
-    <section id="recruiting-candidates" aria-labelledby="candidates-heading" className="scroll-mt-6">
+    <section
+      ref={candidateSectionRef}
+      id="recruiting-candidates"
+      aria-labelledby="candidates-heading"
+      tabIndex={-1}
+      className="scroll-mt-6 focus:outline-none"
+    >
       <SectionHeading
         id="candidates-heading"
         title="지원 정보 정리"
