@@ -1,4 +1,5 @@
 import { RecruitingJoin } from "@/components/recruiting/recruiting-join";
+import { normalizeRecruitingRouteToken } from "@/components/recruiting/public-recruiting-view-model";
 
 export default async function RecruitingJoinPage({
   params,
@@ -6,5 +7,5 @@ export default async function RecruitingJoinPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  return <RecruitingJoin token={token} />;
+  return <RecruitingJoin token={normalizeRecruitingRouteToken(token) ?? ""} />;
 }

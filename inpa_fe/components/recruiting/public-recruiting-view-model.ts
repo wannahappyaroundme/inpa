@@ -35,6 +35,16 @@ export function isSafeRecruitingToken(value: unknown): value is string {
   );
 }
 
+export function normalizeRecruitingRouteToken(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const decoded = decodeURIComponent(value);
+    return isSafeRecruitingToken(decoded) ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getOrCreateSubmissionAttempt(
   current: PublicRecruitingApplication | null,
   values: PublicApplicationFormValues,
