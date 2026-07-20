@@ -91,8 +91,8 @@ describe("보험 작업 이어보기", () => {
     });
     const { container } = render(<InsuranceImportCards customerId={31} />);
 
-    await waitFor(() => expect(getInsuranceImportConfig).toHaveBeenCalledOnce());
-    expect(container.innerHTML).toBe("");
+    await waitFor(() => expect(container.innerHTML).toBe(""));
+    expect(getInsuranceImportConfig).toHaveBeenCalledOnce();
     expect(listInsuranceImports).not.toHaveBeenCalled();
   });
 
