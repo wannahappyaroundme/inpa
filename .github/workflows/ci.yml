@@ -80,6 +80,7 @@ jobs:
 
       - name: Type check
         run: npx tsc --noEmit --incremental false
+
       - name: Build
         run: npm run build
         env:

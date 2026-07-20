@@ -952,6 +952,7 @@ git add docs/superpowers/specs/2026-07-16-insurance-extraction-accuracy-design.m
   inpa_be/inpa/insurances/test_manual_review.py inpa_be/inpa/insurances/tests.py
 git commit -m "fix(보험): 보험 기간 계산의 미상값 보존"
 ```
+
 ### Task 9: 확정·포함·정상 보험만 분석하고 케이스별 매핑 override를 사용
 
 **Files:**
