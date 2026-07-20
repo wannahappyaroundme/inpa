@@ -2237,20 +2237,38 @@ export interface InsuranceImportDraft {
   standard_coverages: { version: string; items: StandardCoverageOption[] };
 }
 
+export interface DraftCoverageAddAction {
+  action: "add";
+  raw_name: string;
+  assurance_amount: number;
+  premium: number | null;
+  is_renewal: boolean;
+  renewal_period?: number | null;
+  payment_period?: number | null;
+  payment_period_unit?: "years" | "age" | "lifetime" | null;
+  warranty_period?: number | null;
+  warranty_period_unit?: "years" | "age" | "lifetime" | null;
+  standard_category: string;
+  standard_subcategory: string;
+  standard_detail_name: string;
+}
+
+export interface DraftCoverageExistingRowAction {
+  row_id: string;
+  action: "edit" | "assign" | "exclude" | "duplicate" | "undo_exclude" | "confirm";
+  field?: string;
+  value?: unknown;
+  standard_category?: string;
+  standard_subcategory?: string;
+  standard_detail_name?: string;
+  reason?: string;
+  target_row_id?: string;
+}
+
 export interface DraftPatchPayload {
   draft_version: number;
   policy_changes?: Array<{ field: string; value: unknown }>;
-  coverage_actions?: Array<{
-    row_id: string;
-    action: "edit" | "assign" | "exclude" | "duplicate" | "undo_exclude" | "confirm";
-    field?: string;
-    value?: unknown;
-    standard_category?: string;
-    standard_subcategory?: string;
-    standard_detail_name?: string;
-    reason?: string;
-    target_row_id?: string;
-  }>;
+  coverage_actions?: Array<DraftCoverageAddAction | DraftCoverageExistingRowAction>;
 }
 
 export interface ConfirmPayload {

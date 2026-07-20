@@ -1418,6 +1418,83 @@ def _std_leaf(name):
 class SeedNormalizationUpsertTests(TestCase):
     """재실행 안전: PK 보존 → M2M 링크·admin_verified 행 생존, 카운트 불변."""
 
+    def test_seed_creates_idempotent_standard_compatibility_catalog(self):
+        legacy_category = InsuranceCategory.objects.create(
+            insurance_type=2, name='진단-암', order=99)
+        legacy_subcategory = InsuranceSubCategory.objects.create(
+            insurance_type=2, category=legacy_category,
+            name='일반암', order=99)
+        legacy_detail = InsuranceDetail.objects.create(
+            sub_category=legacy_subcategory,
+            name='일반암진단비', order=99)
+
+        call_command('seed_normalization', stdout=StringIO())
+
+        category = InsuranceCategory.objects.get(name='[표준]진단-암')
+        subcategory = InsuranceSubCategory.objects.get(
+            category=category, name='일반암')
+        detail = InsuranceDetail.objects.get(
+            sub_category=subcategory, name='일반암진단비')
+        self.assertFalse(detail.analysis_detail.exists())
+
+        from inpa.insurances.import_services import (
+            _catalog_detail_for_override,
+        )
+        resolved = _catalog_detail_for_override({
+            'standard_category': '진단-암',
+            'standard_subcategory': '일반암',
+            'standard_detail_name': '일반암진단비',
+        }, insurance_type=2)
+        self.assertEqual(resolved.pk, detail.pk)
+
+        category_pk = category.pk
+        subcategory_pk = subcategory.pk
+        detail_pk = detail.pk
+        call_command('seed_normalization', '--force', stdout=StringIO())
+        self.assertEqual(
+            InsuranceCategory.objects.get(name='[표준]진단-암').pk,
+            category_pk)
+        self.assertEqual(
+            InsuranceSubCategory.objects.get(
+                category_id=category_pk, name='일반암').pk,
+            subcategory_pk)
+        self.assertEqual(
+            InsuranceDetail.objects.get(
+                sub_category_id=subcategory_pk, name='일반암진단비').pk,
+            detail_pk)
+        legacy_detail.refresh_from_db()
+        self.assertEqual(legacy_detail.order, 99)
+
+    def test_standard_compatibility_catalog_matches_all_standard_paths(self):
+        call_command('seed_normalization', stdout=StringIO())
+
+        expected_paths = {
+            (f'[표준]{category}', subcategory, detail)
+            for category, _insurance_type, subcategories
+            in seed_norm_mod.STANDARD_TREE
+            for subcategory, details in subcategories
+            for detail, _amount in details
+        }
+        actual_paths = {
+            (
+                detail.sub_category.category.name,
+                detail.sub_category.name,
+                detail.name,
+            )
+            for detail in InsuranceDetail.objects.filter(
+                sub_category__category__name__startswith='[표준]'
+            ).select_related('sub_category__category')
+        }
+
+        self.assertEqual(len(expected_paths), 57)
+        self.assertEqual(actual_paths, expected_paths)
+        self.assertFalse(
+            InsuranceDetail.objects.filter(
+                sub_category__category__name__startswith='[표준]',
+                analysis_detail__isnull=False,
+            ).exists()
+        )
+
     def test_reseed_preserves_pk_m2m_and_admin_rows(self):
         call_command('seed_normalization', stdout=StringIO())
         leaf = _std_leaf('일반암진단비')
@@ -1476,6 +1553,34 @@ class SeedNormalizationUpsertTests(TestCase):
 
 class SeedNormalizationMarkerTests(TestCase):
     """버전 마커: 2회차 no-op / --force 우회 / 버전 bump 시 재실행."""
+
+    def test_missing_catalog_marker_backfills_without_reseeding_tree(self):
+        call_command('seed_normalization', stdout=StringIO())
+        leaf = _std_leaf('일반암진단비')
+        AnalysisDetail.objects.filter(pk=leaf.pk).update(
+            chart_based_amount=9999)
+        InsuranceCategory.objects.filter(
+            name__startswith='[표준]').delete()
+        SeedMarker.objects.filter(
+            key=seed_norm_mod.CATALOG_MARKER_KEY).delete()
+
+        call_command('seed_normalization', stdout=StringIO())
+
+        leaf.refresh_from_db()
+        self.assertEqual(leaf.chart_based_amount, 9999)
+        self.assertTrue(InsuranceDetail.objects.filter(
+            sub_category__category__name='[표준]진단-암',
+            sub_category__name='일반암',
+            name='일반암진단비',
+        ).exists())
+        self.assertEqual(
+            SeedMarker.objects.get(
+                key=seed_norm_mod.MARKER_KEY).version,
+            seed_norm_mod.SEED_VERSION)
+        self.assertEqual(
+            SeedMarker.objects.get(
+                key=seed_norm_mod.CATALOG_MARKER_KEY).version,
+            seed_norm_mod.CATALOG_SEED_VERSION)
 
     def test_second_run_is_noop_force_and_bump_rerun(self):
         call_command('seed_normalization', stdout=StringIO())
@@ -1558,6 +1663,45 @@ class SeedNormalizationOrphanPruneTests(TestCase):
             self.assertTrue(NormalizationDict.objects.filter(
                 pk=admin_row.pk,
                 source=NormalizationDict.SOURCE_ADMIN_VERIFIED).exists())
+
+    def test_prune_preserves_leaf_used_by_customer_case_override(self):
+        call_command('seed_normalization', stdout=StringIO())
+        radiation = _std_leaf('표적항암방사선치료비')
+        catalog_detail = InsuranceDetail.objects.get(
+            sub_category__category__name='[표준]처치',
+            sub_category__name='표적항암',
+            name='표적항암방사선치료비',
+        )
+        user, _ = _make_planner('override-prune@test.com')
+        customer = Customer.objects.create(
+            owner=user, name='직접확인고객', birth_day='1990.01.01')
+        insurance = CustomerInsurance.objects.create(
+            customer=customer,
+            company=1,
+            insurance_type=2,
+            name='직접 확인 증권',
+            monthly_premiums=10000,
+        )
+        case = CustomerInsuranceDetail.objects.create(
+            insurance=insurance,
+            detail=catalog_detail,
+            raw_name='표적항암방사선치료비',
+            assurance_amount=10000000,
+            mapping_source='planner_override',
+        )
+        case.analysis_detail_override.add(radiation)
+
+        tree, norm = self._mini_constants()
+        with mock.patch.object(seed_norm_mod, 'STANDARD_TREE', tree), \
+                mock.patch.object(seed_norm_mod, 'NORMALIZATION_V0', norm):
+            out = StringIO()
+            call_command(
+                'seed_normalization', '--force', '--prune', stdout=out)
+
+        self.assertIn('고객 직접 확인 연결', out.getvalue())
+        self.assertTrue(AnalysisDetail.objects.filter(pk=radiation.pk).exists())
+        self.assertTrue(
+            case.analysis_detail_override.filter(pk=radiation.pk).exists())
 
 
 class RepairAnalysisLinksTests(TestCase):

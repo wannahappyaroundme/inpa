@@ -685,7 +685,8 @@ def validate_draft(lines, candidates, provider_payload, *, allow_manual=False,
 
         texts = _line_texts(row.get('evidence_line_ids'), lines_by_id)
         manual_without_evidence = bool(
-            allow_manual_without_evidence and manual_fields)
+            allow_manual_without_evidence
+            and _MANUAL_COVERAGE_FIELD_SET.issubset(manual_fields))
         if texts is None and not manual_without_evidence:
             add_issue('EVIDENCE_LINE_NOT_FOUND', 'no_evidence',
                       'coverage', row_id=row_id,
@@ -879,16 +880,26 @@ def validate_draft(lines, candidates, provider_payload, *, allow_manual=False,
         type(premium) is int for premium in comparable_premiums)
     has_unknown_premium = any(
         type(premium) is not int for premium in comparable_premiums)
-    if type(monthly_premium) is int and comparable_rows:
-        if has_unknown_premium:
+    monthly_premium_manually_confirmed = bool(
+        allow_manual
+        and isinstance(policy.get('monthly_premium'), dict)
+        and policy['monthly_premium'].get('state') == 'manual'
+        and policy['monthly_premium'].get('planner_confirmed') is True
+    )
+    if not monthly_premium_manually_confirmed:
+        if type(monthly_premium) is int and comparable_rows:
+            if has_unknown_premium:
+                add_issue(
+                    'PREMIUM_SUM_INCOMPLETE', 'needs_review', 'policy',
+                    field='monthly_premium')
+            elif (sum(row['premium'] for row in comparable_rows)
+                  != monthly_premium):
+                add_issue(
+                    'PREMIUM_SUM_MISMATCH', 'needs_review', 'policy',
+                    field='monthly_premium')
+        elif has_known_premium and has_unknown_premium:
             add_issue('PREMIUM_SUM_INCOMPLETE', 'needs_review', 'policy',
                       field='monthly_premium')
-        elif sum(row['premium'] for row in comparable_rows) != monthly_premium:
-            add_issue('PREMIUM_SUM_MISMATCH', 'needs_review', 'policy',
-                      field='monthly_premium')
-    elif has_known_premium and has_unknown_premium:
-        add_issue('PREMIUM_SUM_INCOMPLETE', 'needs_review', 'policy',
-                  field='monthly_premium')
 
     for field, evidence in policy.items():
         if not isinstance(evidence, dict):

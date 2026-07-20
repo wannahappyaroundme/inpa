@@ -31,6 +31,9 @@ db.sqlite3
 /media/
 **/media/
 
+# Local/private insurance import sources (may contain customer PII)
+/inpa_be/private/
+
 # === 샘플 증권/가입설계서 (실제 고객 PII·민감정보 가능 — 절대 커밋 금지) ===
 samples/
 

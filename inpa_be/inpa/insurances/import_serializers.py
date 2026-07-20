@@ -7,6 +7,7 @@ from .import_contract import (
 )
 from .import_pdf import MAX_FILE_BYTES
 from .models import InsuranceExtractionJob
+from .serializers import ManualCoverageWriteSerializer
 
 
 _ALLOWED_PDF_CONTENT_TYPES = frozenset({
@@ -173,12 +174,35 @@ class InsuranceCoverageActionSerializer(_StrictFieldsSerializer):
         'renewal_period', 'payment_period', 'payment_period_unit',
         'warranty_period', 'warranty_period_unit',
     )
+    ADD_FIELDS = (
+        'raw_name', 'assurance_amount', 'premium', 'is_renewal',
+        'renewal_period', 'payment_period', 'payment_period_unit',
+        'warranty_period', 'warranty_period_unit', 'standard_category',
+        'standard_subcategory', 'standard_detail_name',
+    )
     ACTIONS = (
-        'edit', 'assign', 'exclude', 'duplicate', 'undo_exclude', 'confirm')
+        'add', 'edit', 'assign', 'exclude', 'duplicate', 'undo_exclude',
+        'confirm')
     PERIOD_UNITS = {'years', 'age', 'lifetime'}
 
-    row_id = serializers.CharField(max_length=80)
+    row_id = serializers.CharField(max_length=80, required=False)
     action = serializers.ChoiceField(choices=ACTIONS)
+    raw_name = serializers.CharField(max_length=200, required=False)
+    assurance_amount = serializers.IntegerField(
+        min_value=0, allow_null=True, required=False)
+    premium = serializers.IntegerField(
+        min_value=0, allow_null=True, required=False)
+    is_renewal = serializers.BooleanField(allow_null=True, required=False)
+    renewal_period = serializers.IntegerField(
+        min_value=1, allow_null=True, required=False)
+    payment_period = serializers.IntegerField(
+        min_value=1, allow_null=True, required=False)
+    payment_period_unit = serializers.ChoiceField(
+        choices=PERIOD_UNITS, allow_null=True, required=False)
+    warranty_period = serializers.IntegerField(
+        min_value=1, allow_null=True, required=False)
+    warranty_period_unit = serializers.ChoiceField(
+        choices=PERIOD_UNITS, allow_null=True, required=False)
     field = serializers.ChoiceField(
         choices=EDITABLE_FIELDS, required=False)
     value = serializers.JSONField(required=False, allow_null=True)
@@ -218,6 +242,30 @@ class InsuranceCoverageActionSerializer(_StrictFieldsSerializer):
 
     def validate(self, attrs):
         action = attrs['action']
+        if action == 'add':
+            if 'row_id' in attrs:
+                raise serializers.ValidationError({
+                    'row_id': '새 담보의 위치는 서버에서 정해요.'})
+            unexpected = (
+                set(attrs) - {'action'} - set(self.ADD_FIELDS))
+            if unexpected:
+                raise serializers.ValidationError(
+                    '새 담보에 필요한 항목만 보내 주세요.')
+            manual = ManualCoverageWriteSerializer(data={
+                'data_version': 1,
+                **{
+                    field: attrs[field]
+                    for field in self.ADD_FIELDS
+                    if field in attrs
+                },
+            })
+            manual.is_valid(raise_exception=True)
+            validated = dict(manual.validated_data)
+            validated.pop('data_version')
+            return {'action': action, **validated}
+        if 'row_id' not in attrs:
+            raise serializers.ValidationError({
+                'row_id': '수정할 담보를 다시 선택해 주세요.'})
         action_fields = {
             'edit': {'field', 'value'},
             'assign': {
@@ -264,13 +312,14 @@ class InsuranceImportDraftPatchSerializer(_StrictFieldsSerializer):
         action_keys = [
             (item['row_id'], item['action'], item.get('field'))
             for item in coverage_actions
+            if item['action'] != 'add'
         ]
         if len(action_keys) != len(set(action_keys)):
             raise serializers.ValidationError({
                 'coverage_actions': '같은 담보 항목은 한 번씩 수정해 주세요.'})
         disposition_rows = [
             item['row_id'] for item in coverage_actions
-            if item['action'] != 'edit'
+            if item['action'] not in {'add', 'edit'}
         ]
         if len(disposition_rows) != len(set(disposition_rows)):
             raise serializers.ValidationError({

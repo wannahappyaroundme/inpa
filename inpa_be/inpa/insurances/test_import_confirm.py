@@ -395,12 +395,13 @@ class InsuranceImportConfirmTests(TestCase):
         self.assertEqual(response.json()['code'], 'DRAFT_UNRESOLVED')
         self.assertFalse(CustomerInsurance.objects.exists())
 
-    def test_total_premium_with_missing_case_premium_blocks_confirmation(self):
+    def test_manually_confirmed_total_premium_allows_missing_case_premium(self):
         draft = copy.deepcopy(self.job.draft_payload)
         draft['policy']['monthly_premium'] = {
             'value': 30_000,
             'evidence_line_ids': [],
             'state': 'manual',
+            'planner_confirmed': True,
         }
         draft['coverage_rows'][0]['premium'] = None
         self.job.draft_payload = draft
@@ -408,9 +409,10 @@ class InsuranceImportConfirmTests(TestCase):
 
         response = self.confirm()
 
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()['code'], 'DRAFT_UNRESOLVED')
-        self.assertFalse(CustomerInsurance.objects.exists())
+        self.assertEqual(response.status_code, 200, response.content)
+        insurance = CustomerInsurance.objects.get()
+        self.assertEqual(insurance.monthly_premiums, 30_000)
+        self.assertIsNone(insurance.case_list.get().premium)
 
     def test_assigned_coverage_without_assurance_amount_blocks_confirmation(self):
         draft = copy.deepcopy(self.job.draft_payload)
@@ -675,6 +677,65 @@ class InsuranceImportConfirmTests(TestCase):
         self.assertEqual(case.mapping_source, 'planner_override')
         self.assertEqual(
             list(case.analysis_detail_override.all()), [self.analysis_detail])
+
+    def test_manual_added_coverage_confirms_without_source_evidence(self):
+        analysis_category = AnalysisCategory.objects.create(
+            name='[표준]수술비')
+        analysis_subcategory = AnalysisSubCategory.objects.create(
+            category=analysis_category, name='특수수술')
+        analysis_detail = AnalysisDetail.objects.create(
+            sub_category=analysis_subcategory, name='골절수술비')
+        catalog_category = InsuranceCategory.objects.create(
+            name='[표준]수술비')
+        catalog_subcategory = InsuranceSubCategory.objects.create(
+            category=catalog_category, name='특수수술')
+        catalog_detail = InsuranceDetail.objects.create(
+            sub_category=catalog_subcategory, name='골절수술비')
+
+        patch_response = self.client.patch(
+            f'/api/v1/insurance-imports/{self.job.pk}/draft/',
+            {
+                'draft_version': self.job.draft_version,
+                'policy_changes': [{
+                    'field': 'monthly_premium',
+                    'value': 30_000,
+                }],
+                'coverage_actions': [{
+                    'action': 'add',
+                    'raw_name': '골절수술비',
+                    'assurance_amount': 1_000_000,
+                    'premium': None,
+                    'is_renewal': False,
+                    'payment_period': 20,
+                    'payment_period_unit': 'years',
+                    'warranty_period': 20,
+                    'warranty_period_unit': 'years',
+                    'standard_category': '수술비',
+                    'standard_subcategory': '특수수술',
+                    'standard_detail_name': '골절수술비',
+                }],
+            },
+            format='json',
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+        self.assertEqual(patch_response.status_code, 200, patch_response.content)
+        self.job.refresh_from_db()
+
+        response = self.confirm(body={
+            'draft_version': self.job.draft_version,
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        insurance = CustomerInsurance.objects.get()
+        added = insurance.case_list.get(raw_name='골절수술비')
+        self.assertEqual(added.detail_id, catalog_detail.pk)
+        self.assertIsNone(added.premium)
+        self.assertEqual(added.evidence_line_ids, [])
+        self.assertEqual(added.source_candidate_ids, [])
+        self.assertEqual(added.mapping_source, 'planner_override')
+        self.assertEqual(
+            list(added.analysis_detail_override.all()), [analysis_detail])
+        self.assertFalse(catalog_detail.analysis_detail.exists())
 
     def test_missing_catalog_mapping_blocks_without_creating_global_rows(self):
         self.catalog_detail.delete()
