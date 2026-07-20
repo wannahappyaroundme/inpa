@@ -7,7 +7,7 @@ import { InpaMark } from "@/components/inpa-logo";
 import { LandingLink, useBrandLanding } from "@/components/landing-link";
 import { getBillingEvent } from "@/lib/api";
 
-// new.inpa.kr 스크롤 파트 전용 브랜드 섹션. 시안 landing_page.pdf p1(포스터)·p9~p14.
+// www.inpa.kr/story 스크롤 파트 전용 브랜드 섹션. 시안 landing_page.pdf p1(포스터)·p9~p14.
 // 카피 레드라인: em-dash 금지, '준비 중' 금지, 가격은 'N원 (VAT 별도)'만.
 
 // 시안 p1(발표용 포스터, 영화 파트 제외분) — 스크롤 랜딩 맨 위에 배치.
@@ -377,14 +377,20 @@ const TIERS: {
     footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
 ];
 
-export function PricingFourTiers() {
+export function PricingFourTiers({
+  id,
+  registerHref = "/register",
+}: {
+  id?: string;
+  registerHref?: string;
+} = {}) {
   // 첫 결제 보너스 이벤트가 실제 켜져 있을 때만 이벤트 문구를 노출(§6 정직성). 기본 false.
   // 연 결제 할인(2개월 무료)은 실제 가격이므로 항상 노출한다.
   const [bonusEnabled, setBonusEnabled] = useState(false);
   const { appBase } = useBrandLanding();
   useEffect(() => {
-    // new.inpa.kr(브랜드 랜딩)에선 BE를 호출하지 않는다(교차도메인 CORS 회피).
-    // www 통합 시 appBase=""가 되면 자동으로 다시 조회한다.
+    // 외부 브랜드 주소로 다시 쓰는 경우에는 교차 도메인 호출을 피한다.
+    // 현재 www 내부 이야기에서는 appBase=""이므로 실제 이벤트 상태를 조회한다.
     if (appBase) return;
     let alive = true;
     getBillingEvent()
@@ -393,7 +399,7 @@ export function PricingFourTiers() {
     return () => { alive = false; };
   }, [appBase]);
   return (
-    <section className="py-20 md:py-28 bg-[var(--surface)]">
+    <section id={id} className="scroll-mt-20 py-20 md:py-28 bg-[var(--surface)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
           <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] text-center tracking-tight">인파 for 설계사 / 관리자 요금제</h2>
@@ -441,7 +447,7 @@ export function PricingFourTiers() {
           </div>
         </Reveal>
         <div className="mt-10 text-center">
-          <LandingLink href="/register" className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition">무료로 시작하기</LandingLink>
+          <LandingLink href={registerHref} className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition">무료로 시작하기</LandingLink>
         </div>
       </div>
     </section>

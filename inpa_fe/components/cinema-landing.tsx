@@ -16,12 +16,7 @@ import {
 } from "@/components/brand-story-sections";
 import { BrandLandingProvider } from "@/components/landing-link";
 
-// new.inpa.kr에서 서비스(로그인·가입·블로그·약관 등)는 실제로 www에만 있다 →
-// 랜딩 링크는 www 절대주소를 직접 가리키는 바깥 링크로 렌더한다(교차도메인 RSC 프리페치·CORS 원천 차단).
-// ★ www 통합 시: 이 값을 ""로 바꾸면 모든 링크가 내부 <Link>로 복귀 + PricingFourTiers가 다시 BE를 조회한다.
-const APP_BASE = "https://www.inpa.kr";
-
-// new.inpa.kr 시네마 랜딩 — 게이트(소리 허용) → 소등 → 장면 6개(클릭 전환, 크로스 디졸브) →
+// www.inpa.kr/story 시네마 랜딩 — 게이트(소리 허용) → 소등 → 장면 6개(클릭 전환, 크로스 디졸브) →
 // "불 켜짐" 엔딩 → 스크롤 랜딩. 계측 + UTM 포함.
 // 시안: landing_page.pdf p2~p14 / 설계: docs/superpowers/specs/2026-07-07-new-inpa-cinematic-landing-design.md
 // 업그레이드 이력(협의체): docs/superpowers/specs/2026-07-10-cinema-landing-v2-upgrade-council.md
@@ -51,6 +46,11 @@ const SCENES: Scene[] = [
 
 const BG_IMAGES = ["/landing-new/scatter-bg.webp", "/landing-new/crowd-dark.webp"];
 const PAUSE_AFTER = new Set([".", ",", "?", "!", ":", "…"]);
+const STORY_UTM = {
+  utm_source: "www_inpa_kr",
+  utm_medium: "brand_story",
+  utm_campaign: "cinema",
+} as const;
 
 function cinemaTrack(name: string, data?: Record<string, string>) {
   try { track(name, data); } catch { /* 계측 실패는 경험에 영향 없음 */ }
@@ -139,6 +139,7 @@ export function CinemaLanding() {
   const [textOut, setTextOut] = useState(false);      // 전환 중 텍스트 페이드아웃
   const [hintVisible, setHintVisible] = useState(false); // "화면을 눌러 계속" 지연 노출
   const [muted, setMuted] = useState(false);
+  const [landingSearch, setLandingSearch] = useState("");
   const soundRef = useRef<TypewriterSound | null>(null);
   const transitioningRef = useRef(false);
 
@@ -147,6 +148,7 @@ export function CinemaLanding() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    setLandingSearch(window.location.search);
     BG_IMAGES.forEach((src) => { const img = new Image(); img.src = src; });
   }, []);
 
@@ -237,28 +239,17 @@ export function CinemaLanding() {
     });
   }, []);
 
-  // 랜딩 CTA: 계측 + UTM 부착(www 가입까지 유입 귀속; 프록시가 쿼리를 보존한다)
+  // 이야기 CTA 계측. UTM은 LandingLink가 렌더 단계에서 주소에 붙인다.
   const onLandingClickCapture = useCallback((e: React.MouseEvent) => {
     const a = (e.target as HTMLElement).closest?.("a");
     if (!a) return;
     const href = a.getAttribute("href") ?? "";
     if (!href.includes("/register") && !href.includes("/login")) return;
-    try {
-      // 랜딩 링크는 www 절대주소(new.inpa.kr)이므로 origin을 보존해야 한다
-      // (pathname만 남기면 다시 상대경로가 되어 교차도메인 리다이렉트 문제로 되돌아간다).
-      const url = new URL(href, window.location.origin);
-      if (!url.searchParams.has("utm_source")) {
-        url.searchParams.set("utm_source", "new_inpa_kr");
-        url.searchParams.set("utm_medium", "brand_landing");
-        url.searchParams.set("utm_campaign", "cinema");
-        a.setAttribute("href", `${url.origin}${url.pathname}${url.search}`);
-      }
-    } catch { /* 원본 href 유지 */ }
     cinemaTrack("cinema_cta", { href });
   }, []);
 
   const landing = (
-    <BrandLandingProvider appBase={APP_BASE}>
+    <BrandLandingProvider appBase="" utmSearch={landingSearch} utmDefaults={STORY_UTM}>
     <div onClickCapture={onLandingClickCapture}>
       <LandingHeader />
       <main>

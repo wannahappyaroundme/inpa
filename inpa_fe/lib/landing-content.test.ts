@@ -8,7 +8,7 @@ import {
   getAdjacentProductScreenIndex,
   getProductGalleryIds,
   getProductTabKeyAction,
-} from "./test-landing-content";
+} from "./landing-content";
 
 test("제품 증거는 실제 화면 5개를 정해진 순서로 제공한다", () => {
   assert.deepEqual(

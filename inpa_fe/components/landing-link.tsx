@@ -3,36 +3,79 @@
 import Link from "next/link";
 import { createContext, useContext, type ReactNode } from "react";
 
-// 랜딩 섹션(landing-sections·brand-story-sections)은 www와 new.inpa.kr이 공용으로 쓴다.
-// 서비스 경로(/register·/login·/blog·/faq·/legal/*·/data-policy)는 실제로 www에만 존재하므로,
-// new.inpa.kr에서는 www 절대주소를 가리키는 '바깥 링크'로 렌더해야 한다.
-//  - www(기본, appBase=""): 내부 <Link> — 프리페치·소프트 내비 그대로(렌더 결과 불변)
-//  - new(appBase="https://www.inpa.kr"): <a href="https://www.inpa.kr/..."> — 프리페치 없음, 하드 내비
-// 이렇게 하면 교차도메인 RSC 프리페치가 애초에 생기지 않아 CORS/503 잡음이 사라진다.
-// ★ www 통합 시: appBase만 ""로 두면 전부 내부 링크로 자동 복귀 → 별도 정리 불필요.
+// 랜딩 공용 링크. 기본은 www 내부 이동이며, 필요할 때만 가입·로그인 주소에
+// 유입값을 미리 붙여 Next의 내부 이동에서도 값이 사라지지 않게 한다.
 
-type BrandLanding = { appBase: string };
+const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign"] as const;
+type UtmKey = (typeof UTM_KEYS)[number];
+type UtmValues = Partial<Record<UtmKey, string>>;
+type BrandLanding = {
+  appBase: string;
+  utmSearch: string;
+  utmDefaults: UtmValues;
+};
 
-const BrandLandingContext = createContext<BrandLanding>({ appBase: "" });
+const BrandLandingContext = createContext<BrandLanding>({
+  appBase: "",
+  utmSearch: "",
+  utmDefaults: {},
+});
 
-export function BrandLandingProvider({ appBase, children }: { appBase: string; children: ReactNode }) {
-  return <BrandLandingContext.Provider value={{ appBase }}>{children}</BrandLandingContext.Provider>;
+export function BrandLandingProvider({
+  appBase,
+  utmSearch = "",
+  utmDefaults = {},
+  children,
+}: {
+  appBase: string;
+  utmSearch?: string;
+  utmDefaults?: UtmValues;
+  children: ReactNode;
+}) {
+  return (
+    <BrandLandingContext.Provider value={{ appBase, utmSearch, utmDefaults }}>
+      {children}
+    </BrandLandingContext.Provider>
+  );
 }
 
-/** 현재 랜딩이 브랜드 도메인(new.inpa.kr)에서 렌더되는지 여부(appBase 비어 있으면 www 본진). */
+/** 현재 랜딩의 링크 기준 주소와 유입값. */
 export function useBrandLanding(): BrandLanding {
   return useContext(BrandLandingContext);
 }
 
-/** 랜딩 전용 링크. www에선 내부 <Link>, new.inpa.kr에선 www 절대주소 <a>. */
+function withLandingUtm(href: string, search: string, defaults: UtmValues): string {
+  const hashIndex = href.indexOf("#");
+  const hash = hashIndex >= 0 ? href.slice(hashIndex) : "";
+  const withoutHash = hashIndex >= 0 ? href.slice(0, hashIndex) : href;
+  const queryIndex = withoutHash.indexOf("?");
+  const pathname = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash;
+  if (pathname !== "/register" && pathname !== "/login") return href;
+
+  const params = new URLSearchParams(queryIndex >= 0 ? withoutHash.slice(queryIndex + 1) : "");
+  const incoming = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  for (const [key, value] of incoming) {
+    if (key.startsWith("utm_") && !params.has(key)) params.append(key, value);
+  }
+  for (const key of UTM_KEYS) {
+    if (params.has(key)) continue;
+    const value = defaults[key];
+    if (value) params.set(key, value);
+  }
+  const query = params.toString();
+  return `${pathname}${query ? `?${query}` : ""}${hash}`;
+}
+
+/** 랜딩 전용 링크. 같은 www 주소에서는 내부 이동을 유지한다. */
 export function LandingLink({ href, className, children }: {
   href: string;
   className?: string;
   children: ReactNode;
 }) {
-  const { appBase } = useBrandLanding();
+  const { appBase, utmSearch, utmDefaults } = useBrandLanding();
+  const resolvedHref = withLandingUtm(href, utmSearch, utmDefaults);
   if (appBase) {
-    return <a href={`${appBase}${href}`} className={className}>{children}</a>;
+    return <a href={`${appBase}${resolvedHref}`} className={className}>{children}</a>;
   }
-  return <Link href={href} className={className}>{children}</Link>;
+  return <Link href={resolvedHref} className={className}>{children}</Link>;
 }

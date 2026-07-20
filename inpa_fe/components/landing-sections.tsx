@@ -13,7 +13,7 @@ import {
   Users, CalendarDays, MessageSquare, Target, Package, type LucideIcon,
 } from "lucide-react";
 
-// 인파 랜딩 섹션 본체 — app/page.tsx(www)와 new.inpa.kr 랜딩이 공용으로 쓴다.
+// 인파 브랜드 이야기(/story)의 공용 서비스 소개 섹션.
 // 인파 랜딩 — Phase B: Phase A(다크 명암 리듬·lucide·타이포) + 경량 모션(스크롤 등장·카운트업·히트맵 팝).
 // ★ 컴플라이언스: 단정·과장 카피 금지. AI 초안·중개권유 아님·면책 고정. 모션은 reduced-motion 존중.
 

@@ -17,7 +17,7 @@ import {
   getAdjacentProductScreenIndex,
   getProductGalleryIds,
   getProductTabKeyAction,
-} from "@/lib/test-landing-content";
+} from "@/lib/landing-content";
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -36,7 +36,7 @@ function galleryTrack(name: string, screen: ProductScreenId) {
   }
 }
 
-export function TestProductGallery() {
+export function LandingProductGallery() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [zoomedScreen, setZoomedScreen] = useState<ProductScreen | null>(null);
   const [failedImages, setFailedImages] = useState<
