@@ -195,6 +195,35 @@ describe("증권 초안 편집", () => {
     });
   });
 
+  it("월 보험료 합계 차이는 원문 값 그대로 사람이 확인할 수 있다", async () => {
+    const reviewDraft = makeDraft([]);
+    reviewDraft.policy.monthly_premium = {
+      ...reviewDraft.policy.monthly_premium,
+      state: "needs_review",
+      review_reason_codes: ["PREMIUM_SUM_MISMATCH"],
+    };
+    reviewDraft.validation = {
+      unresolved_count: 1,
+      issues: [{
+        code: "PREMIUM_SUM_MISMATCH",
+        state: "needs_review",
+        scope: "policy",
+        row_id: null,
+        field: "monthly_premium",
+      }],
+    };
+    const onSave = vi.fn().mockResolvedValue(reviewDraft);
+    renderEditor(reviewDraft, { onSave });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "월 보험료 원문 확인 완료" }));
+
+    expect(onSave).toHaveBeenCalledWith({
+      draft_version: 4,
+      policy_changes: [{ field: "monthly_premium", value: 50000 }],
+    });
+  });
+
   it("선택한 기본정보 field의 원문 페이지를 연다", async () => {
     const onViewEvidence = vi.fn();
     renderEditor(makeDraft([]), { onViewEvidence });
@@ -463,6 +492,33 @@ describe("증권 초안 편집", () => {
     });
   });
 
+  it("자동 정리한 금액이 맞으면 값을 바꾸지 않고 원문 확인으로 확정한다", async () => {
+    const uncertain = {
+      ...row(1),
+      state: "no_evidence" as const,
+      review_reason_codes: [
+        "AMOUNT_EVIDENCE_MISMATCH",
+        "PREMIUM_EVIDENCE_MISMATCH",
+        "AMOUNT_ROLE_AMBIGUOUS",
+      ],
+    };
+    const reviewDraft = makeDraft([uncertain], ["row-1"]);
+    const onSave = vi.fn().mockResolvedValue(reviewDraft);
+    renderEditor(reviewDraft, { onSave });
+    const user = userEvent.setup();
+
+    await user.click(coverageRegion().getByRole("button", { name: /담보 1/ }));
+    await user.click(screen.getByRole("button", { name: "현재 내용을 원문대로 확인" }));
+
+    expect(onSave).toHaveBeenCalledWith({
+      draft_version: 4,
+      coverage_actions: [
+        { row_id: "row-1", action: "edit", field: "assurance_amount", value: 1000 },
+        { row_id: "row-1", action: "edit", field: "premium", value: 100 },
+      ],
+    });
+  });
+
   it("원본 후보가 비었거나 제외·중복 처리된 행은 중복 대상으로 보여주지 않는다", async () => {
     const empty = { ...row(1), source_candidate_ids: [] };
     const otherEmpty = { ...row(2), source_candidate_ids: [] };
@@ -627,5 +683,72 @@ describe("증권 초안 편집", () => {
       draft_version: 4,
       coverage_actions: [{ row_id: "row-1", action: "undo_exclude" }],
     });
+  });
+
+  it("자동 정리가 읽기 쉬운 원문이어도 빠진 담보를 직접 추가한다", async () => {
+    const reviewDraft = makeDraft([row(1)]);
+    const savedDraft = makeDraft([row(1), row(2)]);
+    savedDraft.draft_version = 5;
+    const onSave = vi.fn().mockResolvedValue(savedDraft);
+    renderEditor(reviewDraft, { onSave });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "담보 직접 추가" }));
+    await user.type(screen.getByLabelText("새 담보 이름"), "골절 진단비");
+    await user.type(screen.getByLabelText("새 담보 보장 금액"), "300000");
+    await user.selectOptions(screen.getByLabelText("새 담보 갱신 여부"), "false");
+    await user.type(screen.getByLabelText("새 담보 납입 기간"), "20");
+    await user.selectOptions(screen.getByLabelText("새 담보 납입 기간 기준"), "years");
+    await user.type(screen.getByLabelText("새 담보 보장 기간"), "80");
+    await user.selectOptions(screen.getByLabelText("새 담보 보장 기간 기준"), "age");
+    await user.selectOptions(
+      screen.getByLabelText("새 담보 표준 위치"),
+      "질병\u0000진단\u0000암진단"
+    );
+    await user.click(screen.getByRole("button", { name: "담보 추가 저장" }));
+
+    expect(onSave).toHaveBeenCalledWith({
+      draft_version: 4,
+      coverage_actions: [{
+        action: "add",
+        raw_name: "골절 진단비",
+        assurance_amount: 300000,
+        premium: null,
+        is_renewal: false,
+        renewal_period: null,
+        payment_period: 20,
+        payment_period_unit: "years",
+        warranty_period: 80,
+        warranty_period_unit: "age",
+        standard_category: "질병",
+        standard_subcategory: "진단",
+        standard_detail_name: "암진단",
+      }],
+    });
+    await waitFor(() => expect(screen.queryByLabelText("새 담보 이름")).toBeNull());
+    expect(screen.getByRole("button", { name: "담보 직접 추가" })).toHaveFocus();
+  });
+
+  it("새 담보의 빈 필드를 쉬운 말로 안내하고 저장하지 않는다", async () => {
+    const reviewDraft = makeDraft([]);
+    reviewDraft.source_review = {
+      ...sourceReview,
+      requires_manual_coverage_entry: true,
+    };
+    const onSave = vi.fn().mockResolvedValue(reviewDraft);
+    renderEditor(reviewDraft, { onSave });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "담보 직접 추가" }));
+    await user.click(screen.getByRole("button", { name: "담보 추가 저장" }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("담보 이름을 입력해 주세요.");
+    expect(screen.getByRole("alert").textContent).toContain("보장 금액을 입력해 주세요.");
+    expect(screen.getByRole("alert").textContent).toContain("갱신 여부를 선택해 주세요.");
+    expect(screen.getByRole("alert").textContent).toContain("납입 기간 기준을 선택해 주세요.");
+    expect(screen.getByRole("alert").textContent).toContain("보장 기간 기준을 선택해 주세요.");
+    expect(screen.getByRole("alert").textContent).toContain("표준 위치를 선택해 주세요.");
+    expect(document.activeElement).toBe(screen.getByLabelText("새 담보 이름"));
   });
 });

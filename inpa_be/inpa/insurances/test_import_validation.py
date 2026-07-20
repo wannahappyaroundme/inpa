@@ -936,6 +936,30 @@ class DraftValidationTests(SimpleTestCase):
         self.assertEqual(premium['value'], -30_000)
         self.assertEqual(premium['state'], 'invalid')
 
+    def test_manual_negative_policy_monthly_premium_remains_invalid(self):
+        coverage_text = '일반암진단비 가입금액 3,000만원'
+        lines = (
+            _line('p01-l001', '한빛생명 건강보험'),
+            _line('p01-l002', '계약일 2024.01.01 만기일 2044.01.01', line=2),
+            _line('p01-l003', '월 보험료 -30,000원', line=3),
+            _line('p01-l004', coverage_text, line=4),
+        )
+        candidates = (_candidate('c00001', 'p01-l004', coverage_text),)
+        monthly = _evidence(-30_000, 'p01-l003')
+        monthly['state'] = 'manual'
+
+        result = validate_draft(lines, candidates, {
+            'policy': _policy(monthly_premium=monthly),
+            'coverage_rows': [
+                _row(
+                    'r00001', 'c00001', 'p01-l004', premium=None),
+            ],
+        }, allow_manual=True)
+
+        premium = result.draft['policy']['monthly_premium']
+        self.assertIn('NEGATIVE_PREMIUM', premium['review_reason_codes'])
+        self.assertEqual(premium['state'], 'invalid')
+
     def test_period_value_unit_and_lifetime_consistency(self):
         coverage_text = (
             '일반암진단비 가입금액 3,000만원 보험료 30,000원')

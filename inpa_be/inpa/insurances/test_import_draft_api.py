@@ -180,6 +180,24 @@ class InsuranceImportDraftAPITests(TestCase):
             HTTP_IDEMPOTENCY_KEY=str(key or uuid.uuid4()),
         )
 
+    def add_coverage_action(self, **overrides):
+        action = {
+            'action': 'add',
+            'raw_name': '골절수술비',
+            'assurance_amount': 1_000_000,
+            'premium': 1_000,
+            'is_renewal': False,
+            'payment_period': 20,
+            'payment_period_unit': 'years',
+            'warranty_period': 20,
+            'warranty_period_unit': 'years',
+            'standard_category': '수술비',
+            'standard_subcategory': '특수수술',
+            'standard_detail_name': '골절수술비',
+        }
+        action.update(overrides)
+        return action
+
     def set_amount_evidence_mismatch(self):
         draft = copy.deepcopy(self.job.draft_payload)
         draft['coverage_rows'][0]['assurance_amount'] = 99_000_000
@@ -396,6 +414,71 @@ class InsuranceImportDraftAPITests(TestCase):
         self.assertEqual(self.job.planner_edit_count, 1)
         self.assertEqual(response.json()['draft_version'], 2)
 
+    def test_same_value_policy_premium_edit_resolves_sum_review_codes(self):
+        draft = copy.deepcopy(self.job.draft_payload)
+        draft['policy']['monthly_premium'] = {
+            'value': 50_000,
+            'evidence_line_ids': ['p01-l001'],
+        }
+        validation = validate_draft(self.lines, self.candidates, draft)
+        self.assertIn(
+            'PREMIUM_SUM_MISMATCH',
+            validation.draft['policy']['monthly_premium'][
+                'review_reason_codes'])
+        summary = copy.deepcopy(self.job.validation_summary)
+        summary.update(validation.summary)
+        self.job.draft_payload = validation.draft
+        self.job.validation_summary = summary
+        self.job.save(update_fields=['draft_payload', 'validation_summary'])
+
+        response = self.patch({
+            'draft_version': 1,
+            'policy_changes': [
+                {'field': 'monthly_premium', 'value': 50_000},
+            ],
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        premium = response.json()['policy']['monthly_premium']
+        self.assertEqual(premium['state'], 'manual')
+        self.assertNotIn(
+            'PREMIUM_SUM_MISMATCH', premium['review_reason_codes'])
+        self.assertNotIn(
+            'PREMIUM_SUM_INCOMPLETE', premium['review_reason_codes'])
+
+    def test_same_value_policy_premium_edit_resolves_incomplete_sum(self):
+        draft = copy.deepcopy(self.job.draft_payload)
+        draft['policy']['monthly_premium'] = {
+            'value': 30_000,
+            'evidence_line_ids': ['p01-l001'],
+        }
+        draft['coverage_rows'][1]['premium'] = None
+        validation = validate_draft(self.lines, self.candidates, draft)
+        self.assertIn(
+            'PREMIUM_SUM_INCOMPLETE',
+            validation.draft['policy']['monthly_premium'][
+                'review_reason_codes'])
+        summary = copy.deepcopy(self.job.validation_summary)
+        summary.update(validation.summary)
+        self.job.draft_payload = validation.draft
+        self.job.validation_summary = summary
+        self.job.save(update_fields=['draft_payload', 'validation_summary'])
+
+        response = self.patch({
+            'draft_version': 1,
+            'policy_changes': [
+                {'field': 'monthly_premium', 'value': 30_000},
+            ],
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        premium = response.json()['policy']['monthly_premium']
+        self.assertEqual(premium['state'], 'manual')
+        self.assertNotIn(
+            'PREMIUM_SUM_MISMATCH', premium['review_reason_codes'])
+        self.assertNotIn(
+            'PREMIUM_SUM_INCOMPLETE', premium['review_reason_codes'])
+
     def test_assign_action_uses_same_version_standard_choice(self):
         response = self.patch({
             'draft_version': 1,
@@ -420,6 +503,108 @@ class InsuranceImportDraftAPITests(TestCase):
             'standard_detail_name',
         })
         self.assertNotIn('manual_fields', response.json()['coverages'][0])
+
+    def test_add_action_creates_server_owned_manual_coverage_row(self):
+        response = self.patch({
+            'draft_version': 1,
+            'coverage_actions': [self.add_coverage_action()],
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.job.refresh_from_db()
+        rows = self.job.draft_payload['coverage_rows']
+        self.assertEqual(len(rows), 3)
+        added = rows[-1]
+        self.assertTrue(added['row_id'].startswith('manual-'))
+        self.assertNotIn(added['row_id'], {'row-1', 'row-2'})
+        self.assertEqual(added['raw_name'], '골절수술비')
+        self.assertEqual(added['assurance_amount'], 1_000_000)
+        self.assertEqual(added['premium'], 1_000)
+        self.assertEqual(added['standard_detail_name'], '골절수술비')
+        self.assertEqual(added['source_candidate_ids'], [])
+        self.assertEqual(added['evidence_line_ids'], [])
+        self.assertEqual(added['state'], 'manual')
+        self.assertEqual(set(added['manual_fields']), {
+            'raw_name', 'assurance_amount', 'premium', 'is_renewal',
+            'renewal_period', 'payment_period', 'payment_period_unit',
+            'warranty_period', 'warranty_period_unit', 'standard_category',
+            'standard_subcategory', 'standard_detail_name', 'disposition',
+            'exclusion_reason', 'duplicate_of_row_id',
+        })
+        safe_added = response.json()['coverages'][-1]
+        self.assertEqual(safe_added['row_id'], added['row_id'])
+        self.assertNotIn('manual_fields', safe_added)
+        self.assertEqual(self.job.draft_version, 2)
+        self.assertEqual(self.job.planner_edit_count, 1)
+
+    def test_add_action_rejects_client_row_id_and_invalid_manual_values(self):
+        client_row_id = self.patch({
+            'draft_version': 1,
+            'coverage_actions': [self.add_coverage_action(
+                row_id='client-chosen')],
+        })
+        invalid_period = self.patch({
+            'draft_version': 1,
+            'coverage_actions': [self.add_coverage_action(
+                payment_period=0)],
+        })
+        invalid_path = self.patch({
+            'draft_version': 1,
+            'coverage_actions': [self.add_coverage_action(
+                standard_detail_name='존재하지 않는 담보')],
+        })
+        unrelated_field = self.patch({
+            'draft_version': 1,
+            'coverage_actions': [self.add_coverage_action(
+                reason='추가 동작에는 쓰지 않는 값')],
+        })
+
+        self.assertEqual(client_row_id.status_code, 400)
+        self.assertEqual(invalid_period.status_code, 400)
+        self.assertEqual(invalid_path.status_code, 400)
+        self.assertEqual(unrelated_field.status_code, 400)
+        self.job.refresh_from_db()
+        self.assertEqual(len(self.job.draft_payload['coverage_rows']), 2)
+        self.assertEqual(self.job.draft_version, 1)
+
+    def test_add_action_replays_once_with_same_idempotency_key(self):
+        key = uuid.uuid4()
+        body = {
+            'draft_version': 1,
+            'coverage_actions': [self.add_coverage_action()],
+        }
+
+        first = self.patch(body, key=key)
+        second = self.patch(body, key=key)
+
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertEqual(second.status_code, 200, second.content)
+        self.assertEqual(first.json(), second.json())
+        self.job.refresh_from_db()
+        self.assertEqual(len(self.job.draft_payload['coverage_rows']), 3)
+        self.assertEqual(self.job.draft_version, 2)
+        self.assertEqual(self.job.planner_edit_count, 1)
+
+    @override_settings(INSURANCE_MAX_CANDIDATES=3)
+    def test_repeated_add_action_cannot_exceed_total_coverage_limit(self):
+        first = self.patch({
+            'draft_version': 1,
+            'coverage_actions': [self.add_coverage_action()],
+        })
+        second = self.patch({
+            'draft_version': 2,
+            'coverage_actions': [self.add_coverage_action(
+                raw_name='두 번째 직접 추가 담보')],
+        })
+
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertEqual(second.status_code, 400, second.content)
+        self.assertEqual(
+            second.json()['code'], 'COVERAGE_ROW_LIMIT_EXCEEDED')
+        self.job.refresh_from_db()
+        self.assertEqual(len(self.job.draft_payload['coverage_rows']), 3)
+        self.assertEqual(self.job.draft_version, 2)
+        self.assertEqual(self.job.planner_edit_count, 1)
 
     def test_assigning_same_mapping_marks_ambiguous_row_as_reviewed(self):
         draft = copy.deepcopy(self.job.draft_payload)
@@ -523,6 +708,79 @@ class InsuranceImportDraftAPITests(TestCase):
             self.job.draft_payload['coverage_rows'][0]['manual_fields'],
             ['warranty_period'],
         )
+
+    def test_same_value_amount_edit_records_manual_source_confirmation(self):
+        self.set_amount_evidence_mismatch()
+
+        response = self.patch({
+            'draft_version': 1,
+            'coverage_actions': [{
+                'row_id': 'row-1',
+                'action': 'edit',
+                'field': 'assurance_amount',
+                'value': 99_000_000,
+            }],
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        row = response.json()['coverages'][0]
+        self.assertEqual(row['state'], 'manual')
+        self.assertNotIn(
+            'AMOUNT_EVIDENCE_MISMATCH', row['review_reason_codes'])
+        self.assertNotIn(
+            'AMOUNT_ROLE_AMBIGUOUS', row['review_reason_codes'])
+        self.job.refresh_from_db()
+        self.assertIn(
+            'assurance_amount',
+            self.job.draft_payload['coverage_rows'][0]['manual_fields'])
+
+    def test_same_value_premium_edit_records_manual_source_confirmation(self):
+        draft = copy.deepcopy(self.job.draft_payload)
+        draft['coverage_rows'][0]['premium'] = 99_000
+        validation = validate_draft(self.lines, self.candidates, draft)
+        self.assertIn(
+            'PREMIUM_EVIDENCE_MISMATCH',
+            validation.draft['coverage_rows'][0]['review_reason_codes'])
+        summary = copy.deepcopy(self.job.validation_summary)
+        summary.update(validation.summary)
+        self.job.draft_payload = validation.draft
+        self.job.validation_summary = summary
+        self.job.save(update_fields=['draft_payload', 'validation_summary'])
+
+        response = self.patch({
+            'draft_version': 1,
+            'coverage_actions': [{
+                'row_id': 'row-1',
+                'action': 'edit',
+                'field': 'premium',
+                'value': 99_000,
+            }],
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        row = response.json()['coverages'][0]
+        self.assertNotIn(
+            'PREMIUM_EVIDENCE_MISMATCH', row['review_reason_codes'])
+        self.job.refresh_from_db()
+        self.assertIn(
+            'premium',
+            self.job.draft_payload['coverage_rows'][0]['manual_fields'])
+
+    def test_same_invalid_value_edit_does_not_bypass_value_validation(self):
+        response = self.patch({
+            'draft_version': 1,
+            'coverage_actions': [{
+                'row_id': 'row-1',
+                'action': 'edit',
+                'field': 'is_renewal',
+                'value': None,
+            }],
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        row = response.json()['coverages'][0]
+        self.assertEqual(row['state'], 'invalid')
+        self.assertIn('RENEWAL_FLAG_REQUIRED', row['review_reason_codes'])
 
     def test_undo_exclude_fully_revalidates_unchanged_amount(self):
         self.set_amount_evidence_mismatch()

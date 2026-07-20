@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import Link from "next/link";
 
 import type {
   DraftPatchPayload,
@@ -144,15 +143,17 @@ export function StandardCoveragePicker({
   options,
   value,
   onChange,
+  ariaLabel = "표준 위치",
 }: {
   options: StandardCoverageOption[];
   value: string;
   onChange: (value: string) => void;
+  ariaLabel?: string;
 }) {
   return (
     <label className="grid gap-1 text-xs font-semibold text-ink2">
       표준 위치
-      <select data-review-field="standard_category" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink" value={value} onChange={(event) => onChange(event.target.value)}>
+      <select aria-label={ariaLabel} data-review-field="standard_category" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink" value={value} onChange={(event) => onChange(event.target.value)}>
         <option value="">위치를 선택해 주세요</option>
         {options.map((option) => {
           const key = `${option.category}\u0000${option.subcategory}\u0000${option.detail_name}`;
@@ -216,15 +217,20 @@ export function coveragePeriodValueFromImport(row: InsuranceDraftCoverageRow): C
 export function CoverageFactFields({
   value,
   onChange,
+  ariaLabelPrefix = "",
 }: {
   value: CoverageFactValue;
   onChange: CoverageFactChange;
+  ariaLabelPrefix?: string;
 }) {
+  const ariaLabel = (label: string) => ariaLabelPrefix
+    ? `${ariaLabelPrefix} ${label.replace(/^담보 /, "")}`
+    : label;
   return (
     <div className="grid gap-3 sm:grid-cols-3">
-      <label className="grid gap-1 text-xs font-semibold text-ink2">담보 이름<input data-review-field="raw_name" aria-label="담보 이름" className="rounded-lg border border-line px-3 py-2 text-sm" value={value.raw_name ?? ""} onChange={(event) => onChange("raw_name", event.target.value)} /></label>
-      <label className="grid gap-1 text-xs font-semibold text-ink2">보장 금액<input data-review-field="assurance_amount" aria-label="보장 금액" type="number" min="0" className="rounded-lg border border-line px-3 py-2 text-sm" value={value.assurance_amount ?? ""} onChange={(event) => onChange("assurance_amount", event.target.value === "" ? null : Number(event.target.value))} /></label>
-      <label className="grid gap-1 text-xs font-semibold text-ink2">담보 보험료<input data-review-field="premium" aria-label="담보 보험료" type="number" min="0" className="rounded-lg border border-line px-3 py-2 text-sm" value={value.premium ?? ""} onChange={(event) => onChange("premium", event.target.value === "" ? null : Number(event.target.value))} /></label>
+      <label className="grid gap-1 text-xs font-semibold text-ink2">담보 이름<input data-review-field="raw_name" aria-label={ariaLabel("담보 이름")} className="rounded-lg border border-line px-3 py-2 text-sm" value={value.raw_name ?? ""} onChange={(event) => onChange("raw_name", event.target.value)} /></label>
+      <label className="grid gap-1 text-xs font-semibold text-ink2">보장 금액<input data-review-field="assurance_amount" aria-label={ariaLabel("보장 금액")} type="number" min="0" className="rounded-lg border border-line px-3 py-2 text-sm" value={value.assurance_amount ?? ""} onChange={(event) => onChange("assurance_amount", event.target.value === "" ? null : Number(event.target.value))} /></label>
+      <label className="grid gap-1 text-xs font-semibold text-ink2">담보 보험료<input data-review-field="premium" aria-label={ariaLabel("담보 보험료")} type="number" min="0" className="rounded-lg border border-line px-3 py-2 text-sm" value={value.premium ?? ""} onChange={(event) => onChange("premium", event.target.value === "" ? null : Number(event.target.value))} /></label>
     </div>
   );
 }
@@ -232,18 +238,196 @@ export function CoverageFactFields({
 export function CoveragePeriodFields({
   value,
   onChange,
+  ariaLabelPrefix = "",
 }: {
   value: CoveragePeriodValue;
   onChange: CoveragePeriodChange;
+  ariaLabelPrefix?: string;
 }) {
+  const ariaLabel = (label: string) => ariaLabelPrefix ? `${ariaLabelPrefix} ${label}` : label;
   return (
     <div className="grid gap-3 sm:grid-cols-3">
-      <label className="grid gap-1 text-xs font-semibold text-ink2">갱신 여부<select data-review-field="is_renewal" aria-label="갱신 여부" className="rounded-lg border border-line px-3 py-2 text-sm" value={value.is_renewal === null ? "" : String(value.is_renewal)} onChange={(event) => onChange("is_renewal", event.target.value === "" ? null : event.target.value === "true")}><option value="">확인 필요</option><option value="false">비갱신</option><option value="true">갱신</option></select></label>
-      <label className="grid gap-1 text-xs font-semibold text-ink2">갱신 주기<input data-review-field="renewal_period" aria-label="갱신 주기" type="number" min="1" className="rounded-lg border border-line px-3 py-2 text-sm" value={value.renewal_period ?? ""} onChange={(event) => onChange("renewal_period", event.target.value === "" ? null : Number(event.target.value))} /></label>
-      <label className="grid gap-1 text-xs font-semibold text-ink2">납입 기간<input data-review-field="payment_period" aria-label="납입 기간" type="number" min="1" disabled={value.payment_period_unit === "lifetime"} className="rounded-lg border border-line px-3 py-2 text-sm disabled:bg-surface2" value={value.payment_period ?? ""} onChange={(event) => onChange("payment_period", event.target.value === "" ? null : Number(event.target.value))} /></label>
-      <label className="grid gap-1 text-xs font-semibold text-ink2">납입 기간 기준<select data-review-field="payment_period_unit" aria-label="납입 기간 기준" className="rounded-lg border border-line px-3 py-2 text-sm" value={value.payment_period_unit ?? ""} onChange={(event) => { const unit = (event.target.value || null) as CoveragePeriodValue["payment_period_unit"]; if (unit === "lifetime") onChange("payment_period", null); onChange("payment_period_unit", unit); }}><option value="">확인 필요</option><option value="years">년</option><option value="age">나이</option><option value="lifetime">종신</option></select></label>
-      <label className="grid gap-1 text-xs font-semibold text-ink2">보장 기간<input data-review-field="warranty_period" aria-label="보장 기간" type="number" min="1" disabled={value.warranty_period_unit === "lifetime"} className="rounded-lg border border-line px-3 py-2 text-sm disabled:bg-surface2" value={value.warranty_period ?? ""} onChange={(event) => onChange("warranty_period", event.target.value === "" ? null : Number(event.target.value))} /></label>
-      <label className="grid gap-1 text-xs font-semibold text-ink2">보장 기간 기준<select data-review-field="warranty_period_unit" aria-label="보장 기간 기준" className="rounded-lg border border-line px-3 py-2 text-sm" value={value.warranty_period_unit ?? ""} onChange={(event) => { const unit = (event.target.value || null) as CoveragePeriodValue["warranty_period_unit"]; if (unit === "lifetime") onChange("warranty_period", null); onChange("warranty_period_unit", unit); }}><option value="">확인 필요</option><option value="years">년</option><option value="age">나이</option><option value="lifetime">종신</option></select></label>
+      <label className="grid gap-1 text-xs font-semibold text-ink2">갱신 여부<select data-review-field="is_renewal" aria-label={ariaLabel("갱신 여부")} className="rounded-lg border border-line px-3 py-2 text-sm" value={value.is_renewal === null ? "" : String(value.is_renewal)} onChange={(event) => onChange("is_renewal", event.target.value === "" ? null : event.target.value === "true")}><option value="">확인 필요</option><option value="false">비갱신</option><option value="true">갱신</option></select></label>
+      <label className="grid gap-1 text-xs font-semibold text-ink2">갱신 주기<input data-review-field="renewal_period" aria-label={ariaLabel("갱신 주기")} type="number" min="1" className="rounded-lg border border-line px-3 py-2 text-sm" value={value.renewal_period ?? ""} onChange={(event) => onChange("renewal_period", event.target.value === "" ? null : Number(event.target.value))} /></label>
+      <label className="grid gap-1 text-xs font-semibold text-ink2">납입 기간<input data-review-field="payment_period" aria-label={ariaLabel("납입 기간")} type="number" min="1" disabled={value.payment_period_unit === "lifetime"} className="rounded-lg border border-line px-3 py-2 text-sm disabled:bg-surface2" value={value.payment_period ?? ""} onChange={(event) => onChange("payment_period", event.target.value === "" ? null : Number(event.target.value))} /></label>
+      <label className="grid gap-1 text-xs font-semibold text-ink2">납입 기간 기준<select data-review-field="payment_period_unit" aria-label={ariaLabel("납입 기간 기준")} className="rounded-lg border border-line px-3 py-2 text-sm" value={value.payment_period_unit ?? ""} onChange={(event) => { const unit = (event.target.value || null) as CoveragePeriodValue["payment_period_unit"]; if (unit === "lifetime") onChange("payment_period", null); onChange("payment_period_unit", unit); }}><option value="">확인 필요</option><option value="years">년</option><option value="age">나이</option><option value="lifetime">종신</option></select></label>
+      <label className="grid gap-1 text-xs font-semibold text-ink2">보장 기간<input data-review-field="warranty_period" aria-label={ariaLabel("보장 기간")} type="number" min="1" disabled={value.warranty_period_unit === "lifetime"} className="rounded-lg border border-line px-3 py-2 text-sm disabled:bg-surface2" value={value.warranty_period ?? ""} onChange={(event) => onChange("warranty_period", event.target.value === "" ? null : Number(event.target.value))} /></label>
+      <label className="grid gap-1 text-xs font-semibold text-ink2">보장 기간 기준<select data-review-field="warranty_period_unit" aria-label={ariaLabel("보장 기간 기준")} className="rounded-lg border border-line px-3 py-2 text-sm" value={value.warranty_period_unit ?? ""} onChange={(event) => { const unit = (event.target.value || null) as CoveragePeriodValue["warranty_period_unit"]; if (unit === "lifetime") onChange("warranty_period", null); onChange("warranty_period_unit", unit); }}><option value="">확인 필요</option><option value="years">년</option><option value="age">나이</option><option value="lifetime">종신</option></select></label>
+    </div>
+  );
+}
+
+const EMPTY_COVERAGE_FACTS: CoverageFactValue = {
+  raw_name: "",
+  assurance_amount: null,
+  premium: null,
+};
+
+const EMPTY_COVERAGE_PERIODS: CoveragePeriodValue = {
+  is_renewal: null,
+  renewal_period: null,
+  payment_period: null,
+  payment_period_unit: null,
+  warranty_period: null,
+  warranty_period_unit: null,
+};
+
+function manualCoverageErrors(
+  facts: CoverageFactValue,
+  periods: CoveragePeriodValue,
+  standardValue: string
+): string[] {
+  const errors: string[] = [];
+  if (!facts.raw_name?.trim()) errors.push("담보 이름을 입력해 주세요.");
+  if (facts.assurance_amount === null) {
+    errors.push("보장 금액을 입력해 주세요.");
+  } else if (!Number.isSafeInteger(facts.assurance_amount) || facts.assurance_amount < 0) {
+    errors.push("보장 금액은 0원 이상의 정수로 입력해 주세요.");
+  }
+  if (facts.premium !== null && (!Number.isSafeInteger(facts.premium) || facts.premium < 0)) {
+    errors.push("담보 보험료는 0원 이상의 정수로 입력해 주세요.");
+  }
+  if (periods.is_renewal === null) errors.push("갱신 여부를 선택해 주세요.");
+  if (periods.is_renewal === true && periods.renewal_period === null) {
+    errors.push("갱신 주기를 입력해 주세요.");
+  }
+  if (periods.renewal_period !== null && (!Number.isSafeInteger(periods.renewal_period) || periods.renewal_period < 1)) {
+    errors.push("갱신 주기는 1 이상의 정수로 입력해 주세요.");
+  }
+  if (periods.is_renewal === false && periods.renewal_period !== null) {
+    errors.push("비갱신 담보는 갱신 주기를 비워 주세요.");
+  }
+  for (const [label, period, unit] of [
+    ["납입", periods.payment_period, periods.payment_period_unit],
+    ["보장", periods.warranty_period, periods.warranty_period_unit],
+  ] as const) {
+    if (!unit) errors.push(`${label} 기간 기준을 선택해 주세요.`);
+    if (unit && unit !== "lifetime" && period === null) errors.push(`${label} 기간을 입력해 주세요.`);
+    if (period !== null && (!Number.isSafeInteger(period) || period < 1)) {
+      errors.push(`${label} 기간은 1 이상의 정수로 입력해 주세요.`);
+    }
+  }
+  if (!standardValue) errors.push("표준 위치를 선택해 주세요.");
+  return errors;
+}
+
+function ManualCoverageAddForm({
+  draft,
+  disabled,
+  onSave,
+  onDirtyChange,
+}: {
+  draft: InsuranceImportDraft;
+  disabled: boolean;
+  onSave: InsuranceDraftEditorProps["onSave"];
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [facts, setFacts] = useState<CoverageFactValue>(EMPTY_COVERAGE_FACTS);
+  const [periods, setPeriods] = useState<CoveragePeriodValue>(EMPTY_COVERAGE_PERIODS);
+  const [standardValue, setStandardValue] = useState("");
+  const [showErrors, setShowErrors] = useState(false);
+  const fieldsetRef = useRef<HTMLFieldSetElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const returnFocusAfterSaveRef = useRef(false);
+
+  useEffect(() => {
+    onDirtyChange(expanded);
+    return () => onDirtyChange(false);
+  }, [expanded, onDirtyChange]);
+
+  useEffect(() => {
+    if (!expanded && returnFocusAfterSaveRef.current) {
+      returnFocusAfterSaveRef.current = false;
+      toggleRef.current?.focus();
+    }
+  }, [expanded]);
+
+  const errors = manualCoverageErrors(facts, periods, standardValue);
+  const updateFact: CoverageFactChange = (field, value) => {
+    setFacts((current) => ({ ...current, [field]: value }));
+  };
+  const updatePeriod: CoveragePeriodChange = (field, value) => {
+    setPeriods((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === "is_renewal" && value === false ? { renewal_period: null } : {}),
+    }));
+  };
+  const reset = () => {
+    setFacts(EMPTY_COVERAGE_FACTS);
+    setPeriods(EMPTY_COVERAGE_PERIODS);
+    setStandardValue("");
+    setShowErrors(false);
+    setExpanded(false);
+  };
+  const submit = async () => {
+    setShowErrors(true);
+    if (errors.length > 0) {
+      fieldsetRef.current?.querySelector<HTMLInputElement>('[aria-label="새 담보 이름"]')?.focus();
+      return;
+    }
+    const [standard_category, standard_subcategory, standard_detail_name] = standardValue.split("\u0000");
+    const nextDraft = await onSave({
+      draft_version: draft.draft_version,
+      coverage_actions: [{
+        action: "add",
+        raw_name: facts.raw_name!.trim(),
+        assurance_amount: facts.assurance_amount!,
+        premium: facts.premium,
+        is_renewal: periods.is_renewal!,
+        renewal_period: periods.renewal_period,
+        payment_period: periods.payment_period,
+        payment_period_unit: periods.payment_period_unit,
+        warranty_period: periods.warranty_period,
+        warranty_period_unit: periods.warranty_period_unit,
+        standard_category,
+        standard_subcategory,
+        standard_detail_name,
+      }],
+    });
+    if (nextDraft) {
+      returnFocusAfterSaveRef.current = true;
+      reset();
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-xl border border-line bg-surface2 p-4">
+      <p className="text-sm leading-6 text-ink2">자동 정리에서 빠진 담보를 증권 원문대로 추가할 수 있어요.</p>
+      <button
+        ref={toggleRef}
+        type="button"
+        disabled={disabled}
+        aria-expanded={expanded}
+        aria-controls="manual-coverage-add-form"
+        className="mt-3 rounded-lg border border-brand px-3 py-2 text-sm font-semibold text-brand disabled:opacity-40"
+        onClick={() => {
+          if (expanded) reset();
+          else setExpanded(true);
+        }}
+      >
+        {expanded ? "담보 추가 닫기" : "담보 직접 추가"}
+      </button>
+      {expanded && (
+        <fieldset ref={fieldsetRef} id="manual-coverage-add-form" disabled={disabled} className="mt-4 min-w-0 space-y-3 border-0 p-0">
+          <legend className="sr-only">새 담보 입력</legend>
+          <CoverageFactFields value={facts} onChange={updateFact} ariaLabelPrefix="새 담보" />
+          <CoveragePeriodFields value={periods} onChange={updatePeriod} ariaLabelPrefix="새 담보" />
+          <StandardCoveragePicker
+            options={draft.standard_coverages.items}
+            value={standardValue}
+            onChange={setStandardValue}
+            ariaLabel="새 담보 표준 위치"
+          />
+          {showErrors && errors.length > 0 && (
+            <ul role="alert" className="space-y-1 rounded-lg bg-warn-soft p-3 text-sm font-semibold text-warn-ink">
+              {errors.map((error) => <li key={error}>{error}</li>)}
+            </ul>
+          )}
+          <button type="button" className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" onClick={() => void submit()}>담보 추가 저장</button>
+        </fieldset>
+      )}
     </div>
   );
 }
@@ -279,6 +463,13 @@ const COVERAGE_EDIT_FIELDS = [
   "warranty_period",
   "warranty_period_unit",
 ] as const;
+
+const SOURCE_CONFIRM_FIELD_BY_CODE = {
+  RAW_NAME_EVIDENCE_MISMATCH: "raw_name",
+  AMOUNT_EVIDENCE_MISMATCH: "assurance_amount",
+  AMOUNT_ROLE_AMBIGUOUS: "assurance_amount",
+  PREMIUM_EVIDENCE_MISMATCH: "premium",
+} as const;
 
 function sameCandidates(left: string[], right: string[]): boolean {
   const leftSet = new Set(left);
@@ -339,6 +530,20 @@ function CoverageRowDetails({
     sameCandidates(candidate.source_candidate_ids, row.source_candidate_ids)
   );
   const pages = evidencePages(row.evidence_line_ids);
+  const sourceConfirmFields = Array.from(new Set(
+    row.review_reason_codes.flatMap((code) => {
+      const field = SOURCE_CONFIRM_FIELD_BY_CODE[
+        code as keyof typeof SOURCE_CONFIRM_FIELD_BY_CODE
+      ];
+      return field && row[field] !== null ? [field] : [];
+    })
+  ));
+  const sourceConfirmActions = sourceConfirmFields.map((field) => ({
+    row_id: row.row_id,
+    action: "edit" as const,
+    field,
+    value: row[field],
+  }));
 
   const updateFact: CoverageFactChange = (field, value) => {
     setEdited((current) => ({ ...current, [field]: value }));
@@ -364,6 +569,8 @@ function CoverageRowDetails({
       <CoverageFactFields value={coverageFactValueFromImport(edited)} onChange={updateFact} />
       <CoveragePeriodFields value={coveragePeriodValueFromImport(edited)} onChange={updatePeriod} />
       <button type="button" disabled={!hasDirtyValues} className="rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white disabled:opacity-40" onClick={() => void saveActions(editActions)}>담보 내용 저장</button>
+
+      {sourceConfirmActions.length > 0 && <button type="button" disabled={hasDirtyValues || hasDirtyAction} className="ml-2 rounded-lg border border-brand px-3 py-2 text-xs font-semibold text-brand disabled:opacity-40" onClick={() => void saveActions(sourceConfirmActions)}>현재 내용을 원문대로 확인</button>}
 
       {pages.length > 0 && <button type="button" className="ml-2 rounded-lg border border-line px-3 py-2 text-xs font-semibold text-brand" onClick={() => onViewEvidence(pages)}>원문에서 보기</button>}
 
@@ -405,6 +612,7 @@ export function InsuranceDraftEditor(props: InsuranceDraftEditorProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [pendingIssueFocus, setPendingIssueFocus] = useState<{ rowId: string; field: string | null } | null>(null);
   const [dirtyRows, setDirtyRows] = useState<Set<string>>(new Set());
+  const [addingCoverage, setAddingCoverage] = useState(false);
   const [policyValues, setPolicyValues] = useState(() => policyInitial(draft));
   const summaryRefs = useRef(new Map<string, HTMLButtonElement>());
   const coverageRefs = useRef(new Map<string, HTMLElement>());
@@ -442,6 +650,11 @@ export function InsuranceDraftEditor(props: InsuranceDraftEditorProps) {
     return [{ field, value: normalized }];
   });
   const hasUnsavedChanges = policyChanges.length > 0;
+  const monthlyPremiumNeedsSourceConfirmation =
+    draft.policy.monthly_premium.value !== null &&
+    draft.policy.monthly_premium.review_reason_codes.some((code) =>
+      code === "PREMIUM_SUM_MISMATCH" || code === "PREMIUM_SUM_INCOMPLETE"
+    );
 
   const visibleRows = sortedRows.filter((row) => {
     if (filter === "all") return true;
@@ -504,6 +717,7 @@ export function InsuranceDraftEditor(props: InsuranceDraftEditorProps) {
     !props.isSaving &&
     !props.hasVersionConflict &&
     !hasUnsavedChanges &&
+    !addingCoverage &&
     dirtyRows.size === 0 &&
     (draft.target_insurance_id === null || draft.target_insurance_version !== null);
 
@@ -555,6 +769,7 @@ export function InsuranceDraftEditor(props: InsuranceDraftEditorProps) {
           })}
         </div>
         <button type="button" disabled={!hasUnsavedChanges || props.isSaving} className="mt-4 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" onClick={() => void props.onSave({ draft_version: draft.draft_version, policy_changes: policyChanges })}>기본정보 저장</button>
+        {monthlyPremiumNeedsSourceConfirmation && <button type="button" disabled={hasUnsavedChanges || props.isSaving} className="ml-2 mt-4 rounded-lg border border-brand px-4 py-2 text-sm font-semibold text-brand disabled:opacity-40" onClick={() => void props.onSave({ draft_version: draft.draft_version, policy_changes: [{ field: "monthly_premium", value: draft.policy.monthly_premium.value }] })}>월 보험료 원문 확인 완료</button>}
       </fieldset>
 
       <section className="rounded-2xl border border-line bg-surface p-5 shadow-card" aria-labelledby="coverage-heading">
@@ -575,9 +790,13 @@ export function InsuranceDraftEditor(props: InsuranceDraftEditorProps) {
             );
           })}
         </div>
+        <ManualCoverageAddForm
+          draft={draft}
+          disabled={props.isSaving}
+          onSave={props.onSave}
+          onDirtyChange={setAddingCoverage}
+        />
       </section>
-
-      {draft.source_review.requires_manual_coverage_entry && draft.coverages.length === 0 && <div className="rounded-xl border border-line bg-surface2 p-4 text-sm text-ink2">고객 분석 화면에서 담보를 직접 입력하면 이어서 확인할 수 있어요. <Link className="font-semibold text-brand" href={`/customer/${props.customerId}?tab=analysis`}>고객 분석으로 이동</Link></div>}
 
       <div className="sticky bottom-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
         <label className="flex items-start gap-2 text-sm font-semibold text-ink"><input ref={sourceMatchRef} type="checkbox" disabled={props.isSaving} checked={props.plannerConfirmedSourceMatch} onChange={(event) => props.onSourceMatchChange(event.target.checked)} />기본정보와 전체 담보가 증권 원문과 같은지 확인했습니다</label>
