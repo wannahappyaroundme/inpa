@@ -21,6 +21,7 @@
 """
 import logging
 import re
+import uuid
 
 from django.conf import settings
 from django.core.cache import cache
@@ -42,7 +43,7 @@ from inpa.accounts.models import Profile
 from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
 from inpa.analytics.views import _NoIndexMixin, _build_share_payload, build_coverage_tree
-from inpa.billing.credit import log_claude_usage
+from inpa.billing.credit import LimitExceeded, log_claude_usage
 from inpa.core.copyguard import warn_if_advice_words
 from inpa.core.ocr.claude_parser import claude_parse
 from inpa.core.ocr.ocrdata import LifeInsurance, LossInsurance
@@ -61,6 +62,56 @@ MSG_FILE_FAILED = '이 증권은 읽지 못했어요. 담당 설계사가 직접
 MSG_FILE_TOO_LARGE = '파일이 5MB보다 커서 읽지 못했어요. 담당 설계사가 직접 확인해 드릴 거예요.'
 MSG_FILE_SKIPPED = '오늘은 여기까지 정리했어요. 담당 설계사가 나머지를 도와드릴 거예요.'
 MSG_MAX_FILES = '증권은 한 번에 5장까지 정리해 드려요. 나머지는 담당 설계사가 함께 확인해 드릴게요.'
+MSG_COVERAGE_REVIEW_REQUIRED = (
+    '이 담보는 증권 원문에서 확인하면 정확하게 정리할 수 있어요. '
+    '담당 설계사가 직접 확인해 드릴게요.')
+
+_EXISTING_IMPORT_KINDS = frozenset({
+    'active_duplicate', 'confirmed_duplicate', 'idempotent_replay',
+    'legacy_idempotent_replay', 'source_reattached',
+})
+_PENDING_IMPORT_STATUSES = frozenset({
+    'queued', 'extracting', 'validating', 'review_required',
+})
+
+
+def _safe_review_failure(status_codes):
+    """공개 고객용 접수 오류. 내부 코드·상세·파일명을 반영하지 않는다."""
+    if any(code >= 500 for code in status_codes):
+        return (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            'REVIEW_INTAKE_UNAVAILABLE',
+            '담당 설계사에게 확인 요청을 남겼어요. 증권은 다시 선택해 주세요.',
+        )
+    if status.HTTP_429_TOO_MANY_REQUESTS in status_codes:
+        return (
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            'REVIEW_BUSY',
+            '담당 설계사에게 확인 요청을 남겼어요. 잠시 후 다시 제출해 주세요.',
+        )
+    if status.HTTP_402_PAYMENT_REQUIRED in status_codes:
+        return (
+            status.HTTP_402_PAYMENT_REQUIRED,
+            'REVIEW_LIMIT_REACHED',
+            '담당 설계사에게 직접 확인 요청을 남겼어요.',
+        )
+    if status.HTTP_412_PRECONDITION_FAILED in status_codes:
+        return (
+            status.HTTP_412_PRECONDITION_FAILED,
+            'CONSENT_REQUIRED',
+            '동의 내용을 확인한 뒤 증권을 다시 제출해 주세요.',
+        )
+    if status.HTTP_409_CONFLICT in status_codes:
+        return (
+            status.HTTP_409_CONFLICT,
+            'REVIEW_INTAKE_CONFLICT',
+            '같은 증권 접수를 확인하고 있어요. 담당 설계사에게 요청은 전달했어요.',
+        )
+    return (
+        status.HTTP_400_BAD_REQUEST,
+        'POLICY_FILES_NOT_RECEIVED',
+        'PDF 증권 파일을 다시 선택해 주세요. 담당 설계사에게 확인 요청은 전달했어요.',
+    )
 
 
 def _truthy(v):
@@ -161,9 +212,14 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
         legacy_single = request.FILES.get('file')
         if legacy_single is not None:
             files.insert(0, legacy_single)
-        over_limit = len(files) > SELF_DIAG_MAX_FILES
+        submitted_file_count = len(files)
+        over_limit = submitted_file_count > SELF_DIAG_MAX_FILES
+        overflow_file_count = max(
+            0, submitted_file_count - SELF_DIAG_MAX_FILES)
         files = files[:SELF_DIAG_MAX_FILES]   # 초과분은 받지 않음(응답 notice 로 안내)
         has_files = bool(files)
+        review_gate = getattr(
+            settings, 'INSURANCE_REVIEW_GATE_ENABLED', False)
         name = (request.data.get('name') or '').strip()
         phone_digits = re.sub(r'[^0-9]', '', (request.data.get('phone') or '').strip())
         birth = (request.data.get('birth') or '').strip()        # YYYY-MM-DD
@@ -201,7 +257,7 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
         # 4) (PDF 있을 때만) 파일별 검증 → 텍스트 추출 → Claude 파싱.
         #    ★ 파일별 독립 실패 격리 — 한 장이 실패해도 나머지는 진행(status 로 구분).
         parsed_items = []   # 업로드 순서 보존: {display_name, ocr_data|None, status, message}
-        if has_files:
+        if has_files and not review_gate:
             if not getattr(settings, 'ANTHROPIC_API_KEY', ''):
                 return Response({'code': 'OCR_UNAVAILABLE',
                                  'detail': '지금은 증권을 바로 정리하기 어려워요. 담당 설계사가 직접 확인해 도와드릴게요.'},
@@ -255,7 +311,16 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                     matched=claude_meta.get('matched_count'),
                     unmatched=claude_meta.get('unmatched_count'),
                 )
-                if ocr_data is not None:
+                if (ocr_data is not None
+                        and getattr(
+                            ocr_data,
+                            '_manual_review_coverage_count',
+                            0)):
+                    item.update(
+                        status='failed',
+                        message=MSG_COVERAGE_REVIEW_REQUIRED,
+                    )
+                elif ocr_data is not None:
                     item.update(status='ok', ocr_data=ocr_data, message=None)
                 parsed_items.append(item)
 
@@ -341,7 +406,9 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                         ci, created_cases = _persist_ocr(customer, item['ocr_data'])
                         existing_by_sig[sig] = ci
                     # ★ 그 보험만의 트리(보유 담보만 가지치기) — 카드 탭 상세용. neutral 강제.
-                    tree, _summary = build_coverage_tree(customer, [ci], held_only=True)
+                    tree = []
+                    tree, _summary = build_coverage_tree(
+                        customer, [ci], held_only=True)
                     entries.append({
                         'name': (ci.name or '').strip() or item['display_name'],
                         'company_label': _company_label(item['ocr_data']),
@@ -353,13 +420,174 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                     })
                 insurances_payload = entries
 
+        # gate ON은 legacy 즉시 파싱·저장을 거치지 않는다. 고객·동의가 확정된 뒤 기존
+        # 검토형 접수 서비스에만 전달해 가명화, credit, owner, idempotency, queue 규칙을
+        # 동일하게 적용한다. 공급자 호출은 승인된 worker가 큐를 가져간 뒤에만 가능하다.
+        accepted_file_count = 0
+        pending_accepted_count = 0
+        existing_file_count = 0
+        failed_file_count = overflow_file_count
+        pending_existing_count = 0
+        failure_status_codes = (
+            [status.HTTP_400_BAD_REQUEST] * overflow_file_count)
+        if has_files and review_gate:
+            from . import import_services
+
+            raw_key = request.headers.get('Idempotency-Key')
+            try:
+                request_key = uuid.UUID(str(raw_key))
+            except (TypeError, ValueError, AttributeError):
+                request_key = uuid.uuid4()
+            attempt_key = f'selfdiag-attempts:{refcode}:{today.isoformat()}'
+            cache.add(attempt_key, 0, 60 * 60 * 24)
+            for index, upload in enumerate(files):
+                if cache.get(attempt_key, 0) >= SELF_DIAG_DAILY_CAP_PER_REF:
+                    failed_file_count += 1
+                    failure_status_codes.append(
+                        status.HTTP_429_TOO_MANY_REQUESTS)
+                    continue
+                if (upload.size > SELF_DIAG_MAX_BYTES
+                        or not upload.name.lower().endswith('.pdf')):
+                    failed_file_count += 1
+                    failure_status_codes.append(status.HTTP_400_BAD_REQUEST)
+                    continue
+                try:
+                    cache.incr(attempt_key)
+                except ValueError:
+                    cache.set(attempt_key, 1, 60 * 60 * 24)
+                try:
+                    result = import_services.receive_import(
+                        owner=planner,
+                        customer_pk=customer.pk,
+                        uploaded_file=upload,
+                        intent='add',
+                        portfolio_type=1,
+                        idempotency_key=uuid.uuid5(request_key, str(index)),
+                    )
+                except import_services.ImportReceptionError as exc:
+                    failed_file_count += 1
+                    failure_status_codes.append(
+                        exc.status_code if exc.status_code in {
+                            400, 402, 409, 412, 429,
+                        } else status.HTTP_503_SERVICE_UNAVAILABLE)
+                    logger.warning(
+                        '[self-diag] review intake rejected: %s',
+                        type(exc).__name__)
+                    continue
+                except LimitExceeded as exc:
+                    failed_file_count += 1
+                    failure_status_codes.append(
+                        status.HTTP_402_PAYMENT_REQUIRED)
+                    logger.warning(
+                        '[self-diag] review intake rejected: %s',
+                        type(exc).__name__)
+                    continue
+                except Exception as exc:
+                    failed_file_count += 1
+                    failure_status_codes.append(
+                        status.HTTP_503_SERVICE_UNAVAILABLE)
+                    logger.warning(
+                        '[self-diag] review intake error: %s',
+                        type(exc).__name__)
+                    continue
+
+                duplicate_kind = result.duplicate_kind
+                job = result.job
+                job_status = getattr(job, 'status', None)
+                if getattr(job, 'pk', None) is not None:
+                    try:
+                        job.refresh_from_db(fields=['status'])
+                        job_status = job.status
+                    except Exception as exc:
+                        failed_file_count += 1
+                        failure_status_codes.append(
+                            status.HTTP_503_SERVICE_UNAVAILABLE)
+                        logger.warning(
+                            '[self-diag] review intake status error: %s',
+                            type(exc).__name__)
+                        continue
+
+                if duplicate_kind == 'created':
+                    if (result.response_status == status.HTTP_202_ACCEPTED
+                            and (job_status in _PENDING_IMPORT_STATUSES
+                                 or job_status == 'confirmed')):
+                        accepted_file_count += 1
+                        if job_status in _PENDING_IMPORT_STATUSES:
+                            pending_accepted_count += 1
+                    else:
+                        failed_file_count += 1
+                        failure_status_codes.append(
+                            status.HTTP_503_SERVICE_UNAVAILABLE)
+                elif duplicate_kind in _EXISTING_IMPORT_KINDS:
+                    if job_status == 'confirmed':
+                        existing_file_count += 1
+                    elif job_status in _PENDING_IMPORT_STATUSES:
+                        existing_file_count += 1
+                        pending_existing_count += 1
+                    else:
+                        failed_file_count += 1
+                        failure_status_codes.append(
+                            status.HTTP_503_SERVICE_UNAVAILABLE)
+                else:
+                    failed_file_count += 1
+                    failure_status_codes.append(
+                        status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        intake_available = (
+            accepted_file_count + existing_file_count > 0)
+        review_pending = bool(
+            pending_accepted_count or pending_existing_count)
+        event_file_count = (
+            submitted_file_count if review_gate else len(files))
+        legacy_analyzed = bool(
+            not review_gate
+            and any(
+                item.get('status') == 'ok'
+                for item in (insurances_payload or [])))
+
         # 6) 귀속 이벤트 + 설계사 알림(리드)
         log_event(NorthStarEvent.REFERRAL_ATTRIBUTED, customer=customer, sender=planner,
                   ref_code=refcode, channel='self_diagnosis',
-                  payload={'lead': True, 'analyzed': has_files, 'files': len(parsed_items)})
+                  payload={
+                      'lead': True,
+                      'analyzed': legacy_analyzed,
+                      'review_pending': review_pending,
+                      'files': event_file_count,
+                      'queued_files': accepted_file_count,
+                      'accepted_file_count': accepted_file_count,
+                      'existing_file_count': existing_file_count,
+                      'failed_file_count': failed_file_count,
+                      'intake_succeeded': intake_available,
+                  })
         try:
-            body = (f'{name} 고객님이 셀프진단을 완료했어요. 고객 목록에서 확인하세요.' if has_files
-                    else f'{name} 고객님이 상담을 신청했어요(증권 없이). 직접 연락해 도와주세요.')
+            if has_files and review_gate:
+                if not intake_available:
+                    body = (
+                        f'{name} 고객님의 증권 {failed_file_count}장은 '
+                        '직접 확인이 필요해요. 고객 목록에서 확인해 주세요.')
+                else:
+                    count_parts = []
+                    if accepted_file_count:
+                        count_parts.append(
+                            f'{accepted_file_count}장 접수')
+                    if existing_file_count:
+                        count_parts.append(
+                            f'기존 {existing_file_count}장 확인')
+                    if failed_file_count:
+                        count_parts.append(
+                            f'{failed_file_count}장 직접 확인')
+                    body = (
+                        f'{name} 고객님 증권 처리 현황: '
+                        f'{", ".join(count_parts)}. '
+                        '고객 목록에서 확인해 주세요.')
+            elif has_files and legacy_analyzed:
+                body = f'{name} 고객님이 셀프진단을 완료했어요. 고객 목록에서 확인하세요.'
+            elif has_files:
+                body = (
+                    f'{name} 고객님의 증권은 직접 확인이 필요해요. '
+                    '고객 목록에서 확인해 주세요.')
+            else:
+                body = f'{name} 고객님이 상담을 신청했어요(증권 없이). 직접 연락해 도와주세요.'
             Notification.objects.create(
                 owner=planner, notif_type=NotifType.SELF_DIAGNOSIS_LEAD,
                 title='새 셀프진단 고객', body=body, customer=customer)
@@ -369,9 +597,38 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
         # 7) 응답 — PDF 있으면 neutral 결과(사실만, 부족/충분 판정 없음), 없으면 접수 확인만.
         #    최상위 tree/summary = 전체 합산(하위호환·요약 카드), insurances[] = 보험별 카드.
         if has_files:
+            if review_gate:
+                response_body = {
+                    'lead_created': True,
+                    'analyzed': False,
+                    'review_pending': review_pending,
+                    'accepted_file_count': accepted_file_count,
+                    'existing_file_count': existing_file_count,
+                    'failed_file_count': failed_file_count,
+                }
+                if intake_available:
+                    if failed_file_count:
+                        response_body['message'] = (
+                            '담당 설계사가 접수된 증권을 확인하고, '
+                            '나머지는 직접 확인해 안내해 드려요.')
+                    elif review_pending:
+                        response_body['message'] = (
+                            '담당 설계사가 증권 내용을 '
+                            '확인한 뒤 안내해 드려요.')
+                    else:
+                        response_body['message'] = (
+                            '이미 확인된 증권을 바탕으로 '
+                            '담당 설계사가 안내해 드려요.')
+                    return Response(
+                        response_body, status=status.HTTP_201_CREATED)
+
+                response_status, code, detail = _safe_review_failure(
+                    failure_status_codes)
+                response_body.update({'code': code, 'detail': detail})
+                return Response(response_body, status=response_status)
             payload = _build_share_payload(customer)
             payload['lead_created'] = True
-            payload['analyzed'] = True
+            payload['analyzed'] = legacy_analyzed
             payload['insurances'] = insurances_payload
             # ★ 권유 단어 서버측 가드(#23) — 이번 응답에 실린 고정 카피만 관측(로그, 화면 유지).
             fixed_copy = {f'insurances[{i}].message': e['message']

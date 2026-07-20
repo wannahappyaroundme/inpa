@@ -34,13 +34,23 @@ export class ApiError extends Error {
   creditBody?: CreditExhaustedBody;
   /** 412 CONSENT_OVERSEAS_REQUIRED 일 때 BE가 주는 사유: "missing"(동의 없음) | "reconsent"(구버전 동의). */
   reason?: string;
-  constructor(status: number, code: string, message: string, creditBody?: CreditExhaustedBody, reason?: string) {
+  /** 충돌 처리처럼 서버가 제공하는 안전한 추가 선택지. */
+  data?: Record<string, unknown>;
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    creditBody?: CreditExhaustedBody,
+    reason?: string,
+    data?: Record<string, unknown>
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.creditBody = creditBody;
     this.reason = reason;
+    this.data = data;
   }
 }
 
@@ -94,10 +104,12 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
-  auth = false
+  auth = false,
+  extraHeaders: Record<string, string> = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...extraHeaders,
   };
   if (auth) {
     const tok = tokenStore.get();
@@ -136,7 +148,7 @@ async function request<T>(
         : undefined;
     // 401(인증 요청만): 공통 처리 — 토큰 제거 + 로그인 화면 이동.
     if (auth) handleUnauthorized(res.status);
-    throw new ApiError(res.status, code, detail, creditBody);
+    throw new ApiError(res.status, code, detail, creditBody, undefined, data);
   }
 
   return data as T;
@@ -902,12 +914,23 @@ export interface HeatmapBaseline {
   baseline_source: string | null;
 }
 
+export interface HeatmapContribution {
+  case_id: number;
+  insurance_id: number;
+  insurance_name: string | null;
+  raw_name: string;
+  assurance_amount: number;
+  source_page: number | null;
+  mapping_source: "global" | "planner_override" | "manual";
+}
+
 export interface HeatmapDetail {
   detail_id: number;
   name: string;
   held_amount: number | null;
   status: HeatmapStatus;
   baseline: HeatmapBaseline | null;
+  contributions: HeatmapContribution[];
 }
 
 export interface HeatmapSubCategory {
@@ -946,6 +969,9 @@ export interface InsuranceFee {
   total_renewal_premium: number | null;
   total_non_renewal_premium: number | null;
   total_earned_premium: number | null;
+  review_status: "legacy_review_required" | "draft" | "confirmed" | "excluded" | "superseded";
+  analysis_included: boolean;
+  confirmed_at: string | null;
   case_fees: InsuranceCaseFee[];      // 수기입력 보험은 []
 }
 
@@ -967,6 +993,12 @@ export interface HeatmapResponse {
   baseline_present: boolean;
   baseline_count: number;       // graded 근거(보유한 살아있는 기준 수) — PM 06.24 명확화
   insurance_count: number;
+  included_insurance_count: number;
+  excluded_insurance_count: number;
+  last_confirmed_at: string | null;
+  pending_review_count: number;
+  can_share: boolean;
+  share_block_reason: string | null;
   summary: HeatmapSummary;
   chart_list: unknown[];
   tree: HeatmapCategory[];
@@ -2068,7 +2100,342 @@ export async function adminListConsentLogs(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 증권 OCR 업로드 — multipart POST (auth required)
+// 증권 검토 작업 — 전자 PDF 접수 → 초안 확인 → 확정
+// ════════════════════════════════════════════════════════════════════════════
+
+export type InsuranceImportStatus =
+  | "queued"
+  | "extracting"
+  | "validating"
+  | "review_required"
+  | "confirmed"
+  | "failed"
+  | "canceled"
+  | "superseded";
+
+export type ReviewState =
+  | "review_ready"
+  | "needs_review"
+  | "no_evidence"
+  | "unmatched"
+  | "invalid"
+  | "manual";
+
+export type CoverageResolution = "assigned" | "unmatched" | "intentionally_excluded";
+
+export interface InsuranceImportConfig {
+  review_workflow_enabled: boolean;
+  accepted_input: "digital_pdf";
+  max_file_bytes: number;
+}
+
+export interface SourceReview {
+  required: boolean;
+  image_only_page_count: number;
+  image_only_pages: number[];
+  quarantined_line_count: number;
+  quarantined_pages: number[];
+  analysis_signal_quarantined_line_count: number;
+  analysis_signal_quarantined_pages: number[];
+  pages_requiring_manual_source_review: number[];
+  requires_manual_coverage_entry: boolean;
+  guidance: string;
+}
+
+export interface InsuranceImportConfirmationRequirements {
+  planner_confirmed_source_match: { required: true };
+  planner_confirmed_unread_pages: { required: boolean };
+}
+
+export interface InsuranceImportListItem {
+  job_id: string;
+  customer_id: number;
+  status: InsuranceImportStatus;
+  intent: "add" | "replace";
+  portfolio_type: 1 | 2;
+  safe_display_name: string;
+  page_count: number | null;
+  draft_version: number;
+  error_code: string;
+  target_insurance_id: number | null;
+  target_insurance_version: number | null;
+  source_review: SourceReview;
+  confirmation_requirements: InsuranceImportConfirmationRequirements;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export type InsuranceImportJob = InsuranceImportListItem;
+
+export interface DraftEvidence<T> {
+  value: T | null;
+  state: ReviewState;
+  evidence_line_ids: string[];
+  review_reason_codes: string[];
+}
+
+export interface InsuranceDraftPolicy {
+  carrier_name: DraftEvidence<string>;
+  company_code: number | null;
+  insurance_type: DraftEvidence<"life" | "loss">;
+  product_name: DraftEvidence<string>;
+  contract_date: DraftEvidence<string>;
+  expiry_date: DraftEvidence<string>;
+  monthly_premium: DraftEvidence<number>;
+}
+
+export interface InsuranceDraftCoverageRow {
+  row_id: string;
+  raw_name: string | null;
+  assurance_amount: number | null;
+  premium: number | null;
+  is_renewal: boolean | null;
+  renewal_period: number | null;
+  payment_period: number | null;
+  payment_period_unit: "years" | "age" | "lifetime" | null;
+  warranty_period: number | null;
+  warranty_period_unit: "years" | "age" | "lifetime" | null;
+  disposition: CoverageResolution;
+  standard_category: string | null;
+  standard_subcategory: string | null;
+  standard_detail_name: string | null;
+  exclusion_reason: string | null;
+  duplicate_of_row_id: string | null;
+  source_candidate_ids: string[];
+  evidence_line_ids: string[];
+  state: ReviewState;
+  review_reason_codes: string[];
+}
+
+export interface StandardCoverageOption {
+  category: string;
+  subcategory: string;
+  detail_name: string;
+}
+
+export interface ValidationIssue {
+  code: string;
+  state: ReviewState;
+  scope: "policy" | "coverage" | "document";
+  row_id: string | null;
+  field: string | null;
+}
+
+export interface InsuranceImportDraft {
+  job_id: string;
+  customer_id: number;
+  status: InsuranceImportStatus;
+  draft_version: number;
+  target_insurance_id: number | null;
+  target_insurance_version: number | null;
+  policy: InsuranceDraftPolicy;
+  coverages: InsuranceDraftCoverageRow[];
+  validation: { unresolved_count: number; issues: ValidationIssue[] };
+  source_review: SourceReview;
+  confirmation_requirements: InsuranceImportConfirmationRequirements;
+  standard_coverages: { version: string; items: StandardCoverageOption[] };
+}
+
+export interface DraftCoverageAddAction {
+  action: "add";
+  raw_name: string;
+  assurance_amount: number;
+  premium: number | null;
+  is_renewal: boolean;
+  renewal_period?: number | null;
+  payment_period?: number | null;
+  payment_period_unit?: "years" | "age" | "lifetime" | null;
+  warranty_period?: number | null;
+  warranty_period_unit?: "years" | "age" | "lifetime" | null;
+  standard_category: string;
+  standard_subcategory: string;
+  standard_detail_name: string;
+}
+
+export interface DraftCoverageExistingRowAction {
+  row_id: string;
+  action: "edit" | "assign" | "exclude" | "duplicate" | "undo_exclude" | "confirm";
+  field?: string;
+  value?: unknown;
+  standard_category?: string;
+  standard_subcategory?: string;
+  standard_detail_name?: string;
+  reason?: string;
+  target_row_id?: string;
+}
+
+export interface DraftPatchPayload {
+  draft_version: number;
+  policy_changes?: Array<{ field: string; value: unknown }>;
+  coverage_actions?: Array<DraftCoverageAddAction | DraftCoverageExistingRowAction>;
+}
+
+export interface ConfirmPayload {
+  draft_version: number;
+  target_insurance_version?: number | null;
+  planner_confirmed_source_match: true;
+  planner_confirmed_unread_pages?: boolean;
+}
+
+export interface SourceUrlResponse {
+  url: string;
+  expires_in: number;
+}
+
+export interface InsuranceImportCreateResponse {
+  job_id: string;
+  status: InsuranceImportStatus;
+}
+
+export interface InsuranceImportConfirmResponse {
+  job_id: string;
+  status: "confirmed";
+  insurance_id: number;
+  insurance_version: number;
+  confirmed_coverage_count: number;
+}
+
+export interface InsuranceImportCancelResponse {
+  job_id: string;
+  status: "canceled";
+}
+
+export interface CreateInsuranceImportOptions {
+  intent?: "add" | "replace";
+  portfolioType?: 1 | 2;
+  targetInsuranceId?: number;
+  duplicateResolutionToken?: string;
+  idempotencyKey: string;
+}
+
+async function parseResponseData(res: Response): Promise<Record<string, unknown>> {
+  try {
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function responseError(res: Response, data: Record<string, unknown>): ApiError {
+  const code = (data.code as string) ?? (data.error as string) ?? String(res.status);
+  const creditBody: CreditExhaustedBody | undefined =
+    res.status === 402 && code === "credit_exhausted"
+      ? {
+          kind: data.kind as string | undefined,
+          membership: data.membership as string | undefined,
+          limit: data.limit as number | null | undefined,
+          used: data.used as number | undefined,
+        }
+      : undefined;
+  handleUnauthorized(res.status);
+  return new ApiError(
+    res.status,
+    code,
+    extractErrorDetail(data, res.statusText),
+    creditBody,
+    data.reason as string | undefined,
+    data
+  );
+}
+
+export async function createInsuranceImport(
+  customerId: number,
+  file: File,
+  options: CreateInsuranceImportOptions
+): Promise<InsuranceImportCreateResponse> {
+  const headers: Record<string, string> = { "Idempotency-Key": options.idempotencyKey };
+  const tok = tokenStore.get();
+  if (tok) headers.Authorization = `Token ${tok}`;
+  const body = new FormData();
+  body.append("file", file);
+  body.append("intent", options.intent ?? "add");
+  body.append("portfolio_type", String(options.portfolioType ?? 1));
+  if (options.targetInsuranceId !== undefined) {
+    body.append("target_insurance_id", String(options.targetInsuranceId));
+  }
+  if (options.duplicateResolutionToken) {
+    body.append("duplicate_resolution_token", options.duplicateResolutionToken);
+  }
+  const res = await fetch(`${API_BASE}/customers/${customerId}/insurance-imports/`, {
+    method: "POST",
+    headers,
+    body,
+  });
+  const data = await parseResponseData(res);
+  if (!res.ok) throw responseError(res, data);
+  return data as unknown as InsuranceImportCreateResponse;
+}
+
+let insuranceImportConfigCache:
+  | { expiresAt: number; promise: Promise<InsuranceImportConfig> }
+  | undefined;
+
+export function getInsuranceImportConfig(): Promise<InsuranceImportConfig> {
+  const now = Date.now();
+  if (insuranceImportConfigCache && insuranceImportConfigCache.expiresAt > now) {
+    return insuranceImportConfigCache.promise;
+  }
+  const promise = request<InsuranceImportConfig>(
+    "GET",
+    "/insurance-imports/config/",
+    undefined,
+    true
+  ).catch((error) => {
+    insuranceImportConfigCache = undefined;
+    throw error;
+  });
+  insuranceImportConfigCache = { expiresAt: now + 60_000, promise };
+  return promise;
+}
+
+export function listInsuranceImports(customerId: number): Promise<PaginatedResult<InsuranceImportListItem>> {
+  return request("GET", `/customers/${customerId}/insurance-imports/`, undefined, true);
+}
+
+export function getInsuranceImport(jobId: string): Promise<InsuranceImportJob> {
+  return request("GET", `/insurance-imports/${jobId}/`, undefined, true);
+}
+
+export function getInsuranceImportDraft(jobId: string): Promise<InsuranceImportDraft> {
+  return request("GET", `/insurance-imports/${jobId}/draft/`, undefined, true);
+}
+
+export function patchInsuranceImportDraft(
+  jobId: string,
+  payload: DraftPatchPayload,
+  idempotencyKey: string
+): Promise<InsuranceImportDraft> {
+  return request("PATCH", `/insurance-imports/${jobId}/draft/`, payload, true, {
+    "Idempotency-Key": idempotencyKey,
+  });
+}
+
+export function confirmInsuranceImport(
+  jobId: string,
+  payload: ConfirmPayload,
+  idempotencyKey: string
+): Promise<InsuranceImportConfirmResponse> {
+  return request("POST", `/insurance-imports/${jobId}/confirm/`, payload, true, {
+    "Idempotency-Key": idempotencyKey,
+  });
+}
+
+export function cancelInsuranceImport(
+  jobId: string,
+  idempotencyKey: string
+): Promise<InsuranceImportCancelResponse> {
+  return request("POST", `/insurance-imports/${jobId}/cancel/`, {}, true, {
+    "Idempotency-Key": idempotencyKey,
+  });
+}
+
+export function getInsuranceImportSourceUrl(jobId: string): Promise<SourceUrlResponse> {
+  return request("GET", `/insurance-imports/${jobId}/source-url/`, undefined, true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 과거 즉시 등록 경로 — 서버 스위치가 꺼져 있을 때만 사용
 // ════════════════════════════════════════════════════════════════════════════
 
 export interface OcrUploadResponse {
@@ -2546,7 +2913,7 @@ export interface ShareCoverageDetail {
   name: string;
   held_amount: number | null;
   status: string;
-  baseline: unknown | null;
+  baseline?: unknown | null;
 }
 export interface ShareSubCategory {
   sub_category_id: number;
@@ -2574,15 +2941,142 @@ export interface ShareSummary {
   [key: string]: number | null;
 }
 
-/** GET /api/v1/s/<token>/ 응답 전체 (BE 실제 형태) */
-export interface ShareViewResponse {
+export interface ShareSnapshotPayload {
   customer: ShareCustomer;
   mode: "neutral" | "graded";
   summary: ShareSummary;
   tree: ShareCategory[];
   disclaimer: string;
-  booking_url?: string; // 예약 가능할 때만(설계사 영업시간 존재) — '바로 상담 예약' CTA
-  planner_contact?: string | null; // 담당 설계사 전화번호(없으면 null) — 연락 레이어용
+}
+
+export interface ShareLiveActions {
+  booking_url?: string;
+  planner_contact: string | null;
+}
+
+/** Gate OFF에서 과거 Customer 토큰에만 반환되는 평면 응답. */
+export interface LegacyShareViewResponse extends ShareSnapshotPayload {
+  booking_url?: string;
+  planner_contact: string | null;
+}
+
+/** Gate ON과 v2 스냅샷 토큰에 반환되는 불변 본문 + 실시간 행동 응답. */
+export interface ShareViewV2Response {
+  snapshot: ShareSnapshotPayload;
+  actions: ShareLiveActions;
+}
+
+/** GET /api/v1/s/<token>/ 원본 응답. 전환 기간에는 두 형태가 모두 유효하다. */
+export type ShareViewResponse = LegacyShareViewResponse | ShareViewV2Response;
+
+/** 화면은 호환 처리를 마친 이 한 형태만 사용한다. */
+export interface NormalizedShareViewResponse {
+  snapshot: ShareSnapshotPayload;
+  actions: {
+    booking_url: string | null;
+    planner_contact: string | null;
+  };
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isShareCoverageDetail(value: unknown): value is ShareCoverageDetail {
+  if (!isRecordValue(value)) return false;
+  return (
+    Number.isInteger(value.detail_id) &&
+    typeof value.name === "string" &&
+    isNullableNumber(value.held_amount) &&
+    typeof value.status === "string"
+  );
+}
+
+function isShareSubCategory(value: unknown): value is ShareSubCategory {
+  if (!isRecordValue(value)) return false;
+  return (
+    Number.isInteger(value.sub_category_id) &&
+    typeof value.name === "string" &&
+    Array.isArray(value.details) &&
+    value.details.every(isShareCoverageDetail)
+  );
+}
+
+function isShareCategory(value: unknown): value is ShareCategory {
+  if (!isRecordValue(value)) return false;
+  return (
+    Number.isInteger(value.category_id) &&
+    typeof value.name === "string" &&
+    Number.isInteger(value.insurance_type) &&
+    Array.isArray(value.sub_categories) &&
+    value.sub_categories.every(isShareSubCategory)
+  );
+}
+
+/** 저장된 공개 본문을 렌더하기 전에 모든 사용 필드를 확인한다. */
+export function isShareSnapshotPayload(value: unknown): value is ShareSnapshotPayload {
+  if (!isRecordValue(value)) return false;
+  const customer = value.customer;
+  const summary = value.summary;
+  if (!isRecordValue(customer) || !isRecordValue(summary)) return false;
+  return (
+    typeof customer.name_masked === "string" &&
+    isNullableNumber(customer.gender) &&
+    isNullableNumber(customer.birth_year) &&
+    (value.mode === "neutral" || value.mode === "graded") &&
+    Object.values(summary).every(isNullableNumber) &&
+    "monthly_premiums" in summary &&
+    "total_premiums" in summary &&
+    Array.isArray(value.tree) &&
+    value.tree.every(isShareCategory) &&
+    typeof value.disclaimer === "string"
+  );
+}
+
+function normalizedLiveValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+/**
+ * Gate 전환 중인 공개 공유 응답을 한 번만 정규화한다.
+ * v2 snapshot은 그대로 유지하고 live action을 섞거나 변경하지 않는다.
+ */
+export function normalizeShareViewResponse(
+  response: ShareViewResponse
+): NormalizedShareViewResponse {
+  if (!isRecordValue(response)) {
+    throw new ApiError(502, "INVALID_SHARE_RESPONSE", "공유 내용을 다시 불러와 주세요.");
+  }
+
+  if ("snapshot" in response) {
+    if (!isShareSnapshotPayload(response.snapshot)) {
+      throw new ApiError(502, "INVALID_SHARE_RESPONSE", "공유 내용을 다시 불러와 주세요.");
+    }
+    const actions = isRecordValue(response.actions) ? response.actions : {};
+    return {
+      snapshot: response.snapshot,
+      actions: {
+        booking_url: normalizedLiveValue(actions.booking_url),
+        planner_contact: normalizedLiveValue(actions.planner_contact),
+      },
+    };
+  }
+
+  const { booking_url, planner_contact, ...snapshot } = response;
+  if (!isShareSnapshotPayload(snapshot)) {
+    throw new ApiError(502, "INVALID_SHARE_RESPONSE", "공유 내용을 다시 불러와 주세요.");
+  }
+  return {
+    snapshot,
+    actions: {
+      booking_url: normalizedLiveValue(booking_url),
+      planner_contact: normalizedLiveValue(planner_contact),
+    },
+  };
 }
 
 /**
@@ -2714,6 +3208,13 @@ export async function publishCompare(id: number): Promise<CompareResponse> {
 // 수기 보험 등록(보유/제안) — OCR 폴백 + 제안 입력. /customers/<id>/insurances/manual/
 // ════════════════════════════════════════════════════════════════════════════
 
+export type ManualInsuranceReviewStatus =
+  | "legacy_review_required"
+  | "draft"
+  | "confirmed"
+  | "excluded"
+  | "superseded";
+
 export interface ManualInsuranceItem {
   id: number;
   name: string | null;
@@ -2733,12 +3234,21 @@ export interface ManualInsuranceItem {
   monthly_non_renewal_premium?: number | null;
   monthly_earned_premium?: number | null;
   payment_period_type?: number | null;
+  payment_period?: number | null;
+  warranty_period_type?: number | null;
+  warranty_period?: number | null;
+  review_status: ManualInsuranceReviewStatus;
+  analysis_included: boolean;
+  data_version: number;
+  confirmation_source: "manual_entry" | "legacy_review" | "import" | "" | string;
+  confirmed_at: string | null;
+  review_exclusion_reason: string;
 }
 
 export interface ManualInsuranceWritePayload {
   name?: string;
-  insurance_type?: number;
-  portfolio_type: number;        // 1 보유 / 2 제안 (필수)
+  insurance_type: 1 | 2;
+  portfolio_type: 1 | 2;        // 1 보유 / 2 제안 (필수)
   monthly_premiums?: number;
   contract_date?: string;        // YYYY-MM-DD
   expiry_date?: string;
@@ -2746,12 +3256,141 @@ export interface ManualInsuranceWritePayload {
   insured_name?: string;
 }
 
+export interface ManualInsurancePatchPayload {
+  data_version: number;
+  name?: string | null;
+  insurance_type?: 1 | 2;
+  portfolio_type?: 1 | 2;
+  monthly_premiums?: number | null;
+  contract_date?: string | null;
+  expiry_date?: string | null;
+  contractor_name?: string | null;
+  insured_name?: string | null;
+  is_same_insured?: boolean | null;
+}
+
+export type ManualCoveragePeriodUnit = "years" | "age" | "lifetime";
+
+export interface ManualCoverageItem {
+  id: number;
+  raw_name: string;
+  assurance_amount: number | null;
+  premium: number | null;
+  is_renewal: boolean | null;
+  renewal_period: number | null;
+  payment_period: number | null;
+  payment_period_unit: ManualCoveragePeriodUnit | null;
+  warranty_period: number | null;
+  warranty_period_unit: ManualCoveragePeriodUnit | null;
+  standard_category: string | null;
+  standard_subcategory: string | null;
+  standard_detail_name: string | null;
+  standard_detail_id: number | null;
+  mapping_source: "global" | "planner_override" | "manual" | string;
+  review_status: "needs_review" | "confirmed";
+  source_page: number | null;
+  source_line_start: number | null;
+  source_line_end: number | null;
+  source_candidate_ids: string[];
+  evidence_line_ids: string[];
+  review_reason: string[];
+  confirmed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManualInsuranceReviewBundle {
+  insurance_id: number;
+  insurance: ManualInsuranceItem;
+  data_version: number;
+  review_status: ManualInsuranceReviewStatus;
+  analysis_included: boolean;
+  confirmation_source: ManualInsuranceItem["confirmation_source"];
+  confirmation_requirements: {
+    planner_confirmed_contents: { required: true };
+  };
+  standard_coverages: { version: string; items: StandardCoverageOption[] };
+  coverages: ManualCoverageItem[];
+}
+
+export interface ManualCoverageCreatePayload {
+  data_version: number;
+  raw_name: string;
+  assurance_amount: number | null;
+  premium: number | null;
+  is_renewal: boolean | null;
+  renewal_period?: number | null;
+  payment_period?: number | null;
+  payment_period_unit?: ManualCoveragePeriodUnit | null;
+  warranty_period?: number | null;
+  warranty_period_unit?: ManualCoveragePeriodUnit | null;
+  standard_category: string;
+  standard_subcategory: string;
+  standard_detail_name: string;
+}
+
+export type ManualCoveragePatchPayload =
+  Partial<Omit<ManualCoverageCreatePayload, "data_version">> & { data_version: number };
+
+export type ManualCoverageMutationResponse = ManualCoverageItem & { data_version: number };
+
+export interface ManualCoverageDeleteResponse {
+  insurance_id: number;
+  deleted_coverage_id: number;
+  data_version: number;
+}
+
+export interface ManualInsuranceConfirmPayload {
+  data_version: number;
+  planner_confirmed_contents: true;
+}
+
+export interface ManualInsuranceConfirmResponse {
+  insurance_id: number;
+  review_status: "confirmed";
+  analysis_included: true;
+  data_version: number;
+  confirmation_source: "manual_entry" | "legacy_review";
+  confirmed_at: string;
+}
+
+export interface ManualInsuranceExcludePayload {
+  data_version: number;
+  reason: string;
+}
+
+export interface ManualInsuranceExcludeResponse {
+  insurance_id: number;
+  review_status: "excluded";
+  analysis_included: false;
+  data_version: number;
+  exclusion_reason: string;
+}
+
 /** GET /api/v1/customers/<id>/insurances/manual/ — 고객의 보험 목록(보유+제안, 카드용) */
 export async function listManualInsurances(
-  customerId: number
+  customerId: number,
+  page?: number
 ): Promise<PaginatedResult<ManualInsuranceItem>> {
+  const query = page === undefined ? "" : `?page=${page}`;
   return request<PaginatedResult<ManualInsuranceItem>>(
-    "GET", `/customers/${customerId}/insurances/manual/`, undefined, true);
+    "GET", `/customers/${customerId}/insurances/manual/${query}`, undefined, true);
+}
+
+/** 모든 보험 페이지를 최대 100페이지까지 읽는다. */
+export async function listAllManualInsurances(customerId: number): Promise<ManualInsuranceItem[]> {
+  const all: ManualInsuranceItem[] = [];
+  let page = 1;
+  for (let index = 0; index < 100; index += 1) {
+    const result = await listManualInsurances(customerId, page === 1 ? undefined : page);
+    all.push(...result.results);
+    if (!result.next) break;
+    if (index === 99) {
+      throw new Error("보험 목록 100페이지를 모두 불러왔어요. 목록 범위를 확인해 주세요.");
+    }
+    page += 1;
+  }
+  return all;
 }
 
 /** 수기 보험 등록 — OCR 불가(스캔/이미지/키없음) 폴백 + 갈아타기 제안 입력. */
@@ -2763,12 +3402,107 @@ export async function createManualInsurance(
     "POST", `/customers/${customerId}/insurances/manual/`, payload, true);
 }
 
+export function getManualInsuranceReview(
+  customerId: number,
+  insuranceId: number
+): Promise<ManualInsuranceReviewBundle> {
+  return request(
+    "GET",
+    `/customers/${customerId}/insurances/manual/${insuranceId}/coverages/`,
+    undefined,
+    true
+  );
+}
+
+export function patchManualInsurance(
+  customerId: number,
+  insuranceId: number,
+  payload: ManualInsurancePatchPayload
+): Promise<ManualInsuranceItem> {
+  return request(
+    "PATCH",
+    `/customers/${customerId}/insurances/manual/${insuranceId}/`,
+    payload,
+    true
+  );
+}
+
+export function createManualCoverage(
+  customerId: number,
+  insuranceId: number,
+  payload: ManualCoverageCreatePayload
+): Promise<ManualCoverageMutationResponse> {
+  return request(
+    "POST",
+    `/customers/${customerId}/insurances/manual/${insuranceId}/coverages/`,
+    payload,
+    true
+  );
+}
+
+export function patchManualCoverage(
+  customerId: number,
+  insuranceId: number,
+  coverageId: number,
+  payload: ManualCoveragePatchPayload
+): Promise<ManualCoverageMutationResponse> {
+  return request(
+    "PATCH",
+    `/customers/${customerId}/insurances/manual/${insuranceId}/coverages/${coverageId}/`,
+    payload,
+    true
+  );
+}
+
+export function deleteManualCoverage(
+  customerId: number,
+  insuranceId: number,
+  coverageId: number,
+  dataVersion: number
+): Promise<ManualCoverageDeleteResponse> {
+  return request(
+    "DELETE",
+    `/customers/${customerId}/insurances/manual/${insuranceId}/coverages/${coverageId}/`,
+    { data_version: dataVersion },
+    true
+  );
+}
+
+export function confirmManualInsurance(
+  customerId: number,
+  insuranceId: number,
+  payload: ManualInsuranceConfirmPayload,
+  idempotencyKey: string
+): Promise<ManualInsuranceConfirmResponse> {
+  return request(
+    "POST",
+    `/customers/${customerId}/insurances/manual/${insuranceId}/confirm/`,
+    payload,
+    true,
+    { "Idempotency-Key": idempotencyKey }
+  );
+}
+
+export function excludeManualInsurance(
+  customerId: number,
+  insuranceId: number,
+  payload: ManualInsuranceExcludePayload
+): Promise<ManualInsuranceExcludeResponse> {
+  return request(
+    "POST",
+    `/customers/${customerId}/insurances/manual/${insuranceId}/exclude/`,
+    payload,
+    true
+  );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // 고객 공유 링크 발급 — POST /api/v1/customers/<id>/share/ (북극성 분석→공유 동선)
 // ════════════════════════════════════════════════════════════════════════════
 
 export interface ShareLinkResponse {
   customer_id: number;
+  snapshot_id: number;
   share_token: string;
   share_expires_at: string;
   share_url: string; // "/s/<token>" — origin 붙여 완성
@@ -2776,7 +3510,58 @@ export interface ShareLinkResponse {
 
 /** 공유 토큰 발급(rotate) — 보장 한눈표 공유뷰(/s/<token>) 링크. §97 비교안내서 아님. */
 export async function createShareLink(customerId: number): Promise<ShareLinkResponse> {
-  return request<ShareLinkResponse>("POST", `/customers/${customerId}/share/`, undefined, true);
+  const token = tokenStore.get();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Token ${token}`;
+  const res = await fetch(`${API_BASE}/customers/${customerId}/share/`, {
+    method: "POST",
+    headers,
+  });
+  let data: Record<string, unknown> = {};
+  try {
+    data = await res.json();
+  } catch {
+    // empty body
+  }
+  if (res.status !== 201) {
+    if (res.ok) {
+      throw new ApiError(
+        502,
+        "INVALID_SHARE_CREATE_RESPONSE",
+        "공유 내용을 다시 만들어 주세요."
+      );
+    }
+    const code =
+      (data.error as string) ?? (data.code as string) ?? String(res.status);
+    if (res.status === 401) handleUnauthorized(res.status);
+    throw new ApiError(
+      res.status,
+      code,
+      extractErrorDetail(data, res.statusText),
+      undefined,
+      undefined,
+      data
+    );
+  }
+  if (
+    data.customer_id !== customerId ||
+    !Number.isInteger(data.snapshot_id) ||
+    (data.snapshot_id as number) < 1 ||
+    typeof data.share_token !== "string" ||
+    !data.share_token ||
+    typeof data.share_expires_at !== "string" ||
+    !data.share_expires_at ||
+    Number.isNaN(Date.parse(data.share_expires_at)) ||
+    typeof data.share_url !== "string" ||
+    data.share_url !== `/s/${data.share_token}`
+  ) {
+    throw new ApiError(
+      502,
+      "INVALID_SHARE_CREATE_RESPONSE",
+      "공유 내용을 다시 만들어 주세요."
+    );
+  }
+  return data as unknown as ShareLinkResponse;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2787,7 +3572,13 @@ export async function createShareLink(customerId: number): Promise<ShareLinkResp
 
 export interface ShareSnapshotListItem {
   id: number;
+  link_status: ShareSnapshotLifecycle;
   captured_at: string;
+  payload_version: string;
+  link_expires_at: string | null;
+  revoked_at: string | null;
+  revoked_reason: string;
+  first_viewed_at: string | null;
   retention_expires_at: string;
   insurance_count: number;
   consent_overseas: boolean;
@@ -2795,9 +3586,15 @@ export interface ShareSnapshotListItem {
   dict_version: string;
 }
 
+export type ShareSnapshotLifecycle =
+  | "active"
+  | "revoked"
+  | "expired"
+  | "history_only";
+
 export interface ShareSnapshotDetail extends ShareSnapshotListItem {
   consent_scopes: string[];
-  payload: ShareViewResponse;
+  payload: unknown;
 }
 
 /** GET /api/v1/customers/<id>/share-snapshots/ — 공유 기록 목록(최신순, 경량). */
@@ -2817,6 +3614,24 @@ export async function getShareSnapshot(
     "GET", `/customers/${customerId}/share-snapshots/${snapId}/`, undefined, true);
 }
 
+export interface ShareSnapshotRevokeResponse {
+  id: number;
+  status: "revoked";
+}
+
+/** 사용 중인 v2 공유 링크를 회수한다. 기록 자체는 보존된다. */
+export async function revokeShareSnapshot(
+  customerId: number,
+  snapId: number
+): Promise<ShareSnapshotRevokeResponse> {
+  return request<ShareSnapshotRevokeResponse>(
+    "POST",
+    `/customers/${customerId}/share-snapshots/${snapId}/revoke/`,
+    undefined,
+    true
+  );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // 환수 레이더(A/S) — GET /api/v1/churn-radar/  ·  PATCH /api/v1/insurances/<id>/churn/
 // ★ 보유 정책만 / owner 전용 / 수기입력 추정. 정확액은 보험사·회사 전산 권위.
@@ -2826,6 +3641,7 @@ export type PersistencyStage = "unknown" | "pre_13" | "pre_25" | "safe";
 
 export interface ChurnRadarItem {
   insurance_id: number;
+  data_version: number;
   customer_id: number;
   customer_name: string;
   insurance_name: string | null;
@@ -2849,6 +3665,7 @@ export interface ChurnRadarResponse {
 }
 
 export interface ChurnInputPayload {
+  data_version: number;
   current_payment_period?: number | null;
   payment_status?: number | null;
   next_payment_date?: string | null; // YYYY-MM-DD
@@ -2924,6 +3741,12 @@ export type ShareEventType =
   | "share_view"
   | "callback_request";
 
+export interface ShareEventResponse {
+  event_type: ShareEventType;
+  recorded: boolean;
+  notification?: "created" | "already_notified";
+}
+
 /**
  * POST /api/v1/s/<token>/event/
  * 인증 불필요. 클립보드 복사 등 이벤트 적재.
@@ -2931,13 +3754,24 @@ export type ShareEventType =
 export async function postShareEvent(
   token: string,
   event_type: ShareEventType
-): Promise<void> {
-  await fetch(`${API_BASE}/s/${token}/event/`, {
+): Promise<ShareEventResponse> {
+  const response = await fetch(`${API_BASE}/s/${token}/event/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ event_type }),
   });
-  // 이벤트 적재 실패는 무시 (non-critical)
+  let data: Record<string, unknown> = {};
+  try {
+    data = await response.json();
+  } catch {
+    // 응답 본문이 비어 있어도 상태 코드를 최종 권위로 사용한다.
+  }
+  if (!response.ok) {
+    const code = (data["code"] as string | undefined) ?? String(response.status);
+    const detail = extractErrorDetail(data, response.statusText);
+    throw new ApiError(response.status, code, detail, undefined, undefined, data);
+  }
+  return data as unknown as ShareEventResponse;
 }
 
 // ════════════════════════════════════════════════════════════════════════════

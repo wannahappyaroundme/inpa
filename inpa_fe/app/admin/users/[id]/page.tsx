@@ -25,7 +25,7 @@ function fmt(d: string | null): string {
 // 이번 달 사용량 라벨 (UsageMeter.ACTION_CHOICES 대응)
 const USAGE_LABELS: Record<string, string> = {
   ocr: "증권 OCR",
-  ai_compare: "AI 비교안내서",
+  ai_compare: "증권 비교",
   analysis: "AI 분석·메시지",
   promotion: "판촉물 주문",
   customer: "고객 추가",

@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import environ
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -83,6 +84,11 @@ DATABASES = {
     }
 }
 
+# DB rollbacks don't reset throttle/login counters. The test-only runner clears
+# cache state before each sequential test case and rejects --parallel; runtime
+# cache behavior and limits are unchanged.
+TEST_RUNNER = 'inpa.core.test_runner.CacheIsolatedTestRunner'
+
 # ── 인증 ─────────────────────────────────────────────────────────
 AUTH_USER_MODEL = 'accounts.User'  # 이메일/비밀번호 전용 (카카오 OAuth 폐기)
 
@@ -93,6 +99,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
+
+INSURANCE_IMPORT_THROTTLE_RATES = {
+    'ocr': '20/hour',
+    'insurance_import': '600/hour',
+    'insurance_import_source': '120/hour',
+}
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -113,7 +125,7 @@ REST_FRAMEWORK = {
         'self_diagnosis': '5/hour',
         'consent_public': '10/hour',  # 고객 본인 동의 공개 경로(P3c) — 남용 방어
         'booking_public': '20/hour',  # 미팅 예약 공개 경로 — 슬롯 조회+예약(읽기 잦음)
-        'ocr': '20/hour',             # 인증 OCR(Claude Opus) 비용폭탄 방어 — 유저별
+        **INSURANCE_IMPORT_THROTTLE_RATES,
         'share_public': '60/hour',    # 공유뷰 /s/ — DB write/연산 증폭 DoS 방어
         'auth_email': '5/hour',       # 가입/인증재발송/비번재설정 — 이메일 폭탄 방어
         'admin_login': '5/min',       # 관리자 로그인 무차별 대입 방어(IP 기준)
@@ -176,12 +188,60 @@ ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', default='')
 CLAUDE_API_KEY = ANTHROPIC_API_KEY
 
 # ── Claude 모델 정본 (BE 비용 거버넌스) ────────────────────────────
-# 추측 금지·하드코딩 금지: 모델 ID는 settings(env)에서만 주입.
-#  - 정확도-critical(증권 OCR 파싱·담보 정규화·갈아타기 비교) = Opus 4.8
-#  - 대량·저비용(다건 OCR·메시지 생성) = Haiku 4.5
-# 과거 하드코딩 'claude-sonnet-4-20250514' 는 제거됨(claude_parser 가 settings 에서 읽음).
-CLAUDE_MODEL_PARSE = env('CLAUDE_MODEL_PARSE', default='claude-opus-4-8')
-CLAUDE_MODEL_BULK = env('CLAUDE_MODEL_BULK', default='claude-haiku-4-5')
+# 추측 금지·하드코딩 금지: 정확도 경로와 대량 경로 모두 env에서만 주입한다.
+# 비어 있으면 각 호출 지점이 외부 요청 전에 안전하게 중단한다.
+CLAUDE_MODEL_PARSE = env('CLAUDE_MODEL_PARSE', default='')
+CLAUDE_MODEL_BULK = env('CLAUDE_MODEL_BULK', default='')
+
+# ── 보험증권 검토형 가져오기(기본 닫힘) ────────────────────────────
+# 기능 게이트는 운영 검증·승인 전까지 닫아 둔다. 모델 ID 역시 env에서만 주입한다.
+INSURANCE_REVIEW_GATE_ENABLED = env.bool(
+    'INSURANCE_REVIEW_GATE_ENABLED', default=False)
+# 합성 staging 부하 자료 생성·정리는 별도 스위치를 한 번 더 열어야 한다.
+# 운영과 일반 staging 시작값은 항상 닫힘이다.
+INSURANCE_LOAD_TEST_ENABLED = env.bool(
+    'INSURANCE_LOAD_TEST_ENABLED', default=False)
+INSURANCE_SOURCE_RETENTION_HOURS = env.int(
+    'INSURANCE_SOURCE_RETENTION_HOURS', default=24)
+INSURANCE_IMPORT_PER_OWNER_LIMIT = env.int(
+    'INSURANCE_IMPORT_PER_OWNER_LIMIT', default=2)
+INSURANCE_IMPORT_GLOBAL_LIMIT = env.int(
+    'INSURANCE_IMPORT_GLOBAL_LIMIT', default=4)
+INSURANCE_MAX_PAGES = env.int('INSURANCE_MAX_PAGES', default=300)
+INSURANCE_MAX_EXTRACTED_CHARS = env.int(
+    'INSURANCE_MAX_EXTRACTED_CHARS', default=500_000)
+INSURANCE_MAX_CANDIDATES = env.int('INSURANCE_MAX_CANDIDATES', default=2_000)
+INSURANCE_MAX_QUEUED_PER_OWNER = env.int(
+    'INSURANCE_MAX_QUEUED_PER_OWNER', default=10)
+# Untrusted PDF parsing runs in a disposable child. Linux applies CPU and
+# address-space hard limits before pdfplumber is imported; every platform also
+# has the parent-enforced wall timeout.
+INSURANCE_PDF_SANDBOX_CPU_SECONDS = env.int(
+    'INSURANCE_PDF_SANDBOX_CPU_SECONDS', default=60)
+INSURANCE_PDF_SANDBOX_WALL_SECONDS = env.int(
+    'INSURANCE_PDF_SANDBOX_WALL_SECONDS', default=90)
+INSURANCE_PDF_SANDBOX_MEMORY_MB = env.int(
+    'INSURANCE_PDF_SANDBOX_MEMORY_MB', default=384)
+
+# 작업 메시지는 job UUID만 전달하며 역직렬화 가능한 형식을 JSON으로 제한한다.
+CELERY_BROKER_URL = env('REDIS_URL', default='redis://localhost:6379/0')
+CELERY_TASK_DEFAULT_QUEUE = 'insurance_imports'
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_SOFT_TIME_LIMIT = 420
+CELERY_TASK_TIME_LIMIT = 480
+# Child recycling is defense-in-depth for cumulative worker growth. The
+# disposable PDF subprocess limits above are the hard per-document boundary.
+CELERY_WORKER_MAX_TASKS_PER_CHILD = env.int(
+    'CELERY_WORKER_MAX_TASKS_PER_CHILD', default=10)
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = env.int(
+    'CELERY_WORKER_MAX_MEMORY_PER_CHILD', default=180_000)
+CELERY_BROKER_TRANSPORT_OPTIONS = {'visibility_timeout': 600}
 
 # ── Claude 비용 추정 환율 (프리런치 #17, billing/pricing.py) ────────────
 # 원/달러 환율 추정치 — 어드민 관측용 cost_krw 계산에만 쓰인다(정밀 청구서 아님, §6 정직성).
@@ -189,6 +249,7 @@ CLAUDE_USD_KRW_RATE = env.float('CLAUDE_USD_KRW_RATE', default=1400.0)
 
 # ── CORS ─────────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=['http://localhost:3000'])
+CORS_ALLOW_HEADERS = (*default_headers, 'idempotency-key')
 
 # ── i18n ─────────────────────────────────────────────────────────
 LANGUAGE_CODE = 'ko-kr'
@@ -202,6 +263,27 @@ STATIC_URL = 'static/'
 # 로컬·단일 인스턴스용. 운영 다중 인스턴스는 S3 등 오브젝트 스토리지로 전환 필요(추후).
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+AWS_STORAGE_BUCKET_NAME = env('AWS_STORAGE_BUCKET_NAME', default='')
+
+# 보험증권 원본은 공개 media 경로와 분리한다. 운영은 prod.py에서 private R2로 교체한다.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        'OPTIONS': {'location': MEDIA_ROOT, 'base_url': MEDIA_URL},
+    },
+    'insurance_sources': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        'OPTIONS': {
+            'location': BASE_DIR / 'private' / 'insurance_sources',
+            'base_url': None,
+            'file_permissions_mode': 0o600,
+            'directory_permissions_mode': 0o700,
+        },
+    },
+    'staticfiles': {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+    },
+}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -212,6 +294,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'filters': {
+        'redact_insurance_source_tokens': {
+            '()': 'inpa.core.logging_filters.RedactInsuranceSourceTokenFilter',
+        },
+    },
     'formatters': {
         'simple': {
             'format': '{levelname} {asctime} {name} {message}',
@@ -222,6 +309,7 @@ LOGGING = {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
+            'filters': ['redact_insurance_source_tokens'],
         },
     },
     'root': {'handlers': ['console'], 'level': 'INFO'},

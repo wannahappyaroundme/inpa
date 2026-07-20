@@ -23,16 +23,19 @@
   - ANTHROPIC_API_KEY 는 settings(env) 에서만 — 하드코딩 금지.
 """
 import logging
+import uuid
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F
-from rest_framework import status, viewsets
-from rest_framework.exceptions import NotFound
+from django.utils import timezone
+from rest_framework import serializers, status, viewsets
+from rest_framework.exceptions import APIException, NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from inpa.analysis.models import (
     AnalysisCategory, AnalysisDetail, AnalysisSubCategory, NormalizationDict,
@@ -47,12 +50,18 @@ from inpa.customers.consent_texts import has_current_overseas_consent
 from inpa.customers.models import Customer
 
 from .coverage_bridge import resolve_std_detail
+from . import import_services
+from .import_validation import MANUAL_COVERAGE_FIELDS, validate_draft
 from .models import (
     CustomerInsurance, CustomerInsuranceDetail, InsuranceCategory,
-    InsuranceDetail, InsuranceSubCategory,
+    InsuranceDetail, InsuranceSubCategory, ManualInsuranceCommand,
 )
 from .serializers import (
     CustomerInsuranceManualSerializer, CustomerInsuranceSerializerForDetail,
+    ManualCoverageDeleteSerializer, ManualCoveragePatchSerializer,
+    ManualCoverageReadSerializer, ManualCoverageWriteSerializer,
+    ManualInsuranceConfirmSerializer, ManualInsuranceExcludeSerializer,
+    _manual_policy_payload,
 )
 
 # ★ PII 로그 레드라인(LB#9): 업로드 파일 내용·추출 텍스트를 절대 로그에 찍지 않는다.
@@ -164,8 +173,9 @@ def _extract_pdf_lines(uploaded_file):
                     if ln:
                         lines.append(ln)
     except Exception as e:  # 손상/암호 PDF 등
-        # 예외 타입·메시지만 — 파일 내용/추출 텍스트는 로그 금지 (PII 로그 레드라인).
-        logger.warning('[ocr-upload] pdf extract error: %s: %s', type(e).__name__, e)
+        # PDF 라이브러리 예외 메시지에는 원문 조각이 섞일 수 있어 타입만 기록한다.
+        logger.warning(
+            '[ocr-upload] pdf extract error type=%s', type(e).__name__)
         return [], 'PROCESSING_ERROR'
     if not lines:
         # 텍스트 0줄 = 스캔/이미지 PDF → 거부 (Claude 호출 의미 없음)
@@ -376,6 +386,12 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
         # ── 0) owner 격리 (없으면 404 — 존재 은폐) ──
         customer = self.get_customer()
 
+        # 검토형 게이트가 켜진 뒤에는 이 레거시 주소도 동일한 비동기 접수 서비스만
+        # 사용한다. 아래 즉시 저장 경로로 우회할 수 없다.
+        if getattr(settings, 'INSURANCE_REVIEW_GATE_ENABLED', False):
+            from .import_views import delegate_legacy_import
+            return delegate_legacy_import(request, customer)
+
         # ── 1) ★ 국외이전 동의 물리 게이트 (Claude 호출 이전에 차단) ──
         #    현재 문구 버전으로 받은 고객 본인 동의만 게이트를 연다(구버전=재동의 필요).
         if not has_current_overseas_consent(customer):
@@ -463,6 +479,19 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
                  'detail': '증권을 인식하지 못했습니다. 직접 입력해 주세요.'},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
+        review_required_count = getattr(
+            ocr_data, '_manual_review_coverage_count', 0)
+        if review_required_count:
+            return Response(
+                {
+                    'code': 'COVERAGE_REVIEW_REQUIRED',
+                    'detail': (
+                        '증권 원문을 확인해 담보 위치를 직접 수정해 주세요.'),
+                    'review_required_count': review_required_count,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         # ── 7) 포트폴리오 + 담보 생성 (트랜잭션) + 계산 엔진 ──
         with transaction.atomic():
             ci, created_cases = _persist_ocr(customer, ocr_data, portfolio_type=portfolio_type)
@@ -511,15 +540,16 @@ class CustomerInsuranceManualViewSet(viewsets.ModelViewSet):
     """
     serializer_class = CustomerInsuranceManualSerializer
     permission_classes = [IsAuthenticated, IsEmailVerified]
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
     parent_lookup = 'customer_pk'
 
     def _is_admin(self):
         profile = getattr(self.request.user, 'profile', None)
         return bool(getattr(profile, 'is_admin', False))
 
-    def get_customer(self):
+    def get_customer(self, *, for_write=False):
         qs = Customer.objects.all()
-        if not self._is_admin():
+        if for_write or not self._is_admin():
             qs = qs.filter(owner=self.request.user)
         try:
             return qs.get(pk=self.kwargs[self.parent_lookup])
@@ -531,5 +561,609 @@ class CustomerInsuranceManualViewSet(viewsets.ModelViewSet):
                 .filter(customer=self.get_customer(), portfolio_type__in=(1, 2))
                 .order_by('-created_at'))
 
+    def create(self, request, *args, **kwargs):
+        # 존재 은폐가 입력값 검증보다 먼저다. 다른 설계사의 고객 ID로
+        # 잘못된 본문을 보내도 필드 오류 대신 같은 404를 돌려준다.
+        self.get_customer(for_write=True)
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer):
-        serializer.save(customer=self.get_customer())
+        customer = self.get_customer(for_write=True)
+        with transaction.atomic():
+            customer_qs = Customer.objects.select_for_update().filter(
+                pk=customer.pk, owner=self.request.user)
+            try:
+                customer = customer_qs.get()
+            except Customer.DoesNotExist as exc:
+                raise NotFound('고객을 찾을 수 없습니다.') from exc
+            serializer.save(
+                customer=customer,
+                review_status='draft',
+                analysis_included=False,
+                confirmation_source='',
+            )
+
+    def partial_update(self, request, *args, **kwargs):
+        self.get_customer(for_write=True)
+        with transaction.atomic():
+            try:
+                instance = self.get_queryset().select_for_update().get(
+                    pk=kwargs['pk'])
+            except CustomerInsurance.DoesNotExist as exc:
+                raise NotFound('보험을 찾을 수 없습니다.') from exc
+            serializer = self.get_serializer(
+                instance, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            expected_version = serializer.validated_data['data_version']
+            if instance.data_version != expected_version:
+                return Response({
+                    'code': 'INSURANCE_VERSION_CHANGED',
+                    'detail': '다른 화면에서 내용이 바뀌었어요. 최신 내용을 확인해 주세요.',
+                    'current_version': instance.data_version,
+                }, status=status.HTTP_409_CONFLICT)
+            if instance.review_status not in {
+                    'draft', 'legacy_review_required'}:
+                return Response({
+                    'code': 'MANUAL_INSURANCE_CONFIRMED',
+                    'detail': '확인한 보험은 새 자료로 추가해 주세요.',
+                }, status=status.HTTP_409_CONFLICT)
+            serializer.save()
+            updated = CustomerInsurance.objects.filter(
+                pk=instance.pk, data_version=expected_version).update(
+                    data_version=F('data_version') + 1)
+            if updated != 1:
+                raise ManualVersionChanged()
+            instance.refresh_from_db()
+        return Response(self.get_serializer(instance).data)
+
+    def destroy(self, request, *args, **kwargs):
+        customer = self.get_customer(for_write=True)
+        serializer = ManualCoverageDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        expected_version = serializer.validated_data['data_version']
+        with transaction.atomic():
+            customer_qs = Customer.objects.select_for_update().filter(
+                pk=customer.pk, owner=request.user)
+            try:
+                customer_qs.get()
+            except Customer.DoesNotExist as exc:
+                raise NotFound('고객을 찾을 수 없습니다.') from exc
+            try:
+                insurance = self.get_queryset().select_for_update().get(
+                    pk=kwargs['pk'])
+            except CustomerInsurance.DoesNotExist as exc:
+                raise NotFound('보험을 찾을 수 없습니다.') from exc
+            if insurance.data_version != expected_version:
+                return _manual_error(
+                    'INSURANCE_VERSION_CHANGED',
+                    '다른 화면에서 내용이 바뀌었어요. 최신 내용을 확인해 주세요.',
+                    current_version=insurance.data_version,
+                )
+            if insurance.review_status not in {
+                    'draft', 'legacy_review_required'}:
+                return _manual_error(
+                    'MANUAL_INSURANCE_PRESERVED',
+                    '확인 기록은 그대로 두고 새 자료를 추가해 주세요.',
+                )
+            insurance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _owned_manual_insurance(owner, customer_pk, insurance_pk, *, lock=False):
+    queryset = CustomerInsurance.objects
+    if lock:
+        queryset = queryset.select_for_update()
+    try:
+        return queryset.get(
+            pk=insurance_pk,
+            customer_id=customer_pk,
+            customer__owner=owner,
+            portfolio_type__in=(1, 2),
+        )
+    except CustomerInsurance.DoesNotExist as exc:
+        raise NotFound('보험을 찾을 수 없습니다.') from exc
+
+
+def _manual_error(code, detail, *, current_version=None):
+    body = {'code': code, 'detail': detail}
+    if current_version is not None:
+        body['current_version'] = current_version
+    return Response(body, status=status.HTTP_409_CONFLICT)
+
+
+def _manual_import_error(exc):
+    return Response(
+        {'code': exc.code, 'detail': exc.detail, **exc.extra},
+        status=exc.status_code,
+    )
+
+
+def _manual_idempotency_key(request):
+    raw_value = request.headers.get('Idempotency-Key')
+    if not raw_value:
+        raise serializers.ValidationError({
+            'Idempotency-Key':
+                '요청을 안전하게 이어갈 수 있도록 다시 시도해 주세요.',
+        })
+    try:
+        return uuid.UUID(raw_value)
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise serializers.ValidationError({
+            'Idempotency-Key': '요청 정보를 새로 고친 뒤 다시 시도해 주세요.',
+        }) from exc
+
+
+class ManualVersionChanged(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = 'INSURANCE_VERSION_CHANGED'
+    default_detail = {
+        'code': 'INSURANCE_VERSION_CHANGED',
+        'detail': '다른 화면에서 내용이 바뀌었어요. 최신 내용을 확인해 주세요.',
+    }
+
+
+def _bump_manual_version(insurance_id, expected_version):
+    updated = CustomerInsurance.objects.filter(
+        pk=insurance_id, data_version=expected_version).update(
+            data_version=F('data_version') + 1)
+    if updated != 1:
+        raise ManualVersionChanged()
+
+
+def _assert_manual_mutable(insurance, expected_version):
+    if insurance.data_version != expected_version:
+        return _manual_error(
+            'INSURANCE_VERSION_CHANGED',
+            '다른 화면에서 내용이 바뀌었어요. 최신 내용을 확인해 주세요.',
+            current_version=insurance.data_version)
+    if insurance.review_status not in {'draft', 'legacy_review_required'}:
+        return _manual_error(
+            'MANUAL_INSURANCE_CONFIRMED',
+            '확인한 보험은 새 자료로 추가해 주세요.')
+    if insurance.is_cancelled:
+        return _manual_error(
+            'MANUAL_INSURANCE_NOT_REVIEWABLE',
+            '계약 상태를 확인한 뒤 새 자료로 추가해 주세요.')
+    return None
+
+
+def _manual_row_payload(values, *, row_id):
+    return {
+        'row_id': row_id,
+        'raw_name': values.get('raw_name'),
+        'assurance_amount': values.get('assurance_amount'),
+        'premium': values.get('premium'),
+        'is_renewal': values.get('is_renewal'),
+        'renewal_period': values.get('renewal_period'),
+        'payment_period': values.get('payment_period'),
+        'payment_period_unit': values.get('payment_period_unit'),
+        'warranty_period': values.get('warranty_period'),
+        'warranty_period_unit': values.get('warranty_period_unit'),
+        'disposition': 'assigned',
+        'standard_category': values.get('standard_category'),
+        'standard_subcategory': values.get('standard_subcategory'),
+        'standard_detail_name': values.get('standard_detail_name'),
+        'exclusion_reason': None,
+        'duplicate_of_row_id': None,
+        # Manual entry has no source artifact. These server-owned fields are
+        # always empty and cannot be supplied by the request serializer.
+        'source_candidate_ids': [],
+        'evidence_line_ids': [],
+        'manual_fields': list(MANUAL_COVERAGE_FIELDS),
+    }
+
+
+def _manual_policy_values(insurance):
+    return {
+        'company': insurance.company,
+        'insurance_type': insurance.insurance_type,
+        'name': insurance.name,
+        'contract_date': insurance.contract_date,
+        'expiry_date': insurance.expiry_date,
+        'monthly_premiums': insurance.monthly_premiums,
+    }
+
+
+def _validate_manual_draft(insurance, rows):
+    return validate_draft(
+        [], [], {
+            'policy': _manual_policy_payload(
+                _manual_policy_values(insurance)),
+            'coverage_rows': rows,
+        },
+        allow_manual=True,
+        allow_manual_without_evidence=True,
+    )
+
+
+def _validated_manual_rows(insurance, rows):
+    validation = _validate_manual_draft(insurance, rows)
+    validated_rows = validation.draft['coverage_rows']
+    if any(row.get('state') not in {'manual', 'review_ready'}
+           for row in validated_rows):
+        raise serializers.ValidationError({
+            'code': 'MANUAL_DRAFT_INVALID',
+            'detail': '기간과 금액을 다시 확인해 주세요.',
+            'issues': [
+                {'code': issue.code, 'field': issue.field}
+                for issue in validation.issues
+            ],
+        })
+    return validated_rows
+
+
+def _manual_values_from_case(case):
+    analysis_details = list(
+        case.effective_analysis_details().select_related(
+            'sub_category__category').order_by('pk')[:2])
+    analysis_detail = (
+        analysis_details[0] if len(analysis_details) == 1 else None)
+    try:
+        warranty_period = (
+            int(case.warranty_period)
+            if case.warranty_period not in (None, '') else None)
+    except (TypeError, ValueError):
+        warranty_period = None
+    return {
+        'raw_name': case.raw_name,
+        'assurance_amount': case.assurance_amount,
+        'premium': case.premium,
+        'is_renewal': case.is_renewal_case,
+        'renewal_period': case.renewal_period,
+        'payment_period': case.payment_period,
+        'payment_period_unit': (
+            'lifetime'
+            if case.payment_period_type == 4
+            else ('age' if case.payment_period_type == 2 else 'years')),
+        'warranty_period': warranty_period,
+        'warranty_period_unit': {
+            1: 'age', 2: 'years', 4: 'lifetime',
+        }.get(case.warranty_period_type),
+        'standard_category': (
+            analysis_detail.sub_category.category.name
+            .removeprefix('[표준]')
+            if analysis_detail is not None else None),
+        'standard_subcategory': (
+            analysis_detail.sub_category.name
+            if analysis_detail is not None else None),
+        'standard_detail_name': (
+            analysis_detail.name if analysis_detail is not None else None),
+    }
+
+
+def _save_manual_case(insurance, row, *, instance=None,
+                      mapping_changed=True):
+    analysis_detail = import_services._standard_analysis_detail(row)
+    (payment_type, payment_period, warranty_type,
+     warranty_period) = import_services._period_types(row)
+    values = {
+        'raw_name': row['raw_name'][:200],
+        'assurance_amount': row.get('assurance_amount'),
+        'premium': row.get('premium'),
+        'renewal_period': row.get('renewal_period'),
+        'payment_period': payment_period,
+        'payment_period_type': payment_type,
+        'warranty_period': (
+            str(warranty_period) if warranty_period is not None else None),
+        'warranty_period_type': warranty_type,
+        'confirmed_at': None,
+    }
+    if instance is None:
+        catalog_detail = import_services._catalog_detail_for_override(
+            row, insurance.insurance_type)
+        instance = CustomerInsuranceDetail.objects.create(
+            insurance=insurance,
+            detail=catalog_detail,
+            mapping_source='manual',
+            review_reason=[],
+            source_page=None,
+            source_line_start=None,
+            source_line_end=None,
+            source_text_masked='',
+            source_candidate_ids=[],
+            evidence_line_ids=[],
+            **values)
+    else:
+        if mapping_changed:
+            values['detail'] = import_services._catalog_detail_for_override(
+                row, insurance.insurance_type)
+            values['mapping_source'] = 'manual'
+        for field, value in values.items():
+            setattr(instance, field, value)
+        instance.save(update_fields=(*values.keys(), 'updated_at'))
+    if instance.mapping_source == 'manual' and mapping_changed:
+        instance.analysis_detail_override.set([analysis_detail])
+    return instance
+
+
+def _manual_review_bundle(insurance):
+    cases = list(
+        insurance.case_list.select_related(
+            'detail__sub_category__category').prefetch_related(
+            'detail__analysis_detail', 'analysis_detail_override')
+        .order_by('pk'))
+    return {
+        'insurance_id': insurance.pk,
+        'insurance': CustomerInsuranceManualSerializer(insurance).data,
+        'data_version': insurance.data_version,
+        'review_status': insurance.review_status,
+        'analysis_included': insurance.analysis_included,
+        'confirmation_source': insurance.confirmation_source,
+        'confirmation_requirements': {
+            'planner_confirmed_contents': {'required': True},
+        },
+        'standard_coverages': import_services.standard_coverage_catalog(),
+        'coverages': ManualCoverageReadSerializer(cases, many=True).data,
+    }
+
+
+class ManualCoverageCollectionView(APIView):
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+
+    def get(self, request, customer_pk, insurance_pk):
+        insurance = _owned_manual_insurance(
+            request.user, customer_pk, insurance_pk)
+        return Response(_manual_review_bundle(insurance))
+
+    def post(self, request, customer_pk, insurance_pk):
+        _owned_manual_insurance(request.user, customer_pk, insurance_pk)
+        serializer = ManualCoverageWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = dict(serializer.validated_data)
+        expected_version = payload.pop('data_version')
+        try:
+            with transaction.atomic():
+                insurance = _owned_manual_insurance(
+                    request.user, customer_pk, insurance_pk, lock=True)
+                conflict = _assert_manual_mutable(
+                    insurance, expected_version)
+                if conflict:
+                    return conflict
+                row = _validated_manual_rows(insurance, [
+                    _manual_row_payload(
+                        payload, row_id='manual-new')])[0]
+                case = _save_manual_case(insurance, row)
+                _bump_manual_version(insurance.pk, expected_version)
+        except import_services.ImportReceptionError as exc:
+            return _manual_import_error(exc)
+        body = dict(ManualCoverageReadSerializer(case).data)
+        body['data_version'] = expected_version + 1
+        return Response(body, status=status.HTTP_201_CREATED)
+
+
+class ManualCoverageDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+
+    def _case(self, insurance, case_pk, *, lock=False):
+        queryset = insurance.case_list
+        if lock:
+            queryset = queryset.select_for_update()
+        try:
+            return queryset.get(pk=case_pk)
+        except CustomerInsuranceDetail.DoesNotExist as exc:
+            raise NotFound('담보를 찾을 수 없습니다.') from exc
+
+    def patch(self, request, customer_pk, insurance_pk, case_pk):
+        scoped = _owned_manual_insurance(
+            request.user, customer_pk, insurance_pk)
+        self._case(scoped, case_pk)
+        serializer = ManualCoveragePatchSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        changes = dict(serializer.validated_data)
+        expected_version = changes.pop('data_version')
+        mapping_fields = {
+            'standard_category', 'standard_subcategory',
+            'standard_detail_name'}
+        mapping_changed = bool(mapping_fields.intersection(changes))
+        try:
+            with transaction.atomic():
+                insurance = _owned_manual_insurance(
+                    request.user, customer_pk, insurance_pk, lock=True)
+                conflict = _assert_manual_mutable(
+                    insurance, expected_version)
+                if conflict:
+                    return conflict
+                case = self._case(insurance, case_pk, lock=True)
+                values = _manual_values_from_case(case)
+                values.update(changes)
+                row = _validated_manual_rows(insurance, [
+                    _manual_row_payload(
+                        values, row_id=f'manual-{case.pk}')])[0]
+                case = _save_manual_case(
+                    insurance, row, instance=case,
+                    mapping_changed=mapping_changed)
+                _bump_manual_version(insurance.pk, expected_version)
+        except import_services.ImportReceptionError as exc:
+            return _manual_import_error(exc)
+        body = dict(ManualCoverageReadSerializer(case).data)
+        body['data_version'] = expected_version + 1
+        return Response(body)
+
+    def delete(self, request, customer_pk, insurance_pk, case_pk):
+        scoped = _owned_manual_insurance(
+            request.user, customer_pk, insurance_pk)
+        self._case(scoped, case_pk)
+        serializer = ManualCoverageDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        expected_version = serializer.validated_data['data_version']
+        with transaction.atomic():
+            insurance = _owned_manual_insurance(
+                request.user, customer_pk, insurance_pk, lock=True)
+            conflict = _assert_manual_mutable(insurance, expected_version)
+            if conflict:
+                return conflict
+            case = self._case(insurance, case_pk, lock=True)
+            deleted_case_id = case.pk
+            case.delete()
+            _bump_manual_version(insurance.pk, expected_version)
+        return Response({
+            'insurance_id': insurance.pk,
+            'deleted_coverage_id': deleted_case_id,
+            'data_version': expected_version + 1,
+        })
+
+
+class ManualInsuranceConfirmView(APIView):
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+
+    def post(self, request, customer_pk, insurance_pk):
+        _owned_manual_insurance(request.user, customer_pk, insurance_pk)
+        idempotency_key = _manual_idempotency_key(request)
+        serializer = ManualInsuranceConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        expected_version = serializer.validated_data['data_version']
+        request_sha256 = import_services._command_request_sha256(
+            serializer.validated_data)
+        with transaction.atomic():
+            insurance = _owned_manual_insurance(
+                request.user, customer_pk, insurance_pk, lock=True)
+            command = (
+                ManualInsuranceCommand.objects.select_for_update().filter(
+                    insurance=insurance,
+                    operation='confirm',
+                    idempotency_key=idempotency_key,
+                ).first()
+            )
+            if command is not None:
+                try:
+                    response_status, response_body = (
+                        import_services._replay_command(
+                            command, request_sha256))
+                except import_services.ImportReceptionError as exc:
+                    return _manual_import_error(exc)
+                return Response(response_body, status=response_status)
+            conflict = _assert_manual_mutable(insurance, expected_version)
+            if conflict:
+                return conflict
+            cases = list(
+                insurance.case_list.select_for_update().order_by('pk'))
+            if not cases:
+                return _manual_error(
+                    'MANUAL_COVERAGE_REQUIRED',
+                    '담보를 한 개 이상 입력하면 바로 확인할 수 있어요.')
+            rows = [
+                _manual_row_payload(
+                    _manual_values_from_case(case),
+                    row_id=f'manual-{case.pk}')
+                for case in cases
+            ]
+            validation = _validate_manual_draft(insurance, rows)
+            if validation.summary.get('unresolved_count') != 0:
+                policy_invalid = any(
+                    issue.scope == 'policy'
+                    for issue in validation.issues)
+                return Response({
+                    'code': (
+                        'MANUAL_POLICY_INVALID'
+                        if policy_invalid else 'MANUAL_DRAFT_INVALID'),
+                    'detail': '보험 기본정보와 담보를 다시 확인해 주세요.',
+                    'issues': [
+                        {
+                            'code': issue.code,
+                            'scope': issue.scope,
+                            'field': issue.field,
+                        }
+                        for issue in validation.issues
+                    ],
+                }, status=status.HTTP_409_CONFLICT)
+            try:
+                import_services._assert_calculation_prerequisites(
+                    insurance.customer, validation.draft)
+            except import_services.ImportReceptionError as exc:
+                return _manual_import_error(exc)
+            command = ManualInsuranceCommand.objects.create(
+                insurance=insurance,
+                operation='confirm',
+                idempotency_key=idempotency_key,
+                request_sha256=request_sha256,
+            )
+            # Canonicalize validated dates inside this atomic confirmation so
+            # calculation failure rolls every change back.
+            for field in ('contract_date', 'expiry_date'):
+                value = getattr(insurance, field)
+                if value is not None:
+                    setattr(
+                        insurance, field,
+                        import_services._model_date(value))
+            insurance.save(update_fields=(
+                'contract_date', 'expiry_date', 'updated_at'))
+            import_services._calculate_materialized_insurance(insurance)
+            now = timezone.now()
+            previous_review_status = insurance.review_status
+            confirmation_source = (
+                'legacy_review'
+                if previous_review_status == 'legacy_review_required'
+                else 'manual_entry')
+            updated = CustomerInsurance.objects.filter(
+                pk=insurance.pk,
+                customer_id=customer_pk,
+                customer__owner=request.user,
+                review_status=previous_review_status,
+                data_version=expected_version,
+            ).update(
+                review_status='confirmed',
+                analysis_included=True,
+                confirmation_source=confirmation_source,
+                confirmed_by=request.user,
+                confirmed_at=now,
+                data_version=F('data_version') + 1,
+            )
+            if updated != 1:
+                raise ManualVersionChanged()
+            CustomerInsuranceDetail.objects.filter(
+                insurance=insurance).update(confirmed_at=now)
+            insurance.refresh_from_db()
+            response_body = {
+                'insurance_id': insurance.pk,
+                'review_status': insurance.review_status,
+                'analysis_included': insurance.analysis_included,
+                'data_version': insurance.data_version,
+                'confirmation_source': insurance.confirmation_source,
+                'confirmed_at': insurance.confirmed_at.isoformat(),
+            }
+            command.response_status = status.HTTP_200_OK
+            command.response_body = response_body
+            command.completed_at = now
+            command.save(update_fields=(
+                'response_status', 'response_body', 'completed_at'))
+        return Response(response_body)
+
+
+class ManualInsuranceExcludeView(APIView):
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+
+    def post(self, request, customer_pk, insurance_pk):
+        _owned_manual_insurance(request.user, customer_pk, insurance_pk)
+        serializer = ManualInsuranceExcludeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        expected_version = serializer.validated_data['data_version']
+        reason = serializer.validated_data['reason']
+        with transaction.atomic():
+            insurance = _owned_manual_insurance(
+                request.user, customer_pk, insurance_pk, lock=True)
+            conflict = _assert_manual_mutable(insurance, expected_version)
+            if conflict:
+                return conflict
+            updated = CustomerInsurance.objects.filter(
+                pk=insurance.pk,
+                customer_id=customer_pk,
+                customer__owner=request.user,
+                review_status=insurance.review_status,
+                is_cancelled=False,
+                data_version=expected_version,
+            ).update(
+                review_status='excluded',
+                analysis_included=False,
+                review_exclusion_reason=reason,
+                data_version=F('data_version') + 1,
+            )
+            if updated != 1:
+                raise ManualVersionChanged()
+            insurance.refresh_from_db()
+        return Response({
+            'insurance_id': insurance.pk,
+            'review_status': insurance.review_status,
+            'analysis_included': insurance.analysis_included,
+            'data_version': insurance.data_version,
+            'exclusion_reason': insurance.review_exclusion_reason,
+        })

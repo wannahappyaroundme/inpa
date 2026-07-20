@@ -13,7 +13,7 @@ import {
   Users, CalendarDays, MessageSquare, Target, Package, type LucideIcon,
 } from "lucide-react";
 
-// 인파 랜딩 섹션 본체 — app/page.tsx(www)와 new.inpa.kr 랜딩이 공용으로 쓴다.
+// 인파 브랜드 이야기(/story)의 공용 서비스 소개 섹션.
 // 인파 랜딩 — Phase B: Phase A(다크 명암 리듬·lucide·타이포) + 경량 모션(스크롤 등장·카운트업·히트맵 팝).
 // ★ 컴플라이언스: 단정·과장 카피 금지. AI 초안·중개권유 아님·면책 고정. 모션은 reduced-motion 존중.
 
@@ -63,10 +63,10 @@ export function HeroSection() {
               설계사님은<br />클로징만 준비하세요
             </h1>
             <p className="mt-5 text-[16px] sm:text-[19px] text-white/80 leading-relaxed max-w-xl mx-auto md:mx-0">
-              발굴부터 보장분석, 비교 분석까지. 인파가 준비하고, 설계사님이 완성합니다.
+              발굴부터 보장분석, 여러 증권 비교까지. 인파가 준비하고, 설계사님이 완성합니다.
             </p>
             <p className="mt-2 text-[14px] sm:text-[15px] text-white/55 leading-relaxed max-w-lg mx-auto md:mx-0">
-              증권 한 장으로 고객 보장 공백을 한 화면에. AI 비교안내서 초안까지, 최종 검토는 설계사님이.
+              증권마다 다른 담보와 보험료를 같은 기준으로 정리해, 여러 증권을 한눈에 확인할 수 있어요.
             </p>
             <div className="mt-9 flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
               <LandingLink href="/register" className="w-full sm:w-auto px-7 py-4 rounded-2xl bg-white text-[var(--brand-ink)] font-bold text-[16px] min-h-[52px] flex items-center justify-center hover:bg-white/90 transition shadow-lg">무료로 시작하기</LandingLink>
@@ -92,14 +92,14 @@ export function HeroSection() {
                 </div>
                 <div className="mt-4 rounded-xl border border-[var(--line)] p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-[12px] font-bold text-[var(--ink)]">비교 분석</span>
+                    <span className="text-[12px] font-bold text-[var(--ink)]">증권 비교</span>
                     <span className="inline-flex items-center gap-1 text-[11px] font-bold rounded-full px-2 py-0.5" style={{ color: "var(--brand)", background: "var(--accent-tint)" }}>
-                      <ArrowLeftRight size={12} strokeWidth={2.2} /> 유지·전환 변동 비교
+                      <ArrowLeftRight size={12} strokeWidth={2.2} /> 증권 A · 증권 B
                     </span>
                   </div>
                   <div className="mt-2.5 space-y-1.5 text-[12px]">
-                    <div className="flex justify-between"><span className="text-[var(--ink-3)]">해지 손실(추정)</span><span className="font-semibold text-[var(--ink)] tnum">-1,200,000원</span></div>
-                    <div className="flex justify-between"><span className="text-[var(--ink-3)]">면책기간 리셋</span><span className="font-semibold text-[var(--cov-short)]">재적용 가능</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--ink-3)]">증권 A 월 보험료</span><span className="font-semibold text-[var(--ink)] tnum">87,000원</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--ink-3)]">증권 B 월 보험료</span><span className="font-semibold text-[var(--ink)] tnum">93,000원</span></div>
                   </div>
                 </div>
               </div>
@@ -137,7 +137,7 @@ export function FeaturesSection() {
   const cards = [
     { icon: LayoutGrid, title: "보장 한눈표 (히트맵)", desc: "고객의 현재 보장을 100개 이상 담보 항목으로 한 화면에. 보유·공백을 색으로 즉시 확인합니다." },
     { icon: BarChart3, title: "보장 공백 분석", desc: "보유 0인 담보를 모아 우선순위로 정렬합니다. 충분·부족 판단은 설계사님이 설정한 기준선을 따릅니다." },
-    { icon: ArrowLeftRight, title: "비교 분석 안내서", desc: "기존과 제안을 나란히 정리하고, 해지손실·면책기간 재적용·예정이율 같은 비교 시 불이익을 빠짐없이 짚어줍니다." },
+    { icon: ArrowLeftRight, title: "여러 증권 시각 비교", desc: "선택한 증권 A와 증권 B의 담보, 보장금액, 보험료를 같은 기준의 표와 그래프로 나란히 확인합니다." },
   ];
   return (
     <section id="features" className="py-20 md:py-28 bg-[var(--surface)]">
@@ -168,13 +168,13 @@ function ShowcaseViz({ kind }: { kind: "analysis" | "funnel" | "calendar" | "mes
         <div className="w-full">
           <LineCompareChart
             series={[
-              { label: "기존", color: "var(--existing)", points: [18, 30, 24, 38, 32] },
-              { label: "제안", color: "var(--proposal)", points: [26, 40, 38, 52, 60] },
+              { label: "증권 A", color: "var(--existing)", points: [18, 30, 24, 38, 32] },
+              { label: "증권 B", color: "var(--proposal)", points: [26, 40, 38, 52, 60] },
             ]}
           />
           <div className="mt-1 flex gap-3 text-[10px] text-ink3">
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-[3px] rounded" style={{ background: "var(--existing)" }} />기존</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-[3px] rounded" style={{ background: "var(--proposal)" }} />제안</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-[3px] rounded" style={{ background: "var(--existing)" }} />증권 A</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-[3px] rounded" style={{ background: "var(--proposal)" }} />증권 B</span>
           </div>
         </div>
       );
@@ -244,7 +244,7 @@ function ShowcaseViz({ kind }: { kind: "analysis" | "funnel" | "calendar" | "mes
 
 // 실제 화면 캡처가 있는 카드는 ShowcaseViz(마케팅용 예시 그래픽) 대신 이걸 씀 — 2026-07-15 PM 지시(가짜 목업 대신 실제 화면, 적절한 위치에 배치).
 const REAL_SHOTS: Partial<Record<"analysis" | "funnel" | "calendar" | "message" | "kpi" | "promo", { src: string; alt: string }>> = {
-  analysis: { src: "/landing-new/compare-analysis.webp", alt: "보험 분석 & 비교 실제 화면: 현재 보장과 제안 보장의 담보별 비교" },
+  analysis: { src: "/landing-new/compare-analysis.webp", alt: "증권 비교 실제 화면: 증권 A와 증권 B의 담보별 비교" },
   funnel: { src: "/landing-new/customer-pipeline.webp", alt: "고객 관리 시스템 실제 화면: 고객 검색과 영업 단계별 분류" },
   calendar: { src: "/landing-new/schedule-calendar.webp", alt: "일정 & 예약 관리 실제 화면: 캘린더와 오늘 일정" },
   promo: { src: "/landing-new/promotion.webp", alt: "판촉물 디자인 & 발주 실제 화면: 명함 디자인 샘플" },
@@ -252,7 +252,7 @@ const REAL_SHOTS: Partial<Record<"analysis" | "funnel" | "calendar" | "message" 
 
 export function FeatureShowcaseSection() {
   const cards: { icon: LucideIcon; title: string; sub: string; kind: "analysis" | "funnel" | "calendar" | "message" | "kpi" | "promo" }[] = [
-    { icon: ArrowLeftRight, title: "보험 분석 & 비교", sub: "기존 증권 분석 및 비교 차트 제공", kind: "analysis" },
+    { icon: ArrowLeftRight, title: "증권 분석 & 비교", sub: "여러 증권의 담보와 보험료를 같은 기준으로 확인", kind: "analysis" },
     { icon: Users, title: "고객 관리 시스템", sub: "영업 4단계별 고객 분류·관리", kind: "funnel" },
     { icon: CalendarDays, title: "일정 & 예약 관리", sub: "상담 일정 예약 및 자동 등록", kind: "calendar" },
     { icon: MessageSquare, title: "문자 & 예약 링크", sub: "예약 링크·메시지 문구를 복사해 직접 전달", kind: "message" },
@@ -299,8 +299,8 @@ export function FeatureShowcaseSection() {
 
 export function DifferentiatorsSection() {
   const items = [
-    { icon: ShieldCheck, badge: "비교 분석 가드레일: 점검 전엔 발행 잠금", title: "비교 시 불이익을 빠짐없이 점검하는 비교안내",
-      desc: "다른 상품으로 바꿀 때 고객에게 불리할 수 있는 항목(해지환급금 손실·면책기간 재적용·예정이율 등)을 빠짐없이 점검하도록 돕습니다. 점검 전에는 고객 발행을 잠가 빠뜨림을 줄여요. 공식 비교안내서는 설계사님이 직접 확인해 완성합니다." },
+    { icon: ArrowLeftRight, badge: "증권 A · 증권 B를 같은 기준으로", title: "여러 증권의 차이를 시각적으로",
+      desc: "비교할 증권을 직접 고르면 담보, 보장금액, 보험료를 같은 기준으로 정리합니다. 어느 증권이 더 낫다고 판단하지 않고 등록된 사실을 표와 그래프로 보여줘요." },
     { icon: LayoutGrid, badge: "담보 100+ 표준화 · 보험사별 명칭 자동 매핑", title: "어떤 보험사 증권도 같은 틀로",
       desc: "'암진단급부금', '일반암진단비', '암진단 특약'처럼 회사마다 다른 이름을 100개 이상 표준 담보로 자동 정규화합니다. 데이터가 쌓일수록 매칭 정확도가 높아집니다." },
   ];
@@ -327,7 +327,7 @@ export function HowItWorksSection() {
   const steps = [
     { n: "1", icon: Upload, title: "증권 PDF 업로드", desc: "고객 보험 증권 PDF를 올리세요. 여러 장 한 번에 가능합니다." },
     { n: "2", icon: Sparkles, title: "자동 분석·정리", desc: "스캔 → 인식 → 분류 → 분석 단계로 담보를 표준 틀에 매핑하고 보장 공백을 계산합니다." },
-    { n: "3", icon: Share2, title: "비교안내서 · 메시지 공유", desc: "고객에게 보낼 비교안내서·메시지를 만들고, 클립보드로 복사해 직접 전달하세요." },
+    { n: "3", icon: Share2, title: "증권 비교표 확인", desc: "선택한 증권들의 담보와 보험료 차이를 확인하고, 필요한 내용을 복사해 직접 안내하세요." },
   ];
   return (
     <section className="py-20 md:py-28 bg-[var(--surface-2)]">
@@ -362,9 +362,9 @@ export function PricingSection() {
       .catch(() => { if (alive) setBonusEnabled(false); });
     return () => { alive = false; };
   }, []);
-  const free = ["증권 분석·비교 분석 핵심 기능 포함", "베타 기간에는 월 한도 없이", "보장 한눈표 조회 무제한"];
-  const plus = ["증권 분석 더 많이", "비교안내서 복수 발행", "AI 분석·메시지 제한 완화", "판촉물 주문 제한 완화"];
-  const superPlan = ["Plus의 모든 기능 포함", "증권 분석·비교안내서 무제한", "AI 분석·메시지 무제한", "판촉물 주문 무제한"];
+  const free = ["증권 분석·증권 비교 핵심 기능 포함", "베타 기간에는 월 한도 없이", "보장 한눈표 조회 무제한"];
+  const plus = ["증권 분석 더 많이", "증권 비교 더 많이", "AI 분석·메시지 제한 완화", "판촉물 주문 제한 완화"];
+  const superPlan = ["Plus의 모든 기능 포함", "증권 분석·증권 비교 무제한", "AI 분석·메시지 무제한", "판촉물 주문 무제한"];
   return (
     <section className="py-20 md:py-28 bg-[var(--surface)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 md:px-8 lg:px-16">
@@ -463,7 +463,7 @@ export function LandingFooter() {
         <div className="flex flex-col md:flex-row gap-8 md:gap-0 md:justify-between">
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2"><InpaMark size={24} /><span className="font-extrabold text-[17px]">인파 (Inpa)</span></div>
-            <p className="text-[13px] text-white/55 max-w-xs leading-relaxed">보험설계사의 AI 영업 파트너. 발굴부터 보장분석, 비교 분석까지.</p>
+            <p className="text-[13px] text-white/55 max-w-xs leading-relaxed">보험설계사의 AI 영업 파트너. 발굴부터 보장분석, 여러 증권 비교까지.</p>
           </div>
           <div className="flex flex-col gap-2.5 text-[13px]">
             <LandingLink href="/blog" className="text-white/70 hover:text-white transition">블로그</LandingLink>
@@ -489,7 +489,7 @@ export function AudienceSection() {
     {
       tag: "개인 설계사",
       title: "잡일은 88% 줄이고,\n그 시간으로 첫 고객을 만드세요",
-      body: "증권 분석 30분 → 3분, 제안서 40분 → 5분. 번 시간은 발굴에. 셀프진단 링크 하나면 잠재고객이 알아서 내 고객 명단에 들어옵니다.",
+      body: "증권 분석 30분 → 3분, 증권 비교표 40분 → 5분. 번 시간은 발굴에. 셀프진단 링크 하나면 잠재고객이 알아서 내 고객 명단에 들어옵니다.",
     },
     {
       tag: "관리직(팀장·지점장)",

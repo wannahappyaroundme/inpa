@@ -7,7 +7,7 @@ import { InpaMark } from "@/components/inpa-logo";
 import { LandingLink, useBrandLanding } from "@/components/landing-link";
 import { getBillingEvent } from "@/lib/api";
 
-// new.inpa.kr 스크롤 파트 전용 브랜드 섹션. 시안 landing_page.pdf p1(포스터)·p9~p14.
+// www.inpa.kr/story 스크롤 파트 전용 브랜드 섹션. 시안 landing_page.pdf p1(포스터)·p9~p14.
 // 카피 레드라인: em-dash 금지, '준비 중' 금지, 가격은 'N원 (VAT 별도)'만.
 
 // 시안 p1(발표용 포스터, 영화 파트 제외분) — 스크롤 랜딩 맨 위에 배치.
@@ -120,7 +120,7 @@ const PIPELINE_STEPS: { title: string; desc: string; badges: string[] }[] = [
     badges: ["100개 이상 표준 담보", "쓸수록 정확해지는 사전"] },
   { title: "보장 상태를 색으로 확인", desc: "설계사님이 세운 기준에 따라 넉넉·적정·부족을 신호등처럼 보여줍니다.",
     badges: ["넉넉·적정·부족", "기준은 설계사님이 직접"] },
-  { title: "제안과 나란히 비교", desc: "보유 증권과 새 제안을 자유롭게 짝지어 담보별 증감을 사실 그대로 비교합니다.",
+  { title: "여러 증권을 나란히 비교", desc: "원하는 증권을 A와 B로 골라 담보·보장금액·보험료 차이를 사실 그대로 비교합니다.",
     badges: ["자유롭게 비교", "판단 없이 사실만"] },
   { title: "고객에게 바로 전달", desc: "비교 내용을 복사해서 카톡이나 문자로 직접 보내드리세요.",
     badges: ["복사해서 바로 전달", "발송은 설계사님이 직접"] },
@@ -232,11 +232,11 @@ const PROCESS: { stage: string; groups: { name: string; items: { label: string; 
   ]},
   { stage: "상담 준비", groups: [
     { name: "증권 분석", items: [{ label: "기보유 증권 분석" }] },
-    { name: "비교 분석", items: [{ label: "신규 가입 설계" }, { label: "가입제안서 분석" }, { label: "비교 분석" }] },
+    { name: "증권 비교", items: [{ label: "증권 A 선택" }, { label: "증권 B 선택" }, { label: "담보·보험료 비교" }] },
     { name: "상담 준비", items: [{ label: "비교 자료 시각화" }, { label: "영업 자료 생성" }] },
   ]},
   { stage: "FA", groups: [
-    { name: "프레젠테이션", items: [{ label: "보유 상품 설명" }, { label: "제안 상품 설명" }, { label: "상품 비교 설명" }] },
+    { name: "프레젠테이션", items: [{ label: "증권별 보장 설명" }, { label: "보험료·담보 확인" }, { label: "차이 설명" }] },
     { name: "클로징", items: [{ label: "클로징 멘트", highlight: true }] },
   ]},
   { stage: "청약", groups: [
@@ -364,27 +364,33 @@ const TIERS: {
   annual?: string; features: string[]; footnote: string; highlight?: boolean;
 }[] = [
   { name: "무료", price: "0원",
-    features: ["증권 자동 분석 월 5건", "비교 분석 월 1건 체험", "영업 리포트 생성 월 5건", "신규 고객 추가 월 5명"],
+    features: ["증권 자동 분석 월 5건", "증권 비교 월 1건 체험", "영업 리포트 생성 월 5건", "신규 고객 추가 월 5명"],
     footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
   { name: "Manager", managerOnly: true, price: "19,900원", vat: true, annual: "연 199,000원 · 2개월 무료",
     features: ["Plus 모든 기능 사용 가능", "팀원 인사 관리", "팀원 개별 실적 관리", "팀 전체 실적 관리"],
     footnote: "팀장, 지점장, 지사장 등 관리자만 사용할 수 있는 기능입니다." },
   { name: "Plus", badge: "추천", highlight: true, price: "19,900원", vat: true, annual: "연 199,000원 · 2개월 무료",
-    features: ["증권 자동 분석 월 100건", "비교 분석 월 50건", "영업 리포트 생성 월 50건", "신규 고객 추가 월 30명"],
+    features: ["증권 자동 분석 월 100건", "증권 비교 월 50건", "영업 리포트 생성 월 50건", "신규 고객 추가 월 30명"],
     footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
   { name: "Super", price: "39,900원", vat: true, annual: "연 399,000원 · 2개월 무료",
-    features: ["증권 자동 분석 무제한", "비교 분석 무제한", "영업 리포트 생성 무제한", "신규 고객 추가 무제한"],
+    features: ["증권 자동 분석 무제한", "증권 비교 무제한", "영업 리포트 생성 무제한", "신규 고객 추가 무제한"],
     footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
 ];
 
-export function PricingFourTiers() {
+export function PricingFourTiers({
+  id,
+  registerHref = "/register",
+}: {
+  id?: string;
+  registerHref?: string;
+} = {}) {
   // 첫 결제 보너스 이벤트가 실제 켜져 있을 때만 이벤트 문구를 노출(§6 정직성). 기본 false.
   // 연 결제 할인(2개월 무료)은 실제 가격이므로 항상 노출한다.
   const [bonusEnabled, setBonusEnabled] = useState(false);
   const { appBase } = useBrandLanding();
   useEffect(() => {
-    // new.inpa.kr(브랜드 랜딩)에선 BE를 호출하지 않는다(교차도메인 CORS 회피).
-    // www 통합 시 appBase=""가 되면 자동으로 다시 조회한다.
+    // 외부 브랜드 주소로 다시 쓰는 경우에는 교차 도메인 호출을 피한다.
+    // 현재 www 내부 이야기에서는 appBase=""이므로 실제 이벤트 상태를 조회한다.
     if (appBase) return;
     let alive = true;
     getBillingEvent()
@@ -393,7 +399,7 @@ export function PricingFourTiers() {
     return () => { alive = false; };
   }, [appBase]);
   return (
-    <section className="py-20 md:py-28 bg-[var(--surface)]">
+    <section id={id} className="scroll-mt-20 py-20 md:py-28 bg-[var(--surface)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
           <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] text-center tracking-tight">인파 for 설계사 / 관리자 요금제</h2>
@@ -441,7 +447,7 @@ export function PricingFourTiers() {
           </div>
         </Reveal>
         <div className="mt-10 text-center">
-          <LandingLink href="/register" className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition">무료로 시작하기</LandingLink>
+          <LandingLink href={registerHref} className="inline-flex px-8 py-4 rounded-2xl bg-[var(--brand)] text-white font-bold text-[16px] min-h-[52px] items-center justify-center hover:opacity-90 transition">무료로 시작하기</LandingLink>
         </div>
       </div>
     </section>

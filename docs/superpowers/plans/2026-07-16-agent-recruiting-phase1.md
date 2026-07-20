@@ -6,7 +6,7 @@
 
 **Architecture:** Django에 독립 앱 `inpa.recruiting`을 추가해 영입 페이지, 출처 링크, 지원자, 동의, 활동 이력, 정착 체크, 영입 전용 분석 이벤트를 소유한다. 기존 `accounts`에는 팀 관계를 만드는 단일 서비스와 Manager 역할 시각만 추가하고, 기존 일반 팀 초대 토큰은 그대로 유지한다. 기존 `billing`은 Plus·legacy Manager·Super가 같은 팀 기능 권한을 갖도록 능력값만 정렬하며, 승격 시 구독 행은 절대 수정하지 않는다. Next.js에는 인증 화면 `/recruiting`, 공개 지원 페이지 `/r/[token]`, 본인 관리 페이지 `/r/manage/[token]`, 최종 합류 페이지 `/recruiting/join/[token]`을 새로 둔다.
 
-**Tech Stack:** Django 4.2 · DRF · PostgreSQL/SQLite · Django signed tokens · Next.js 16 App Router · React 19 · TypeScript · Tailwind v4 · 기존 `lib/api.ts`/`lib/adminApi.ts` 단일 API 게이트 · Django unittest · 브라우저 실동작 검증.
+**Tech Stack:** Django 5.2 LTS · DRF · PostgreSQL/SQLite · Django signed tokens · Next.js 16 App Router · React 19 · TypeScript · Tailwind v4 · 기존 `lib/api.ts`/`lib/adminApi.ts` 단일 API 게이트 · Django unittest · 브라우저 실동작 검증.
 
 **Approved design:** [`docs/superpowers/specs/2026-07-16-agent-recruiting-design.md`](/Users/kyungsbook/Desktop/inpa/docs/superpowers/specs/2026-07-16-agent-recruiting-design.md)
 

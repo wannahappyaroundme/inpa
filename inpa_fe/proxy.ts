@@ -1,25 +1,24 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { resolveLegacyMainRoute, resolveNewHostRoute } from "@/lib/new-host-routing";
 
-// new.inpa.kr = 브랜드 시네마 랜딩 전용 host.
-// '/'만 /new로 rewrite(주소창 유지), 그 외 서비스 경로는 본진(www)으로 보낸다.
-// www·프리뷰·localhost 트래픽은 어떤 개입도 하지 않는다.
+// new.inpa.kr의 공개 랜딩은 www 공식 주소로 이전했다.
+// 이전 주소와 서비스 경로를 모두 www로 영구 이동해 기존 공유 링크를 보호한다.
+// www·프리뷰·localhost에서는 과거 내부 랜딩 주소만 같은 공식 경로로 이동한다.
 const NEW_HOST = "new.inpa.kr";
-const MAIN_ORIGIN = "https://www.inpa.kr";
 
 export function proxy(request: NextRequest) {
   const host = (request.headers.get("host") ?? "").toLowerCase();
   const isNewHost = host === NEW_HOST || host.startsWith(`${NEW_HOST}:`);
-  if (!isNewHost) return;
-
   const { pathname, search } = request.nextUrl;
-  if (pathname === "/") {
-    return NextResponse.rewrite(new URL("/new", request.url));
+  if (!isNewHost) {
+    const legacyTarget = resolveLegacyMainRoute(pathname, search);
+    if (!legacyTarget) return;
+    return NextResponse.redirect(new URL(legacyTarget, request.url), 308);
   }
-  if (pathname === "/new") {
-    return NextResponse.redirect(new URL("/", request.url)); // 중복 주소 정규화
-  }
-  return NextResponse.redirect(`${MAIN_ORIGIN}${pathname}${search}`);
+
+  const route = resolveNewHostRoute(pathname, search);
+  return NextResponse.redirect(route.target, 308);
 }
 
 export const config = {

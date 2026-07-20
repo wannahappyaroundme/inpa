@@ -33,6 +33,29 @@ const CUSTOMER_ROUTES = ["app/s", "app/b", "app/c", "app/d", "app/p"];
 const ADVICE_PATHS = [...CUSTOMER_ROUTES, "lib/compare-export.ts"];
 const ADVICE_HINT = "고객 대면 화면 권유어 금지(§97·금소법). 사실 서술·중립 표현으로 바꾸세요.";
 
+// 증권 비교 노출면: 기능을 보험 교체 제안이 아니라 여러 증권의 중립 A/B 시각화로 설명한다.
+// 내부 API·법무 주석은 호환성과 기록을 위해 유지하므로 렌더링 가능성이 있는 파일만 검사한다.
+const MULTI_POLICY_SURFACES = [
+  "app/customer/[id]/page.tsx",
+  "app/faq/page.tsx",
+  "app/onboarding/page.tsx",
+  "app/settings/account/page.tsx",
+  "app/admin/demo",
+  "app/analysis/page.tsx",
+  "components/landing-sections.tsx",
+  "components/brand-story-sections.tsx",
+  "components/charts.tsx",
+  "components/insurance-import-cards.tsx",
+  "components/insurance-manual-modal.tsx",
+  "components/insurance-manual-review.tsx",
+  "components/insurance-review-cards.tsx",
+  "components/premium-split.tsx",
+  "components/upgrade-modal.tsx",
+  "lib/landing-content.ts",
+  "lib/compare-export.ts",
+  "lib/mock.ts",
+];
+
 // 렌더 카피에 절대 없어야 하는 표기(주석 제거 후 검사). 추가할 땐 여기만 늘리면 됨(오탐 검증 필수).
 // paths(선택): 배열로 주면 그 디렉터리 하위 파일에만 적용. 없으면 전역.
 const RULES = [
@@ -46,6 +69,12 @@ const RULES = [
   { name: "권유어(더 유리)", re: /더 유리/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
   { name: "권유어(가입하세요)", re: /가입하세요/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
   { name: "권유어(전환하세요)", re: /전환하세요/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
+  {
+    name: "교체 전제 비교 문구",
+    re: /현재와 제안|현재 보험과 새 제안|기존과 제안|제안과 나란히|보유 증권과 새 제안|기존.*제안|product:\s*"(?:기존|제안)|["']제안["']|^\s*제안\s*$|labelA\s*=\s*"현재"|유지·전환|갈아타기|승환|비교안내서/,
+    paths: MULTI_POLICY_SURFACES,
+    hint: "여러 증권의 A/B 시각 비교로 표현하세요.",
+  },
 ];
 
 /** rule.paths 가 있으면 해당 경로(디렉터리) 하위 파일에만 적용. */

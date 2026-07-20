@@ -1,6 +1,6 @@
 # === 인파 백엔드 의존성 ===
 # 핵심 (척추 — 로컬/운영 공통)
-Django==4.2.27
+Django==5.2.16
 djangorestframework==3.16.1
 django-environ==0.11.2
 django-cors-headers==4.3.1
@@ -11,14 +11,15 @@ psycopg2-binary==2.9.9
 
 # AI / OCR / 계산 (Phase 1.1 foliio vendoring 시 사용)
 anthropic==0.111.0
-pdfplumber==0.11.8       # 증권 PDF 텍스트 추출 (claude_parser 선행 — 운영 OCR 필수)
+pdfplumber==0.11.10      # 증권 PDF 텍스트 추출 (claude_parser 선행 — 운영 OCR 필수)
 numpy==1.24.4
 numpy-financial==1.0.0
 python-dateutil==2.9.0.post0
-Pillow==10.1.0
+Pillow==12.3.0
 
 # 운영
-gunicorn==21.2.0
+celery[redis]==5.6.3       # 보험증권 검토 작업 큐(JSON 메시지만 허용)
+gunicorn==26.0.0
 whitenoise==6.6.0          # prod 정적파일 서빙 (prod.py 미들웨어에서만 활성)
 sentry-sdk[django]==2.63.0  # prod에서 SENTRY_DSN 설정 시에만 활성
 django-storages==1.14.6     # prod 미디어 S3(호환) 저장 — AWS_STORAGE_BUCKET_NAME 설정 시 활성

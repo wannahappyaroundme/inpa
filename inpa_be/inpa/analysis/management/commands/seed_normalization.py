@@ -22,7 +22,7 @@ company 코드: ocrdata.py LossInsurance·LifeInsurance index 기반 (데모 대
     배포에서 미사용)일 때만 seed 출처 행 한정 삭제(admin_verified/ocr_learned 및
     M2M 링크가 걸린 leaf는 보호 — 절대 삭제하지 않음).
 """
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from inpa.analysis.models import (
@@ -32,10 +32,17 @@ from inpa.analysis.models import (
     NormalizationDict,
     SeedMarker,
 )
+from inpa.insurances.models import (
+    InsuranceCategory,
+    InsuranceDetail,
+    InsuranceSubCategory,
+)
 
 # ── 시드 데이터 버전 (STANDARD_TREE/NORMALIZATION_V0 데이터 변경 시 수동 bump) ──
 SEED_VERSION = 'v1'
 MARKER_KEY = 'seed_normalization'
+CATALOG_SEED_VERSION = 'v1'
+CATALOG_MARKER_KEY = 'seed_normalization_catalog'
 
 # ── 멱등 마커 (seed_demo의 '[DEMO]' 와 충돌 없는 별도 prefix) ─────────────
 STD_MARKER = '[표준]'
@@ -551,11 +558,38 @@ class Command(BaseCommand):
         prune = options['prune']
 
         # ── 0) 버전 마커 가드: 부팅 경로(no-op) 무해화 ──
-        marker = SeedMarker.objects.filter(key=MARKER_KEY).first()
-        if marker and marker.version == SEED_VERSION and not force and not prune:
+        # Serialize every normalization/catalog seed through one stable row.
+        # The compatibility catalog has no DB natural-key constraint, so two
+        # overlapping deploys must not both observe a missing row and insert it.
+        SeedMarker.objects.get_or_create(
+            key=MARKER_KEY, defaults={'version': ''})
+        marker = SeedMarker.objects.select_for_update().get(key=MARKER_KEY)
+        catalog_marker = SeedMarker.objects.filter(
+            key=CATALOG_MARKER_KEY).first()
+        tree_current = bool(marker and marker.version == SEED_VERSION)
+        catalog_current = bool(
+            catalog_marker
+            and catalog_marker.version == CATALOG_SEED_VERSION)
+        if (tree_current and catalog_current
+                and not force and not prune):
             self.stdout.write(
                 f'=== seed_normalization: 이미 최신({SEED_VERSION}) — 건너뜀 '
                 '(강제 실행: --force) ===')
+            return
+
+        if tree_current and not force and not prune:
+            catalog_stats = self._seed_compatibility_catalog()
+            SeedMarker.objects.update_or_create(
+                key=CATALOG_MARKER_KEY,
+                defaults={'version': CATALOG_SEED_VERSION})
+            self.stdout.write(self.style.SUCCESS(
+                '=== seed_normalization 저장용 카탈로그 완료 ==='))
+            self.stdout.write(
+                f'  저장용 카탈로그  : 생성 {catalog_stats["created"]} / '
+                f'갱신 {catalog_stats["updated"]}')
+            self.stdout.write(
+                f'  마커            : {CATALOG_MARKER_KEY}='
+                f'{CATALOG_SEED_VERSION}')
             return
 
         self.stdout.write('=== seed_normalization v0 시작 (upsert) ===')
@@ -565,11 +599,15 @@ class Command(BaseCommand):
         )
 
         detail_by_name = self._seed_tree()
+        catalog_stats = self._seed_compatibility_catalog()
         norm_stats = self._seed_normalization(detail_by_name)
         orphan_stats = self._handle_orphans(prune=prune)
 
         SeedMarker.objects.update_or_create(
             key=MARKER_KEY, defaults={'version': SEED_VERSION})
+        SeedMarker.objects.update_or_create(
+            key=CATALOG_MARKER_KEY,
+            defaults={'version': CATALOG_SEED_VERSION})
 
         cat_count = AnalysisCategory.objects.filter(
             name__startswith=STD_MARKER).count()
@@ -579,6 +617,10 @@ class Command(BaseCommand):
         self.stdout.write(f'  표준 카테고리   : {cat_count}개')
         self.stdout.write(f'  표준 담보(leaf) : {detail_count}개')
         self.stdout.write(
+            f'  저장용 카탈로그  : 생성 {catalog_stats["created"]} / '
+            f'갱신 {catalog_stats["updated"]}'
+        )
+        self.stdout.write(
             f'  정규화 사전     : 생성 {norm_stats["created"]} / 갱신 {norm_stats["updated"]} / '
             f'보호 {norm_stats["protected"]} (skip={norm_stats["skipped"]})'
         )
@@ -587,7 +629,9 @@ class Command(BaseCommand):
             f'{"→ prune 삭제 " + str(orphan_stats["pruned"]) + "건" if prune else "(로그만 — 삭제 없음)"}'
         )
         self.stdout.write(
-            f'  마커            : {MARKER_KEY}={SEED_VERSION} (재부팅 시 no-op)'
+            f'  마커            : {MARKER_KEY}={SEED_VERSION}, '
+            f'{CATALOG_MARKER_KEY}={CATALOG_SEED_VERSION} '
+            '(재부팅 시 no-op)'
         )
 
     # ── 1) 표준 담보 트리 — 자연키(부모 FK + name) upsert. PK 보존 ─────────
@@ -648,6 +692,76 @@ class Command(BaseCommand):
             obj.save(update_fields=changed)
             return 1
         return 0
+
+    @staticmethod
+    def _single_or_create(model, *, lookup, defaults):
+        rows = list(model.objects.filter(**lookup).order_by('pk')[:2])
+        if len(rows) > 1:
+            label = '/'.join(str(value) for value in lookup.values())
+            raise CommandError(
+                f'표준 저장용 카탈로그가 중복되어 있어요: {label}')
+        if rows:
+            return rows[0], False
+        return model.objects.create(**lookup, **defaults), True
+
+    def _seed_compatibility_catalog(self):
+        """Create a dedicated catalog FK tree for confirmed reviewed rows.
+
+        CustomerInsuranceDetail retains the legacy InsuranceDetail FK even
+        when its analysis mapping is stored per case.  A fresh database must
+        therefore receive one seed-owned, prefixed compatibility row for every
+        standard path.  Existing carrier/global catalog rows stay untouched.
+        """
+        created = updated = 0
+        for c_order, (cat_name, ins_type, subs) in enumerate(
+                STANDARD_TREE, start=1):
+            catalog_type = ins_type if ins_type in {1, 2} else 0
+            category, is_new = self._single_or_create(
+                InsuranceCategory,
+                lookup={'name': f'{STD_MARKER}{cat_name}'},
+                defaults={
+                    'insurance_type': catalog_type,
+                    'order': c_order,
+                },
+            )
+            created += is_new
+            updated += self._sync_fields(
+                category, insurance_type=catalog_type, order=c_order)
+            for s_order, (sub_name, details) in enumerate(subs, start=1):
+                subcategory, is_new = self._single_or_create(
+                    InsuranceSubCategory,
+                    lookup={'category': category, 'name': sub_name},
+                    defaults={
+                        'insurance_type': catalog_type,
+                        'order': s_order,
+                    },
+                )
+                created += is_new
+                updated += self._sync_fields(
+                    subcategory,
+                    insurance_type=catalog_type,
+                    order=s_order,
+                )
+                for d_order, (detail_name, based_amount) in enumerate(
+                        details, start=1):
+                    detail, is_new = self._single_or_create(
+                        InsuranceDetail,
+                        lookup={
+                            'sub_category': subcategory,
+                            'name': detail_name,
+                        },
+                        defaults={
+                            'order': d_order,
+                            'chart_based_amount': based_amount,
+                        },
+                    )
+                    created += is_new
+                    updated += self._sync_fields(
+                        detail,
+                        order=d_order,
+                        chart_based_amount=based_amount,
+                    )
+        return {'created': created, 'updated': updated}
 
     # ── 2) 정규화 사전 — (company, raw_name) 자연키 upsert. seed 출처만 ────
     def _seed_normalization(self, detail_by_name):
@@ -778,6 +892,10 @@ class Command(BaseCommand):
                 if d.insurancedetail_set.exists():
                     self.stdout.write(
                         f'  [보호] leaf {d.name}: 고객 스캔 M2M 링크 존재 — 삭제 스킵')
+                    continue
+                if d.insurance_case_overrides.exists():
+                    self.stdout.write(
+                        f'  [보호] leaf {d.name}: 고객 직접 확인 연결 존재 — 삭제 스킵')
                     continue
                 d.aliases.all().delete()  # 남은 seed alias 정리 후 leaf 삭제
                 d.delete()

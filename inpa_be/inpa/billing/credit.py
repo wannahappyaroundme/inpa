@@ -105,6 +105,7 @@ def check_and_consume(user, kind: str) -> dict:
         "count":     int,        # 증가 후 현재 값 (베타 우회 시 0)
         "limit":     int | None, # None = 무제한 sentinel (베타 우회 시 None)
         "remaining": int | None, # None = 무제한 (베타 우회 시 None)
+        "year_month": str | None,# 실제 변경한 UsageMeter 월 receipt
       }
 
     Args:
@@ -127,7 +128,13 @@ def check_and_consume_n(user, kind: str, n: int) -> dict:
         n: 이번에 한 번에 소비할 건수(예: 일괄 등록 행 수).
     """
     if n <= 0:
-        return {'action': kind, 'count': 0, 'limit': None, 'remaining': None}
+        return {
+            'action': kind,
+            'count': 0,
+            'limit': None,
+            'remaining': None,
+            'year_month': None,
+        }
     return _consume(user, kind, n)
 
 
@@ -140,7 +147,13 @@ def _consume(user, kind: str, n: int) -> dict:
 
     # 베타 무차감 스위치 — DB RuntimeConfig 우선, env fallback (dev/23 §3 §G4)
     if free_tier_unlimited():
-        return {'action': kind, 'count': 0, 'limit': None, 'remaining': None}
+        return {
+            'action': kind,
+            'count': 0,
+            'limit': None,
+            'remaining': None,
+            'year_month': None,
+        }
 
     from .models import UsageMeter  # 순환 import 방지
 
@@ -173,6 +186,10 @@ def _consume(user, kind: str, n: int) -> dict:
         'count': meter.count,
         'limit': lim,
         'remaining': remaining,
+        # Receipt for the exact UsageMeter row changed above. Callers that
+        # may compensate later must persist this value rather than recompute
+        # "current month" across a KST month boundary.
+        'year_month': meter.year_month,
     }
 
 

@@ -2,7 +2,7 @@
 Claude API 기반 보험증권 파싱 모듈.
 
 pdfplumber로 추출한 텍스트를 Claude(모델 정본=settings.CLAUDE_MODEL_PARSE,
-기본 Opus 4.8 — 정확도-critical)에게 보내 구조화 JSON을 받고, 기존 Ocr_Data
+env 미설정 시 외부 호출 전 중단)에게 보내 구조화 JSON을 받고, 기존 Ocr_Data
 형태로 변환하여 반환한다. 실패 시 None을 반환 → 호출자(views.py)가 기존 regex
 파싱으로 폴백.
 
@@ -20,10 +20,12 @@ import re
 
 from django.conf import settings
 
-from inpa.core.ocr.ocrdata import Ocr_Data
+from inpa.core.ocr.ocrdata import (
+    LIFE_COMPANY_ALIASES, LOSS_COMPANY_ALIASES, Ocr_Data,
+)
 from inpa.core.ocr.ocrparsing import (
     COVERAGE_KEYWORDS, _extract_person_name, _is_fixed_benefit_inpatient,
-    is_keyword_excluded, strip_exclusion_parens,
+    is_ambiguous_coverage_name, is_keyword_excluded, strip_exclusion_parens,
 )
 from inpa.core.ocr.pii_mask import _strip_identity
 
@@ -32,51 +34,6 @@ from inpa.core.ocr.pii_mask import _strip_identity
 logger = logging.getLogger(__name__)
 
 # ---------- 보험사 매칭용 키워드 ----------
-
-_LOSS_COMPANY_ALIASES = {
-    0: ['롯데손해', '롯데손보'],
-    1: ['메리츠화재', '메리츠'],
-    2: ['삼성화재', '삼성손해', '삼성손보'],
-    3: ['에이스손해', '에이스', 'ACE'],
-    4: ['우체국보험', '우체국'],
-    5: ['하나손해', '하나손보'],
-    6: ['한화손해', '한화손보'],
-    7: ['현대해상'],
-    8: ['흥국화재', '흥국손해'],
-    9: ['AIG손해', 'AIG'],
-    10: ['AXA손해', 'AXA'],
-    11: ['DB손해', 'DB손보'],
-    12: ['KB손해', 'KB손보'],
-    13: ['LIG손해', 'LIG'],
-    14: ['MG손해', 'MG손보'],
-    15: ['NH농협손해', '농협손해'],
-}
-
-_LIFE_COMPANY_ALIASES = {
-    0: ['교보라이프플래닛', '라이프플래닛'],
-    1: ['교보생명', '교보'],
-    2: ['동양생명', '동양'],
-    3: ['라이나생명', '라이나'],
-    4: ['메트라이프생명', '메트라이프'],
-    5: ['미래에셋생명', '미래에셋'],
-    6: ['삼성생명'],
-    7: ['신한생명', '신한라이프'],
-    8: ['오렌지라이프생명', '오렌지라이프', 'ING생명'],
-    9: ['처브라이프생명', '처브라이프', '처브'],
-    10: ['푸르덴셜생명', '푸르덴셜'],
-    11: ['푸본현대생명', '푸본현대'],
-    12: ['하나생명'],
-    13: ['한화생명'],
-    14: ['흥국생명'],
-    15: ['ABL생명', 'ABL'],
-    16: ['AIA생명', 'AIA'],
-    17: ['BNP파리바카디프생명', 'BNP파리바', '카디프'],
-    18: ['DB생명'],
-    19: ['DGB생명', 'DGB'],
-    20: ['KB생명'],
-    21: ['KDB생명', 'KDB'],
-    22: ['NH농협생명', '농협생명'],
-}
 
 # ---------- 담보 카테고리 매핑 (Claude 응답 → Ocr_Data dict_detail_data 경로) ----------
 
@@ -598,15 +555,19 @@ def claude_parse(text_lines, is_proposal=False, normalizer=None, meta=None):
         if meta is not None:
             meta.update(kwargs)
 
-    # 모델 정본: settings 에서만 (하드코딩 금지). 정확도-critical = Opus 4.8.
-    # ★ no_key/package_missing 경로에서도 model 은 알 수 있으므로 가장 먼저 채운다.
-    model_id = getattr(settings, 'CLAUDE_MODEL_PARSE', 'claude-opus-4-8')
+    # 모델 정본은 settings(env)에서만 읽고, 미설정이면 외부 요청 전에 중단한다.
+    model_id = getattr(settings, 'CLAUDE_MODEL_PARSE', '')
     _set_meta(model=model_id)
 
     api_key = getattr(settings, 'CLAUDE_API_KEY', '')
     if not api_key:
         logger.warning('[claude_parser] CLAUDE_API_KEY not configured')
         _set_meta(outcome='no_key', usage=None)
+        return None
+
+    if not model_id:
+        logger.warning('[claude_parser] CLAUDE_MODEL_PARSE not configured')
+        _set_meta(outcome='no_model', usage=None)
         return None
 
     try:
@@ -769,10 +730,10 @@ def _match_company_index(company_name, insurance_type):
 
     # Claude가 판단한 insurance_type 기준으로 먼저 검색
     if insurance_type == 'life':
-        primary, secondary = _LIFE_COMPANY_ALIASES, _LOSS_COMPANY_ALIASES
+        primary, secondary = LIFE_COMPANY_ALIASES, LOSS_COMPANY_ALIASES
         primary_type, secondary_type = 'life', 'loss'
     else:
-        primary, secondary = _LOSS_COMPANY_ALIASES, _LIFE_COMPANY_ALIASES
+        primary, secondary = LOSS_COMPANY_ALIASES, LIFE_COMPANY_ALIASES
         primary_type, secondary_type = 'loss', 'life'
 
     # 1차: primary 사전에서 매칭
@@ -937,6 +898,12 @@ def _add_coverage(ocr, cov, default_payment, default_warranty,
     detail_name = cov.get('detail_name', '')
     original_name = cov.get('name', '')
 
+    # 복합 암 표기는 Claude 분류·사전·퍼지 결과가 있어도 사람 확인 전 저장하지 않는다.
+    if is_ambiguous_coverage_name(original_name):
+        ocr._manual_review_coverage_count = (
+            getattr(ocr, '_manual_review_coverage_count', 0) + 1)
+        return
+
     mapped = None
 
     # 0순위(✦ 인파 훅): NormalizationDict 사전 — 보험사별 담보 원문명 정규화.
@@ -1100,6 +1067,8 @@ def _match_by_keywords(text):
     2026-05-13: '(...제외)' 컨텍스트 가드 + 배제 괄호 통째 제거 normalize.
     예: "암(4대유사암제외)진단비" → '암진단비' → '암진단' 매칭 → 일반암.
     """
+    if is_ambiguous_coverage_name(text):
+        return None
     text = strip_exclusion_parens(text)
     no_space = text.replace(' ', '')
     # 갱신 태그 제거

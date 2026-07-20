@@ -74,7 +74,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'  # noqa: F405
 #     · 다중 인스턴스·영속 + 비공개 서명 URL(PII 보호).
 #  ② Render 영속 디스크 (MEDIA_DISK_PATH 설정, 유료 플랜·단일 인스턴스) — 디스크에 로컬 저장.
 #  ③ 아무것도 없으면 로컬 임시(base.MEDIA_ROOT) — 재배포 시 소실(개발·임시용).
-_s3_bucket = env('AWS_STORAGE_BUCKET_NAME', default='')  # noqa: F405
+_s3_bucket = AWS_STORAGE_BUCKET_NAME  # noqa: F405
 _media_disk = env('MEDIA_DISK_PATH', default='')  # noqa: F405  # 예: /var/data/media (Render 디스크)
 if _s3_bucket:
     _default_storage = {
@@ -99,6 +99,18 @@ STORAGES = {
     'default': _default_storage,
     'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
 }
+if _s3_bucket:
+    # 공개 media와 prefix가 겹치지 않는 별도 private alias. 원본 key는 API에 노출하지 않는다.
+    STORAGES['insurance_sources'] = {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            **_default_storage['OPTIONS'],
+            'location': 'insurance-sources',
+            'querystring_auth': True,
+            'file_overwrite': False,
+            'default_acl': None,
+        },
+    }
 # SecurityMiddleware 바로 뒤에 whitenoise 삽입 (base.MIDDLEWARE 복사본 수정 — base 원본 불변).
 MIDDLEWARE = list(MIDDLEWARE)  # noqa: F405
 _security_idx = MIDDLEWARE.index('django.middleware.security.SecurityMiddleware')
@@ -118,10 +130,14 @@ _SENTRY_DSN = env('SENTRY_DSN', default='')  # noqa: F405
 if _SENTRY_DSN:
     import sentry_sdk
     from sentry_sdk.integrations.django import DjangoIntegration
+    from inpa.core.sentry import scrub_event, scrub_transaction
     sentry_sdk.init(
         dsn=_SENTRY_DSN,
         integrations=[DjangoIntegration()],
         traces_sample_rate=0.1,
-        send_default_pii=False,  # 개인정보 비전송(컴플라이언스)
+        send_default_pii=False,
+        include_local_variables=False,
+        before_send=scrub_event,
+        before_send_transaction=scrub_transaction,
         environment='production',
     )

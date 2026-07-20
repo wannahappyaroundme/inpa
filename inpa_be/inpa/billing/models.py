@@ -51,7 +51,7 @@ class Plan(models.Model):
         help_text='null=무제한. Free 기본 10건.'
     )
     limit_ai_compare = models.PositiveIntegerField(
-        'AI비교안내서 한도(월)', null=True, blank=True, default=5,
+        '증권 비교 한도(월)', null=True, blank=True, default=5,
         help_text='null=무제한. Free 기본 5건.'
     )
     limit_analysis = models.PositiveIntegerField(
@@ -181,7 +181,7 @@ class UsageMeter(models.Model):
     """
     ACTION_CHOICES = (
         ('ocr', 'OCR 증권 분석'),
-        ('ai_compare', 'AI 비교안내서'),
+        ('ai_compare', '증권 비교'),
         ('analysis', 'AI 분析·메시지'),
         ('promotion', '판촉물 주문'),
         ('customer', '고객 추가'),
@@ -190,7 +190,7 @@ class UsageMeter(models.Model):
     # action label 한글 매핑 (GET /billing/usage/ 응답용)
     ACTION_LABELS = {
         'ocr': '증권 OCR 분析',
-        'ai_compare': 'AI 비교안내서',
+        'ai_compare': '증권 비교',
         'analysis': 'AI 분析·메시지',
         'promotion': '판촉물 주문',
         'customer': '고객 추가',
@@ -257,8 +257,9 @@ class ClaudeApiLog(models.Model):
     """
     ACTION_CHOICES = (
         ('ocr_parse', '증권 OCR 파싱'),
+        ('insurance_extraction', '증권 검토형 추출'),
         ('ocr_verify', '증권 파싱 다중검사'),
-        ('compare_guide', '비교 분석 안내서'),
+        ('compare_guide', '증권 비교'),
         ('self_diagnosis', '셀프진단(공개)'),
         ('message_gen', '고객 메시지 생성'),
     )
@@ -270,6 +271,21 @@ class ClaudeApiLog(models.Model):
     OUTCOME_TIMEOUT = 'timeout'
     OUTCOME_NO_KEY = 'no_key'
     OUTCOME_PACKAGE_MISSING = 'package_missing'
+    # Review extraction uses these more precise PII-free ledger details.
+    # They deliberately stay outside OUTCOME_CHOICES: changing model choices
+    # would create a schema migration even though the DB column is free text.
+    EXTRACTION_OUTCOME_SCHEMA_INVALID = 'schema_invalid'
+    EXTRACTION_OUTCOME_PRIVACY_REJECTED = 'privacy_rejected'
+    EXTRACTION_OUTCOME_TRANSPORT_FAILURE = 'transport_failure'
+    EXTRACTION_OUTCOME_CONFIG_FAILURE = 'config_failure'
+    EXTRACTION_OUTCOMES = (
+        OUTCOME_SUCCESS,
+        OUTCOME_EMPTY,
+        EXTRACTION_OUTCOME_SCHEMA_INVALID,
+        EXTRACTION_OUTCOME_PRIVACY_REJECTED,
+        EXTRACTION_OUTCOME_TRANSPORT_FAILURE,
+        EXTRACTION_OUTCOME_CONFIG_FAILURE,
+    )
     OUTCOME_CHOICES = (
         (OUTCOME_SUCCESS, '성공'),
         (OUTCOME_EMPTY, '결과 없음'),

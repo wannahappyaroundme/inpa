@@ -38,7 +38,7 @@ User = get_user_model()
 # action별 한국어 label (dev/23 §5.1 화면 구성 일치)
 _ACTION_LABELS = {
     'ocr': '증권 OCR 분析',
-    'ai_compare': 'AI 비교안내서',
+    'ai_compare': '증권 비교',
     'analysis': 'AI 분析·메시지',
     'promotion': '판촉물 주문',
     'customer': '고객 추가',

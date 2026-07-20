@@ -20,6 +20,8 @@ import { Card, DisclaimerFooter, CustomerAvatar, AVATAR_PALETTE } from "@/compon
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   HeatmapGrid,
+  AnalysisAuthoritySummary,
+  AnalysisEmptyState,
   KpiCard,
   fmtAmount,
   fmtWon,
@@ -30,10 +32,13 @@ import {
   OcrUploadButton,
   OcrStatusBanner,
   ConsentModal,
+  InsuranceDuplicateChoice,
 } from "@/components/ocr-upload";
+import { InsuranceImportCards } from "@/components/insurance-import-cards";
 import { BookingModal } from "@/components/booking-modal";
 import { ContactLogModal } from "@/components/contact-log-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
+import { AssignInsRow, InsuranceCards, type SideAssign } from "@/components/insurance-review-cards";
 import { BaselineRequiredModal } from "@/components/baseline-required-modal";
 import { PremiumSplitSection, ComparePremiumSplit } from "@/components/premium-split";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
@@ -55,7 +60,7 @@ import {
   deleteChecklistItem,
   createConsentRequest,
   searchJobs,
-  listManualInsurances,
+  listAllManualInsurances,
   listContactLogs,
   SALES_STAGES,
   CUSTOMER_STATUSES,
@@ -80,7 +85,7 @@ type TabKey = "analysis" | "switch" | "info" | "contract" | "history";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "analysis", label: "분석" },
-  { key: "switch", label: "비교 분석" },
+  { key: "switch", label: "증권 비교" },
   { key: "info", label: "정보" },
   { key: "contract", label: "계약" },
   { key: "history", label: "이력" },
@@ -201,6 +206,11 @@ function CustomerDetailInner() {
   const [heatmapLoading, setHeatmapLoading] = useState(false);
   const [heatmapError, setHeatmapError] = useState<string | null>(null);
   const [heatmapUpgradeInfo, setHeatmapUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
+  const heatmapReqRef = useRef(0);
+
+  useEffect(() => () => {
+    heatmapReqRef.current += 1;
+  }, []);
 
   // 히트맵 그리드 UI 상태
   const [graded, setGraded] = useState(true);
@@ -208,13 +218,16 @@ function CustomerDetailInner() {
 
   const fetchHeatmap = useCallback(
     async (id: number) => {
+      const req = ++heatmapReqRef.current;
       setHeatmapLoading(true);
       setHeatmapError(null);
       setHeatmap(null);
       setHeatmapUpgradeInfo(undefined);
       try {
-        setHeatmap(await getHeatmap(id));
+        const next = await getHeatmap(id);
+        if (heatmapReqRef.current === req) setHeatmap(next);
       } catch (e: unknown) {
+        if (heatmapReqRef.current !== req) return;
         if (e instanceof ApiError && e.status === 402) {
           setHeatmapUpgradeInfo(e.creditBody ?? { kind: "analysis" });
         } else {
@@ -223,7 +236,7 @@ function CustomerDetailInner() {
           );
         }
       } finally {
-        setHeatmapLoading(false);
+        if (heatmapReqRef.current === req) setHeatmapLoading(false);
       }
     },
     []
@@ -231,7 +244,7 @@ function CustomerDetailInner() {
 
   const ocr = useOcrUpload((id) => {
     void fetchHeatmap(id);
-  });
+  }, 1, customerId);
 
   // ── 고객 로드 ──
   useEffect(() => {
@@ -970,14 +983,14 @@ function ChecklistTab({ customerId }: { customerId: number }) {
         상담 시 설명 의무 이행을 직접 점검·기록해요.
       </p>
 
-      {/* §97 불리사항 구두고지 안내 — 설계사 내부 전용(고객 화면·공유뷰 비노출) */}
+      {/* 계약 조건 변경 안내 — 설계사 내부 전용(고객 화면·공유뷰 비노출) */}
       <div className="mt-3 rounded-xl border border-amber-300/70 bg-amber-50 px-3.5 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-bold text-amber-900">갈아타기(승환) 계약이면, 불리사항 구두 고지</span>
+          <span className="text-[13px] font-bold text-amber-900">계약 조건이 달라지면, 불리한 점까지 함께 확인</span>
           <span className="ml-auto shrink-0 text-[10px] font-semibold rounded-full bg-white/70 text-amber-800 px-2 py-0.5">설계사 내부 · 고객 비노출</span>
         </div>
         <p className="mt-1.5 text-[12px] leading-5 text-amber-900/90">
-          기존 계약을 해지하고 새로 가입하는 경우 <b>해지 환급 손실·면책(감액) 기간 리셋</b> 등 고객에게 불리할 수 있는 점을 상담에서 <b>반드시 구두로 고지</b>하세요. 고객별 구체 항목은 <b>비교 탭</b>에서 확인할 수 있어요.
+          계약을 정리하거나 보장 조건을 바꾸는 경우 <b>해지 환급 손실·면책(감액) 기간</b> 등 고객에게 불리할 수 있는 점을 약관과 상품 설명서에서 직접 확인해 안내해 주세요.
         </p>
       </div>
 
@@ -1020,62 +1033,10 @@ function ChecklistTab({ customerId }: { customerId: number }) {
   );
 }
 
-// ── 보험별 카드 (보유=portfolio 1 / 제안=portfolio 2) — 한 고객의 여러 보험을 카드로 — PM 06.29 ──
-function InsuranceCard({ it }: { it: ManualInsuranceItem }) {
-  const typeLabel = it.insurance_type === 1 ? "생명" : "손해";
-  const insured = it.insured_name ?? (it.is_same_insured ? "계약자와 동일" : "-");
-  return (
-    <div className="rounded-xl border border-line bg-surface p-3.5">
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-[14px] font-bold text-ink truncate">{it.name ?? "이름 없는 보험"}</div>
-        <span className="shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-surface2 text-ink3 border border-line">{typeLabel}</span>
-      </div>
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-        <dt className="text-ink3">계약자</dt><dd className="text-ink2 text-right truncate">{it.contractor_name ?? "-"}</dd>
-        <dt className="text-ink3">피보험자</dt><dd className="text-ink2 text-right truncate">{insured}</dd>
-        <dt className="text-ink3">월 보험료</dt><dd className="text-ink2 text-right tnum">{fmtWon(it.monthly_premiums)}</dd>
-        <dt className="text-ink3">기간</dt><dd className="text-ink2 text-right">{it.contract_date ?? "-"} ~ {it.expiry_date ?? "-"}</dd>
-      </dl>
-      {(it.monthly_renewal_premium != null || it.monthly_non_renewal_premium != null) && (
-        <div className="mt-1 flex gap-3 text-[12px] text-ink3">
-          {it.monthly_renewal_premium != null && <span>갱신 {fmtWon(it.monthly_renewal_premium)}</span>}
-          {it.monthly_non_renewal_premium != null && <span>비갱신 {fmtWon(it.monthly_non_renewal_premium)}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function InsuranceCards({ customerId, portfolioType, refreshKey, emptyHint, title }: {
-  customerId: number; portfolioType: number; refreshKey?: number; emptyHint?: string; title?: string;
-}) {
-  const [items, setItems] = useState<ManualInsuranceItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    setLoading(true);
-    listManualInsurances(customerId)
-      .then((r) => setItems(r.results.filter((x) => x.portfolio_type === portfolioType)))
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
-  }, [customerId, portfolioType, refreshKey]);
-  if (loading) return <div className="grid sm:grid-cols-2 gap-3">{[1, 2].map((i) => <div key={i} className="h-24 rounded-xl bg-line animate-pulse" />)}</div>;
-  if (items.length === 0)
-    return emptyHint ? <div className="rounded-xl border border-dashed border-line px-4 py-5 text-center text-[13px] text-ink3">{emptyHint}</div> : null;
-  return (
-    <div>
-      {title && <div className="text-[13px] font-bold text-ink mb-2">{title} <span className="text-ink3 tnum">{items.length}</span></div>}
-      <div className="grid sm:grid-cols-2 gap-3">
-        {items.map((it) => <InsuranceCard key={it.id} it={it} />)}
-      </div>
-    </div>
-  );
-}
-
 // ── 자유 A/B 배정 행 (비교 분석 — 보험 아무거나 A안·B안·미포함 중 하나로) ── 2026-07-09 ──
 // ★ 미포함은 '키 삭제'가 아니라 명시적 "none"으로 저장한다: 삭제하면 목록 새로고침(제안 추가 등) 때
 //   '미배정'과 구분이 안 돼 portfolio_type 프리셋으로 되살아나, 설계사가 뺀 보험이 고객 텍스트에
 //   다시 섞이는 버그가 있었다(리뷰 major). "none"으로 남기면 새로고침이 그 배정을 보존한다.
-type SideAssign = "A" | "B" | "none";
 function assignInsurance(
   setter: (updater: (prev: Record<number, SideAssign>) => Record<number, SideAssign>) => void,
   id: number,
@@ -1083,50 +1044,6 @@ function assignInsurance(
 ) {
   setter((prev) => ({ ...prev, [id]: value }));
 }
-function AssignInsRow({ it, value, onChange }: { it: ManualInsuranceItem; value: SideAssign; onChange: (v: SideAssign) => void }) {
-  const sub = [it.contractor_name && `계약 ${it.contractor_name}`, it.insured_name && `피보험 ${it.insured_name}`]
-    .filter(Boolean).join(" · ") || (it.insurance_type === 1 ? "생명" : "손해");
-  const portfolioTag = it.portfolio_type === 1 ? "보유" : "제안";
-  return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2">
-      <span className="flex-1 min-w-0">
-        <span className="flex items-center gap-1.5">
-          <span className="text-[13px] font-semibold text-ink truncate">{it.name ?? "이름 없는 보험"}</span>
-          <span className="shrink-0 text-[10px] font-semibold rounded-full px-1.5 py-0.5 bg-surface2 text-ink3 border border-line">{portfolioTag}</span>
-        </span>
-        <span className="block text-[11px] text-ink3 truncate">{sub}</span>
-      </span>
-      <span className="shrink-0 text-[11px] text-ink2 tnum">{fmtWon(it.monthly_premiums)}</span>
-      <div className="shrink-0 inline-flex rounded-lg border border-line overflow-hidden text-[11px] font-semibold">
-        <button
-          type="button"
-          onClick={() => onChange("A")}
-          aria-pressed={value === "A"}
-          className={`px-2.5 py-1.5 transition ${value === "A" ? "bg-brand text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}
-        >
-          A안
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange("none")}
-          aria-pressed={value === "none"}
-          className={`px-2.5 py-1.5 border-x border-line transition ${value === "none" ? "bg-surface2 text-ink" : "bg-surface text-ink3 hover:bg-surface2"}`}
-        >
-          미포함
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange("B")}
-          aria-pressed={value === "B"}
-          className={`px-2.5 py-1.5 transition ${value === "B" ? "bg-ink text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}
-        >
-          B안
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ── 분석 탭 ───────────────────────────────────────────────────────────────
 type OcrCtl = ReturnType<typeof useOcrUpload>;
 
@@ -1157,6 +1074,8 @@ function AnalysisTab({
 }) {
   const [bookingOpen, setBookingOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
+  const [reviewInsuranceId, setReviewInsuranceId] = useState<number | null>(null);
+  const [pendingInsuranceId, setPendingInsuranceId] = useState<number | null>(null);
   const [insRefresh, setInsRefresh] = useState(0);
   const [baselineModalDismissed, setBaselineModalDismissed] = useState(false);
   useEffect(() => { if (ocr.phase === "success") setInsRefresh((k) => k + 1); }, [ocr.phase]);
@@ -1189,12 +1108,17 @@ function AnalysisTab({
           />
           <button
             type="button"
-            onClick={() => setManualOpen(true)}
+            onClick={() => { setReviewInsuranceId(null); setManualOpen(true); }}
             className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
           >
             직접 입력
           </button>
-          <ShareLinkButton customerId={customerId} />
+          <ShareLinkButton
+            customerId={customerId}
+            authorityLoaded={!loading && !error && heatmap !== null}
+            canShare={heatmap?.can_share ?? false}
+            shareBlockReason={heatmap?.share_block_reason ?? null}
+          />
           <ShareSnapshotButton customerId={customerId} />
         </div>
       </div>
@@ -1204,9 +1128,9 @@ function AnalysisTab({
       {manualOpen && (
         <InsuranceManualModal
           customerId={customerId}
-          onClose={() => setManualOpen(false)}
-          onCreated={() => {
-            setManualOpen(false);
+          initialInsuranceId={reviewInsuranceId}
+          onClose={() => { setManualOpen(false); setReviewInsuranceId(null); }}
+          onChanged={() => {
             onRetry();
             setInsRefresh((k) => k + 1);
           }}
@@ -1217,7 +1141,13 @@ function AnalysisTab({
         phase={ocr.phase}
         errorMsg={ocr.error}
         onDismiss={ocr.clearError}
-        onManualEntry={() => setManualOpen(true)}
+        onRetry={ocr.retryUpload}
+        onManualEntry={() => { setReviewInsuranceId(null); setManualOpen(true); }}
+      />
+      <InsuranceDuplicateChoice
+        info={ocr.duplicateInfo}
+        onOpenExisting={ocr.openDuplicateInsurance}
+        onReplace={ocr.resolveDuplicateReplace}
       />
       {ocr.phase === "consent_required" && (
         <ConsentModal
@@ -1237,30 +1167,37 @@ function AnalysisTab({
         info={ocr.upgradeInfo}
       />
 
+      <InsuranceImportCards customerId={customerId} />
+
       {/* 기준 미설정 안내는 히트맵 컴포넌트(HeatmapGrid) 상단 CTA로 일원화 — 중복 박스 제거(PM 06.29) */}
 
       {/* KPI */}
       {heatmap && (
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <KpiCard label="월 보험료" value={fmtWon(heatmap.summary.monthly_premiums)} />
-          <KpiCard label="총 납입 보험료" value={fmtWon(heatmap.summary.total_premiums)} />
-          <KpiCard label="보험 건수" value={`${heatmap.insurance_count}건`} />
-          <KpiCard
-            label="분석 모드"
-            value={heatmap.mode === "neutral" ? "기준 미설정" : "기준 적용"}
-            valueClass={heatmap.mode === "neutral" ? "text-ink3" : "text-enough"}
-          />
-        </div>
+        <>
+          <div className="mt-4"><AnalysisAuthoritySummary heatmap={heatmap} /></div>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <KpiCard label="월 보험료" value={fmtWon(heatmap.summary.monthly_premiums)} />
+            <KpiCard label="총 납입 보험료" value={fmtWon(heatmap.summary.total_premiums)} />
+            <KpiCard label="분석 모드" value={heatmap.mode === "neutral" ? "기준 미설정" : "기준 적용"} valueClass={heatmap.mode === "neutral" ? "text-ink3" : "text-enough"} />
+          </div>
+        </>
       )}
 
       {/* 보유 보험 — 보험별 카드(여러 개일 수 있음) */}
       <div className="mt-4">
-        <InsuranceCards customerId={customerId} portfolioType={1} refreshKey={insRefresh} title="보유 보험" />
+        <InsuranceCards
+          customerId={customerId}
+          portfolioType={1}
+          refreshKey={insRefresh}
+          title="보유 보험"
+          onReview={(insuranceId) => { setReviewInsuranceId(insuranceId); setManualOpen(true); }}
+          onPendingInsurance={setPendingInsuranceId}
+        />
       </div>
 
       {/* 로딩 */}
       {loading && (
-        <div className="mt-8 space-y-3">
+        <div role="status" aria-label="분석을 불러오는 중" className="mt-8 space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="flex items-start gap-3">
               <div className="w-16 h-6 rounded bg-line animate-pulse shrink-0" />
@@ -1276,7 +1213,7 @@ function AnalysisTab({
 
       {/* 에러 */}
       {error && !loading && (
-        <div className="mt-6 rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
+        <div role="alert" className="mt-6 rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
           <p className="text-[14px] text-ink3">{error}</p>
           <button onClick={onRetry} className="mt-3 text-[13px] font-semibold text-brand">
             다시 시도
@@ -1284,40 +1221,38 @@ function AnalysisTab({
         </div>
       )}
 
-      {/* 보험 없음 */}
-      {!loading && !error && heatmap && heatmap.insurance_count === 0 && (
-        <div className="mt-6 rounded-xl border border-dashed border-line px-4 py-12 text-center">
-          <p className="text-[15px] font-semibold text-ink2">증권이 아직 없어요</p>
-          <p className="mt-1 text-[13px] text-ink3">
-            증권을 등록하면 보장 한눈표가 보여요.
-          </p>
-          <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-2">
-            <OcrUploadButton
-              customerId={customerId}
-              phase={ocr.phase}
-              onFileChange={ocr.onFileChange}
-              consented={consented}
-              onNeedConsent={ocr.openConsent}
-            />
-            <button
-              type="button"
-              onClick={() => setManualOpen(true)}
-              className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition"
-            >
-              직접 입력
-            </button>
-          </div>
+      {!loading && !error && heatmap && heatmap.included_insurance_count === 0 && (
+        <div className="mt-6">
+          <AnalysisEmptyState
+            heatmap={heatmap}
+            reviewDisabled={heatmap.pending_review_count > 0 && pendingInsuranceId === null}
+            onReview={() => {
+              if (pendingInsuranceId === null) return;
+              setReviewInsuranceId(pendingInsuranceId);
+              setManualOpen(true);
+            }}
+            onManual={() => { setReviewInsuranceId(null); setManualOpen(true); }}
+            uploadAction={(
+              <OcrUploadButton
+                customerId={customerId}
+                phase={ocr.phase}
+                onFileChange={ocr.onFileChange}
+                consented={consented}
+                onNeedConsent={ocr.openConsent}
+              />
+            )}
+          />
         </div>
       )}
 
       {/* 기준 미설정 안내 모달 — neutral 이고 보험 있을 때 한 번만 표시(닫으면 해제) */}
       {!loading && !error && heatmap && heatmap.mode === "neutral" &&
-        heatmap.insurance_count > 0 && !baselineModalDismissed && (
+        heatmap.included_insurance_count > 0 && !baselineModalDismissed && (
         <BaselineRequiredModal onDismiss={() => setBaselineModalDismissed(true)} />
       )}
 
       {/* 히트맵 그리드 */}
-      {!loading && !error && heatmap && heatmap.insurance_count > 0 && (
+      {!loading && !error && heatmap && heatmap.included_insurance_count > 0 && (
         <div className="mt-5">
           <HeatmapGrid
             heatmap={heatmap}
@@ -1328,7 +1263,7 @@ function AnalysisTab({
           />
         </div>
       )}
-      {heatmap && heatmap.insurance_count > 0 && (
+      {heatmap && heatmap.included_insurance_count > 0 && (
         <PremiumSplitSection summary={heatmap.summary} insurances={heatmap.insurances} />
       )}
     </div>
@@ -1341,34 +1276,42 @@ function SwitchTab({ customerId }: { customerId: number }) {
   const [data, setData] = useState<CompareResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [publishing, setPublishing] = useState(false);
-  const [publishTooltip, setPublishTooltip] = useState(false);
   const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  // ④ 비교안내서 = 설계사 직접 발송 — 인파는 복사 편의만 제공(자동 발송 없음, §97).
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   // 배정을 바꿀 때마다 재비교가 도는데, 늦게 온 이전 응답이 최신 화면을 덮어쓰지 않도록 요청 번호로 가드.
   // (analysis 탭의 insReqRef 패턴 재사용)
   const compareReqRef = useRef(0);
-  // 열 이름(현재/제안 vs A안/B안)은 화면에 표시된 응답과 같은 스냅샷으로 묶는다 — 그래야 고객에게 복사되는
-  // 텍스트의 라벨이 실제 비교 결과와 어긋나지 않는다(§97 사실 정확성).
-  const [labels, setLabels] = useState<{ a: string; b: string }>({ a: "A안", b: "B안" });
-
   // 보험 목록 + 비교 대상 자유 배정(A안/B안/미포함, 2026-07-09 재정의 — 보유/제안 풀 구분 없이
   // 아무 보험이나 A·B에 넣을 수 있다: 제안 vs 제안·증권 vs 증권도 가능). 마운트 시 보유→A/제안→B
   // 프리셋(회귀 방지 UX), 이후 설계사가 자유 변경. 목록 새로고침 시 기존 배정은 보존, 새 보험만 프리셋.
   const [insurances, setInsurances] = useState<ManualInsuranceItem[]>([]);
   const [assign, setAssign] = useState<Record<number, SideAssign>>({});
-  const [insLoaded, setInsLoaded] = useState(false);
+  const [insLoadStatus, setInsLoadStatus] = useState<"loading" | "success" | "error">("loading");
+  const [insRefreshError, setInsRefreshError] = useState<string | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
+  const [reviewInsuranceId, setReviewInsuranceId] = useState<number | null>(null);
+  const insuranceReqRef = useRef(0);
 
-  const loadInsurances = useCallback(() => {
-    listManualInsurances(customerId)
-      .then((r) => {
-        setInsurances(r.results);
+  const loadInsurances = useCallback((background = false) => {
+    const req = ++insuranceReqRef.current;
+    compareReqRef.current += 1;
+    if (!background) {
+      setInsLoadStatus("loading");
+      setData(null);
+    }
+    setLoading(true);
+    setError(null);
+    setInsRefreshError(null);
+    listAllManualInsurances(customerId)
+      .then((rows) => {
+        if (insuranceReqRef.current !== req) return;
+        setInsurances(rows);
         setAssign((prev) => {
           const next: Record<number, SideAssign> = {};
-          for (const it of r.results) {
+          for (const it of rows) {
+            const selectable = it.review_status === "confirmed" && it.analysis_included && !it.is_cancelled;
+            if (!selectable) { next[it.id] = "none"; continue; }
             // 기존 배정(A·B·none 모두)은 그대로 보존 — 설계사가 뺀 보험을 되살리지 않는다.
             if (it.id in prev) { next[it.id] = prev[it.id]; continue; }
             if (it.portfolio_type === 1) next[it.id] = "A";
@@ -1377,13 +1320,29 @@ function SwitchTab({ customerId }: { customerId: number }) {
           }
           return next;
         });
-        setInsLoaded(true);
+        if (!background) setInsLoadStatus("success");
       })
-      .catch(() => setInsLoaded(true));
+      .catch(() => {
+        if (insuranceReqRef.current !== req) return;
+        if (background) {
+          setInsRefreshError("보험 목록을 다시 불러와 주세요.");
+        } else {
+          setInsurances([]);
+          setInsLoadStatus("error");
+        }
+        setLoading(false);
+      });
   }, [customerId]);
-  useEffect(() => { loadInsurances(); }, [loadInsurances]);
+  useEffect(() => {
+    loadInsurances();
+    return () => {
+      insuranceReqRef.current += 1;
+      compareReqRef.current += 1;
+    };
+  }, [loadInsurances]);
 
   const doCompare = useCallback(() => {
+    if (insLoadStatus !== "success") return;
     setLoading(true);
     setError(null);
     setUpgradeInfo(undefined);
@@ -1391,20 +1350,10 @@ function SwitchTab({ customerId }: { customerId: number }) {
     const req = ++compareReqRef.current;
     const sideAIds = Object.entries(assign).filter(([, v]) => v === "A").map(([id]) => Number(id));
     const sideBIds = Object.entries(assign).filter(([, v]) => v === "B").map(([id]) => Number(id));
-    // 이 요청에 쓰인 배정으로 열 이름을 확정 → 응답과 함께 커밋한다(라벨-데이터 스냅샷 일치).
-    // A측이 전부 보유(portfolio_type==1)·B측이 전부 제안(==2)인 표준 갈아타기 배치일 때만 '현재/제안',
-    // 아니면(제안 vs 제안·증권 vs 증권) A측을 '현재'로 부르면 거짓이 되므로 중립 'A안/B안'.
-    const aTypes = new Set(sideAIds.map((id) => insurances.find((i) => i.id === id)?.portfolio_type));
-    const bTypes = new Set(sideBIds.map((id) => insurances.find((i) => i.id === id)?.portfolio_type));
-    const canonical =
-      aTypes.size > 0 && bTypes.size > 0 &&
-      [...aTypes].every((t) => t === 1) && [...bTypes].every((t) => t === 2);
-    const nextLabels = { a: canonical ? "현재" : "A안", b: canonical ? "제안" : "B안" };
     compareCustomer(customerId, { sideAIds, sideBIds })
       .then((d) => {
         if (compareReqRef.current !== req) return; // 최신 요청 응답만 반영
         setData(d);
-        setLabels(nextLabels);
       })
       .catch((e: unknown) => {
         if (compareReqRef.current !== req) return;
@@ -1422,28 +1371,42 @@ function SwitchTab({ customerId }: { customerId: number }) {
       .finally(() => {
         if (compareReqRef.current === req) setLoading(false);
       });
-  }, [customerId, assign, insurances]);
+  }, [customerId, assign, insLoadStatus]);
 
   // 제안 추가(업로드/직접) 후 목록 새로고침 → 배정 갱신(기존 보존+신규 프리셋) → 재비교.
-  const propOcr = useOcrUpload(() => { loadInsurances(); }, 2);
+  const propOcr = useOcrUpload(() => { loadInsurances(true); }, 2, customerId);
 
   useEffect(() => {
-    if (insLoaded) doCompare();
-  }, [doCompare, insLoaded]);
+    if (insLoadStatus === "success") doCompare();
+  }, [doCompare, insLoadStatus]);
 
   const aCount = Object.values(assign).filter((v) => v === "A").length;
   const bCount = Object.values(assign).filter((v) => v === "B").length;
 
-  // 발행 버튼 — publishable=false 이므로 항상 disabled
-  async function handlePublish() {
-    if (!data || data.publishable !== false) return;
-    setPublishing(false); // 절대 실행 안 됨 — 타입 명시 목적
-    void publishing; // lint 억제
+  if (insLoadStatus === "loading") {
+    return (
+      <div role="status" aria-label="보험 목록을 불러오는 중" className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-12 rounded-xl bg-line animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (insLoadStatus === "error") {
+    return (
+      <div role="alert" className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
+        <p className="text-[14px] text-ink3">보험 목록을 불러오지 못했어요.</p>
+        <button type="button" onClick={() => loadInsurances()} className="mt-3 text-[13px] font-semibold text-brand">
+          보험 목록 다시 불러오기
+        </button>
+      </div>
+    );
   }
 
   if (loading && !data) {
     return (
-      <div className="space-y-3">
+      <div role="status" aria-label="비교 내용을 불러오는 중" className="space-y-3">
         {[1, 2, 3].map((i) => (
           <div key={i} className="h-12 rounded-xl bg-line animate-pulse" />
         ))}
@@ -1455,7 +1418,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
     return (
       <>
         <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
-          <p className="text-[14px] text-ink3">이번 달 AI 비교안내서 한도를 모두 사용했어요.</p>
+          <p className="text-[14px] text-ink3">이번 달 증권 비교 한도를 모두 사용했어요.</p>
           <button
             onClick={() => setUpgradeOpen(true)}
             className="mt-3 text-[13px] font-semibold text-brand"
@@ -1496,7 +1459,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
     const sign = d > 0 ? "+" : "";
     return sign + new Intl.NumberFormat("ko-KR").format(d);
   }
-  // 담보 변동: 추가(신규)/삭제(빠짐)/변경/유지 — A안 vs B안 금액 기준. 라벨 판정은 compare-export 와 공유.
+  // 담보 변동: 추가(신규)/삭제(빠짐)/변경/유지 — 증권 A vs 증권 B 금액 기준.
   function diffLabel(cur: number | null, prop: number | null): { text: string; cls: string } {
     const text = compareDiffText(cur, prop);
     const clsBy: Record<string, string> = {
@@ -1507,12 +1470,10 @@ function SwitchTab({ customerId }: { customerId: number }) {
     return { text, cls: clsBy[text] ?? "bg-surface2 text-ink3 border-line" };
   }
 
-  // ★ 열 이름은 화면에 표시된 응답과 같은 스냅샷(doCompare에서 확정) — 배정을 바꿔도 재비교가 끝나기
-  //   전까진 옛 라벨을 유지해, 복사되는 텍스트의 '현재/제안'이 실제 데이터와 어긋나지 않게 한다.
-  const labelA = labels.a;
-  const labelB = labels.b;
+  const labelA = "증권 A";
+  const labelB = "증권 B";
   // 복사 가능 = 양쪽 배정 ≥1 + 재계산 중이 아님(진행 중엔 옛 데이터가 복사되지 않도록 잠근다).
-  const canExport = aCount > 0 && bCount > 0 && !loading;
+  const canExport = aCount > 0 && bCount > 0 && !loading && !insRefreshError;
 
   // ④ 고객에게 보낼 내용 — 중립 사실만(담보·금액·증감 라벨). §97: 판정·권유·switch_warnings(설계사
   // 내부 전용) 절대 미포함, 인파는 복사만 하고 발송하지 않는다(설계사가 직접 카톡·문자로 전달).
@@ -1526,20 +1487,19 @@ function SwitchTab({ customerId }: { customerId: number }) {
 
   return (
     <div>
-      {/* 비교할 보험 고르기 — 보유·제안 구분 없이 아무 보험이나 A안·B안·미포함 중 하나로 자유 배정.
-          제안끼리, 보유끼리도 비교 가능(2026-07-09 재정의). 배정 바뀌면 그 조합으로 재비교(나란히 정리, 판단은 설계사). */}
+      {/* 저장 구분과 관계없이 원하는 증권을 A/B 묶음으로 자유 배정한다. */}
       <div className="mb-4 rounded-2xl border border-line bg-surface2 p-3.5">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <div className="text-[13px] font-bold text-ink">
-            비교할 보험 고르기 <span className="text-ink3 tnum">A안 {aCount} · B안 {bCount}</span>
+            비교할 증권 고르기 <span className="text-ink3 tnum">증권 A {aCount} · 증권 B {bCount}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <OcrUploadButton customerId={customerId} phase={propOcr.phase} onFileChange={propOcr.onFileChange} inputId="proposal-ocr-input" label="제안서 업로드" />
-            <button type="button" onClick={() => setManualOpen(true)} className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition">직접 입력</button>
+            <OcrUploadButton customerId={customerId} phase={propOcr.phase} onFileChange={propOcr.onFileChange} inputId="proposal-ocr-input" label="증권 추가" />
+            <button type="button" onClick={() => { setReviewInsuranceId(null); setManualOpen(true); }} className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition">직접 입력</button>
           </div>
         </div>
         {insurances.length === 0 ? (
-          <p className="text-[12px] text-ink3 leading-5">분석 탭에서 증권을 등록하거나 가입제안서를 올리면 여기에서 비교 대상을 고를 수 있어요.</p>
+          <p className="text-[12px] text-ink3 leading-5">증권을 등록하면 여기에서 비교할 증권을 고를 수 있어요.</p>
         ) : (
           <div className="space-y-2">
             {insurances.map((it) => (
@@ -1548,15 +1508,27 @@ function SwitchTab({ customerId }: { customerId: number }) {
                 it={it}
                 value={assign[it.id] ?? "none"}
                 onChange={(v) => assignInsurance(setAssign, it.id, v)}
+                onReview={(insuranceId) => { setReviewInsuranceId(insuranceId); setManualOpen(true); }}
               />
             ))}
           </div>
         )}
         <p className="mt-2.5 text-[11px] leading-4 text-ink3">
-          각 보험을 A안·B안 중 하나로 고르거나 비교에서 빼세요. 제안끼리, 보유끼리도 나란히 비교할 수 있어요.
+          원하는 증권을 A와 B로 나눠 담보·보장금액·보험료 차이를 나란히 확인하세요.
         </p>
       </div>
-      <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} onManualEntry={() => setManualOpen(true)} />
+      <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} onRetry={propOcr.retryUpload} onManualEntry={() => { setReviewInsuranceId(null); setManualOpen(true); }} />
+      {insRefreshError && (
+        <div role="alert" className="mb-4 rounded-xl border border-line bg-surface2 px-4 py-3 text-[12px] text-ink2">
+          {insRefreshError}
+          <button type="button" onClick={() => loadInsurances(true)} className="ml-2 font-semibold text-brand">다시 불러오기</button>
+        </div>
+      )}
+      <InsuranceDuplicateChoice
+        info={propOcr.duplicateInfo}
+        onOpenExisting={propOcr.openDuplicateInsurance}
+        onReplace={propOcr.resolveDuplicateReplace}
+      />
       {propOcr.phase === "consent_required" && (
         <ConsentModal
           onGenerate={() => propOcr.generateConsentLink(customerId)}
@@ -1572,8 +1544,9 @@ function SwitchTab({ customerId }: { customerId: number }) {
         <InsuranceManualModal
           customerId={customerId}
           defaultPortfolioType={2}
-          onClose={() => setManualOpen(false)}
-          onCreated={() => { setManualOpen(false); loadInsurances(); }}
+          initialInsuranceId={reviewInsuranceId}
+          onClose={() => { setManualOpen(false); setReviewInsuranceId(null); }}
+          onChanged={() => loadInsurances(true)}
         />
       )}
 
@@ -1583,38 +1556,6 @@ function SwitchTab({ customerId }: { customerId: number }) {
           {data.disclaimer}
         </p>
       </div>
-
-      {/* ── 확인해야 할 사항 (중립 사실 — 판정 아님, 설계사 내부 전용) ──────────────
-          2026-07-09 재정의: 인파는 KEEP/SWITCH 를 정하지 않는다. 해지환급 손실 추정 등
-          설계사가 검토할 사실만 나란히 정리해 보여주고, 판단은 설계사가 한다. */}
-      {data.switch_warnings && data.switch_warnings.length > 0 && (
-        <div className="rounded-xl border border-line bg-surface2 px-4 py-3.5 mb-4">
-          <div className="flex items-center gap-2">
-            <span className="text-[13px] font-bold text-ink">확인해야 할 사항</span>
-            <span className="ml-auto text-[10px] font-semibold rounded-full bg-surface px-2 py-0.5 text-ink3">
-              설계사 검토용 · 비공개
-            </span>
-          </div>
-          <ul className="mt-2 space-y-1.5">
-            {data.switch_warnings.map((w, i) => (
-              <li key={i} className="text-[12px] leading-5 flex gap-1.5 text-ink2">
-                <span className="text-ink3">·</span>
-                <span>
-                  <b className="font-semibold text-ink">{w.label}</b>
-                  {w.amount !== null && (
-                    <> · {new Intl.NumberFormat("ko-KR").format(w.amount)}원</>
-                  )}
-                  <span className="opacity-80">: {w.detail}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-[11px] leading-4 text-ink3">
-            나란히 정리한 참고 사실이에요. 어느 쪽이 나을지는 고객 상황에 맞춰 설계사님이 판단해 주세요.
-            갈아타기(승환)라면 이 불리사항(해지손실·면책기간·이율 변동 등)은 고객에게 따로 안내해 주세요.
-          </p>
-        </div>
-      )}
 
       {/* 보험료 요약 */}
       <div className="grid grid-cols-2 gap-3 mb-4">
@@ -1641,7 +1582,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
       {/* 갱신/비갱신 보험료 요약·증감 표 */}
       <ComparePremiumSplit current={data.current} proposed={data.proposed} labelA={labelA} labelB={labelB} />
 
-      {/* 기존 vs 제안 보장 그룹 막대(006) — 담보별 2줄(기존·제안). 정확 수치 같이 표시 + 아래 비교표 */}
+      {/* 증권 A/B 보장 그룹 막대: 담보별 두 금액과 정확 수치를 함께 표시한다. */}
       {data.rows.length >= 2 && (
         <div className="rounded-xl border border-line bg-surface px-4 py-3.5 mb-4">
           <div className="flex items-center justify-between mb-3">
@@ -1737,77 +1678,19 @@ function SwitchTab({ customerId }: { customerId: number }) {
           disabled={!canExport}
           className="rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink2 hover:bg-surface2 transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-surface"
         >
-          고객에게 보낼 내용 복사
+          증권 비교표 내용 복사
         </button>
         {loading
           ? <span className="text-[12px] text-ink3">비교를 다시 계산하고 있어요. 잠시만요.</span>
           : copyMsg
           ? <span className="text-[12px] text-ink3">{copyMsg}</span>
           : (aCount === 0 || bCount === 0)
-          ? <span className="text-[12px] text-ink3">A안·B안에 보험을 하나씩 배정하면 복사할 수 있어요.</span>
+          ? <span className="text-[12px] text-ink3">증권 A와 증권 B에 하나씩 고르면 복사할 수 있어요.</span>
           : null}
       </div>
       <p className="mt-2 text-[11px] leading-4 text-ink3">
-        복사되는 내용에는 해지손실·면책 같은 불리사항이 들어가지 않아요. 갈아타기라면 불리사항은 고객에게 따로 안내해 주세요.
+        담보·보장금액·보험료처럼 화면에서 확인한 사실만 복사됩니다.
       </p>
-
-      {/* AI 비교안내서 — guide_enabled=false 면 법무 게이트 안내만 */}
-      <div className="mt-5">
-        {data.guide_enabled ? (
-          <div className="rounded-xl border border-line bg-surface2 px-4 py-4">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-[14px] font-bold text-ink">AI 비교안내서 초안</h4>
-              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
-                AI 초안
-              </span>
-            </div>
-            <pre className="text-[13px] text-ink2 leading-6 whitespace-pre-wrap font-sans">
-              {data.guide_draft}
-            </pre>
-            <p className="mt-3 text-[11px] text-muted leading-5">
-              AI가 정리한 참고 자료예요. 고객 안내 전 설계사님이 확인해 주세요.
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50 px-4 py-5 text-center">
-            <p className="text-[13px] font-semibold text-amber-800">
-              AI 비교안내서는 법무 검토 완료 후 활성화됩니다
-            </p>
-            <p className="mt-1.5 text-[12px] text-amber-700 leading-5">
-              법무 검토가 끝나면 두 보험을 나란히 정리한 안내 초안을 받아보실 수 있어요.
-              가짜 데이터로 화면을 채우지 않습니다(정직성 레드라인).
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* 발행 버튼 — publishable=false 이므로 항상 disabled + 차단 사유 tooltip */}
-      <div className="mt-4 relative">
-        <div
-          className="inline-block w-full"
-          onMouseEnter={() => setPublishTooltip(true)}
-          onMouseLeave={() => setPublishTooltip(false)}
-          onFocus={() => setPublishTooltip(true)}
-          onBlur={() => setPublishTooltip(false)}
-        >
-          <button
-            disabled
-            aria-disabled="true"
-            onClick={handlePublish}
-            className="w-full rounded-2xl bg-surface2 border border-line text-[14px] font-bold text-ink3 py-3.5 cursor-not-allowed opacity-60"
-          >
-            비교안내서 발행
-          </button>
-        </div>
-        {publishTooltip && data.publish_blocked_reason && (
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 rounded-xl bg-ink/90 px-3 py-2 text-[12px] text-white leading-5 text-center z-10 pointer-events-none">
-            {data.publish_blocked_reason}
-          </div>
-        )}
-        <p className="mt-2 text-[11px] text-center text-muted">
-          발행 기능은 법무·백엔드 게이트 통과 전까지 비활성입니다.
-        </p>
-      </div>
     </div>
   );
 }

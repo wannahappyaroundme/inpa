@@ -296,22 +296,28 @@ def produce_task_due(today):
 def produce_share_unread(today):
     """보낸 지 24시간(days_before=0 특별 해석)이 지나도록 열람되지 않은 공유 링크 알림.
 
-    근거 필드(전부 Customer 실필드): share_sent_at(발송 시각, CustomerShareCreateView 기록)
-    / user_view_at(고객 열람 시각, ShareAnalysisView 기록) / share_expires_at(만료).
-    만료된 링크는 제외(더 열 수 없는 링크 재안내 방지). dedupe target_date=발송일(KST)
-    → 같은 발송 건은 평생 1회만 알림(재발송 rotate 시 share_sent_at 갱신 → 새 알림 가능).
+    v2는 ShareSnapshot의 captured_at/first_viewed_at/link_expires_at/revoked_at을 권위로
+    사용한다. gate OFF 전환 기간에만 v2 snapshot이 없는 Customer 링크를 기존 필드로
+    계산한다. 만료·회수 링크는 제외하고, dedupe target_date는 발급일(KST)이다.
     """
     get_rule = _rule_getter(NotifType.SHARE_UNREAD)
     created = 0
     # 기준 시각 = 실행일(today)의 명목 실행 시각 08:00 KST — 다른 생산자처럼 today 에
     # 결정적으로 따른다(재실행·리플레이·테스트에서 벽시계 비의존).
     now = _kst_day_start(today) + dt.timedelta(hours=8)
-    qs = (Customer.objects
-          .filter(share_sent_at__isnull=False)
-          .filter(Q(user_view_at__isnull=True) | Q(user_view_at__lt=F('share_sent_at')))
-          .filter(Q(share_expires_at__isnull=True) | Q(share_expires_at__gt=now))
-          .values_list('id', 'owner_id', 'name', 'share_sent_at'))
-    for cid, owner_id, name, sent_at in qs.iterator():
+    from inpa.analytics.models import ShareSnapshot
+    snapshots = (ShareSnapshot.objects
+                 .filter(
+                     payload_version='v2-immutable-analysis',
+                     share_token__isnull=False,
+                     revoked_at__isnull=True,
+                     first_viewed_at__isnull=True,
+                     link_expires_at__gt=now,
+                 )
+                 .select_related('customer')
+                 .values_list(
+                     'customer_id', 'owner_id', 'customer__name', 'captured_at'))
+    for cid, owner_id, name, sent_at in snapshots.iterator():
         enabled, days = get_rule(owner_id)
         if not enabled:
             continue
@@ -324,6 +330,34 @@ def produce_share_unread(today):
             body=f'{name}님께 보낸 보장 분석 링크가 아직 열리지 않았어요. 한 번 더 안내해 보세요.',
             target_date=timezone.localtime(sent_at).date(), customer_id=cid,
         )
+
+    # gate OFF 배포 전환 기간에는 snapshot이 전혀 없는 과거 Customer 링크만 유지한다.
+    if not getattr(settings, 'INSURANCE_REVIEW_GATE_ENABLED', False):
+        backed_tokens = ShareSnapshot.objects.filter(
+            payload_version='v2-immutable-analysis',
+            share_token__isnull=False,
+        ).values('share_token')
+        legacy = (Customer.objects
+                  .filter(share_sent_at__isnull=False)
+                  .exclude(share_token__in=backed_tokens)
+                  .filter(Q(user_view_at__isnull=True)
+                          | Q(user_view_at__lt=F('share_sent_at')))
+                  .filter(Q(share_expires_at__isnull=True)
+                          | Q(share_expires_at__gt=now))
+                  .values_list('id', 'owner_id', 'name', 'share_sent_at'))
+        for cid, owner_id, name, sent_at in legacy.iterator():
+            enabled, days = get_rule(owner_id)
+            if not enabled:
+                continue
+            threshold = dt.timedelta(days=days or 1)
+            if now - sent_at < threshold:
+                continue
+            created += _create_once(
+                owner_id=owner_id, notif_type=NotifType.SHARE_UNREAD,
+                title='공유 링크 열람 안내',
+                body=f'{name}님께 보낸 보장 분석 링크가 아직 열리지 않았어요. 한 번 더 안내해 보세요.',
+                target_date=timezone.localtime(sent_at).date(), customer_id=cid,
+            )
     return created
 
 
@@ -442,7 +476,14 @@ def cleanup_expired_share_snapshots(now):
     days = int(getattr(settings, 'SHARE_SNAPSHOT_RETENTION_DAYS', 180) or 0)
     if days <= 0:
         return 0
-    deleted, _ = ShareSnapshot.objects.filter(retention_expires_at__lte=now).delete()
+    expired = ShareSnapshot.objects.filter(retention_expires_at__lte=now)
+    tokens = list(expired.exclude(share_token__isnull=True).values_list(
+        'share_token', flat=True))
+    with transaction.atomic():
+        # 보유기간이 링크 수명보다 짧아도 gate OFF의 Customer fallback이 살아나지 않는다.
+        Customer.objects.filter(share_token__in=tokens).update(
+            share_expires_at=now)
+        deleted, _ = expired.delete()
     return deleted
 
 

@@ -33,6 +33,7 @@
   NT1 댓글 작성 → 원글 작성자 board_comment 알림 (자기 글 제외)
   NT2 좋아요 생성 → 원글 작성자 board_like 알림 (자기 글 제외)
 """
+from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -531,6 +532,85 @@ class FaqTests(TestCase):
             format='json',
         )
         self.assertEqual(r.status_code, 201)
+
+
+class SeedBoardsNeutralCopyTests(TestCase):
+    OLD_NOTICE_BODY = (
+        '안녕하세요, 인파(Inpa)입니다.\n\n'
+        '설계사님의 하루가 조금 더 가벼워지도록, 고객 발굴부터 증권 정리, 담보 한눈표, '
+        '비교 분석, 상담 예약까지 한 흐름으로 담았습니다.\n\n'
+        '지금 무료로 이용하실 수 있어요. 써 보시다가 불편한 점이나 바라는 기능이 있으면 '
+        '1:1 문의로 편하게 남겨 주세요. 하나씩 반영해 나가겠습니다.\n\n'
+        '앞으로도 꾸준히 기능을 더하고 다듬겠습니다. 감사합니다.'
+    )
+    OLD_FAQ_QUESTION = '비교 분석표는 무엇인가요?'
+    OLD_FAQ_ANSWER = (
+        '지금 보장과 제안 보장을 나란히 놓고 추가·삭제·변경을 정리해 주는 표예요. '
+        '산출물은 AI가 정리한 참고 자료이며, 보장 판단과 고객 안내는 설계사님의 업무입니다.'
+    )
+
+    def setUp(self):
+        self.admin, _ = _make_planner('seed-admin@test.com', is_admin=True)
+
+    def test_upgrades_untouched_official_notice_and_faq_to_neutral_copy(self):
+        Notice.objects.create(
+            author=self.admin,
+            title='인파를 시작합니다',
+            body=self.OLD_NOTICE_BODY,
+            is_published=True,
+        )
+        Faq.objects.create(
+            author=self.admin,
+            category='기능문의',
+            order=3,
+            question=self.OLD_FAQ_QUESTION,
+            answer=self.OLD_FAQ_ANSWER,
+            is_published=True,
+        )
+
+        call_command('seed_boards')
+        call_command('seed_boards')
+
+        notice = Notice.objects.get(title='인파를 시작합니다')
+        self.assertIn('여러 증권 비교', notice.body)
+        faq_rows = Faq.objects.filter(
+            question='여러 증권 비교는 무엇인가요?',
+            is_published=True,
+        )
+        self.assertEqual(faq_rows.count(), 1)
+        faq = faq_rows.get()
+        self.assertIn('증권 A와 증권 B', faq.answer)
+        for deprecated in ('현재와 제안', '제안 보장', '갈아타기', '승환', '비교안내서'):
+            self.assertNotIn(deprecated, notice.body)
+            self.assertNotIn(deprecated, faq.answer)
+        self.assertFalse(Faq.objects.filter(question=self.OLD_FAQ_QUESTION).exists())
+
+    def test_preserves_admin_edited_notice_and_faq(self):
+        edited_notice = '관리자가 직접 수정한 공지 본문입니다.'
+        edited_answer = '관리자가 직접 수정한 FAQ 답변입니다.'
+        Notice.objects.create(
+            author=self.admin,
+            title='인파를 시작합니다',
+            body=edited_notice,
+            is_published=True,
+        )
+        Faq.objects.create(
+            author=self.admin,
+            category='기능문의',
+            order=3,
+            question=self.OLD_FAQ_QUESTION,
+            answer=edited_answer,
+            is_published=True,
+        )
+
+        call_command('seed_boards')
+
+        self.assertTrue(Notice.objects.filter(
+            title='인파를 시작합니다', body=edited_notice,
+        ).exists())
+        self.assertTrue(Faq.objects.filter(
+            question=self.OLD_FAQ_QUESTION, answer=edited_answer,
+        ).exists())
 
 
 # ─── I1~I5: 1:1 문의 ────────────────────────────────────────────────

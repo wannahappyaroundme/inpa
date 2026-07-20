@@ -16,6 +16,7 @@ import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   getChurnRadar,
   updateInsuranceChurn,
+  ApiError,
   type ChurnRadarResponse,
   type ChurnRadarItem,
   type PersistencyStage,
@@ -58,22 +59,26 @@ export default function ChurnRadarPage() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [savedId, setSavedId] = useState<number | null>(null);
 
-  const load = useCallback(() => {
+  const load = useCallback(async (keepError = false) => {
     setLoading(true);
-    setError(null);
-    getChurnRadar()
-      .then((res) => {
-        setData(res);
-        const d: Record<number, Draft> = {};
-        res.items.forEach((it) => (d[it.insurance_id] = toDraft(it)));
-        setDrafts(d);
-      })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "불러오지 못했어요."))
-      .finally(() => setLoading(false));
+    if (!keepError) setError(null);
+    try {
+      const res = await getChurnRadar();
+      setData(res);
+      const d: Record<number, Draft> = {};
+      res.items.forEach((it) => (d[it.insurance_id] = toDraft(it)));
+      setDrafts(d);
+    } catch (e: unknown) {
+      setError(keepError
+        ? "최신 보험 내용을 다시 불러와 주세요."
+        : e instanceof Error ? e.message : "연결이 잠시 원활하지 않아요. 다시 불러와 주세요.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (ready) load();
+    if (ready) void load();
   }, [ready, load]);
 
   function setField(id: number, key: keyof Draft, val: string) {
@@ -87,15 +92,21 @@ export default function ChurnRadarPage() {
     setError(null);
     try {
       await updateInsuranceChurn(it.insurance_id, {
+        data_version: it.data_version,
         current_payment_period: numOrNull(d.current_payment_period),
         is_cancelled: d.is_cancelled,
         cancelled_at: d.is_cancelled && d.cancelled_at.trim() !== "" ? d.cancelled_at : null,
       });
       setSavedId(it.insurance_id);
       setTimeout(() => setSavedId(null), 1800);
-      load(); // 회차·임박 재계산 반영
+      void load(); // 회차·임박 재계산 반영
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "저장 실패");
+      if (e instanceof ApiError && e.status === 409 && e.code === "INSURANCE_VERSION_CHANGED") {
+        setError("다른 화면에서 보험 내용이 먼저 변경됐어요. 최신 내용을 불러왔습니다.");
+        await load(true);
+      } else {
+        setError(e instanceof Error ? e.message : "저장 연결이 잠시 원활하지 않아요. 다시 시도해 주세요.");
+      }
     } finally {
       setSavingId(null);
     }

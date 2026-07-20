@@ -20,6 +20,7 @@ from .views import (
     AdminInquiryListView,
     AdminInquiryReplyView,
     AdminInquiryStatusView,
+    AdminInsuranceImportSettingsView,
     AdminLoginView,
     AdminLogoutView,
     AdminNormalizationAccuracyView,
@@ -132,4 +133,7 @@ urlpatterns = [
 
     # ── 운영 설정 — 기능 플래그 (읽기 전용 — env 우회 차단) ─────────
     path('admin/settings/flags/', AdminFeatureFlagsView.as_view(), name='admin-feature-flags'),
+    path('admin/settings/insurance-import/',
+         AdminInsuranceImportSettingsView.as_view(),
+         name='admin-insurance-import-settings'),
 ]

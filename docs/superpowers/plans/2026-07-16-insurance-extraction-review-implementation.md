@@ -6,7 +6,7 @@
 
 **Architecture:** 기존 동기 `/insurances/ocr/` 즉시저장 경로와 새 검토형 경로를 기능 스위치로 분리한다. 새 경로는 private R2 원본, PostgreSQL 작업 정본, Celery/Valkey 작업자, 줄 단위 근거를 포함한 Claude 구조화 결과, 결정론 검증기, 낙관적 초안 버전, 잠금 기반 확정 서비스로 구성한다. 분석은 중앙 `analysis_ready()` 필터와 케이스별 매핑 권위를 사용한다. 전환 배포에서 gate OFF인 동안만 과거 공유 링크 호환 조회를 유지하고, gate ON 출시 전 이를 0건으로 만든 뒤 공개 공유 링크는 불변 `ShareSnapshot`만 읽는다.
 
-**Tech Stack:** Django 4.2/DRF/PostgreSQL, Celery 5.6 + Redis/Valkey, Cloudflare R2, Anthropic SDK의 단일 Claude 모델, Next.js 16/React 19/TypeScript/Tailwind, Vitest/Testing Library, Render web/background worker/Key Value.
+**Tech Stack:** Django 5.2 LTS/DRF/PostgreSQL, Celery 5.6 + Redis/Valkey, Cloudflare R2, Anthropic SDK의 단일 Claude 모델, Next.js 16/React 19/TypeScript/Tailwind, Vitest/Testing Library, Render web/background worker/Key Value.
 
 ## Global Constraints
 
@@ -831,6 +831,127 @@ git add inpa_be/inpa/insurances/import_services.py \
 git commit -m "feat(보험): 원자적 검토 확정과 담보 직접 입력 추가"
 ```
 
+### Task 8A: 재리뷰 날짜 권위·갱신 계산 전제·종신납 미상값 보존
+
+**Files:**
+
+- Create: `inpa_be/inpa/insurances/date_utils.py`
+- Create: `inpa_be/inpa/insurances/migrations/0009_customerinsurancedetail_lifetime_payment.py`
+- Modify: `inpa_be/inpa/insurances/models.py`
+- Modify: `inpa_be/inpa/insurances/import_services.py`
+- Modify: `inpa_be/inpa/insurances/import_validation.py`
+- Modify: `inpa_be/inpa/insurances/views.py`
+- Modify: `inpa_be/inpa/insurances/serializers.py`
+- Modify: `inpa_be/inpa/analysis/calculate.py`
+- Test: `inpa_be/inpa/insurances/test_import_confirm.py`
+- Test: `inpa_be/inpa/insurances/test_manual_review.py`
+- Test: `inpa_be/inpa/insurances/tests.py`
+
+**Interfaces:**
+
+- Produces: `parse_insurance_date(value) -> datetime.date | None`, the single
+  parser for ISO `YYYY-MM-DD` and legacy `YYYY.MM.DD` policy dates.
+- Produces: `CustomerInsuranceDetail.payment_period_type=4` for a lifetime
+  payment period, with `payment_period=None` and no warranty-derived substitute.
+- Preserves: type 3 renewal rows and all existing type 1/2/3 database values.
+
+- [ ] **Step 1: Write failing date and renewal-prerequisite tests.**
+
+Add import and manual tests proving ISO and dotted birth dates calculate without
+500/503, invalid calendar dates stop with 409/400, and a positive renewal
+premium requires valid contract/expiry dates in order. A life policy additionally
+requires a valid customer birth date.
+
+```python
+def test_loss_renewal_requires_contract_and_expiry_before_calculation(self):
+    draft = self.renewal_draft(insurance_type='loss')
+    draft['policy']['expiry_date']['value'] = None
+    response = self.confirm_draft(draft)
+    self.assertEqual(response.status_code, 409)
+
+def test_life_renewal_accepts_iso_customer_birth_date(self):
+    self.customer.birth_day = '1990-01-01'
+    self.customer.save(update_fields=['birth_day'])
+    response = self.confirm_draft(self.complete_life_renewal_draft())
+    self.assertEqual(response.status_code, 200)
+```
+
+- [ ] **Step 2: Run the focused tests and observe date parsing or 503 failures.**
+
+Run: `cd inpa_be && python manage.py test inpa.insurances.test_import_confirm inpa.insurances.test_manual_review -v 1`
+
+Expected: the new cases fail because model calculations accept only dotted dates
+and missing renewal months currently become zero.
+
+- [ ] **Step 3: Add the shared parser and enforce calculation prerequisites.**
+
+`parse_insurance_date()` accepts only the two supported complete formats and
+returns `None` for invalid calendar dates. `validate_draft()` and
+`_assert_calculation_prerequisites()` use parsed dates; the latter checks the
+insurance type and every positive renewal row before materialization. Model
+calculations use parsed `date` objects and never call a dot-only `strptime`.
+
+- [ ] **Step 4: Write failing lifetime round-trip and fee tests.**
+
+```python
+def test_lifetime_payment_does_not_become_warranty_age_payment(self):
+    response = self.create_coverage(
+        payment_period=None, payment_period_unit='lifetime',
+        warranty_period=100, warranty_period_unit='age')
+    self.assertEqual(response.json()['payment_period_unit'], 'lifetime')
+    case = CustomerInsuranceDetail.objects.get()
+    self.assertEqual(case.payment_period_type, 4)
+    self.assertIsNone(case.payment_period)
+    self.assertIsNone(case.total_non_renewal_premium)
+```
+
+Also assert a numeric lifetime payment period is rejected, type 1/2/3 API
+representations are unchanged, known lifetime monthly premium remains in the
+correct monthly renewal/nonrenewal bucket, and absolute totals remain `None`.
+
+- [ ] **Step 5: Run the lifetime tests and observe the warranty fallback.**
+
+Run: `cd inpa_be && python manage.py test inpa.insurances.test_import_confirm inpa.insurances.test_manual_review inpa.insurances.tests.FeeSplitSerializerTests -v 1`
+
+Expected: lifetime materializes as warranty-derived type 1/2 or type 3 and the
+absolute total is falsely numeric.
+
+- [ ] **Step 6: Add type 4 and make all choice assumptions explicit.**
+
+Add `(4, '종신')` only to `CustomerInsuranceDetail.PAYMENT_PERIOD_TYPE` and an
+additive `AlterField` migration. `_period_types()` maps lifetime directly to
+`(4, None)`. A type 4 case uses `renewal_period` to retain renewal status, while
+its absolute total fields remain `None`; known monthly premiums still aggregate
+by that renewal status. Serializers and both analysis calculation paths treat
+type 4 as lifetime without changing existing type 1/2/3 semantics.
+
+- [ ] **Step 7: Run focused, insurance, full backend, and static gates.**
+
+```bash
+cd inpa_be
+python manage.py test inpa.insurances.test_import_confirm inpa.insurances.test_manual_review -v 1
+python manage.py test inpa.insurances -v 1
+python manage.py test inpa -v 1
+python manage.py check
+python manage.py makemigrations --check --dry-run
+python -m compileall -q inpa
+```
+
+Expected: all tests pass, no model changes remain, and compile/check exit 0.
+
+- [ ] **Step 8: Commit only Task 8A files.**
+
+```bash
+git add docs/superpowers/specs/2026-07-16-insurance-extraction-accuracy-design.md \
+  docs/superpowers/plans/2026-07-16-insurance-extraction-review-implementation.md \
+  inpa_be/inpa/insurances/date_utils.py inpa_be/inpa/insurances/models.py \
+  inpa_be/inpa/insurances/migrations/0009_customerinsurancedetail_lifetime_payment.py \
+  inpa_be/inpa/insurances/import_services.py inpa_be/inpa/insurances/import_validation.py \
+  inpa_be/inpa/insurances/views.py inpa_be/inpa/insurances/serializers.py \
+  inpa_be/inpa/analysis/calculate.py inpa_be/inpa/insurances/test_import_confirm.py \
+  inpa_be/inpa/insurances/test_manual_review.py inpa_be/inpa/insurances/tests.py
+git commit -m "fix(보험): 보험 기간 계산의 미상값 보존"
+```
 ### Task 9: 확정·포함·정상 보험만 분석하고 케이스별 매핑 override를 사용
 
 **Files:**

@@ -1,7 +1,7 @@
 """증권 파싱 정확도 다중검사 — Claude로 '원문 텍스트 ↔ 파싱·정규화 결과' 교차검증.
 
 ★ 목적(사용자 요구: 정확도가 가장 중요): 스캔/인식/분류 후 우리 표준 틀·담보표에 제대로 매핑됐는지를
-  Claude(Opus)가 한 번 더 검토해 ①누락 담보 ②금액 오인식 ③오분류를 잡아낸다. = '다중 검사'.
+  설정된 Claude 모델이 한 번 더 검토해 ①누락 담보 ②금액 오인식 ③오분류를 잡아낸다. = '다중 검사'.
   결과는 CustomerInsurance.verification 에 저장하고 응답에 포함(설계사 확인용 플래그).
 
 ★ 안전:
@@ -40,6 +40,10 @@ def verify_extraction(text_lines, ci):
     api_key = getattr(settings, 'CLAUDE_API_KEY', '') or getattr(settings, 'ANTHROPIC_API_KEY', '')
     if not api_key:
         return None, None
+    model_id = getattr(settings, 'CLAUDE_MODEL_PARSE', '')
+    if not model_id:
+        logger.warning('증권 교차검증 모델 미설정(파싱 결과 영향 없음)')
+        return None, None
     try:
         import anthropic
     except ImportError:
@@ -66,7 +70,6 @@ def verify_extraction(text_lines, ci):
     )
     user_prompt = f'[증권 원문]\n{source_text}\n\n[파싱 담보 목록]\n{cov_text}\n'
 
-    model_id = getattr(settings, 'CLAUDE_MODEL_PARSE', 'claude-opus-4-8')
     try:
         client = anthropic.Anthropic(api_key=api_key, timeout=60.0, max_retries=2)
         msg = client.messages.create(

@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# 비공개 비교 평가 명령에서만 lazy import. 운영 web/worker에는 설치하지 않는다.
+openai==2.45.0

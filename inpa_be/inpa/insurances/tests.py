@@ -9,6 +9,7 @@
 ★ 실제 Claude 호출 금지 — 모든 파싱 경로는 mock.
 """
 from decimal import Decimal
+import uuid
 from unittest import mock
 
 from django.test import TestCase, override_settings
@@ -40,6 +41,26 @@ def _make_planner(email):
     client = APIClient()
     client.force_authenticate(user=user)
     return user, client
+
+
+class PDFExtractionLogSafetyTests(TestCase):
+    def test_pdf_exception_message_is_not_written_to_logs(self):
+        from inpa.insurances.views import _extract_pdf_lines
+
+        marker = '민감고객-010-1234-5678'
+        upload = SimpleUploadedFile(
+            'policy.pdf', b'%PDF-1.4\n', content_type='application/pdf')
+
+        with mock.patch(
+                'pdfplumber.open',
+                side_effect=RuntimeError(marker)), self.assertLogs(
+                    'inpa.insurances.views', level='WARNING') as logs:
+            lines, error = _extract_pdf_lines(upload)
+
+        self.assertEqual((lines, error), ([], 'PROCESSING_ERROR'))
+        output = '\n'.join(logs.output)
+        self.assertIn('RuntimeError', output)
+        self.assertNotIn(marker, output)
 
 
 def _dummy_pdf():
@@ -214,6 +235,29 @@ class OcrParsePersistTests(TestCase):
                 _ocr_url(self.customer.id), {'file': _dummy_pdf()}, format='multipart')
         self.assertEqual(r.status_code, 201, r.content)
         self.assertEqual(CustomerInsuranceDetail.objects.get().raw_name, '')
+
+    def test_manual_review_coverage_stops_legacy_persist(self):
+        ocr = _fake_ocr_data()
+        ocr._manual_review_coverage_count = 1
+        with mock.patch(
+                'inpa.insurances.views.claude_parse',
+                return_value=ocr) as m_parse, \
+                mock.patch(
+                    'inpa.insurances.views._extract_pdf_lines',
+                    return_value=(['dummy'], None)):
+            r = self.client.post(
+                _ocr_url(self.customer.id),
+                {'file': _dummy_pdf()},
+                format='multipart',
+            )
+
+        self.assertEqual(r.status_code, 409, r.content)
+        self.assertEqual(r.json()['code'], 'COVERAGE_REVIEW_REQUIRED')
+        self.assertEqual(r.json()['review_required_count'], 1)
+        self.assertIn('증권 원문을 확인해', r.json()['detail'])
+        self.assertIn('직접 수정', r.json()['detail'])
+        m_parse.assert_called_once()
+        self.assertFalse(CustomerInsurance.objects.exists())
 
     def test_calculate_engine_ran(self):
         """foliio 8케이스 엔진이 호출되어 계산 필드가 채워졌는지(무변경 호출 검증)."""
@@ -432,7 +476,8 @@ class AddCoverageRawNameMapTests(TestCase):
             ocr._raw_name_by_case[('진단비', '암', '일반암', value)], '큰담보')
 
 
-@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test',
+                   CLAUDE_MODEL_PARSE='test-model', OCR_VERIFY_ENABLED=False)
 class AnthropicClientMockTests(TestCase):
     """(b 보강) anthropic.Anthropic SDK 자체를 mock → 실제 claude_parse 파이프라인 통과.
 
@@ -619,7 +664,8 @@ class PiiMaskUnitTests(TestCase):
         self.assertNotIn('박진희', masked_lines[2])
 
 
-@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test',
+                   CLAUDE_MODEL_PARSE='test-model', OCR_VERIFY_ENABLED=False)
 class PiiMaskingClaudeSendTests(TestCase):
     """2026-07-09 PII 마스킹 — SDK mock 으로 Claude 에 실제 전송되는 프롬프트를
     가로채 (a) 신원정보는 마스킹된 채 전송되는지 (b) 담보명·금액·회사명·날짜는
@@ -719,7 +765,8 @@ class PiiMaskingClaudeSendTests(TestCase):
         self.assertEqual(case.detail.name, '일반암')
 
 
-@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test', OCR_VERIFY_ENABLED=False)
+@override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test',
+                   CLAUDE_MODEL_PARSE='test-model', OCR_VERIFY_ENABLED=False)
 class CoverageSubtypeSplitLiveTests(TestCase):
     """2026-07-09 담보 세분류 개별 인식 — LIVE 경로(anthropic.Anthropic SDK mock) 회귀.
 
@@ -861,7 +908,8 @@ class CoverageSubtypeSplitLiveTests(TestCase):
 
 
 @override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test',
-                    OCR_VERIFY_ENABLED=False, CLAUDE_USD_KRW_RATE=1000.0)
+                   CLAUDE_MODEL_PARSE='test-model', OCR_VERIFY_ENABLED=False,
+                   CLAUDE_USD_KRW_RATE=1000.0)
 class ClaudeApiLogWiringTests(TestCase):
     """프리런치 #17 — ocr_parse 호출 경로가 성공·실패 모두 ClaudeApiLog 1건을 남긴다."""
 
@@ -1090,11 +1138,14 @@ class ChurnRadarTests(TestCase):
         ci = _make_held(self.customer)
         r = self.client.patch(
             f'/api/v1/insurances/{ci.id}/churn/',
-            {'current_payment_period': 8, 'payment_status': 2,
+            {'data_version': ci.data_version,
+             'current_payment_period': 8, 'payment_status': 2,
              'next_payment_date': '2026-07-01', 'expected_recovery_amount': 900000},
             format='json')
         self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['data_version'], ci.data_version + 1)
         ci.refresh_from_db()
+        self.assertEqual(ci.data_version, 2)
         self.assertEqual(ci.current_payment_period, 8)
         self.assertEqual(ci.payment_status, 2)
         self.assertEqual(ci.next_payment_date, _dt.date(2026, 7, 1))
@@ -1103,8 +1154,48 @@ class ChurnRadarTests(TestCase):
     def test_patch_rejects_bad_status(self):
         ci = _make_held(self.customer)
         r = self.client.patch(f'/api/v1/insurances/{ci.id}/churn/',
-                              {'payment_status': 9}, format='json')
+                              {'data_version': ci.data_version,
+                               'payment_status': 9}, format='json')
         self.assertEqual(r.status_code, 400)
+
+    def test_patch_requires_current_data_version(self):
+        ci = _make_held(self.customer, period=3)
+        url = f'/api/v1/insurances/{ci.id}/churn/'
+
+        missing = self.client.patch(
+            url, {'current_payment_period': 4}, format='json')
+        stale = self.client.patch(
+            url, {
+                'data_version': ci.data_version + 1,
+                'current_payment_period': 4,
+            }, format='json')
+
+        self.assertEqual(missing.status_code, 400, missing.content)
+        self.assertEqual(stale.status_code, 409, stale.content)
+        self.assertEqual(stale.json()['code'], 'INSURANCE_VERSION_CHANGED')
+        self.assertEqual(stale.json()['current_version'], ci.data_version)
+        ci.refresh_from_db()
+        self.assertEqual(ci.current_payment_period, 3)
+        self.assertEqual(ci.data_version, 1)
+
+    def test_patch_changes_only_requested_fields_and_bumps_version(self):
+        ci = _make_held(
+            self.customer, status=2, period=3, next_days=10, recovery=50_000)
+        original_date = ci.next_payment_date
+
+        response = self.client.patch(
+            f'/api/v1/insurances/{ci.id}/churn/', {
+                'data_version': ci.data_version,
+                'current_payment_period': 4,
+            }, format='json')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        ci.refresh_from_db()
+        self.assertEqual(ci.current_payment_period, 4)
+        self.assertEqual(ci.payment_status, 2)
+        self.assertEqual(ci.next_payment_date, original_date)
+        self.assertEqual(ci.expected_recovery_amount, 50_000)
+        self.assertEqual(ci.data_version, 2)
 
     def test_owner_isolation_radar_and_patch(self):
         """A의 보유계약은 B의 레이더에 안 보이고, B가 PATCH하면 404."""
@@ -1113,7 +1204,8 @@ class ChurnRadarTests(TestCase):
         body_b = client_b.get('/api/v1/churn-radar/').json()
         self.assertEqual(body_b['items'], [])
         r = client_b.patch(f'/api/v1/insurances/{ci.id}/churn/',
-                           {'current_payment_period': 1}, format='json')
+                           {'data_version': ci.data_version,
+                            'current_payment_period': 1}, format='json')
         self.assertEqual(r.status_code, 404)
 
 
@@ -1235,6 +1327,7 @@ _DUMMY_KEY = 'test-key'
 @override_settings(
     ANTHROPIC_API_KEY=_DUMMY_KEY,
     CLAUDE_API_KEY=_DUMMY_KEY,
+    CLAUDE_MODEL_PARSE='test-model',
     CLAUDE_USD_KRW_RATE=1000.0,
 )
 class SelfDiagnosisClaudeApiLogTests(TestCase):
@@ -1438,6 +1531,42 @@ class SelfDiagnosisMultiPdfTests(TestCase):
         lead = Customer.objects.get(owner=self.planner, lead_source='self_diagnosis')
         self.assertEqual(CustomerInsurance.objects.filter(customer=lead).count(), 1)
 
+    def test_manual_review_coverage_is_not_silently_analyzed(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.notifications.models import Notification, NotifType
+
+        ocr = _fake_ocr_product('확인필요보험')
+        ocr._manual_review_coverage_count = 1
+        with mock.patch(
+                'inpa.insurances.self_diagnosis.claude_parse',
+                return_value=ocr), \
+                mock.patch(
+                    'inpa.insurances.self_diagnosis._extract_pdf_lines',
+                    return_value=(['line'], None)):
+            r = self._post([self._pdf('review.pdf')])
+
+        self.assertEqual(r.status_code, 201, r.content)
+        card = r.json()['insurances'][0]
+        self.assertEqual(card['status'], 'failed')
+        self.assertIn('직접 확인', card['message'])
+        self.assertFalse(r.json()['analyzed'])
+        lead = Customer.objects.get(
+            owner=self.planner, lead_source='self_diagnosis')
+        self.assertFalse(
+            CustomerInsurance.objects.filter(customer=lead).exists())
+        event = NorthStarEvent.objects.get(
+            event_type=NorthStarEvent.REFERRAL_ATTRIBUTED,
+            customer=lead,
+        )
+        self.assertFalse(event.payload['analyzed'])
+        note = Notification.objects.get(
+            owner=self.planner,
+            customer=lead,
+            notif_type=NotifType.SELF_DIAGNOSIS_LEAD,
+        )
+        self.assertNotIn('완료', note.body)
+        self.assertIn('직접 확인', note.body)
+
     def test_daily_cap_consumed_per_file(self):
         """스펙 TC4: 남은 캡 1일 때 3장 → 1장 ok + 2장 skipped(파싱 1회만)."""
         from django.core.cache import cache
@@ -1475,6 +1604,359 @@ class SelfDiagnosisMultiPdfTests(TestCase):
         self.assertIn('summary', body)
         self.assertTrue(body['analyzed'])
 
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_queues_import_without_legacy_parse_or_persist(self):
+        """gate ON 공개 업로드는 검토형 접수만 만들고 legacy 즉시분석을 우회한다."""
+        from inpa.analytics.models import NorthStarEvent, ShareSnapshot
+        from inpa.insurances import self_diagnosis
+        from inpa.notifications.models import Notification, NotifType
+
+        queued = mock.Mock(
+            job=mock.Mock(pk=None, status='queued'),
+            duplicate_kind='created',
+            response_status=202,
+            response_body={'job_id': str(uuid.uuid4()), 'status': 'queued'})
+        with mock.patch(
+                'inpa.insurances.import_services.receive_import',
+                return_value=queued) as receive, \
+                mock.patch(
+                    'inpa.insurances.self_diagnosis._extract_pdf_lines',
+                    wraps=self_diagnosis._extract_pdf_lines) as legacy_extract, \
+                mock.patch(
+                    'inpa.insurances.self_diagnosis.claude_parse',
+                    return_value=_fake_ocr_product('확인대기보험')) as legacy_provider, \
+                mock.patch(
+                    'inpa.insurances.self_diagnosis._persist_ocr',
+                    wraps=self_diagnosis._persist_ocr) as legacy_persist, \
+                mock.patch(
+                    'inpa.insurances.tasks.claude_extract') as worker_provider:
+            response = self._post([self._pdf('pending.pdf')])
+
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertTrue(body['lead_created'])
+        self.assertFalse(body['analyzed'])
+        self.assertTrue(body['review_pending'])
+        self.assertEqual(
+            body['message'], '담당 설계사가 증권 내용을 확인한 뒤 안내해 드려요.')
+        self.assertNotIn('tree', body)
+        self.assertNotIn('summary', body)
+        legacy_extract.assert_not_called()
+        legacy_provider.assert_not_called()
+        legacy_persist.assert_not_called()
+        worker_provider.assert_not_called()
+        self.assertEqual(receive.call_count, 1)
+        lead = Customer.objects.get(owner=self.planner, lead_source='self_diagnosis')
+        receive_kwargs = receive.call_args.kwargs
+        self.assertEqual(receive_kwargs['owner'], self.planner)
+        self.assertEqual(receive_kwargs['customer_pk'], lead.pk)
+        self.assertIsInstance(receive_kwargs['idempotency_key'], uuid.UUID)
+        self.assertFalse(CustomerInsurance.objects.filter(customer=lead).exists())
+        self.assertFalse(ShareSnapshot.objects.filter(customer=lead).exists())
+        event = NorthStarEvent.objects.get(
+            event_type=NorthStarEvent.REFERRAL_ATTRIBUTED, customer=lead)
+        self.assertFalse(event.payload['analyzed'])
+        self.assertTrue(event.payload['review_pending'])
+        note = Notification.objects.get(
+            owner=self.planner, customer=lead,
+            notif_type=NotifType.SELF_DIAGNOSIS_LEAD)
+        self.assertNotIn('완료', note.body)
+        self.assertIn('확인', note.body)
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_runtime_failure_is_not_reported_as_pending_success(self):
+        """storage/queue 예외로 job 0건이면 201 성공으로 위장하지 않는다."""
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.insurances.models import InsuranceExtractionJob
+        from inpa.notifications.models import Notification, NotifType
+
+        private_detail = 'private-policy-name.pdf storage detail'
+        with self.assertLogs(
+                'inpa.insurances.self_diagnosis', level='WARNING') as logs, \
+                mock.patch(
+                    'inpa.insurances.import_services.receive_import',
+                    side_effect=RuntimeError(private_detail)):
+            response = self._post([
+                self._pdf('private-policy-name.pdf')])
+
+        self.assertEqual(response.status_code, 503, response.content)
+        body = response.json()
+        self.assertEqual(body['code'], 'REVIEW_INTAKE_UNAVAILABLE')
+        self.assertTrue(body['lead_created'])
+        self.assertFalse(body['review_pending'])
+        self.assertEqual(body['accepted_file_count'], 0)
+        self.assertEqual(body['existing_file_count'], 0)
+        self.assertEqual(body['failed_file_count'], 1)
+        self.assertNotIn(private_detail, str(body))
+        self.assertNotIn(private_detail, '\n'.join(logs.output))
+        self.assertNotIn('private-policy-name.pdf', '\n'.join(logs.output))
+        self.assertFalse(InsuranceExtractionJob.objects.exists())
+        lead = Customer.objects.get(
+            owner=self.planner, lead_source='self_diagnosis')
+        event = NorthStarEvent.objects.get(
+            event_type=NorthStarEvent.REFERRAL_ATTRIBUTED, customer=lead)
+        self.assertEqual(event.payload['accepted_file_count'], 0)
+        self.assertEqual(event.payload['failed_file_count'], 1)
+        self.assertFalse(event.payload['review_pending'])
+        self.assertNotIn(private_detail, str(event.payload))
+        note = Notification.objects.get(
+            owner=self.planner, customer=lead,
+            notif_type=NotifType.SELF_DIAGNOSIS_LEAD)
+        self.assertIn('직접 확인', note.body)
+        self.assertNotIn('private-policy-name.pdf', note.body)
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_all_invalid_and_sixth_overflow_are_all_failed(self):
+        """확장자 검증 실패와 6번째 초과 파일을 무음 제외하지 않는다."""
+        invalid = [
+            SimpleUploadedFile(
+                f'raw-private-{index}.txt', b'not-pdf',
+                content_type='text/plain')
+            for index in range(5)
+        ]
+        overflow = self._pdf('sixth-private.pdf')
+        with mock.patch(
+                'inpa.insurances.import_services.receive_import') as receive:
+            response = self._post([*invalid, overflow])
+
+        self.assertEqual(response.status_code, 400, response.content)
+        body = response.json()
+        self.assertEqual(body['code'], 'POLICY_FILES_NOT_RECEIVED')
+        self.assertEqual(body['accepted_file_count'], 0)
+        self.assertEqual(body['existing_file_count'], 0)
+        self.assertEqual(body['failed_file_count'], 6)
+        self.assertFalse(body['review_pending'])
+        self.assertNotIn('raw-private', str(body))
+        self.assertNotIn('sixth-private.pdf', str(body))
+        receive.assert_not_called()
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_partial_success_reports_matching_counts_everywhere(self):
+        """1건 신규 접수+1건 실패는 201이되 응답·이벤트·알림이 같다."""
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.insurances.import_services import ImportReceptionError
+        from inpa.notifications.models import Notification, NotifType
+
+        accepted = mock.Mock(
+            job=mock.Mock(pk=None, status='queued'),
+            duplicate_kind='created', response_status=202,
+            response_body={'status': 'queued'})
+        private_detail = 'bad-second-private.pdf parse detail'
+        rejected = ImportReceptionError(
+            'INVALID_PDF', status_code=400, detail=private_detail)
+        with mock.patch(
+                'inpa.insurances.import_services.receive_import',
+                side_effect=[accepted, rejected]):
+            response = self._post([
+                self._pdf('accepted-private.pdf'),
+                self._pdf('bad-second-private.pdf'),
+            ])
+
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertTrue(body['review_pending'])
+        self.assertEqual(body['accepted_file_count'], 1)
+        self.assertEqual(body['existing_file_count'], 0)
+        self.assertEqual(body['failed_file_count'], 1)
+        self.assertIn('담당 설계사', body['message'])
+        self.assertNotIn(private_detail, str(body))
+        lead = Customer.objects.get(
+            owner=self.planner, lead_source='self_diagnosis')
+        event = NorthStarEvent.objects.get(
+            event_type=NorthStarEvent.REFERRAL_ATTRIBUTED, customer=lead)
+        self.assertEqual(event.payload['accepted_file_count'], 1)
+        self.assertEqual(event.payload['existing_file_count'], 0)
+        self.assertEqual(event.payload['failed_file_count'], 1)
+        note = Notification.objects.get(
+            owner=self.planner, customer=lead,
+            notif_type=NotifType.SELF_DIAGNOSIS_LEAD)
+        self.assertIn('1장 접수', note.body)
+        self.assertIn('1장 직접 확인', note.body)
+        self.assertNotIn('bad-second-private.pdf', note.body)
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_active_and_confirmed_duplicates_are_existing_not_accepted(self):
+        """활성·확정 중복은 새 큐 접수가 아니라 기존 증권으로 집계한다."""
+        active = mock.Mock(
+            job=mock.Mock(pk=None, status='extracting'),
+            duplicate_kind='active_duplicate', response_status=202,
+            response_body={'status': 'processing'})
+        confirmed = mock.Mock(
+            job=mock.Mock(pk=None, status='confirmed'),
+            duplicate_kind='confirmed_duplicate', response_status=409,
+            response_body={'code': 'DUPLICATE_CONFIRMED'})
+        with mock.patch(
+                'inpa.insurances.import_services.receive_import',
+                side_effect=[active, confirmed]):
+            response = self._post([
+                self._pdf('first-private.pdf'),
+                self._pdf('second-private.pdf'),
+            ])
+
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertEqual(body['accepted_file_count'], 0)
+        self.assertEqual(body['existing_file_count'], 2)
+        self.assertEqual(body['failed_file_count'], 0)
+        self.assertTrue(body['review_pending'])
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_confirmed_duplicate_only_is_existing_without_pending_queue(self):
+        """확정 중복만 있으면 existing이지만 큐 대기로 표시하지 않는다."""
+        confirmed = mock.Mock(
+            job=mock.Mock(pk=None, status='confirmed'),
+            duplicate_kind='confirmed_duplicate', response_status=409,
+            response_body={'code': 'DUPLICATE_CONFIRMED'})
+        with mock.patch(
+                'inpa.insurances.import_services.receive_import',
+                return_value=confirmed):
+            response = self._post([self._pdf('confirmed-private.pdf')])
+
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertEqual(body['accepted_file_count'], 0)
+        self.assertEqual(body['existing_file_count'], 1)
+        self.assertEqual(body['failed_file_count'], 0)
+        self.assertFalse(body['review_pending'])
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_new_job_already_confirmed_is_accepted_without_pending(self):
+        """새 job이 응답 전 확정되어도 실패·중복으로 오인하지 않는다."""
+        completed = mock.Mock(
+            job=mock.Mock(pk=None, status='confirmed'),
+            duplicate_kind='created', response_status=202,
+            response_body={'status': 'queued'})
+        with mock.patch(
+                'inpa.insurances.import_services.receive_import',
+                return_value=completed):
+            response = self._post([self._pdf('completed-private.pdf')])
+
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertEqual(body['accepted_file_count'], 1)
+        self.assertEqual(body['existing_file_count'], 0)
+        self.assertEqual(body['failed_file_count'], 0)
+        self.assertFalse(body['review_pending'])
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_limit_exceeded_maps_to_safe_402(self):
+        """설계사 크레딧 상세를 고객에게 노출하지 않고 402로 알린다."""
+        from inpa.billing.credit import LimitExceeded
+
+        with mock.patch(
+                'inpa.insurances.import_services.receive_import',
+                side_effect=LimitExceeded('ocr', current=10, limit=10)):
+            response = self._post([self._pdf('private-limit.pdf')])
+
+        self.assertEqual(response.status_code, 402, response.content)
+        body = response.json()
+        self.assertEqual(body['code'], 'REVIEW_LIMIT_REACHED')
+        self.assertEqual(body['failed_file_count'], 1)
+        self.assertEqual(body['accepted_file_count'], 0)
+        self.assertNotIn('ocr', str(body))
+        self.assertNotIn('10', str(body))
+        self.assertNotIn('private-limit.pdf', str(body))
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_import_rate_error_maps_to_safe_429(self):
+        """ImportReceptionError 상세를 감추고 접수 혼잡을 429로 알린다."""
+        from inpa.insurances.import_services import ImportReceptionError
+
+        private_detail = 'private-rate-policy.pdf internal detail'
+        error = ImportReceptionError(
+            'TOO_MANY_QUEUED_IMPORTS', status_code=429,
+            detail=private_detail)
+        with self.assertLogs(
+                'inpa.insurances.self_diagnosis', level='WARNING') as logs, \
+                mock.patch(
+                    'inpa.insurances.import_services.receive_import',
+                    side_effect=error):
+            response = self._post([self._pdf('private-rate-policy.pdf')])
+
+        self.assertEqual(response.status_code, 429, response.content)
+        body = response.json()
+        self.assertEqual(body['code'], 'REVIEW_BUSY')
+        self.assertEqual(body['failed_file_count'], 1)
+        self.assertFalse(body['review_pending'])
+        self.assertNotIn(private_detail, str(body))
+        self.assertNotIn('private-rate-policy.pdf', str(body))
+        self.assertNotIn(private_detail, '\n'.join(logs.output))
+        self.assertNotIn('private-rate-policy.pdf', '\n'.join(logs.output))
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_oversized_pdf_is_failed_before_reception(self):
+        """5MB 초과 증권은 접수 서비스 전에 400과 failed 1건으로 정리한다."""
+        from inpa.insurances.self_diagnosis import SELF_DIAG_MAX_BYTES
+
+        oversized = SimpleUploadedFile(
+            'oversized-private.pdf', b'x' * (SELF_DIAG_MAX_BYTES + 1),
+            content_type='application/pdf')
+        with mock.patch(
+                'inpa.insurances.import_services.receive_import') as receive:
+            response = self._post([oversized])
+
+        self.assertEqual(response.status_code, 400, response.content)
+        body = response.json()
+        self.assertEqual(body['failed_file_count'], 1)
+        self.assertEqual(body['accepted_file_count'], 0)
+        self.assertFalse(body['review_pending'])
+        self.assertNotIn('oversized-private.pdf', str(body))
+        receive.assert_not_called()
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_daily_attempt_cap_maps_to_safe_429(self):
+        """파일별 일일 시도 한도를 무음 제외하지 않고 failed로 집계한다."""
+        from django.core.cache import cache
+        from inpa.insurances.self_diagnosis import (
+            SELF_DIAG_DAILY_CAP_PER_REF,
+        )
+
+        key = (
+            f'selfdiag-attempts:{self.ref}:'
+            f'{timezone.now().date().isoformat()}')
+        cache.set(key, SELF_DIAG_DAILY_CAP_PER_REF, 60 * 60 * 24)
+        with mock.patch(
+                'inpa.insurances.import_services.receive_import') as receive:
+            response = self._post([self._pdf('daily-private.pdf')])
+
+        self.assertEqual(response.status_code, 429, response.content)
+        body = response.json()
+        self.assertEqual(body['code'], 'REVIEW_BUSY')
+        self.assertEqual(body['failed_file_count'], 1)
+        self.assertEqual(body['existing_file_count'], 0)
+        self.assertFalse(body['review_pending'])
+        self.assertNotIn('daily-private.pdf', str(body))
+        receive.assert_not_called()
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_review_gate_failed_queue_job_is_not_counted_as_accepted(self):
+        """큐 발행 실패로 failed가 된 job은 accepted로 집계하지 않는다."""
+        from inpa.insurances.import_services import ImportReceptionResult
+        from inpa.insurances.models import InsuranceExtractionJob
+
+        def failed_queue_result(**kwargs):
+            lead = Customer.objects.get(pk=kwargs['customer_pk'])
+            job = InsuranceExtractionJob.objects.create(
+                owner=self.planner, customer=lead, intent='add',
+                portfolio_type=1, status='failed', file_sha256='f' * 64,
+                file_size=10, safe_display_name='policy.pdf',
+                error_code='QUEUE_UNAVAILABLE')
+            return ImportReceptionResult(
+                job=job, duplicate_kind='created', response_status=202,
+                response_body={'job_id': str(job.id), 'status': 'queued'})
+
+        with mock.patch(
+                'inpa.insurances.import_services.receive_import',
+                side_effect=failed_queue_result):
+            response = self._post([self._pdf('queue-private.pdf')])
+
+        self.assertEqual(response.status_code, 503, response.content)
+        body = response.json()
+        self.assertEqual(body['accepted_file_count'], 0)
+        self.assertEqual(body['failed_file_count'], 1)
+        self.assertFalse(body['review_pending'])
+        self.assertNotIn('queue-private.pdf', str(body))
+
 
 # ──────────────────────────────────────────────────────────────────────
 # 정확도 다중검사(verify.py) — 네트워크 없이 핵심 로직만(JSON 파싱·키없음 격리)
@@ -1495,7 +1977,8 @@ class VerifyUnitTests(TestCase):
         self.assertIsNone(result)
         self.assertIsNone(usage)
 
-    @override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test')
+    @override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test',
+                       CLAUDE_MODEL_PARSE='test-model')
     def test_verify_returns_real_usage_on_success(self):
         """★ 프리런치 #17 회귀 — verify_extraction 이 msg.usage 를 실제로 반환(과거 폐기 버그)."""
         from unittest import mock
@@ -1522,7 +2005,8 @@ class VerifyUnitTests(TestCase):
         self.assertIs(usage, fake_usage)
         self.assertEqual(usage.input_tokens, 100)
 
-    @override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test')
+    @override_settings(ANTHROPIC_API_KEY='sk-ant-test', CLAUDE_API_KEY='sk-ant-test',
+                       CLAUDE_MODEL_PARSE='test-model')
     def test_verify_sends_masked_source_text(self):
         """2026-07-09 PII 마스킹 — verify_extraction 도 교차검증 원문에서 신원정보를
         마스킹해 전송(담보명은 그대로 전송, 과다 마스킹 없음)."""
@@ -2099,6 +2583,82 @@ class FeeSerializerTests(TestCase):
         self.assertIn('monthly_non_renewal_premium', data)
         self.assertIn('payment_period_type', data)
         self.assertIn('monthly_earned_premium', data)
+
+    def test_lifetime_cases_preserve_monthly_buckets_and_unknown_totals(self):
+        self.case.delete()
+        lifetime_nonrenewal = CustomerInsuranceDetail.objects.create(
+            insurance=self.ci, detail=self.det, premium=15000,
+            payment_period_type=4, payment_period=None,
+            renewal_period=None, assurance_amount=30000000)
+        lifetime_renewal = CustomerInsuranceDetail.objects.create(
+            insurance=self.ci, detail=self.det, premium=20000,
+            payment_period_type=4, payment_period=None,
+            renewal_period=10, assurance_amount=50000000)
+        for case in (lifetime_nonrenewal, lifetime_renewal):
+            case.calculate(self.ci)
+            case.save(update_fields=(
+                'total_renewal_premium',
+                'total_non_renewal_premium'))
+
+        self.ci.calculate()
+        self.ci.save(update_fields=(
+            'monthly_renewal_premium',
+            'monthly_non_renewal_premium',
+            'total_premiums',
+            'total_renewal_premium',
+            'total_non_renewal_premium'))
+        self.ci.refresh_from_db()
+
+        self.assertEqual(self.ci.monthly_renewal_premium, 20000)
+        self.assertEqual(self.ci.monthly_non_renewal_premium, 15000)
+        self.assertIsNone(self.ci.total_premiums)
+        self.assertIsNone(self.ci.total_renewal_premium)
+        self.assertIsNone(self.ci.total_non_renewal_premium)
+        renewal_data = CaseFeeSerializer(lifetime_renewal).data
+        nonrenewal_data = CaseFeeSerializer(lifetime_nonrenewal).data
+        self.assertTrue(renewal_data['is_renewal'])
+        self.assertFalse(nonrenewal_data['is_renewal'])
+        for data in (renewal_data, nonrenewal_data):
+            self.assertEqual(data['payment_period_type'], 4)
+            self.assertIsNone(data['total_renewal_premium'])
+            self.assertIsNone(data['total_non_renewal_premium'])
+
+    def test_known_type_1_2_3_case_calculations_remain_exact(self):
+        self.case.delete()
+        self.customer.birth_day = '1990-01-01'
+        self.customer.save(update_fields=['birth_day'])
+        self.ci.contract_date = '2020-01-01'
+        self.ci.expiry_date = '2030-01-01'
+        self.ci.save(update_fields=['contract_date', 'expiry_date'])
+        self.ci.set_renewal_month()
+        cases = (
+            CustomerInsuranceDetail.objects.create(
+                insurance=self.ci, detail=self.det, premium=100,
+                payment_period_type=1, payment_period=20),
+            CustomerInsuranceDetail.objects.create(
+                insurance=self.ci, detail=self.det, premium=100,
+                payment_period_type=2, payment_period=100),
+            CustomerInsuranceDetail.objects.create(
+                insurance=self.ci, detail=self.det, premium=100,
+                payment_period_type=3, payment_period=20,
+                renewal_period=10),
+        )
+
+        for case in cases:
+            case.calculate(self.ci)
+
+        self.assertEqual(
+            (cases[0].total_renewal_premium,
+             cases[0].total_non_renewal_premium),
+            (0, 24000))
+        self.assertEqual(
+            (cases[1].total_renewal_premium,
+             cases[1].total_non_renewal_premium),
+            (0, 82800))
+        self.assertEqual(
+            (cases[2].total_renewal_premium,
+             cases[2].total_non_renewal_premium),
+            (12000, 0))
 
 
 class CoverageExpansionRegressionTests(TestCase):

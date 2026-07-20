@@ -22,7 +22,7 @@ function fmtPrem(val: number | null): string {
   return `${krw.format(val)}원`;
 }
 
-// 담보 변동 라벨(중립 사실): 추가(신규)/삭제(빠짐)/변경/유지. A안 금액 vs B안 금액 기준.
+// 담보 변동 라벨(중립 사실): 추가(신규)/삭제(빠짐)/변경/유지. 증권 A vs 증권 B 금액 기준.
 export function compareDiffText(cur: number | null, prop: number | null): string {
   const c = cur ?? 0, p = prop ?? 0;
   if (c <= 0 && p > 0) return "추가";
@@ -34,11 +34,11 @@ export function compareDiffText(cur: number | null, prop: number | null): string
 
 /**
  * 비교 결과 → 고객에게 붙여넣어 보낼 중립 텍스트.
- * labelA/labelB = 각 열 이름(기본 '현재'/'제안', 제안 vs 제안 등 비교엔 'A안'/'B안'을 넘긴다).
+ * labelA/labelB = 화면과 동일한 중립 열 이름('증권 A'/'증권 B').
  * 담보 금액이 없거나 한쪽이 비면 '-'로 표기한다(호출부에서 양쪽 1개 이상일 때만 노출 권장).
  */
 export function buildCompareExportText(d: CompareResponse, labelA: string, labelB: string): string {
-  const lines: string[] = ["보장 비교"];
+  const lines: string[] = ["증권 비교표"];
   if (d.rows.length > 0) {
     lines.push("");
     for (const row of d.rows) {

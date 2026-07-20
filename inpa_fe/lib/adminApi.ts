@@ -536,6 +536,12 @@ export interface NormalizationAccuracy {
   accuracy: number;
   total: number;
   passed: number;
+  exact_auto_mapped: number;
+  safe_human_review: number;
+  unsafe_auto_mapped: number;
+  safe_decision_rate: number;
+  evaluation_scope: "fallback_golden_set_only";
+  evaluation_scope_note: string;
   anchor_passed: number;
   anchor_total: number;
   min_accuracy: number;
@@ -664,10 +670,84 @@ export interface ClaudeCostByCarrier {
   /** 미매칭 담보 건수 ÷ (매칭+미매칭) × 100, 소수 1자리 */
   unmatched_rate: number;
 }
+export interface AdminTokenTotals {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_creation: number;
+}
+export interface InsuranceReviewDurationSummary {
+  sample_count: number;
+  invalid_timing_count: number;
+  /** 표본이 없으면 null. nearest-rank 방식. */
+  p50: number | null;
+  p95: number | null;
+}
+export interface InsuranceReviewValidation {
+  initial_metrics_sample_count: number;
+  no_provider_job_count: number;
+  pending_provider_metrics_count: number;
+  invalid_initial_metrics_count: number;
+  provider_rows: number;
+  row_count: number;
+  policy_field_count: number;
+  detected_candidates: number;
+  assigned: number;
+  unmatched: number;
+  intentionally_excluded: number;
+  state_counts: Record<string, number>;
+  state_rates: Record<string, number | null>;
+  policy_state_counts: Record<string, number>;
+  confirmed_coverages: number;
+}
+export interface InsuranceReviewByCarrier {
+  carrier_code: number;
+  sample_count: number;
+  assigned: number;
+  unmatched: number;
+  unmatched_rate: number | null;
+}
+export interface InsuranceReviewMetrics {
+  job_count: number;
+  status_counts: Record<string, number>;
+  queue_wait_ms: InsuranceReviewDurationSummary;
+  current_queue_wait_ms: InsuranceReviewDurationSummary;
+  processing_ms: InsuranceReviewDurationSummary;
+  /** 확인 완료 시각 - 최초 추출 결과 생성 시각. 사람 검토 시간의 대용 지표. */
+  review_ms_proxy: InsuranceReviewDurationSummary;
+  attempts: {
+    job_count: number;
+    total: number;
+    retry_attempts: number;
+    retry_jobs: number;
+    retry_job_rate: number | null;
+  };
+  leases: {
+    job_count: number;
+    expired: number;
+    expired_jobs: number;
+    expired_job_rate: number | null;
+  };
+  validation: InsuranceReviewValidation;
+  corrections: {
+    confirmed_jobs: number;
+    jobs_with_edits: number;
+    job_correction_rate: number | null;
+    edit_actions: number;
+  };
+  failures: {
+    provider_calls: number;
+    failed_calls: number;
+    failure_rate: number | null;
+    zero_provider_rows: number;
+  };
+  by_carrier: InsuranceReviewByCarrier[];
+}
 export interface AdminClaudeCostResponse {
   days: number;
   total_calls: number;
   total_cost_krw: number;
+  total_tokens: AdminTokenTotals;
   /** 항상 true — cost_krw 가 추정치임을 FE 가 명시하라는 신호(판정어 아닌 사실 플래그) */
   cost_is_estimate: boolean;
   usd_krw_rate: number;
@@ -677,11 +757,45 @@ export interface AdminClaudeCostResponse {
   by_action: ClaudeCostByAction[];
   daily: ClaudeCostDailyPoint[];
   by_carrier: ClaudeCostByCarrier[];
+  insurance_review: InsuranceReviewMetrics;
 }
 
 /** GET /api/v1/admin/claude-cost/?days= — Claude 호출당 비용(추정)·파싱 결과 집계(데모 제외) */
 export async function adminGetClaudeCost(days = 30): Promise<AdminClaudeCostResponse> {
   return req<AdminClaudeCostResponse>("GET", `/admin/claude-cost/?days=${days}`);
+}
+
+// ─── 증권 자동 정리 실행 설정 ──────────────────────────────────────────────
+
+export interface InsuranceImportRuntimeSettings {
+  per_owner_concurrency: number;
+  global_concurrency: number;
+  force_manual_carrier_codes: number[];
+  updated_at: string;
+}
+export interface InsuranceImportDeploymentSettings {
+  insurance_review_gate_enabled: boolean;
+  source_retention_hours: number;
+}
+export interface AdminInsuranceImportSettingsResponse {
+  runtime: InsuranceImportRuntimeSettings;
+  deployment: InsuranceImportDeploymentSettings;
+}
+export type InsuranceImportRuntimePatch = Pick<
+  InsuranceImportRuntimeSettings,
+  "per_owner_concurrency" | "global_concurrency" | "force_manual_carrier_codes"
+>;
+
+/** GET /api/v1/admin/settings/insurance-import/ — 현재 실행 상한과 배포 설정 조회 */
+export async function adminGetInsuranceImportSettings(): Promise<AdminInsuranceImportSettingsResponse> {
+  return req<AdminInsuranceImportSettingsResponse>("GET", "/admin/settings/insurance-import/");
+}
+
+/** PATCH /api/v1/admin/settings/insurance-import/ — 다음 작업부터 적용되는 실행 상한 저장 */
+export async function adminUpdateInsuranceImportSettings(
+  patch: InsuranceImportRuntimePatch
+): Promise<AdminInsuranceImportSettingsResponse> {
+  return req<AdminInsuranceImportSettingsResponse>("PATCH", "/admin/settings/insurance-import/", patch);
 }
 
 // ─── 활성화 퍼널 (프리런치 리뷰 #16) ──────────────────────────────────────

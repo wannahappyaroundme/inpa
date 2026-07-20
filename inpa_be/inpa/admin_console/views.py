@@ -20,7 +20,8 @@ from rest_framework.views import APIView
 from rest_framework.throttling import ScopedRateThrottle
 
 from inpa.analysis.golden_eval import (
-    GOLDEN_SET_MIN_ACCURACY, evaluate_golden_set, find_golden_expected,
+    EVALUATION_SCOPE, EVALUATION_SCOPE_NOTE, GOLDEN_SET_MIN_ACCURACY,
+    evaluate_golden_set, find_golden_expected,
 )
 from inpa.analysis.models import AnalysisDetail, CoverageFlag, NormalizationDict, UnmatchedLog
 from inpa.billing.models import Plan, Subscription, UsageMeter
@@ -738,6 +739,12 @@ class AdminNormalizationAccuracyView(APIView):
             'accuracy': result['accuracy'],
             'total': result['total'],
             'passed': result['passed'],
+            'exact_auto_mapped': result['exact_auto_mapped'],
+            'safe_human_review': result['safe_human_review'],
+            'unsafe_auto_mapped': result['unsafe_auto_mapped'],
+            'safe_decision_rate': result['safe_decision_rate'],
+            'evaluation_scope': EVALUATION_SCOPE,
+            'evaluation_scope_note': EVALUATION_SCOPE_NOTE,
             'anchor_passed': result['anchor_passed'],
             'anchor_total': result['anchor_total'],
             'min_accuracy': GOLDEN_SET_MIN_ACCURACY,
@@ -1325,6 +1332,355 @@ class AdminClaudeCostView(APIView):
     """
     permission_classes = [IsAdmin]
 
+    _INITIAL_METRICS_SCHEMA = 'insurance-extraction-initial-metrics-v1'
+    _INITIAL_STATES = (
+        'review_ready', 'needs_review', 'no_evidence',
+        'unmatched', 'invalid', 'manual',
+    )
+    _SAFE_ACTIONS = frozenset({
+        'ocr_parse', 'insurance_extraction', 'ocr_verify',
+        'compare_guide', 'self_diagnosis', 'message_gen',
+    })
+    _SAFE_OUTCOMES = frozenset({
+        'success', 'empty', 'json_invalid', 'api_error', 'timeout',
+        'no_key', 'package_missing', 'schema_invalid',
+        'privacy_rejected', 'transport_failure', 'config_failure',
+    })
+    _PROVIDER_FAILURE_RESULT_OUTCOMES = frozenset({
+        'empty', 'schema_invalid', 'privacy_rejected',
+        'transport_failure', 'config_failure',
+        'post_provider_persistence_failure',
+    })
+
+    @staticmethod
+    def _safe_enum(value, allowed):
+        return value if value in allowed else 'other'
+
+    @staticmethod
+    def _duration_summary(values, invalid_count):
+        import math
+
+        ordered = sorted(values)
+
+        def nearest_rank(percentile):
+            if not ordered:
+                return None
+            index = max(0, math.ceil(percentile * len(ordered)) - 1)
+            return ordered[index]
+
+        return {
+            'sample_count': len(ordered),
+            'invalid_timing_count': invalid_count,
+            'p50': nearest_rank(0.50),
+            'p95': nearest_rank(0.95),
+        }
+
+    @staticmethod
+    def _duration_ms(start, end):
+        if start is None or end is None:
+            return None
+        value = round((end - start).total_seconds() * 1000)
+        return value if value >= 0 else False
+
+    def _validated_initial_metrics(self, job, result):
+        from inpa.insurances.import_validation import ALLOWED_CARRIER_CODES
+
+        summary = job.validation_summary
+        system = summary.get('_system') if isinstance(summary, dict) else None
+        if not isinstance(system, dict) or system.get('provider_started') is not True:
+            return None
+        if job.status in {'review_required', 'confirmed'}:
+            if result is None or result.outcome != 'review_required':
+                return None
+        elif job.status == 'failed':
+            if (result is None
+                    or result.outcome
+                    not in self._PROVIDER_FAILURE_RESULT_OUTCOMES):
+                return None
+        else:
+            return None
+        metrics = (
+            system.get('initial_metrics')
+            if isinstance(system, dict) else None)
+        expected_keys = {
+            'schema_version', 'carrier_code',
+            'detected_candidates', 'assigned', 'unmatched',
+            'intentionally_excluded', 'coverage_row_count',
+            'coverage_state_counts', 'policy_field_count',
+            'policy_state_counts', 'provider_rows', 'zero_provider_rows',
+        }
+        if (not isinstance(metrics, dict)
+                or set(metrics) != expected_keys
+                or metrics.get('schema_version') != self._INITIAL_METRICS_SCHEMA):
+            return None
+        required_counts = (
+            'detected_candidates', 'assigned', 'unmatched',
+            'intentionally_excluded', 'coverage_row_count',
+            'policy_field_count', 'provider_rows',
+        )
+        if any(
+                type(metrics.get(key)) is not int or metrics[key] < 0
+                for key in required_counts):
+            return None
+        carrier_code = metrics.get('carrier_code')
+        if (carrier_code is not None
+                and (type(carrier_code) is not int
+                     or carrier_code not in ALLOWED_CARRIER_CODES)):
+            return None
+        zero_provider_rows = metrics.get('zero_provider_rows')
+        if (type(zero_provider_rows) is not int
+                or zero_provider_rows not in (0, 1)
+                or (zero_provider_rows == 1 and metrics['provider_rows'] != 0)):
+            return None
+        coverage_states = metrics.get('coverage_state_counts')
+        policy_states = metrics.get('policy_state_counts')
+        expected_states = set(self._INITIAL_STATES)
+        for counts, count_key in (
+                (coverage_states, 'coverage_row_count'),
+                (policy_states, 'policy_field_count')):
+            if (not isinstance(counts, dict)
+                    or set(counts) != expected_states
+                    or any(type(value) is not int or value < 0
+                           for value in counts.values())
+                    or sum(counts.values()) != metrics[count_key]):
+                return None
+        if metrics['detected_candidates'] != sum(
+                metrics[key]
+                for key in (
+                    'assigned', 'unmatched', 'intentionally_excluded')):
+            return None
+        return {
+            'carrier_code': carrier_code,
+            **{key: metrics[key] for key in required_counts},
+            'zero_provider_rows': zero_provider_rows,
+            'coverage_state_counts': {
+                state: coverage_states[state]
+                for state in self._INITIAL_STATES
+            },
+            'policy_state_counts': {
+                state: policy_states[state]
+                for state in self._INITIAL_STATES
+            },
+        }
+
+    def _insurance_review_metrics(self, *, since, extraction_outcome_counts):
+        from inpa.insurances.models import (
+            InsuranceExtractionJob,
+            InsuranceExtractionResult,
+        )
+        safe_statuses = {
+            value for value, _label in InsuranceExtractionJob.STATUS_CHOICES
+        }
+
+        jobs_qs = (
+            InsuranceExtractionJob.objects
+            .exclude(owner__email__iendswith='@inpa.local')
+            .select_related('owner')
+        )
+        if since is not None:
+            jobs_qs = jobs_qs.filter(created_at__gte=since)
+        jobs = list(jobs_qs)
+        job_ids = [job.pk for job in jobs]
+        results = {
+            result.job_id: result
+            for result in InsuranceExtractionResult.objects.filter(
+                job_id__in=job_ids,
+                provider='claude',
+            )
+        }
+        status_counts = {}
+        for job in jobs:
+            bucket = self._safe_enum(job.status, safe_statuses)
+            status_counts[bucket] = status_counts.get(bucket, 0) + 1
+
+        queue_values = []
+        current_queue_values = []
+        processing_values = []
+        review_values = []
+        queue_invalid = current_queue_invalid = processing_invalid = review_invalid = 0
+        now = timezone.now()
+        for job in jobs:
+            if job.started_at is not None:
+                value = self._duration_ms(job.created_at, job.started_at)
+                if value is False:
+                    queue_invalid += 1
+                elif value is not None:
+                    queue_values.append(value)
+            elif job.status == 'queued':
+                value = self._duration_ms(job.created_at, now)
+                if value is False:
+                    current_queue_invalid += 1
+                elif value is not None:
+                    current_queue_values.append(value)
+
+            result = results.get(job.pk)
+            process_end = (
+                result.created_at if result is not None else job.completed_at)
+            if (job.status in {'review_required', 'confirmed', 'failed'}
+                    and job.started_at is not None
+                    and process_end is not None):
+                value = self._duration_ms(job.started_at, process_end)
+                if value is False:
+                    processing_invalid += 1
+                else:
+                    processing_values.append(value)
+            if job.confirmed_at is not None and result is not None:
+                value = self._duration_ms(result.created_at, job.confirmed_at)
+                if value is False:
+                    review_invalid += 1
+                else:
+                    review_values.append(value)
+
+        job_count = len(jobs)
+        attempts_total = sum(job.attempt_count for job in jobs)
+        retry_attempts = sum(max(job.attempt_count - 1, 0) for job in jobs)
+        retry_jobs = sum(job.attempt_count > 1 for job in jobs)
+        expired = sum(job.lease_expired_count for job in jobs)
+        expired_jobs = sum(job.lease_expired_count > 0 for job in jobs)
+
+        state_counts = {state: 0 for state in self._INITIAL_STATES}
+        policy_state_counts = {state: 0 for state in self._INITIAL_STATES}
+        validation_totals = {
+            'provider_rows': 0,
+            'row_count': 0,
+            'policy_field_count': 0,
+            'detected_candidates': 0,
+            'assigned': 0,
+            'unmatched': 0,
+            'intentionally_excluded': 0,
+        }
+        initial_sample_count = 0
+        no_provider_count = 0
+        pending_provider_count = 0
+        invalid_initial_count = 0
+        carriers = {}
+        for job in jobs:
+            summary = (
+                job.validation_summary
+                if isinstance(job.validation_summary, dict) else {})
+            system = summary.get('_system')
+            system = system if isinstance(system, dict) else {}
+            if system.get('provider_started') is not True:
+                no_provider_count += 1
+                continue
+            has_metrics = 'initial_metrics' in system
+            if not has_metrics and job.status == 'validating':
+                pending_provider_count += 1
+                continue
+            metrics = self._validated_initial_metrics(
+                job, results.get(job.pk))
+            if metrics is None:
+                invalid_initial_count += 1
+                continue
+            initial_sample_count += 1
+            validation_totals['provider_rows'] += metrics['provider_rows']
+            validation_totals['row_count'] += metrics['coverage_row_count']
+            for key in (
+                    'policy_field_count', 'detected_candidates', 'assigned',
+                    'unmatched', 'intentionally_excluded'):
+                validation_totals[key] += metrics[key]
+            for state in self._INITIAL_STATES:
+                state_counts[state] += metrics['coverage_state_counts'][state]
+                policy_state_counts[state] += metrics['policy_state_counts'][state]
+            carrier_code = metrics['carrier_code']
+            if carrier_code is not None:
+                carrier = carriers.setdefault(carrier_code, {
+                    'carrier_code': carrier_code,
+                    'sample_count': 0,
+                    'assigned': 0,
+                    'unmatched': 0,
+                })
+                carrier['sample_count'] += 1
+                carrier['assigned'] += metrics['assigned']
+                carrier['unmatched'] += metrics['unmatched']
+
+        row_count = validation_totals['row_count']
+        state_rates = {
+            state: (
+                round(state_counts[state] / row_count * 100, 1)
+                if row_count else None)
+            for state in self._INITIAL_STATES
+        }
+        by_carrier = []
+        for carrier in carriers.values():
+            total = carrier['assigned'] + carrier['unmatched']
+            by_carrier.append({
+                **carrier,
+                'unmatched_rate': (
+                    round(carrier['unmatched'] / total * 100, 1)
+                    if total else None),
+            })
+        by_carrier.sort(
+            key=lambda row: (
+                -(row['unmatched_rate'] or 0), row['carrier_code']))
+
+        confirmed_jobs = [job for job in jobs if job.status == 'confirmed']
+        jobs_with_edits = sum(job.planner_edit_count > 0 for job in confirmed_jobs)
+        provider_calls = sum(extraction_outcome_counts.values())
+        successful_calls = extraction_outcome_counts.get('success', 0)
+        failed_calls = provider_calls - successful_calls
+
+        return {
+            'job_count': job_count,
+            'status_counts': status_counts,
+            'queue_wait_ms': self._duration_summary(
+                queue_values, queue_invalid),
+            'current_queue_wait_ms': self._duration_summary(
+                current_queue_values, current_queue_invalid),
+            'processing_ms': self._duration_summary(
+                processing_values, processing_invalid),
+            'review_ms_proxy': self._duration_summary(
+                review_values, review_invalid),
+            'attempts': {
+                'job_count': job_count,
+                'total': attempts_total,
+                'retry_attempts': retry_attempts,
+                'retry_jobs': retry_jobs,
+                'retry_job_rate': (
+                    round(retry_jobs / job_count * 100, 1)
+                    if job_count else None),
+            },
+            'leases': {
+                'job_count': job_count,
+                'expired': expired,
+                'expired_jobs': expired_jobs,
+                'expired_job_rate': (
+                    round(expired_jobs / job_count * 100, 1)
+                    if job_count else None),
+            },
+            'validation': {
+                'initial_metrics_sample_count': initial_sample_count,
+                'no_provider_job_count': no_provider_count,
+                'pending_provider_metrics_count': pending_provider_count,
+                'invalid_initial_metrics_count': invalid_initial_count,
+                **validation_totals,
+                'state_counts': state_counts,
+                'state_rates': state_rates,
+                'policy_state_counts': policy_state_counts,
+                'confirmed_coverages': sum(
+                    job.confirmed_coverage_count for job in jobs),
+            },
+            'corrections': {
+                'confirmed_jobs': len(confirmed_jobs),
+                'jobs_with_edits': jobs_with_edits,
+                'job_correction_rate': (
+                    round(jobs_with_edits / len(confirmed_jobs) * 100, 1)
+                    if confirmed_jobs else None),
+                'edit_actions': sum(
+                    job.planner_edit_count for job in confirmed_jobs),
+            },
+            'failures': {
+                'provider_calls': provider_calls,
+                'failed_calls': failed_calls,
+                'failure_rate': (
+                    round(failed_calls / provider_calls * 100, 1)
+                    if provider_calls else None),
+                'zero_provider_rows': extraction_outcome_counts.get(
+                    'empty', 0),
+            },
+            'by_carrier': by_carrier,
+        }
+
     def get(self, request):
         from datetime import timedelta
 
@@ -1337,31 +1693,57 @@ class AdminClaudeCostView(APIView):
             days = int(request.query_params.get('days', 30))
         except (TypeError, ValueError):
             days = 30
+        if days != 0:
+            days = max(1, min(days, 365))
 
         qs = ClaudeApiLog.objects.exclude(user__email__iendswith='@inpa.local')
+        since = None
         if days > 0:
-            qs = qs.filter(created_at__gte=timezone.now() - timedelta(days=days))
+            since = timezone.now() - timedelta(days=days)
+            qs = qs.filter(created_at__gte=since)
 
         total_calls = qs.count()
-        total_cost_krw = qs.aggregate(s=Sum('cost_krw'))['s'] or 0
+        total_values = qs.aggregate(
+            cost=Sum('cost_krw'),
+            input=Sum('input_tokens'),
+            output=Sum('output_tokens'),
+            cache_read=Sum('cache_read_input_tokens'),
+            cache_creation=Sum('cache_creation_input_tokens'),
+        )
+        total_cost_krw = total_values['cost'] or 0
 
         # outcome 분포 + 성공률
-        outcome_counts = {
-            row['parse_outcome']: row['c']
-            for row in qs.values('parse_outcome').annotate(c=Count('id'))
-        }
+        outcome_counts = {}
+        for row in qs.values('parse_outcome').annotate(c=Count('id')):
+            bucket = self._safe_enum(
+                row['parse_outcome'], self._SAFE_OUTCOMES)
+            outcome_counts[bucket] = outcome_counts.get(bucket, 0) + row['c']
         success_count = outcome_counts.get(ClaudeApiLog.OUTCOME_SUCCESS, 0)
         success_rate = round(success_count / total_calls * 100, 1) if total_calls else None
 
+        extraction_outcome_counts = {}
+        for row in (
+                qs.filter(action='insurance_extraction')
+                .values('parse_outcome').annotate(c=Count('id'))):
+            bucket = self._safe_enum(
+                row['parse_outcome'], self._SAFE_OUTCOMES)
+            extraction_outcome_counts[bucket] = (
+                extraction_outcome_counts.get(bucket, 0) + row['c'])
+
         # 기능(action)별 호출수·추정비용
-        by_action = [
-            {'action': r['action'], 'calls': r['calls'], 'cost_krw': r['cost'] or 0}
-            for r in (
+        action_totals = {}
+        for row in (
                 qs.values('action')
-                  .annotate(calls=Count('id'), cost=Sum('cost_krw'))
-                  .order_by('-cost')
-            )
-        ]
+                .annotate(calls=Count('id'), cost=Sum('cost_krw'))):
+            bucket = self._safe_enum(row['action'], self._SAFE_ACTIONS)
+            total = action_totals.setdefault(
+                bucket, {'action': bucket, 'calls': 0, 'cost_krw': 0})
+            total['calls'] += row['calls']
+            total['cost_krw'] += row['cost'] or 0
+        by_action = sorted(
+            action_totals.values(),
+            key=lambda row: (-row['cost_krw'], row['action']),
+        )
 
         # 일별 추정비용 추이
         daily = [
@@ -1379,9 +1761,11 @@ class AdminClaudeCostView(APIView):
         ]
 
         # 회사별 미매칭율 — carrier_code 미상(null)은 제외, 총 0건(matched+unmatched)도 제외.
+        from inpa.insurances.import_validation import ALLOWED_CARRIER_CODES
+
         by_carrier = []
         for r in (
-            qs.exclude(carrier_code__isnull=True)
+            qs.filter(carrier_code__in=ALLOWED_CARRIER_CODES)
               .values('carrier_code')
               .annotate(matched=Sum('matched_count'), unmatched=Sum('unmatched_count'))
         ):
@@ -1404,6 +1788,12 @@ class AdminClaudeCostView(APIView):
             'days': days,
             'total_calls': total_calls,
             'total_cost_krw': total_cost_krw,
+            'total_tokens': {
+                'input': total_values['input'] or 0,
+                'output': total_values['output'] or 0,
+                'cache_read': total_values['cache_read'] or 0,
+                'cache_creation': total_values['cache_creation'] or 0,
+            },
             'cost_is_estimate': True,  # ★ FE 표기용 — 판정어 아닌 사실 플래그
             'usd_krw_rate': float(getattr(dj_settings, 'CLAUDE_USD_KRW_RATE', 1400.0)),
             'success_rate': success_rate,
@@ -1411,7 +1801,124 @@ class AdminClaudeCostView(APIView):
             'by_action': by_action,
             'daily': daily,
             'by_carrier': by_carrier,
+            'insurance_review': self._insurance_review_metrics(
+                since=since,
+                extraction_outcome_counts=extraction_outcome_counts,
+            ),
         })
+
+
+class AdminInsuranceImportSettingsView(APIView):
+    """증권 검토 worker 상한은 runtime, 출시 경계는 env 읽기 전용."""
+
+    permission_classes = [IsAdmin]
+    _EDITABLE_FIELDS = frozenset({
+        'per_owner_concurrency',
+        'global_concurrency',
+        'force_manual_carrier_codes',
+    })
+
+    @staticmethod
+    def _locked_config():
+        from django.conf import settings as dj_settings
+
+        from inpa.insurances.models import InsuranceImportRuntimeConfig
+
+        config, _created = (
+            InsuranceImportRuntimeConfig.objects
+            .select_for_update()
+            .get_or_create(pk=1, defaults={
+                'per_owner_concurrency': getattr(
+                    dj_settings, 'INSURANCE_IMPORT_PER_OWNER_LIMIT', 2),
+                'global_concurrency': getattr(
+                    dj_settings, 'INSURANCE_IMPORT_GLOBAL_LIMIT', 4),
+            })
+        )
+        return config
+
+    @staticmethod
+    def _response(config):
+        from django.conf import settings as dj_settings
+        from inpa.insurances.import_validation import (
+            sanitize_force_manual_carrier_codes,
+        )
+
+        return {
+            'runtime': {
+                'per_owner_concurrency': config.per_owner_concurrency,
+                'global_concurrency': config.global_concurrency,
+                'force_manual_carrier_codes': (
+                    sanitize_force_manual_carrier_codes(
+                        config.force_manual_carrier_codes)),
+                'updated_at': config.updated_at,
+            },
+            'deployment': {
+                'insurance_review_gate_enabled': bool(getattr(
+                    dj_settings, 'INSURANCE_REVIEW_GATE_ENABLED', False)),
+                'source_retention_hours': int(getattr(
+                    dj_settings, 'INSURANCE_SOURCE_RETENTION_HOURS', 24)),
+            },
+        }
+
+    def get(self, request):
+        from inpa.insurances.models import InsuranceImportRuntimeConfig
+
+        return Response(self._response(InsuranceImportRuntimeConfig.solo()))
+
+    def patch(self, request):
+        from inpa.insurances.import_validation import (
+            ALLOWED_CARRIER_CODES,
+            sanitize_force_manual_carrier_codes,
+        )
+
+        if not hasattr(request.data, 'keys'):
+            return Response(
+                {'code': 'INVALID_IMPORT_RUNTIME_CONFIG'},
+                status=status.HTTP_400_BAD_REQUEST)
+        unknown = set(request.data.keys()) - self._EDITABLE_FIELDS
+        if unknown:
+            return Response(
+                {'code': 'INVALID_IMPORT_RUNTIME_CONFIG'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            config = self._locked_config()
+            per_owner = request.data.get(
+                'per_owner_concurrency', config.per_owner_concurrency)
+            global_limit = request.data.get(
+                'global_concurrency', config.global_concurrency)
+            for value in (per_owner, global_limit):
+                if type(value) is not int or not 1 <= value <= 100:
+                    return Response(
+                        {'code': 'INVALID_IMPORT_RUNTIME_CONFIG'},
+                        status=status.HTTP_400_BAD_REQUEST)
+            if per_owner > global_limit:
+                return Response(
+                    {'code': 'INVALID_IMPORT_RUNTIME_CONFIG'},
+                    status=status.HTTP_400_BAD_REQUEST)
+
+            codes = request.data.get(
+                'force_manual_carrier_codes',
+                config.force_manual_carrier_codes,
+            )
+            if (not isinstance(codes, list)
+                    or any(type(code) is not int
+                           or code not in ALLOWED_CARRIER_CODES
+                           for code in codes)):
+                return Response(
+                    {'code': 'INVALID_IMPORT_RUNTIME_CONFIG'},
+                    status=status.HTTP_400_BAD_REQUEST)
+            config.per_owner_concurrency = per_owner
+            config.global_concurrency = global_limit
+            config.force_manual_carrier_codes = (
+                sanitize_force_manual_carrier_codes(codes))
+            config.save(update_fields=(
+                'per_owner_concurrency',
+                'global_concurrency',
+                'force_manual_carrier_codes',
+                'updated_at',
+            ))
+        return Response(self._response(config))
 
 
 class AdminActivationFunnelView(APIView):

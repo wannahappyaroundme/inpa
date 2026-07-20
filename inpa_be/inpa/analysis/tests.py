@@ -13,7 +13,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from inpa.accounts.models import Profile, User
-from inpa.analysis.calculate import calculate_total_analysis
+from inpa.analysis.calculate import calculate_analysis, calculate_total_analysis
 from inpa.analysis.models import (
     AnalysisCategory, AnalysisDetail, AnalysisSubCategory, ChartDetail,
 )
@@ -113,6 +113,132 @@ class CalculateEngineTests(TestCase):
         self.assertEqual(result['total_premiums'], 0)
         self.assertEqual(result['case_list'][0]['total_premium'], 0)
 
+    def test_lifetime_nonrenewal_stays_in_nonrenewal_coverage_bucket(self):
+        case = self.ci.case_list.get()
+        case.payment_period_type = 4
+        case.payment_period = None
+        case.renewal_period = None
+        case.save(update_fields=(
+            'payment_period_type', 'payment_period', 'renewal_period'))
+        case_list = [dict(d) for d in AnalysisDetail.objects.all().values(
+            'id', 'name', 'order', 'chart_based_amount', 'sub_category_id')]
+
+        result = calculate_total_analysis(
+            self.customer.birth_day, case_list, [], [self.ci])
+
+        target = next(
+            row for row in result['case_list'] if row['id'] == self.det.id)
+        self.assertEqual(target['total_non_renewal_premium'], 100000000)
+        self.assertEqual(target['total_renewal_premium'], 0)
+
+    def test_lifetime_renewal_stays_in_renewal_coverage_bucket(self):
+        case = self.ci.case_list.get()
+        case.payment_period_type = 4
+        case.payment_period = None
+        case.renewal_period = 10
+        case.save(update_fields=(
+            'payment_period_type', 'payment_period', 'renewal_period'))
+        case_list = [dict(d) for d in AnalysisDetail.objects.all().values(
+            'id', 'name', 'order', 'chart_based_amount', 'sub_category_id')]
+
+        result = calculate_total_analysis(
+            self.customer.birth_day, case_list, [], [self.ci])
+
+        target = next(
+            row for row in result['case_list'] if row['id'] == self.det.id)
+        self.assertEqual(target['total_renewal_premium'], 100000000)
+        self.assertEqual(target['total_non_renewal_premium'], 0)
+
+    def _run_both_aggregators(self, insurances):
+        return [
+            (
+                calculate.__name__,
+                calculate(
+                    self.customer.birth_day, [], [], list(insurances)),
+            )
+            for calculate in (calculate_analysis, calculate_total_analysis)
+        ]
+
+    def _insurance_with_totals(self, name, *, monthly, renewal_monthly,
+                               nonrenewal_monthly, total, renewal_total,
+                               nonrenewal_total, earned_total):
+        return CustomerInsurance.objects.create(
+            customer=self.customer,
+            insurance_type=2,
+            name=name,
+            portfolio_type=1,
+            payment_period_type=1,
+            payment_period=20,
+            non_renewal_month=240,
+            contract_date=timezone.localdate().strftime('%Y.%m.%d'),
+            monthly_premiums=monthly,
+            monthly_renewal_premium=renewal_monthly,
+            monthly_non_renewal_premium=nonrenewal_monthly,
+            total_premiums=total,
+            total_renewal_premium=renewal_total,
+            total_non_renewal_premium=nonrenewal_total,
+            total_earned_premium=earned_total,
+        )
+
+    def test_both_aggregators_preserve_unknown_absolute_totals(self):
+        known = self._insurance_with_totals(
+            '확정값보험', monthly=200, renewal_monthly=50,
+            nonrenewal_monthly=150, total=1000, renewal_total=400,
+            nonrenewal_total=600, earned_total=0)
+        unknown = self._insurance_with_totals(
+            '종신납보험', monthly=300, renewal_monthly=100,
+            nonrenewal_monthly=200, total=None, renewal_total=None,
+            nonrenewal_total=None, earned_total=None)
+
+        for name, result in self._run_both_aggregators([known, unknown]):
+            with self.subTest(calculate=name):
+                self.assertEqual(result['monthly_premiums'], 500)
+                self.assertEqual(result['monthly_renewal_premium'], 150)
+                self.assertEqual(result['monthly_non_renewal_premium'], 350)
+                self.assertIsNone(result['total_premiums'])
+                self.assertIsNone(result['total_renewal_premium'])
+                self.assertIsNone(result['total_non_renewal_premium'])
+                self.assertIsNone(result['total_earned_premium'])
+                self.assertIsNone(result['total_pay_insurance_premium'])
+
+    def test_both_aggregators_do_not_expose_partial_monthly_totals(self):
+        known = self._insurance_with_totals(
+            '월보험료확정', monthly=200, renewal_monthly=50,
+            nonrenewal_monthly=150, total=1000, renewal_total=400,
+            nonrenewal_total=600, earned_total=0)
+        unknown = self._insurance_with_totals(
+            '월보험료미확정', monthly=None, renewal_monthly=None,
+            nonrenewal_monthly=None, total=None, renewal_total=None,
+            nonrenewal_total=None, earned_total=None)
+
+        for name, result in self._run_both_aggregators([known, unknown]):
+            with self.subTest(calculate=name):
+                self.assertIsNone(result['monthly_premiums'])
+                self.assertIsNone(result['monthly_renewal_premium'])
+                self.assertIsNone(result['monthly_non_renewal_premium'])
+                self.assertIsNone(result['monthly_earned_premium'])
+
+    def test_both_aggregators_sum_known_absolute_totals_exactly(self):
+        first = self._insurance_with_totals(
+            '확정값보험1', monthly=100, renewal_monthly=40,
+            nonrenewal_monthly=60, total=1000, renewal_total=400,
+            nonrenewal_total=600, earned_total=0)
+        second = self._insurance_with_totals(
+            '확정값보험2', monthly=200, renewal_monthly=50,
+            nonrenewal_monthly=150, total=2000, renewal_total=500,
+            nonrenewal_total=1500, earned_total=0)
+
+        for name, result in self._run_both_aggregators([first, second]):
+            with self.subTest(calculate=name):
+                self.assertEqual(result['monthly_premiums'], 300)
+                self.assertEqual(result['monthly_renewal_premium'], 90)
+                self.assertEqual(result['monthly_non_renewal_premium'], 210)
+                self.assertEqual(result['total_premiums'], 3000)
+                self.assertEqual(result['total_renewal_premium'], 900)
+                self.assertEqual(result['total_non_renewal_premium'], 2100)
+                self.assertEqual(result['total_earned_premium'], 0)
+                self.assertEqual(result['total_pay_insurance_premium'], 3000)
+
 
 class HeatmapNeutralGateTests(TestCase):
     """(b) ★ 준법 neutral 게이트 — PlannerBaseline 없으면 mode='neutral'."""
@@ -163,6 +289,21 @@ class HeatmapNeutralGateTests(TestCase):
         body = r.json()
         held = body['tree'][0]['sub_categories'][0]['details'][0]['held_amount']
         self.assertEqual(held, 50000000)
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_heatmap_skips_legacy_confirmed_policy_with_unknown_assurance(self):
+        self.ci.review_status = 'confirmed'
+        self.ci.analysis_included = True
+        self.ci.save(update_fields=('review_status', 'analysis_included'))
+        self.ci.case_list.update(assurance_amount=None)
+
+        response = self._get()
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['insurance_count'], 0)
+        held = response.json()['tree'][0]['sub_categories'][0]['details'][0][
+            'held_amount']
+        self.assertEqual(held, 0)
 
 
 class HeatmapGradedTests(TestCase):
@@ -772,6 +913,9 @@ class HeatmapInsurancesTests(TestCase):
         self.assertEqual(insurance['name'], '보험A')
         self.assertIn('monthly_renewal_premium', insurance)
         self.assertIn('case_fees', insurance)
+        self.assertEqual(insurance['review_status'], 'legacy_review_required')
+        self.assertFalse(insurance['analysis_included'])
+        self.assertIsNone(insurance['confirmed_at'])
         # case_fees 는 배열 (담보별 요금)
         self.assertIsInstance(insurance['case_fees'], list)
         self.assertEqual(len(insurance['case_fees']), 1)
@@ -894,6 +1038,366 @@ class HeatmapInsuranceFilterTests(TestCase):
         self.assertEqual(self._get('abc').status_code, 404)
 
 
+@override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+class AnalysisEligibilityGateTests(TestCase):
+    """검토 게이트가 열리면 확인·포함·정상 보험만 서버 집계에 들어간다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('eligibility@test.com')
+        self.customer = Customer.objects.create(
+            owner=self.user, name='검토고객', birth_day='1990.01.01')
+        self.standard = _build_std_tree()
+        self.catalog = _catalog_detail_linked_to(self.standard)
+        self.confirmed_at = timezone.now() - timezone.timedelta(hours=1)
+        self.included = self._make(
+            '확인보험', 10000000, review_status='confirmed',
+            analysis_included=True, confirmed_at=self.confirmed_at)
+        self._make('기존보험', 20000000, review_status='legacy_review_required')
+        self._make('제외보험', 30000000, review_status='excluded')
+        self._make(
+            '포함해제보험', 40000000, review_status='confirmed',
+            analysis_included=False, confirmed_at=timezone.now())
+        self._make(
+            '교체보험', 50000000, review_status='superseded',
+            analysis_included=True, confirmed_at=timezone.now())
+        self._make(
+            '해지보험', 60000000, review_status='confirmed',
+            analysis_included=True, confirmed_at=timezone.now(),
+            is_cancelled=True)
+
+    def _make(self, name, amount, **fields):
+        ci = CustomerInsurance.objects.create(
+            customer=self.customer, insurance_type=2, name=name,
+            portfolio_type=1, payment_period_type=1, payment_period=20,
+            monthly_premiums=amount // 1000,
+            monthly_assurance_premium=amount // 1000,
+            **fields)
+        CustomerInsuranceDetail.objects.create(
+            insurance=ci, detail=self.catalog, assurance_amount=amount,
+            premium=1000, payment_period_type=1, payment_period=20,
+            warranty_period_type=1, warranty_period='100')
+        ci.set_renewal_month()
+        ci.calculate()
+        ci.save()
+        return ci
+
+    def _get(self, suffix=''):
+        return self.client.get(
+            f'/api/v1/customers/{self.customer.id}/heatmap/{suffix}')
+
+    def test_gate_on_includes_only_confirmed_included_active_insurance(self):
+        response = self._get()
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        held = body['tree'][0]['sub_categories'][0]['details'][0]['held_amount']
+        self.assertEqual(held, 10000000)
+        self.assertEqual(body['insurance_count'], 1)
+        self.assertEqual(body['included_insurance_count'], 1)
+        self.assertEqual(body['excluded_insurance_count'], 5)
+        self.assertEqual(body['pending_review_count'], 1)
+        self.assertEqual(body['last_confirmed_at'], self.confirmed_at.isoformat())
+        self.assertFalse(body['can_share'])
+        self.assertEqual(
+            body['share_block_reason'],
+            '확인할 보험 내용을 마치면 바로 공유할 수 있어요.')
+
+    def test_mixed_coverage_premiums_hide_partial_composition_not_coverage(self):
+        CustomerInsuranceDetail.objects.create(
+            insurance=self.included,
+            detail=self.catalog,
+            assurance_amount=5_000_000,
+            premium=None,
+            payment_period_type=1,
+            payment_period=20,
+            warranty_period_type=1,
+            warranty_period='100',
+        )
+
+        response = self._get()
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        detail = body['tree'][0]['sub_categories'][0]['details'][0]
+        self.assertEqual(detail['held_amount'], 15_000_000)
+        self.assertEqual(body['insurance_count'], 1)
+        self.assertEqual(body['summary']['monthly_premiums'], 10_000)
+        for field in (
+                'monthly_renewal_premium',
+                'monthly_non_renewal_premium',
+                'total_premiums',
+                'total_renewal_premium',
+                'total_non_renewal_premium'):
+            self.assertIsNone(body['summary'][field], field)
+            self.assertIsNone(body['insurances'][0][field], field)
+        self.assertIsNone(body['summary']['total_pay_insurance_premium'])
+        self.assertEqual(
+            sorted(
+                fee['premium']
+                for fee in body['insurances'][0]['case_fees']
+                if fee['premium'] is not None),
+            [1_000],
+        )
+        self.assertEqual(
+            sum(
+                fee['premium'] is None
+                for fee in body['insurances'][0]['case_fees']),
+            1,
+        )
+
+        compare = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {},
+            format='json',
+        )
+        self.assertEqual(compare.status_code, 200)
+        current = compare.json()['current']
+        self.assertEqual(current['monthly_premiums'], 10_000)
+        for field in (
+                'monthly_renewal_premium',
+                'monthly_non_renewal_premium',
+                'total_premiums',
+                'total_renewal_premium',
+                'total_non_renewal_premium'):
+            self.assertIsNone(current[field], field)
+
+    def test_contributions_use_only_exact_ready_held_portfolio(self):
+        included_case = self.included.case_list.get()
+        included_case.raw_name = '확인한 원문 담보'
+        included_case.source_page = 4
+        included_case.source_text_masked = '응답에 포함하지 않을 합성 근거'
+        included_case.evidence_line_ids = ['synthetic-evidence']
+        included_case.source_candidate_ids = ['synthetic-candidate']
+        included_case.save(update_fields=(
+            'raw_name', 'source_page', 'source_text_masked',
+            'evidence_line_ids', 'source_candidate_ids'))
+        proposal = self._make(
+            '확인제안', 70000000, review_status='confirmed',
+            analysis_included=True, confirmed_at=timezone.now())
+        proposal.portfolio_type = 2
+        proposal.save(update_fields=['portfolio_type'])
+        foreign_user, _ = _make_planner('contribution-foreign@test.com')
+        foreign_customer = Customer.objects.create(
+            owner=foreign_user, name='다른 고객', birth_day='1980.01.01')
+        foreign_insurance = CustomerInsurance.objects.create(
+            customer=foreign_customer, insurance_type=2, name='다른 보험',
+            portfolio_type=1, review_status='confirmed',
+            analysis_included=True, confirmed_at=timezone.now())
+        CustomerInsuranceDetail.objects.create(
+            insurance=foreign_insurance, detail=self.catalog,
+            raw_name='다른 고객 담보', assurance_amount=80_000_000,
+            payment_period_type=1, payment_period=20,
+            warranty_period_type=1, warranty_period='100')
+
+        body = self._get().json()
+        detail = body['tree'][0]['sub_categories'][0]['details'][0]
+
+        self.assertEqual(detail['held_amount'], 10_000_000)
+        self.assertEqual(len(detail['contributions']), 1)
+        contribution = detail['contributions'][0]
+        self.assertEqual(set(contribution), {
+            'case_id', 'insurance_id', 'insurance_name', 'raw_name',
+            'assurance_amount', 'source_page', 'mapping_source',
+        })
+        self.assertEqual(contribution, {
+            'case_id': included_case.pk,
+            'insurance_id': self.included.pk,
+            'insurance_name': '확인보험',
+            'raw_name': '확인한 원문 담보',
+            'assurance_amount': 10_000_000,
+            'source_page': 4,
+            'mapping_source': 'global',
+        })
+        self.assertEqual(
+            sum(row['assurance_amount']
+                for row in detail['contributions']),
+            detail['held_amount'])
+        serialized = str(detail['contributions'])
+        for forbidden in (
+                'source_text_masked', 'evidence_line_ids',
+                'source_candidate_ids', 'file_name', 'capability',
+                '다른 고객 담보'):
+            self.assertNotIn(forbidden, serialized)
+
+    def test_excluded_canceled_and_superseded_do_not_block_after_pending_is_resolved(self):
+        legacy = self.customer.customer_insurance_list.get(name='기존보험')
+        legacy.review_status = 'excluded'
+        legacy.analysis_included = False
+        legacy.save(update_fields=('review_status', 'analysis_included'))
+        body = self._get().json()
+        self.assertEqual(body['pending_review_count'], 0)
+        self.assertTrue(body['can_share'])
+        self.assertIsNone(body['share_block_reason'])
+
+    def test_unconfirmed_insurance_id_is_hidden(self):
+        legacy = self.customer.customer_insurance_list.get(name='기존보험')
+        response = self._get(f'?insurance_id={legacy.id}')
+        self.assertEqual(response.status_code, 404)
+
+    def test_share_status_guides_next_confirmation_when_nothing_is_included(self):
+        self.included.analysis_included = False
+        self.included.save(update_fields=['analysis_included'])
+        body = self._get().json()
+        self.assertFalse(body['can_share'])
+        self.assertEqual(
+            body['share_block_reason'],
+            '확인할 보험 내용을 마치면 바로 공유할 수 있어요.')
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
+    def test_gate_off_preserves_legacy_but_never_includes_explicit_exclusions(self):
+        response = self._get()
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        held = body['tree'][0]['sub_categories'][0]['details'][0]['held_amount']
+        # Gate OFF는 기존 자료만 보존한다. 명시적 제외와 포함 해제는
+        # 검토 기능 활성화 여부와 관계없이 분석에 들어가지 않는다.
+        self.assertEqual(held, 10000000 + 20000000)
+
+    def test_compare_uses_same_analysis_ready_authority(self):
+        proposed = self._make(
+            '확인제안', 70000000, review_status='confirmed',
+            analysis_included=True, confirmed_at=timezone.now())
+        proposed.portfolio_type = 2
+        proposed.save(update_fields=['portfolio_type'])
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {'side_a_ids': [self.included.id],
+             'side_b_ids': [proposed.id,
+                            self.customer.customer_insurance_list.get(
+                                name='기존보험').id]},
+            format='json')
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.json()['rows']
+                   if item['coverage'] == '사망보장')
+        self.assertEqual(row['current_amount'], 10000000)
+        self.assertEqual(row['proposed_amount'], 70000000)
+
+
+@override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+class CaseMappingOverrideTests(TestCase):
+    """한 고객의 개별 매핑 변경은 다른 고객과 전역 담보 사전에 전파되지 않는다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('override@test.com')
+        self.customer_a = Customer.objects.create(
+            owner=self.user, name='A고객', birth_day='1990.01.01')
+        self.customer_b = Customer.objects.create(
+            owner=self.user, name='B고객', birth_day='1990.01.01')
+        self.global_detail = _build_std_tree()
+        self.override_detail = AnalysisDetail.objects.create(
+            sub_category=self.global_detail.sub_category, name='개별담보', order=2)
+        self.catalog = _catalog_detail_linked_to(self.global_detail)
+        self.insurance_a, self.case_a = self._make(self.customer_a)
+        self.insurance_b, self.case_b = self._make(self.customer_b)
+        self.case_a.mapping_source = 'planner_override'
+        self.case_a.save(update_fields=['mapping_source'])
+        self.case_a.analysis_detail_override.add(self.override_detail)
+
+    def _make(self, customer):
+        ci = CustomerInsurance.objects.create(
+            customer=customer, insurance_type=2, name='공유담보보험',
+            portfolio_type=1, payment_period_type=1, payment_period=20,
+            monthly_premiums=30000, monthly_assurance_premium=30000,
+            review_status='confirmed', analysis_included=True,
+            confirmed_at=timezone.now())
+        case = CustomerInsuranceDetail.objects.create(
+            insurance=ci, detail=self.catalog, assurance_amount=50000000,
+            premium=1000, payment_period_type=1, payment_period=20,
+            warranty_period_type=1, warranty_period='100')
+        ci.set_renewal_month()
+        ci.calculate()
+        ci.save()
+        return ci, case
+
+    @staticmethod
+    def _held(body):
+        return {
+            detail['name']: detail['held_amount']
+            for category in body['tree']
+            for sub in category['sub_categories']
+            for detail in sub['details']
+        }
+
+    def test_heatmap_uses_case_override_without_mutating_global_mapping(self):
+        a = self.client.get(
+            f'/api/v1/customers/{self.customer_a.id}/heatmap/').json()
+        b = self.client.get(
+            f'/api/v1/customers/{self.customer_b.id}/heatmap/').json()
+        self.assertEqual(self._held(a)['개별담보'], 50000000)
+        self.assertEqual(self._held(a)['사망보장'], 0)
+        self.assertEqual(self._held(b)['개별담보'], 0)
+        self.assertEqual(self._held(b)['사망보장'], 50000000)
+        self.assertEqual(
+            list(self.catalog.analysis_detail.values_list('id', flat=True)),
+            [self.global_detail.id])
+
+    def test_contribution_uses_effective_case_local_override(self):
+        self.case_a.raw_name = '설계사가 바꾼 담보'
+        self.case_a.source_page = 2
+        self.case_a.save(update_fields=['raw_name', 'source_page'])
+
+        body = self.client.get(
+            f'/api/v1/customers/{self.customer_a.id}/heatmap/').json()
+        details = {
+            detail['name']: detail
+            for category in body['tree']
+            for sub in category['sub_categories']
+            for detail in sub['details']
+        }
+
+        self.assertEqual(details['사망보장']['contributions'], [])
+        self.assertEqual(details['개별담보']['contributions'], [{
+            'case_id': self.case_a.pk,
+            'insurance_id': self.insurance_a.pk,
+            'insurance_name': '공유담보보험',
+            'raw_name': '설계사가 바꾼 담보',
+            'assurance_amount': 50_000_000,
+            'source_page': 2,
+            'mapping_source': 'planner_override',
+        }])
+
+    def test_contribution_preserves_manual_mapping_source(self):
+        self.case_a.mapping_source = 'manual'
+        self.case_a.save(update_fields=['mapping_source'])
+
+        body = self.client.get(
+            f'/api/v1/customers/{self.customer_a.id}/heatmap/').json()
+        details = {
+            detail['name']: detail
+            for category in body['tree']
+            for sub in category['sub_categories']
+            for detail in sub['details']
+        }
+
+        contribution = details['개별담보']['contributions'][0]
+        self.assertEqual(contribution['mapping_source'], 'manual')
+        self.assertEqual(
+            sum(row['assurance_amount']
+                for row in details['개별담보']['contributions']),
+            details['개별담보']['held_amount'])
+
+    def test_compare_and_share_use_same_effective_mapping(self):
+        compare = self.client.post(
+            f'/api/v1/customers/{self.customer_a.id}/compare/',
+            {'side_a_ids': [self.insurance_a.id], 'side_b_ids': []},
+            format='json').json()
+        self.assertEqual(
+            [(row['coverage'], row['current_amount']) for row in compare['rows']],
+            [('개별담보', 50000000)])
+
+        from inpa.analytics.views import _build_share_payload
+        share = _build_share_payload(self.customer_a)
+        self.assertEqual(self._held(share)['개별담보'], 50000000)
+        self.assertEqual(self._held(share)['사망보장'], 0)
+
+    def test_empty_override_does_not_fall_back_to_global_catalog_name(self):
+        self.case_a.analysis_detail_override.clear()
+        compare = self.client.post(
+            f'/api/v1/customers/{self.customer_a.id}/compare/',
+            {'side_a_ids': [self.insurance_a.id], 'side_b_ids': []},
+            format='json').json()
+        self.assertEqual(compare['rows'], [])
+
+
 # ══════════════════════════════════════════════════════════════════════
 # LB-1 시드 안전화 — identity-true upsert + 버전 마커 + 고아/prune + 손상 복구
 # ══════════════════════════════════════════════════════════════════════
@@ -913,6 +1417,83 @@ def _std_leaf(name):
 
 class SeedNormalizationUpsertTests(TestCase):
     """재실행 안전: PK 보존 → M2M 링크·admin_verified 행 생존, 카운트 불변."""
+
+    def test_seed_creates_idempotent_standard_compatibility_catalog(self):
+        legacy_category = InsuranceCategory.objects.create(
+            insurance_type=2, name='진단-암', order=99)
+        legacy_subcategory = InsuranceSubCategory.objects.create(
+            insurance_type=2, category=legacy_category,
+            name='일반암', order=99)
+        legacy_detail = InsuranceDetail.objects.create(
+            sub_category=legacy_subcategory,
+            name='일반암진단비', order=99)
+
+        call_command('seed_normalization', stdout=StringIO())
+
+        category = InsuranceCategory.objects.get(name='[표준]진단-암')
+        subcategory = InsuranceSubCategory.objects.get(
+            category=category, name='일반암')
+        detail = InsuranceDetail.objects.get(
+            sub_category=subcategory, name='일반암진단비')
+        self.assertFalse(detail.analysis_detail.exists())
+
+        from inpa.insurances.import_services import (
+            _catalog_detail_for_override,
+        )
+        resolved = _catalog_detail_for_override({
+            'standard_category': '진단-암',
+            'standard_subcategory': '일반암',
+            'standard_detail_name': '일반암진단비',
+        }, insurance_type=2)
+        self.assertEqual(resolved.pk, detail.pk)
+
+        category_pk = category.pk
+        subcategory_pk = subcategory.pk
+        detail_pk = detail.pk
+        call_command('seed_normalization', '--force', stdout=StringIO())
+        self.assertEqual(
+            InsuranceCategory.objects.get(name='[표준]진단-암').pk,
+            category_pk)
+        self.assertEqual(
+            InsuranceSubCategory.objects.get(
+                category_id=category_pk, name='일반암').pk,
+            subcategory_pk)
+        self.assertEqual(
+            InsuranceDetail.objects.get(
+                sub_category_id=subcategory_pk, name='일반암진단비').pk,
+            detail_pk)
+        legacy_detail.refresh_from_db()
+        self.assertEqual(legacy_detail.order, 99)
+
+    def test_standard_compatibility_catalog_matches_all_standard_paths(self):
+        call_command('seed_normalization', stdout=StringIO())
+
+        expected_paths = {
+            (f'[표준]{category}', subcategory, detail)
+            for category, _insurance_type, subcategories
+            in seed_norm_mod.STANDARD_TREE
+            for subcategory, details in subcategories
+            for detail, _amount in details
+        }
+        actual_paths = {
+            (
+                detail.sub_category.category.name,
+                detail.sub_category.name,
+                detail.name,
+            )
+            for detail in InsuranceDetail.objects.filter(
+                sub_category__category__name__startswith='[표준]'
+            ).select_related('sub_category__category')
+        }
+
+        self.assertEqual(len(expected_paths), 57)
+        self.assertEqual(actual_paths, expected_paths)
+        self.assertFalse(
+            InsuranceDetail.objects.filter(
+                sub_category__category__name__startswith='[표준]',
+                analysis_detail__isnull=False,
+            ).exists()
+        )
 
     def test_reseed_preserves_pk_m2m_and_admin_rows(self):
         call_command('seed_normalization', stdout=StringIO())
@@ -972,6 +1553,34 @@ class SeedNormalizationUpsertTests(TestCase):
 
 class SeedNormalizationMarkerTests(TestCase):
     """버전 마커: 2회차 no-op / --force 우회 / 버전 bump 시 재실행."""
+
+    def test_missing_catalog_marker_backfills_without_reseeding_tree(self):
+        call_command('seed_normalization', stdout=StringIO())
+        leaf = _std_leaf('일반암진단비')
+        AnalysisDetail.objects.filter(pk=leaf.pk).update(
+            chart_based_amount=9999)
+        InsuranceCategory.objects.filter(
+            name__startswith='[표준]').delete()
+        SeedMarker.objects.filter(
+            key=seed_norm_mod.CATALOG_MARKER_KEY).delete()
+
+        call_command('seed_normalization', stdout=StringIO())
+
+        leaf.refresh_from_db()
+        self.assertEqual(leaf.chart_based_amount, 9999)
+        self.assertTrue(InsuranceDetail.objects.filter(
+            sub_category__category__name='[표준]진단-암',
+            sub_category__name='일반암',
+            name='일반암진단비',
+        ).exists())
+        self.assertEqual(
+            SeedMarker.objects.get(
+                key=seed_norm_mod.MARKER_KEY).version,
+            seed_norm_mod.SEED_VERSION)
+        self.assertEqual(
+            SeedMarker.objects.get(
+                key=seed_norm_mod.CATALOG_MARKER_KEY).version,
+            seed_norm_mod.CATALOG_SEED_VERSION)
 
     def test_second_run_is_noop_force_and_bump_rerun(self):
         call_command('seed_normalization', stdout=StringIO())
@@ -1054,6 +1663,45 @@ class SeedNormalizationOrphanPruneTests(TestCase):
             self.assertTrue(NormalizationDict.objects.filter(
                 pk=admin_row.pk,
                 source=NormalizationDict.SOURCE_ADMIN_VERIFIED).exists())
+
+    def test_prune_preserves_leaf_used_by_customer_case_override(self):
+        call_command('seed_normalization', stdout=StringIO())
+        radiation = _std_leaf('표적항암방사선치료비')
+        catalog_detail = InsuranceDetail.objects.get(
+            sub_category__category__name='[표준]처치',
+            sub_category__name='표적항암',
+            name='표적항암방사선치료비',
+        )
+        user, _ = _make_planner('override-prune@test.com')
+        customer = Customer.objects.create(
+            owner=user, name='직접확인고객', birth_day='1990.01.01')
+        insurance = CustomerInsurance.objects.create(
+            customer=customer,
+            company=1,
+            insurance_type=2,
+            name='직접 확인 증권',
+            monthly_premiums=10000,
+        )
+        case = CustomerInsuranceDetail.objects.create(
+            insurance=insurance,
+            detail=catalog_detail,
+            raw_name='표적항암방사선치료비',
+            assurance_amount=10000000,
+            mapping_source='planner_override',
+        )
+        case.analysis_detail_override.add(radiation)
+
+        tree, norm = self._mini_constants()
+        with mock.patch.object(seed_norm_mod, 'STANDARD_TREE', tree), \
+                mock.patch.object(seed_norm_mod, 'NORMALIZATION_V0', norm):
+            out = StringIO()
+            call_command(
+                'seed_normalization', '--force', '--prune', stdout=out)
+
+        self.assertIn('고객 직접 확인 연결', out.getvalue())
+        self.assertTrue(AnalysisDetail.objects.filter(pk=radiation.pk).exists())
+        self.assertTrue(
+            case.analysis_detail_override.filter(pk=radiation.pk).exists())
 
 
 class RepairAnalysisLinksTests(TestCase):
@@ -1285,6 +1933,23 @@ class CancerSubtypeRoutingTests(TestCase):
         self.assertEqual(self._path('일반암진단비'), ('진단비', '암', '일반암'))
         self.assertEqual(self._path('16대특정암진단비'), ('진단비', '암', '일반암'))
 
+    def test_ambiguous_cancer_is_not_saved_through_category_map(self):
+        """Claude 분류가 일반암이어도 복합 표기는 사람 확인 전 저장하지 않는다."""
+        ocr = Ocr_Data()
+        _add_coverage(ocr, {
+            'category': '진단비',
+            'subcategory': '암',
+            'detail_name': '일반암',
+            'name': '암진단비(유사암포함)',
+            'amount': 30_000_000,
+        }, 20, 100)
+
+        self.assertEqual(
+            ocr.dict_detail_data['진단비']['암']['일반암'],
+            [],
+        )
+        self.assertEqual(ocr._manual_review_coverage_count, 1)
+
 
 class DisabilitySubtypeRoutingTests(TestCase):
     """후유장해 담보 세분류 개별 인식(2026-07-09, PM 확정) — _match_by_keywords 직접 호출.
@@ -1335,7 +2000,7 @@ class ClaudeParserLogRedactionTests(TestCase):
         self.assertNotIn('민감담보원문-유출금지-XYZ', joined)  # 메시지 내용 미포함
         self.assertNotIn('비밀상품', joined)             # 담보 원문명 미포함
 
-    @override_settings(CLAUDE_API_KEY='test-key')
+    @override_settings(CLAUDE_API_KEY='test-key', CLAUDE_MODEL_PARSE='test-model')
     def test_json_failure_log_excludes_response_text(self):
         """JSON 파싱 실패 로그에 Claude 응답 본문(증권 내용 파생)이 새지 않는다."""
         from inpa.core.ocr.claude_parser import claude_parse
@@ -1374,7 +2039,7 @@ class ClaudeParseMetaOutcomeTests(TestCase):
         self.assertIsNone(meta['usage'])
         self.assertIn('model', meta)  # no_key 여도 model 은 알 수 있음
 
-    @override_settings(CLAUDE_API_KEY='test-key')
+    @override_settings(CLAUDE_API_KEY='test-key', CLAUDE_MODEL_PARSE='test-model')
     def test_json_invalid_outcome_still_carries_usage(self):
         """JSON 파싱 실패해도 호출 자체는 성공했으므로 usage 는 채워진다(토큰 낭비 관측용)."""
         from inpa.core.ocr.claude_parser import claude_parse
@@ -1394,7 +2059,7 @@ class ClaudeParseMetaOutcomeTests(TestCase):
         self.assertIsNotNone(meta['usage'])
         self.assertEqual(meta['usage'].input_tokens, 50)
 
-    @override_settings(CLAUDE_API_KEY='test-key')
+    @override_settings(CLAUDE_API_KEY='test-key', CLAUDE_MODEL_PARSE='test-model')
     def test_timeout_outcome(self):
         import anthropic
 
@@ -1410,7 +2075,7 @@ class ClaudeParseMetaOutcomeTests(TestCase):
         self.assertEqual(meta['outcome'], 'timeout')
         self.assertIsNone(meta['usage'])
 
-    @override_settings(CLAUDE_API_KEY='test-key')
+    @override_settings(CLAUDE_API_KEY='test-key', CLAUDE_MODEL_PARSE='test-model')
     def test_api_error_outcome(self):
         from inpa.core.ocr.claude_parser import claude_parse
 
@@ -1424,7 +2089,7 @@ class ClaudeParseMetaOutcomeTests(TestCase):
         self.assertEqual(meta['outcome'], 'api_error')
         self.assertIsNone(meta['usage'])
 
-    @override_settings(CLAUDE_API_KEY='test-key')
+    @override_settings(CLAUDE_API_KEY='test-key', CLAUDE_MODEL_PARSE='test-model')
     def test_meta_none_has_no_side_effect(self):
         """meta 미전달 시 기존 동작과 완전히 동일 — 기존 호출부/테스트 하위호환 회귀."""
         from inpa.core.ocr.claude_parser import claude_parse
@@ -1438,7 +2103,7 @@ class ClaudeParseMetaOutcomeTests(TestCase):
             result = claude_parse(['텍스트'])  # meta 없음 — 에러 없이 그대로 동작해야 함
         self.assertIsNone(result)
 
-    @override_settings(CLAUDE_API_KEY='test-key')
+    @override_settings(CLAUDE_API_KEY='test-key', CLAUDE_MODEL_PARSE='test-model')
     def test_success_meta_carries_only_counts_no_raw_names(self):
         """★ PII 레드라인 회귀 — meta 에 담기는 값은 정수/enum 뿐, 담보 원문명이 새지 않는다."""
         import json as _json
@@ -1651,7 +2316,8 @@ class CoverageFlagCreateTests(TestCase):
 # 골든셋 정규화 정확도 기준선 (프리런치 리뷰 #18, 2026-07-09)
 # ═══════════════════════════════════════════════════════════════════════
 from inpa.analysis.golden_eval import (  # noqa: E402
-    GOLDEN_SET_MIN_ACCURACY, evaluate_golden_set, find_golden_expected, load_golden_set,
+    GOLDEN_SET_MIN_ACCURACY, GOLDEN_SET_MIN_EXACT_AUTO_MAPPED,
+    evaluate_golden_set, find_golden_expected, load_golden_set,
 )
 
 
@@ -1687,6 +2353,88 @@ class GoldenEvalUnitTests(TestCase):
             result['accuracy'], result['passed'] / result['total'], places=6)
         self.assertEqual(result['failed'], result['total'] - result['passed'])
 
+    def test_decision_metrics_separate_exact_review_and_unsafe_results(self):
+        result = evaluate_golden_set()
+
+        self.assertEqual(result['exact_auto_mapped'], 174)
+        self.assertEqual(result['safe_human_review'], 66)
+        self.assertEqual(result['unsafe_auto_mapped'], 0)
+        self.assertEqual(
+            result['exact_auto_mapped']
+            + result['safe_human_review']
+            + result['unsafe_auto_mapped'],
+            result['total'],
+        )
+        self.assertEqual(result['safe_decision_rate'], 1.0)
+
+    def test_unknown_mapping_is_counted_as_safe_human_review(self):
+        result = evaluate_golden_set(entries=[{
+            'company': 1,
+            'raw_name': '표준위치를확정할수없는담보',
+            'expected_std_leaf': '일반암진단비',
+            'source': 'seed_dict',
+        }])
+
+        self.assertEqual(result['exact_auto_mapped'], 0)
+        self.assertEqual(result['safe_human_review'], 1)
+        self.assertEqual(result['unsafe_auto_mapped'], 0)
+
+    def test_wrong_non_blocked_mapping_is_counted_as_unsafe(self):
+        result = evaluate_golden_set(entries=[{
+            'company': 1,
+            'raw_name': '일반사망보험금',
+            'expected_std_leaf': '일반암진단비',
+            'source': 'seed_dict',
+        }])
+
+        self.assertEqual(result['exact_auto_mapped'], 0)
+        self.assertEqual(result['safe_human_review'], 0)
+        self.assertEqual(result['unsafe_auto_mapped'], 1)
+        self.assertEqual(result['safe_decision_rate'], 0.0)
+
+    def test_dosu_keywords_route_to_dosu_and_keep_mri_separate(self):
+        from inpa.core.ocr.claude_parser import _match_by_keywords
+
+        for raw_name in (
+            '비급여도수치료실손',
+            '비급여도수치료(실손)',
+            '비급여도수·체외충격파·증식치료',
+        ):
+            with self.subTest(raw_name=raw_name):
+                self.assertEqual(
+                    _match_by_keywords(raw_name),
+                    ('실손 의료비', '비급여', '비급여 도수치료'),
+                )
+
+        for raw_name in ('비급여MRI촬영료(실손)', '비급여MRA촬영료'):
+            with self.subTest(raw_name=raw_name):
+                self.assertEqual(
+                    _match_by_keywords(raw_name),
+                    ('실손 의료비', '비급여', '비급여 MR/MRA'),
+                )
+
+    def test_ambiguous_cancer_names_are_not_auto_mapped(self):
+        from inpa.core.ocr.claude_parser import _match_by_keywords
+        from inpa.core.ocr.ocrparsing import _match_coverage
+
+        for raw_name in (
+            '특정(소액)암진단비',
+            '특정(소액)암진단금',
+            '암진단비(유사암포함)',
+        ):
+            with self.subTest(raw_name=raw_name):
+                self.assertIsNone(_match_by_keywords(raw_name))
+                self.assertIsNone(_match_coverage(raw_name))
+
+        self.assertEqual(
+            _match_by_keywords('특정암진단비'),
+            ('진단비', '암', '특정암'),
+        )
+        self.assertEqual(
+            _match_by_keywords('소액암(유사암)진단보험금'),
+            ('진단비', '암', '소액암'),
+        )
+
     def test_load_golden_set_tags_seed_dict_and_anchor(self):
         entries = load_golden_set()
         sources = {e['source'] for e in entries}
@@ -1710,10 +2458,12 @@ class GoldenEvalUnitTests(TestCase):
         self.assertEqual(promoted['source'], 'anchor')
 
     def test_eval_normalization_command_runs(self):
-        """관리자 리포트 커맨드가 예외 없이 실행되고 정확도 라인을 출력한다."""
+        """리포트가 폴백 범위를 밝히고 운영 OCR 정확도로 표현하지 않는다."""
         out = StringIO()
         call_command('eval_normalization', stdout=out)
-        self.assertIn('정확도', out.getvalue())
+        report = out.getvalue()
+        self.assertIn('폴백 골든셋 자동매칭 재현율', report)
+        self.assertIn('운영 OCR 정확도 아님', report)
 
 
 class GoldenSetGateTests(TestCase):
@@ -1734,3 +2484,15 @@ class GoldenSetGateTests(TestCase):
         self.assertEqual(
             result['anchor_failures'], [],
             f"함정 앵커 실패: {result['anchor_failures']} — 반드시 100% 통과해야 함.")
+
+    def test_exact_auto_mapping_ratchet_is_at_least_174_of_240(self):
+        result = evaluate_golden_set()
+        self.assertGreaterEqual(
+            result['exact_auto_mapped'], GOLDEN_SET_MIN_EXACT_AUTO_MAPPED)
+        self.assertEqual(result['total'], 240)
+
+    def test_unsafe_auto_mapping_is_zero(self):
+        result = evaluate_golden_set()
+        self.assertEqual(
+            result['unsafe_auto_mapped'], 0,
+            f"위험 자동 오매핑: {result['unsafe_failures']}")
