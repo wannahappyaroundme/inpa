@@ -18,6 +18,7 @@
 
 ★ 정직성 레드라인 (dev/14): 자동발송 금지, AI면책 없음 (게시판 자유 글 영역).
 """
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
@@ -63,6 +64,10 @@ from .serializers import (
     PostWriteSerializer,
     ReportSerializer,
 )
+
+
+SALES_NOTICE_TITLE = '새 기능: 고객 영업과 설계사 영업을 따로 관리'
+MANAGER_FAQ_QUESTION = '설계사가 팀에 합류하면 Manager로 어떻게 바뀌나요?'
 
 
 # ─── 알림 생성 헬퍼 (즉시 이벤트, ReminderRule 대상 아님) ────────────
@@ -427,6 +432,8 @@ class NoticeViewSet(viewsets.GenericViewSet):
         # 비로그인 또는 일반 설계사: 게시된 것만
         if not (user and user.is_authenticated and _is_admin(user)):
             qs = qs.filter(is_published=True)
+            if not settings.RECRUITING_ENABLED:
+                qs = qs.exclude(title=SALES_NOTICE_TITLE)
         return qs
 
     def list(self, request):
@@ -476,6 +483,8 @@ class FaqViewSet(viewsets.GenericViewSet):
         user = self.request.user
         if not (user and user.is_authenticated and _is_admin(user)):
             qs = qs.filter(is_published=True)
+            if not settings.RECRUITING_ENABLED:
+                qs = qs.exclude(question=MANAGER_FAQ_QUESTION)
         return qs
 
     def list(self, request):

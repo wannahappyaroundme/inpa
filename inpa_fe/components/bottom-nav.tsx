@@ -100,9 +100,11 @@ export function BottomNav({
     { href: "/settings/baseline", label: "기준" },
     { href: "/boards", label: "게시판", badge: boardUnread },
     { href: "/promotion", label: "판촉물", badge: promoUnread },
-    ...(recruitingEnabled
-      ? [{ href: "/recruiting", label: "설계사 영입", badge: recruitingUnread }]
-      : []),
+    {
+      href: "/sales",
+      label: "영업",
+      badge: recruitingEnabled ? recruitingUnread : 0,
+    },
     { href: "/notifications", label: "알림" },
     ...(isManager ? [{ href: "/manager", label: "관리직 KPI" }] : []),
     ...(isAdmin ? [{ href: "/admin", label: "관리자", badge: adminUnread }] : []),

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Users, Phone, Calendar, BarChart3, MessageSquareText,
   SlidersHorizontal, ClipboardList, Gift, LineChart, Shield, Bell,
-  ChevronRight, UserPlus, type LucideIcon,
+  BriefcaseBusiness, ChevronRight, type LucideIcon,
 } from "lucide-react";
 import { getProfile, getUnreadCount, tokenStore } from "@/lib/api";
 import { ManagerPromotionModal } from "./recruiting/manager-promotion-modal";
@@ -28,7 +28,7 @@ function Logo({ size = 26 }: { size?: number }) {
 export type NavKey =
   | "home"
   | "customers"
-  | "recruiting"
+  | "sales"
   | "call-list"
   | "analysis"
   | "schedule"
@@ -121,7 +121,7 @@ export function AppNav({ active }: { active?: NavKey }) {
       case "schedule": return schedUnread;
       case "board": return boardUnread;
       case "promotion": return promoUnread;
-      case "recruiting": return recruitingUnread;
+      case "sales": return recruitingEnabled ? recruitingUnread : 0;
       default: return 0;
     }
   };
@@ -129,9 +129,7 @@ export function AppNav({ active }: { active?: NavKey }) {
   const items: Item[] = [
     { key: "home", href: "/home", label: "대시보드", icon: LayoutDashboard },
     { key: "customers", href: "/customers", label: "고객", icon: Users },
-    ...(recruitingEnabled
-      ? [{ key: "recruiting" as const, href: "/recruiting", label: "설계사 영입", icon: UserPlus }]
-      : []),
+    { key: "sales", href: "/sales", label: "영업", icon: BriefcaseBusiness },
     { key: "call-list", href: "/call-list", label: "오늘 전화", icon: Phone },
     { key: "schedule", href: "/schedule", label: "일정", icon: Calendar },
     { key: "analysis", href: "/analysis", label: "분석", icon: BarChart3 },

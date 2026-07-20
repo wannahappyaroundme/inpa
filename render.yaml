@@ -58,6 +58,8 @@ services:
         sync: false                  # 모델 ID는 코드에 두지 않고 운영에서 주입
       - key: CLAUDE_MODEL_BULK
         sync: false                  # 대량 처리 모델 ID도 운영에서 주입
+      - key: RECRUITING_ENABLED
+        value: "True"                # 영업 > 설계사 영업 운영 공개
       - key: INSURANCE_REVIEW_GATE_ENABLED
         value: "False"               # 스테이징 평가와 PM 승인 전까지 검토형 경로 닫힘
       - key: REDIS_URL
