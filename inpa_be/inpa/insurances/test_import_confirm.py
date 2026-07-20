@@ -401,6 +401,7 @@ class InsuranceImportConfirmTests(TestCase):
             'value': 30_000,
             'evidence_line_ids': [],
             'state': 'manual',
+            'planner_confirmed': True,
         }
         draft['coverage_rows'][0]['premium'] = None
         self.job.draft_payload = draft
