@@ -72,7 +72,7 @@
 .tw-cursor { display: inline-block; width: 0.55em; height: 1.15em; margin-left: 2px; vertical-align: -0.18em; background: currentColor; animation: twBlink 1s steps(1) infinite; }
 @media (prefers-reduced-motion: reduce) { .tw-cursor { animation: none; } }
 
-/* ── 시네마 랜딩(new.inpa.kr) 추가 연출 ── */
+/* ── 시네마 이야기(/story) 추가 연출 ── */
 /* S1 완성 후: 정의부를 가라앉히고 人波만 남긴다 */
 @keyframes cineDim { to { opacity: 0.55; } }
 .cine-dim { display: inline; animation: cineDim 0.9s ease-out 0.5s both; }
