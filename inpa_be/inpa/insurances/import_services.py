@@ -980,6 +980,10 @@ def _apply_policy_changes(draft, changes):
         )
         existing['value'] = copy.deepcopy(change['value'])
         existing['state'] = 'manual'
+        # Only this server-owned patch path represents a planner actually
+        # confirming the displayed policy value.  Other manual-entry flows
+        # also use state="manual", but must not bypass cross-field checks.
+        existing['planner_confirmed'] = True
         existing['review_reason_codes'] = []
 
 

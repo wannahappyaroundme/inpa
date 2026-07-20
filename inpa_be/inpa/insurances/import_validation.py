@@ -884,6 +884,7 @@ def validate_draft(lines, candidates, provider_payload, *, allow_manual=False,
         allow_manual
         and isinstance(policy.get('monthly_premium'), dict)
         and policy['monthly_premium'].get('state') == 'manual'
+        and policy['monthly_premium'].get('planner_confirmed') is True
     )
     if not monthly_premium_manually_confirmed:
         if type(monthly_premium) is int and comparable_rows:

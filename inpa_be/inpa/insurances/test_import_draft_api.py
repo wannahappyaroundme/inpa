@@ -445,6 +445,12 @@ class InsuranceImportDraftAPITests(TestCase):
             'PREMIUM_SUM_MISMATCH', premium['review_reason_codes'])
         self.assertNotIn(
             'PREMIUM_SUM_INCOMPLETE', premium['review_reason_codes'])
+        self.job.refresh_from_db()
+        self.assertIs(
+            self.job.draft_payload['policy']['monthly_premium'][
+                'planner_confirmed'],
+            True,
+        )
 
     def test_same_value_policy_premium_edit_resolves_incomplete_sum(self):
         draft = copy.deepcopy(self.job.draft_payload)
