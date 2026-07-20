@@ -16,7 +16,7 @@ const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.inpa.kr";
 const TITLE = "인파(Inpa) · 설계사님은 클로징만 준비하세요";
 const DESCRIPTION =
-  "새 고객 발굴 → 증권 분석 → 보장 한눈에 → 비교 분석까지 한 동선으로. 보험설계사의 AI 영업 파트너, 인파(Inpa).";
+  "새 고객 발굴 → 증권 분석 → 보장 한눈에 → 여러 증권 비교까지 한 동선으로. 보험설계사의 AI 영업 파트너, 인파(Inpa).";
 
 // 검색엔진 소유확인 메타(네이버 서치어드바이저·구글 서치콘솔). 값이 있을 때만 태그 출력.
 // 소유확인 코드는 공개값(모두에게 노출되는 meta) → 기본값 하드코딩 안전, env(NEXT_PUBLIC_*)로 덮어쓸 수 있음.

@@ -178,8 +178,8 @@ export function InsuranceManualModal({
             <label className="flex flex-col gap-1">
               <span className="text-[12px] font-semibold text-ink3">구분</span>
               <select value={portfolioType} onChange={(e) => setPortfolioType(e.target.value === "1" ? 1 : 2)} className={inputCls}>
-                <option value={1}>보유(기존 가입)</option>
-                <option value={2}>제안(갈아타기)</option>
+                <option value={1}>비교 묶음 A</option>
+                <option value={2}>비교 묶음 B</option>
               </select>
             </label>
           </div>

@@ -27,7 +27,7 @@ from datetime import timedelta
 
 from .coupons import CouponError, redeem_coupon  # noqa: F401 — 회귀·문서용
 from .credit import LimitExceeded, check_and_consume
-from .models import Coupon, CouponRedemption, Plan, Subscription, UsageMeter
+from .models import ClaudeApiLog, Coupon, CouponRedemption, Plan, Subscription, UsageMeter
 
 
 # ─── 헬퍼 ────────────────────────────────────────────────────────
@@ -283,6 +283,21 @@ class BillingUsageIsolationTests(TestCase):
         c = APIClient()
         r = c.get('/api/v1/billing/usage/')
         self.assertEqual(r.status_code, 401)
+
+    def test_ai_compare_api_key_is_preserved_with_neutral_label(self):
+        r = self.client_a.get('/api/v1/billing/usage/')
+
+        self.assertEqual(r.status_code, 200)
+        comparison = next(item for item in r.json()['usage'] if item['action'] == 'ai_compare')
+        self.assertEqual(comparison['label'], '증권 비교')
+
+    def test_compare_model_metadata_uses_neutral_label_without_renaming_keys(self):
+        self.assertEqual(
+            Plan._meta.get_field('limit_ai_compare').verbose_name,
+            '증권 비교 한도(월)',
+        )
+        self.assertEqual(dict(UsageMeter.ACTION_CHOICES)['ai_compare'], '증권 비교')
+        self.assertEqual(dict(ClaudeApiLog.ACTION_CHOICES)['compare_guide'], '증권 비교')
 
 
 # ─── AC-B5 ───────────────────────────────────────────────────────

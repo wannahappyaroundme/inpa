@@ -9,30 +9,23 @@ function amt(v: number): string {
   return `${nf.format(v)}원`;
 }
 
-const DEC: Record<string, { label: string; cls: string }> = {
-  SWITCH: { label: "전환 검토", cls: "bg-pos-soft text-pos border-line" },
-  KEEP: { label: "유지 검토", cls: "bg-brand-soft text-brand border-line" },
-  NEUTRAL: { label: "중립", cls: "bg-surface2 text-ink3 border-line" },
-};
-
 export default function DemoCompare() {
   const c = compareMock;
-  const dec = DEC[c.verdict.decision];
 
   return (
     <div>
-      <h1 className="text-[22px] font-extrabold text-ink">비교 분석: {c.customerName}님</h1>
-      <p className="mt-1 text-[13px] text-ink3">기존 증권과 제안 증권의 담보·보험료를 나란히 비교합니다.</p>
+      <h1 className="text-[22px] font-extrabold text-ink">증권 비교: {c.customerName}님</h1>
+      <p className="mt-1 text-[13px] text-ink3">선택한 두 증권의 담보와 보험료를 같은 기준으로 확인합니다.</p>
 
       {/* 요약 2열 */}
       <div className="mt-4 grid sm:grid-cols-2 gap-3">
         <Card className="p-4">
-          <div className="text-[12px] font-semibold text-ink3">기존</div>
+          <div className="text-[12px] font-semibold text-ink3">증권 A</div>
           <div className="text-[15px] font-bold text-ink mt-0.5">{c.current.product}</div>
           <div className="mt-2 text-[13px] text-ink2">월 보험료 <b className="text-ink">{amt(c.current.monthly)}</b> · 총 납입 {amt(c.current.total)}</div>
         </Card>
         <Card className="p-4">
-          <div className="text-[12px] font-semibold text-brand">제안</div>
+          <div className="text-[12px] font-semibold text-brand">증권 B</div>
           <div className="text-[15px] font-bold text-ink mt-0.5">{c.proposed.product}</div>
           <div className="mt-2 text-[13px] text-ink2">월 보험료 <b className="text-brand">{amt(c.proposed.monthly)}</b> · 총 납입 {amt(c.proposed.total)}</div>
         </Card>
@@ -42,8 +35,8 @@ export default function DemoCompare() {
       <Card className="mt-3 overflow-hidden">
         <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] text-[12px] font-semibold text-ink3 bg-surface2 px-4 py-2.5">
           <div>담보</div>
-          <div className="text-right">기존</div>
-          <div className="text-right">제안</div>
+          <div className="text-right">증권 A</div>
+          <div className="text-right">증권 B</div>
           <div className="text-right">증감</div>
         </div>
         <div className="divide-y divide-line">
@@ -64,30 +57,7 @@ export default function DemoCompare() {
         </div>
       </Card>
 
-      {/* 판정 (설계사 내부 전용) */}
-      <Card className="mt-3 p-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`text-[12px] font-bold rounded-full border px-2.5 py-0.5 ${dec.cls}`}>{dec.label}</span>
-          <span className="text-[12px] text-ink3">설계사 내부 판단 근거 · 고객 노출 금지</span>
-        </div>
-        <p className="mt-2 text-[13px] text-ink2 leading-5">{c.verdict.reason}</p>
-        <div className="mt-2 text-[13px] text-ink2">1년 추정 순이득 <b className="text-pos">+{amt(c.verdict.netBenefitYear)}</b></div>
-      </Card>
-
-      {/* 유의사항 */}
-      <Card className="mt-3 p-4">
-        <div className="text-[13px] font-bold text-ink mb-2">비교 시 유의사항</div>
-        <div className="space-y-2">
-          {c.warnings.map((w) => (
-            <div key={w.label} className="flex gap-2 text-[13px]">
-              <span className="text-warn shrink-0">⚠️</span>
-              <div><b className="text-ink">{w.label}</b> <span className="text-ink2">{w.detail}</span></div>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <p className="px-1 py-5 text-[12px] leading-5 text-muted">{c.disclaimer}</p>
+      <p className="px-1 py-5 text-[12px] leading-5 text-muted">인파가 등록된 보장 정보를 정리한 참고 자료입니다.</p>
     </div>
   );
 }

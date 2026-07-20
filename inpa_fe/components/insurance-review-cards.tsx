@@ -126,7 +126,7 @@ export function AssignInsRow({ it, value, onChange, onReview }: {
 }) {
   const sub = [it.contractor_name && `계약 ${it.contractor_name}`, it.insured_name && `피보험 ${it.insured_name}`]
     .filter(Boolean).join(" · ") || (it.insurance_type === 1 ? "생명" : "손해");
-  const portfolioTag = it.portfolio_type === 1 ? "보유" : "제안";
+  const portfolioTag = it.portfolio_type === 1 ? "비교 묶음 A" : "비교 묶음 B";
   const selectable = it.review_status === "confirmed" && it.analysis_included && !it.is_cancelled;
   const review = insuranceReviewPresentation(it);
   return (
@@ -141,9 +141,9 @@ export function AssignInsRow({ it, value, onChange, onReview }: {
       </span>
       <span className="tnum shrink-0 text-[11px] text-ink2">{fmtWon(it.monthly_premiums)}</span>
       <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-line text-[11px] font-semibold">
-        <button type="button" disabled={!selectable} onClick={() => onChange("A")} aria-pressed={value === "A"} className={`px-2.5 py-1.5 transition disabled:opacity-40 ${value === "A" ? "bg-brand text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}>A안</button>
-        <button type="button" onClick={() => onChange("none")} aria-pressed={value === "none"} className={`border-x border-line px-2.5 py-1.5 transition ${value === "none" ? "bg-surface2 text-ink" : "bg-surface text-ink3 hover:bg-surface2"}`}>미포함</button>
-        <button type="button" disabled={!selectable} onClick={() => onChange("B")} aria-pressed={value === "B"} className={`px-2.5 py-1.5 transition disabled:opacity-40 ${value === "B" ? "bg-ink text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}>B안</button>
+        <button type="button" disabled={!selectable} onClick={() => onChange("A")} aria-pressed={value === "A"} className={`px-2.5 py-1.5 transition disabled:opacity-40 ${value === "A" ? "bg-brand text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}>증권 A</button>
+        <button type="button" onClick={() => onChange("none")} aria-pressed={value === "none"} className={`border-x border-line px-2.5 py-1.5 transition ${value === "none" ? "bg-surface2 text-ink" : "bg-surface text-ink3 hover:bg-surface2"}`}>비교 제외</button>
+        <button type="button" disabled={!selectable} onClick={() => onChange("B")} aria-pressed={value === "B"} className={`px-2.5 py-1.5 transition disabled:opacity-40 ${value === "B" ? "bg-ink text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}>증권 B</button>
       </div>
       {!selectable && onReview && review.action && (
         <button type="button" onClick={() => onReview(it.id)} className="shrink-0 rounded-lg border border-brand px-2.5 py-1.5 text-[11px] font-semibold text-brand">{review.action}</button>

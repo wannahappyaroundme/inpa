@@ -91,8 +91,8 @@ export const heatmapMock: HeatCategory[] = [
 export interface CompareRowMock { coverage: string; current: number; proposed: number }
 export const compareMock = {
   customerName: "김보장",
-  current: { product: "기존 · 무)종합건강보험 (2014년 가입)", monthly: 124000, total: 14880000 },
-  proposed: { product: "제안 · 무)건강보장보험 (2026년)", monthly: 98000, total: 11760000 },
+  current: { product: "증권 A · 무)종합건강보험 (2014년 가입)", monthly: 124000, total: 14880000 },
+  proposed: { product: "증권 B · 무)건강보장보험 (2026년)", monthly: 98000, total: 11760000 },
   rows: [
     { coverage: "암 진단비", current: 30000000, proposed: 50000000 },
     { coverage: "뇌혈관 진단비", current: 10000000, proposed: 20000000 },
@@ -105,14 +105,14 @@ export const compareMock = {
   verdict: {
     decision: "SWITCH" as "KEEP" | "SWITCH" | "NEUTRAL",
     reason:
-      "암·뇌·심장 진단비가 현재 기준 대비 부족하고 운전자·배상 담보가 공백입니다. 제안 상품은 월 보험료가 26,000원 낮으면서 핵심 진단비를 강화해요.",
+      "증권 A와 증권 B의 담보·보장금액·보험료 차이를 같은 기준으로 정리한 예시입니다.",
     netBenefitYear: 312000, // 1년 추정 순이득(원)
   },
   warnings: [
-    { label: "해지 손실", detail: "기존 계약 해지 시 환급금이 납입액보다 적을 수 있어요 (추정 −180만원)." },
-    { label: "면책 리셋", detail: "신규 가입 시 암 보장 90일 면책·1년 50% 감액이 다시 적용됩니다." },
-    { label: "예정이율 변경", detail: "구상품과 예정이율이 달라 같은 보장도 보험료 구조가 달라질 수 있어요." },
+    { label: "가입 시기", detail: "두 증권의 가입 시기가 서로 다릅니다." },
+    { label: "보장 시작 조건", detail: "보장별 시작 시점과 조건은 증권 원문에서 확인할 수 있습니다." },
+    { label: "보험료 구조", detail: "두 증권의 갱신 여부와 보험료 구조가 서로 다를 수 있습니다." },
   ],
   disclaimer:
-    "본 비교는 AI 초안이며 최종 판단·고객 안내·책임은 담당 설계사에게 있습니다. (부당승환 유의)",
+    "인파가 등록된 보장 정보를 정리한 참고 자료입니다.",
 };

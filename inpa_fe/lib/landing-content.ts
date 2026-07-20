@@ -82,12 +82,12 @@ export const PRODUCT_SCREENS: readonly ProductScreen[] = [
   },
   {
     id: "compare",
-    label: "비교 분석",
-    title: "현재와 제안을 나란히 비교",
+    label: "증권 비교",
+    title: "여러 증권을 같은 기준으로 나란히",
     description:
-      "담보와 보험료 변화를 나란히 정리해 고객 안내 전에 확인할 내용을 준비합니다.",
+      "선택한 증권들의 담보와 보험료를 같은 기준의 표와 그래프로 확인합니다.",
     image: "/landing-test/compare.webp",
-    imageAlt: "인파 비교 분석 실제 화면: 현재와 제안 담보 비교",
+    imageAlt: "인파 증권 비교 실제 화면: 증권 A와 증권 B의 담보별 금액 비교",
     width: 1440,
     height: 442,
     highlights: ["담보별 금액 차이", "보험료 유형별 구분", "고객 안내용 내용 복사"],
@@ -142,8 +142,8 @@ export const WORKFLOW_STEPS = [
     description: "보험과 담보를 읽어 같은 기준의 보장 항목으로 정리합니다.",
   },
   {
-    title: "현재와 제안 비교",
-    description: "선택한 두 구성을 담보와 보험료 기준으로 나란히 확인합니다.",
+    title: "여러 증권 비교",
+    description: "선택한 증권 A와 증권 B를 담보와 보험료 기준으로 나란히 확인합니다.",
   },
   {
     title: "고객 안내와 다음 일정 관리",

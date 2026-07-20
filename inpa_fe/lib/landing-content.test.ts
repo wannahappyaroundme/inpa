@@ -25,6 +25,17 @@ test("각 제품 화면은 실제 이미지와 핵심 설명을 제공한다", (
   }
 });
 
+test("증권 비교 화면은 여러 증권의 중립 시각 비교로 설명한다", () => {
+  const compare = PRODUCT_SCREENS.find(({ id }) => id === "compare");
+
+  assert.equal(compare?.label, "증권 비교");
+  assert.match(compare?.title ?? "", /여러 증권/);
+  assert.doesNotMatch(
+    JSON.stringify({ compare, WORKFLOW_STEPS }),
+    /현재와 제안|갈아타기|승환|비교안내서/,
+  );
+});
+
 test("각 제품 화면은 원본 이미지 비율을 제공한다", () => {
   const expectedDimensions = [
     [1200, 570],

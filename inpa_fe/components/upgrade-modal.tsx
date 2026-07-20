@@ -43,7 +43,7 @@ function kindLabel(kind: string | undefined): string {
     case "analysis":
       return "보장 분석";
     case "ai_compare":
-      return "AI 비교안내서";
+      return "증권 비교";
     case "promotion":
       return "판촉물 주문";
     case "customer":
@@ -61,7 +61,7 @@ function kindShort(kind: string | undefined): string {
     case "analysis":
       return "보장 분석";
     case "ai_compare":
-      return "AI 비교안내서";
+      return "증권 비교";
     case "promotion":
       return "판촉물 주문";
     case "customer":

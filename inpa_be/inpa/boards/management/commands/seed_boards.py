@@ -2,7 +2,8 @@
 
 운영에서 바로 보이는 공지사항/자주 묻는 질문을 채운다. 데모([DEMO]) 아님.
 멱등: title/question 기준 get_or_create → 최초 1회만 생성, 이후 Django admin 편집은 보존
-(재배포해도 덮어쓰지 않음). 작성자는 관리자 계정을 자동으로 잡는다(없으면 안전하게 건너뜀).
+(재배포해도 덮어쓰지 않음). 공식 기본 문구 변경은 이전 기본값과 정확히 같은 행만 갱신한다.
+작성자는 관리자 계정을 자동으로 잡는다(없으면 안전하게 건너뜀).
 
 ★ 카피 레드라인: 쉬운 말, 긍정 어투, em-dash(—) 금지, 출시일/로드맵 비공개.
 """
@@ -13,18 +14,40 @@ from django.utils import timezone
 from inpa.accounts.models import User
 from inpa.boards.models import Faq, Notice
 
+LEGACY_WELCOME_NOTICE_BODY = (
+    '안녕하세요, 인파(Inpa)입니다.\n\n'
+    '설계사님의 하루가 조금 더 가벼워지도록, 고객 발굴부터 증권 정리, 담보 한눈표, '
+    '비교 분석, 상담 예약까지 한 흐름으로 담았습니다.\n\n'
+    '지금 무료로 이용하실 수 있어요. 써 보시다가 불편한 점이나 바라는 기능이 있으면 '
+    '1:1 문의로 편하게 남겨 주세요. 하나씩 반영해 나가겠습니다.\n\n'
+    '앞으로도 꾸준히 기능을 더하고 다듬겠습니다. 감사합니다.'
+)
+WELCOME_NOTICE_BODY = (
+    '안녕하세요, 인파(Inpa)입니다.\n\n'
+    '설계사님의 하루가 조금 더 가벼워지도록, 고객 발굴부터 증권 정리, 담보 한눈표, '
+    '여러 증권 비교, 상담 예약까지 한 흐름으로 담았습니다.\n\n'
+    '지금 무료로 이용하실 수 있어요. 써 보시다가 불편한 점이나 바라는 기능이 있으면 '
+    '1:1 문의로 편하게 남겨 주세요. 하나씩 반영해 나가겠습니다.\n\n'
+    '앞으로도 꾸준히 기능을 더하고 다듬겠습니다. 감사합니다.'
+)
+
+LEGACY_COMPARE_FAQ_QUESTION = '비교 분석표는 무엇인가요?'
+LEGACY_COMPARE_FAQ_ANSWER = (
+    '지금 보장과 제안 보장을 나란히 놓고 추가·삭제·변경을 정리해 주는 표예요. '
+    '산출물은 AI가 정리한 참고 자료이며, 보장 판단과 고객 안내는 설계사님의 업무입니다.'
+)
+COMPARE_FAQ_QUESTION = '여러 증권 비교는 무엇인가요?'
+COMPARE_FAQ_ANSWER = (
+    '선택한 증권을 증권 A와 증권 B 묶음으로 나눠, 담보·보장금액·보험료 차이를 '
+    '같은 기준의 표와 그래프로 확인하는 기능이에요. '
+    '인파가 등록된 보장 정보를 정리한 참고 자료입니다.'
+)
+
 NOTICES = [
     {
         'title': '인파를 시작합니다',
         'is_pinned': True,
-        'body': (
-            '안녕하세요, 인파(Inpa)입니다.\n\n'
-            '설계사님의 하루가 조금 더 가벼워지도록, 고객 발굴부터 증권 정리, 담보 한눈표, '
-            '비교 분석, 상담 예약까지 한 흐름으로 담았습니다.\n\n'
-            '지금 무료로 이용하실 수 있어요. 써 보시다가 불편한 점이나 바라는 기능이 있으면 '
-            '1:1 문의로 편하게 남겨 주세요. 하나씩 반영해 나가겠습니다.\n\n'
-            '앞으로도 꾸준히 기능을 더하고 다듬겠습니다. 감사합니다.'
-        ),
+        'body': WELCOME_NOTICE_BODY,
     },
     {
         'title': '새 기능: 고객 여러 명 한 번에 등록',
@@ -77,11 +100,8 @@ FAQS = [
     },
     {
         'category': '기능문의', 'order': 3,
-        'question': '비교 분석표는 무엇인가요?',
-        'answer': (
-            '지금 보장과 제안 보장을 나란히 놓고 추가·삭제·변경을 정리해 주는 표예요. '
-            '산출물은 AI가 정리한 참고 자료이며, 보장 판단과 고객 안내는 설계사님의 업무입니다.'
-        ),
+        'question': COMPARE_FAQ_QUESTION,
+        'answer': COMPARE_FAQ_ANSWER,
     },
     {
         'category': '기능문의', 'order': 4,
@@ -131,6 +151,18 @@ class Command(BaseCommand):
         now = timezone.now()
         created_n = created_f = 0
         with transaction.atomic():
+            Notice.objects.filter(
+                title='인파를 시작합니다',
+                body=LEGACY_WELCOME_NOTICE_BODY,
+            ).update(body=WELCOME_NOTICE_BODY)
+            Faq.objects.filter(
+                question=LEGACY_COMPARE_FAQ_QUESTION,
+                answer=LEGACY_COMPARE_FAQ_ANSWER,
+            ).update(
+                question=COMPARE_FAQ_QUESTION,
+                answer=COMPARE_FAQ_ANSWER,
+            )
+
             for n in NOTICES:
                 _, created = Notice.objects.get_or_create(
                     title=n['title'],

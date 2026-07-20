@@ -702,7 +702,7 @@ class Command(BaseCommand):
             title=f'{DEMO_CATALOG_TAG} 인파 베타 서비스 오픈 안내',
             body=(
                 '[DEMO] 인파(Inpa) 베타 서비스가 오픈되었습니다.\n'
-                '담보 한눈표·비교 분석표 등 주요 기능을 무료로 사용할 수 있습니다.\n'
+                '담보 한눈표·여러 증권 비교 등 주요 기능을 무료로 사용할 수 있습니다.\n'
                 '피드백은 1:1 문의로 남겨주세요. (★ 데모 전용 콘텐츠, 운영 데이터 아님)'
             ),
             is_pinned=True,
@@ -736,10 +736,11 @@ class Command(BaseCommand):
         Faq.objects.create(
             author=planner,
             category='기능문의',
-            question=f'{DEMO_CATALOG_TAG} 비교 분석표는 어떻게 활용하나요?',
+            question=f'{DEMO_CATALOG_TAG} 여러 증권 비교는 어떻게 활용하나요?',
             answer=(
-                '[DEMO] 부당승환 방지 안내서를 AI가 초안 생성합니다.\n'
-                '★ AI 생성물 = 초안이며 최종 책임은 설계사 본인에게 있습니다. (면책 고정)'
+                '[DEMO] 선택한 증권을 증권 A와 증권 B 묶음으로 나눠, '
+                '담보·보장금액·보험료 차이를 같은 기준으로 확인합니다.\n'
+                '인파가 등록된 보장 정보를 정리한 참고 자료입니다.'
             ),
             order=2,
         )
@@ -831,7 +832,7 @@ class Command(BaseCommand):
             category=Inquiry.CATEGORY_FEATURE,
             title='[DEMO] 고객 분석 결과 PDF 내보내기 기능 요청',
             body=(
-                '[DEMO] 담보 한눈표와 비교 분석표를 PDF로 출력해서 고객에게 직접 보여줄 수 있으면 좋겠습니다. '
+                '[DEMO] 담보 한눈표와 증권 비교표를 PDF로 출력해서 고객에게 직접 보여줄 수 있으면 좋겠습니다. '
                 '현재 화면 캡처로 대신하고 있는데 해상도가 낮아서 불편합니다.'
             ),
             status=Inquiry.STATUS_OPEN,
@@ -1215,10 +1216,10 @@ class Command(BaseCommand):
         plan_specs = [
             dict(code='demo_free', display_name=f'{DEMO_CATALOG_TAG} 무료 플랜',
                  price_krw=0,
-                 description='[DEMO] 베타 무료 플랜. OCR 10/AI비교 5/AI분석 10/판촉 5 월 한도.',
+                 description='[DEMO] 베타 무료 플랜. OCR 10/증권비교 5/AI분석 10/판촉 5 월 한도.',
                  limit_ocr=10, limit_ai_compare=5, limit_analysis=10, limit_promotion=5),
             dict(code='demo_plus', display_name=f'{DEMO_CATALOG_TAG} Plus 플랜',
-                 price_krw=29000, description='[DEMO] Plus 플랜. OCR 50/AI비교 30/AI분석 50/판촉 20.',
+                 price_krw=29000, description='[DEMO] Plus 플랜. OCR 50/증권비교 30/AI분석 50/판촉 20.',
                  limit_ocr=50, limit_ai_compare=30, limit_analysis=50, limit_promotion=20),
             dict(code='demo_pro', display_name=f'{DEMO_CATALOG_TAG} Pro 플랜',
                  price_krw=59000, description='[DEMO] Pro 플랜. 모든 기능 무제한.',

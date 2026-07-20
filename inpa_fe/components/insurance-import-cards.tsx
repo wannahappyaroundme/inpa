@@ -110,7 +110,7 @@ export function InsuranceImportCards({ customerId }: { customerId: number }) {
             <div className="flex items-start justify-between gap-2">
               <span className="truncate text-[13px] font-semibold text-ink">{item.safe_display_name}</span>
               <span className="shrink-0 rounded-full border border-line bg-surface2 px-2 py-0.5 text-[10px] font-semibold text-ink3">
-                {item.portfolio_type === 1 ? "보유" : "제안"}
+                {item.portfolio_type === 1 ? "비교 묶음 A" : "비교 묶음 B"}
               </span>
             </div>
             <p className="mt-1 text-[12px] leading-5 text-ink3">{IMPORT_STATUS_COPY[item.status]}</p>

@@ -14,7 +14,7 @@ interface TourStep {
   detail: string;
 }
 
-// 핵심 기능 투어: 고객 등록 → 증권 OCR → 보장분석 히트맵 → 갈아타기 → 공유
+// 핵심 기능 투어: 고객 등록 → 증권 자동 정리 → 보장분석 히트맵 → 증권 비교 → 공유
 const STEPS: TourStep[] = [
   {
     emoji: "🧑‍🤝‍🧑",
@@ -39,10 +39,10 @@ const STEPS: TourStep[] = [
   },
   {
     emoji: "🔁",
-    title: "4. 비교 분석표를 자동으로",
-    desc: "기존 vs 제안을 나란히 정리합니다.",
+    title: "4. 여러 증권을 나란히",
+    desc: "증권 A와 증권 B를 같은 기준으로 비교합니다.",
     detail:
-      "보장을 비교 분석 자료로 정리해, 부당승환 리스크를 줄입니다.",
+      "담보, 보장금액, 보험료 차이를 표와 그래프로 확인할 수 있어요.",
   },
   {
     emoji: "📤",
@@ -198,13 +198,13 @@ export default function OnboardingPage() {
                 위촉 형태를 알려주세요
               </h1>
               <p className="mt-2 text-[14px] leading-6 text-[var(--ink-2)]">
-                전속(원수사 소속)이면 타사 비교 분석 대신 <b>자사 보장공백</b> 중심으로 화면이 맞춰져요.
+                위촉 형태에 맞춰 <b>보장 확인 화면</b>을 보기 좋게 맞춰드려요.
                 나중에 설정에서 바꿀 수 있어요.
               </p>
               <div className="mt-5 grid grid-cols-2 gap-3">
                 {[
-                  { v: 2, label: "GA / 대리점", desc: "여러 보험사 비교 분석" },
-                  { v: 1, label: "전속(원수사)", desc: "자사 상품 중심" },
+                  { v: 2, label: "GA / 대리점", desc: "여러 증권 비교" },
+                  { v: 1, label: "전속(원수사)", desc: "자사 보장공백 중심" },
                 ].map((o) => (
                   <button
                     key={o.v}

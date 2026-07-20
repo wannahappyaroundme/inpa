@@ -233,7 +233,7 @@ export const COPY_CATEGORIES: CopyCategory[] = [
   {
     key: "result",
     label: "점검 결과 공유",
-    desc: "분석을 마친 뒤 결과를 전달할 때. 갈아타기를 권하지 않고 사실만. 결정은 고객 몫.",
+    desc: "분석을 마친 뒤 결과를 전달할 때. 등록된 보장 정보를 사실 중심으로 안내.",
     templates: [
       {
         id: "result-share",

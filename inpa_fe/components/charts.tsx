@@ -261,7 +261,7 @@ export function CompareBarChart({
   className?: string;
 }) {
   const aria = items
-    .map((it) => `${it.label} 기존 ${format(it.current)} 제안 ${format(it.proposed)}`)
+    .map((it) => `${it.label} 증권 A ${format(it.current)} 증권 B ${format(it.proposed)}`)
     .join(", ");
   const Bar = ({ w, color, val }: { w: number; color: string; val: string }) => (
     <div className="flex items-center gap-2">

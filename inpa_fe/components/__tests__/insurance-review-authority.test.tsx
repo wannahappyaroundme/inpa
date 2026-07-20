@@ -96,8 +96,8 @@ describe("insurance review authority UI", () => {
     const onReview = vi.fn();
     render(<AssignInsRow it={insurance()} value="none" onChange={onChange} onReview={onReview} />);
 
-    expect((screen.getByRole("button", { name: "A안" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "B안" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "증권 A" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "증권 B" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "기존 자료 확인하기" }));
     expect(onReview).toHaveBeenCalledWith(9);
     expect(onChange).not.toHaveBeenCalled();
