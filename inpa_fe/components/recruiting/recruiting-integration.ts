@@ -57,7 +57,7 @@ export function getManagerPromotionDestination(
 ): string | null {
   if (intent === "team") return "/manager";
   if (intent === "recruit" && recruitingEnabled) {
-    return "/recruiting?tab=page";
+    return "/sales?tab=recruiting&view=page";
   }
   return null;
 }

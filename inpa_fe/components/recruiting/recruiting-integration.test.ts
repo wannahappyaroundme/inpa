@@ -89,7 +89,7 @@ test("영입 기능이 꺼진 승격 안내는 두 번째 선택에서 이동하
   assert.equal(getManagerPromotionDestination("team", false), "/manager");
   assert.equal(
     getManagerPromotionDestination("recruit", true),
-    "/recruiting?tab=page",
+    "/sales?tab=recruiting&view=page",
   );
   assert.equal(getManagerPromotionDestination("recruit", false), null);
   assert.equal(getManagerPromotionDestination("close", true), null);

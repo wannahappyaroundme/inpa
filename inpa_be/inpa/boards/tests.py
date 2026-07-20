@@ -612,6 +612,45 @@ class SeedBoardsNeutralCopyTests(TestCase):
             question=self.OLD_FAQ_QUESTION, answer=edited_answer,
         ).exists())
 
+    def test_seeds_sales_notice_and_manager_faq_once(self):
+        call_command('seed_boards')
+        call_command('seed_boards')
+
+        self.assertEqual(
+            Notice.objects.filter(
+                title='새 기능: 고객 영업과 설계사 영업을 따로 관리',
+            ).count(),
+            1,
+        )
+        faq_rows = Faq.objects.filter(
+            question='설계사가 팀에 합류하면 Manager로 어떻게 바뀌나요?',
+        )
+        self.assertEqual(faq_rows.count(), 1)
+        faq = faq_rows.get()
+        self.assertIn('Plus는 그대로 유지', faq.answer)
+        for preserved_value in ('결제일', '쿠폰', '사용량'):
+            self.assertIn(preserved_value, faq.answer)
+
+    def test_preserves_admin_edits_to_sales_notice_and_manager_faq(self):
+        call_command('seed_boards')
+        notice = Notice.objects.get(
+            title='새 기능: 고객 영업과 설계사 영업을 따로 관리',
+        )
+        faq = Faq.objects.get(
+            question='설계사가 팀에 합류하면 Manager로 어떻게 바뀌나요?',
+        )
+        notice.body = '관리자가 수정한 영업 공지입니다.'
+        notice.save(update_fields=['body'])
+        faq.answer = '관리자가 수정한 Manager 안내입니다.'
+        faq.save(update_fields=['answer'])
+
+        call_command('seed_boards')
+
+        notice.refresh_from_db()
+        faq.refresh_from_db()
+        self.assertEqual(notice.body, '관리자가 수정한 영업 공지입니다.')
+        self.assertEqual(faq.answer, '관리자가 수정한 Manager 안내입니다.')
+
 
 # ─── I1~I5: 1:1 문의 ────────────────────────────────────────────────
 

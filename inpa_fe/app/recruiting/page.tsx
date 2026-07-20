@@ -1,12 +1,13 @@
-import { Suspense } from "react";
+import { redirect } from "next/navigation";
 
-import { RecruitingLoading } from "@/components/recruiting/recruiting-states";
-import { RecruitingShell } from "@/components/recruiting/recruiting-shell";
+import { normalizeRecruitingTab } from "@/components/recruiting/recruiting-view-model";
 
-export default function RecruitingPage() {
-  return (
-    <Suspense fallback={<RecruitingLoading fullPage />}>
-      <RecruitingShell />
-    </Suspense>
-  );
+export default async function RecruitingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const params = await searchParams;
+  const view = normalizeRecruitingTab(params.tab ?? null);
+  redirect(`/sales?tab=recruiting&view=${view}`);
 }

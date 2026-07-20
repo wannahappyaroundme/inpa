@@ -3,15 +3,15 @@ const RECRUITING_NOTIFICATION_ACTIONS: Record<
   { href: string; label: string }
 > = {
   recruiting_application: {
-    href: "/recruiting?tab=status",
+    href: "/sales?tab=recruiting&view=status",
     label: "지원자 확인 →",
   },
   recruiting_followup: {
-    href: "/recruiting?tab=status",
+    href: "/sales?tab=recruiting&view=status",
     label: "다음 연락 확인 →",
   },
   recruiting_settlement: {
-    href: "/recruiting?tab=settlement",
+    href: "/sales?tab=recruiting&view=settlement",
     label: "정착 확인 보기 →",
   },
   manager_promoted: {

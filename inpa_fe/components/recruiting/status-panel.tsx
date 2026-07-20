@@ -284,9 +284,9 @@ export function StatusPanel() {
               {copyStatus && <p aria-live="polite" className="mt-2 text-[12px] text-ink2">{copyStatus}</p>}
             </div>
           ) : !pageInfo?.is_published ? (
-            <div className="text-center"><Link href="/recruiting?tab=page" className="inline-flex min-h-11 items-center rounded-xl bg-brand px-5 text-[13px] font-bold text-white">나의 영입 페이지 공개하기</Link></div>
+            <div className="text-center"><Link href="/sales?tab=recruiting&view=page" className="inline-flex min-h-11 items-center rounded-xl bg-brand px-5 text-[13px] font-bold text-white">나의 영입 페이지 공개하기</Link></div>
           ) : (
-            <div className="text-center"><Link href="/recruiting?tab=campaign" className="inline-flex min-h-11 items-center rounded-xl bg-brand px-5 text-[13px] font-bold text-white">캠페인 링크 다시 시작하기</Link></div>
+            <div className="text-center"><Link href="/sales?tab=recruiting&view=campaign" className="inline-flex min-h-11 items-center rounded-xl bg-brand px-5 text-[13px] font-bold text-white">캠페인 링크 다시 시작하기</Link></div>
           )}
         </div>
       ) : (

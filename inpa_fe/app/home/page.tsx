@@ -242,12 +242,7 @@ export default function HomePage() {
   const monthPct = Math.round((todayD / _dim) * 100);
 
   const displayName = profile ? (profile.name?.trim() || profile.email.split("@")[0]) : "설계사";
-  const quickActions = profile?.recruiting_enabled
-    ? [
-        ...QUICK_ACTIONS,
-        { label: "설계사 영입", href: "/recruiting", icon: UserPlus },
-      ]
-    : QUICK_ACTIONS;
+  const quickActions = QUICK_ACTIONS;
 
   // 전월 대비 증감률(%) — 백엔드 계산 우선, 없으면 추이의 마지막 두 점에서 파생.
   const trend = insights?.monthly_trend ?? [];
@@ -667,7 +662,7 @@ export default function HomePage() {
         </div>
 
         {/* 하단 퀵액션 바 — 자주 쓰는 기능 바로가기 */}
-        <div className={`mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 ${profile?.recruiting_enabled ? "lg:grid-cols-6" : "lg:grid-cols-5"}`}>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {quickActions.map((q) => (
             <button
               key={q.href}

@@ -139,7 +139,7 @@ function RecruitingCtaCard() {
         내 영입 페이지를 보내고, 대화부터 합류 뒤 정착까지 한곳에서 이어가세요.
       </p>
       <Link
-        href="/recruiting"
+        href="/sales?tab=recruiting"
         className="mt-3 inline-flex min-h-10 items-center rounded-xl bg-brand px-4 text-[13px] font-bold text-white active:scale-[0.98] transition"
       >
         설계사 영입 열기
