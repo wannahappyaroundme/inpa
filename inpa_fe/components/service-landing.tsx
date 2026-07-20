@@ -20,7 +20,8 @@ import {
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { InpaMark } from "@/components/inpa-logo";
-import { TestProductGallery } from "@/components/test-product-gallery";
+import { LandingProductGallery } from "@/components/landing-product-gallery";
+import { PricingFourTiers } from "@/components/brand-story-sections";
 import {
   AUDIENCES,
   DIFFERENTIATORS,
@@ -30,7 +31,7 @@ import {
   PRODUCT_SCREENS,
   WORKFLOW_STEPS,
   buildServiceUrl,
-} from "@/lib/test-landing-content";
+} from "@/lib/landing-content";
 
 type CtaPosition = "header" | "hero" | "pricing" | "footer";
 type CtaAction = "register" | "login";
@@ -70,7 +71,7 @@ function CtaLink({
   );
 }
 
-export function TestLanding() {
+export function ServiceLanding() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -83,7 +84,7 @@ export function TestLanding() {
   const dashboard = PRODUCT_SCREENS[0];
 
   return (
-    <main id="top" className="theme-light min-h-screen overflow-x-clip bg-[var(--surface)] text-[var(--ink)]">
+    <div id="top" className="theme-light min-h-screen overflow-x-clip bg-[var(--surface)] text-[var(--ink)]">
       <header className="sticky top-0 z-50 h-16 border-b border-[var(--line)] bg-white/95 backdrop-blur">
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <a
@@ -99,6 +100,7 @@ export function TestLanding() {
             <a href="#product" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">실제 화면</a>
             <a href="#workflow" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">주요 기능</a>
             <a href="#pricing" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">요금</a>
+            <a href="/blog" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">인파 노트</a>
             <a href="#faq" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">자주 묻는 질문</a>
           </nav>
 
@@ -125,7 +127,7 @@ export function TestLanding() {
             type="button"
             className="inline-flex size-11 items-center justify-center rounded-xl border border-[var(--line)] text-[var(--ink)] md:hidden"
             aria-label={menuOpen ? "메뉴 닫기" : "메뉴 열기"}
-            aria-controls="test-landing-mobile-menu"
+            aria-controls="service-landing-mobile-menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
           >
@@ -134,12 +136,13 @@ export function TestLanding() {
         </div>
 
         {menuOpen && (
-          <div id="test-landing-mobile-menu" className="border-b border-[var(--line)] bg-white px-4 py-4 shadow-lg md:hidden">
+          <div id="service-landing-mobile-menu" className="border-b border-[var(--line)] bg-white px-4 py-4 shadow-lg md:hidden">
             <nav className="mx-auto grid max-w-7xl gap-1" aria-label="모바일 메뉴">
               {[
                 ["#product", "실제 화면"],
                 ["#workflow", "주요 기능"],
                 ["#pricing", "요금"],
+                ["/blog", "인파 노트"],
                 ["#faq", "자주 묻는 질문"],
               ].map(([href, label]) => (
                 <a
@@ -174,6 +177,7 @@ export function TestLanding() {
         )}
       </header>
 
+      <main>
       <section className="relative overflow-hidden border-b border-[var(--line)] bg-[linear-gradient(145deg,#f8faff_0%,#eef3ff_54%,#ffffff_100%)]">
         <div className="pointer-events-none absolute -right-36 -top-36 size-96 rounded-full bg-[var(--accent-tint)] blur-3xl" />
         <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-[0.86fr_1.14fr] lg:px-8 lg:py-28">
@@ -198,7 +202,7 @@ export function TestLanding() {
                 무료로 시작하기
               </CtaLink>
               <a
-                href="/"
+                href="/story"
                 className="inline-flex min-h-13 items-center justify-center gap-2 rounded-2xl border border-[var(--line-2)] bg-white px-7 py-3.5 text-base font-bold text-[var(--ink)] hover:border-[var(--brand)] hover:text-[var(--brand)]"
                 onClick={() => landingTrack("landing_test_brand_story")}
               >
@@ -263,7 +267,7 @@ export function TestLanding() {
             </p>
           </div>
 
-          <TestProductGallery />
+          <LandingProductGallery />
         </div>
       </section>
 
@@ -349,39 +353,15 @@ export function TestLanding() {
         </div>
       </section>
 
-      <section id="pricing" className="scroll-mt-20 bg-[var(--brand-ink)] py-20 text-white sm:py-24">
-        <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-[1fr_0.8fr] lg:px-8">
-          <div>
-            <p className="text-sm font-extrabold tracking-wide text-blue-200">베타 이용 안내</p>
-            <h2 className="mt-3 break-keep text-3xl font-extrabold tracking-tight sm:text-4xl">
-              내 영업 방식에 맞는지 먼저 확인해보세요
-            </h2>
-            <p className="mt-5 max-w-2xl break-keep text-base leading-7 text-blue-100/80">
-              베타 기간에는 핵심 기능을 부담 없이 확인할 수 있어요. 운영 정책이 바뀌면 화면에서 먼저 안내합니다.
-            </p>
-          </div>
-          <div className="rounded-3xl border border-white/15 bg-white/10 p-7 backdrop-blur">
-            <ul className="space-y-4 text-sm font-semibold text-white/90">
-              {["신용카드 없이 시작", "개인 설계사와 관리직 화면 제공", "휴대폰과 컴퓨터 웹 브라우저 지원"].map((item) => (
-                <li key={item} className="flex items-center gap-3">
-                  <span className="flex size-7 items-center justify-center rounded-full bg-white/15">
-                    <Check size={15} strokeWidth={2.5} aria-hidden />
-                  </span>
-                  {item}
-                </li>
-              ))}
-            </ul>
-            <CtaLink
-              href={registerUrl}
-              position="pricing"
-              action="register"
-              className="mt-7 inline-flex min-h-13 w-full items-center justify-center rounded-2xl bg-white px-6 py-3.5 text-base font-extrabold text-[var(--brand-ink)] hover:bg-blue-50"
-            >
-              무료로 시작하기
-            </CtaLink>
-          </div>
-        </div>
-      </section>
+      <div
+        onClickCapture={(event) => {
+          const link = (event.target as HTMLElement).closest?.("a");
+          if (!link?.getAttribute("href")?.includes("/register")) return;
+          landingTrack("landing_test_cta", { position: "pricing", action: "register" });
+        }}
+      >
+        <PricingFourTiers id="pricing" registerHref={registerUrl} />
+      </div>
 
       <section id="faq" className="scroll-mt-20 bg-[var(--canvas)] py-20 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
@@ -457,6 +437,7 @@ export function TestLanding() {
           </div>
         </div>
       </section>
+      </main>
 
       <footer className="bg-[#0a1838] py-12 text-white">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -469,11 +450,12 @@ export function TestLanding() {
               <p className="mt-3 max-w-sm break-keep text-sm leading-6 text-white/60">내 손안의 인슈어 파트너, 고객 관리부터 다음 일정까지 한곳에서 이어갑니다.</p>
             </div>
             <nav className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm" aria-label="정책 메뉴">
-              <a href="https://www.inpa.kr/blog" className="text-white/70 hover:text-white">인파 노트</a>
-              <a href="https://www.inpa.kr/faq" className="text-white/70 hover:text-white">자주 묻는 질문</a>
-              <a href="https://www.inpa.kr/legal/terms" className="text-white/70 hover:text-white">이용약관</a>
-              <a href="https://www.inpa.kr/legal/privacy" className="text-white/70 hover:text-white">개인정보처리방침</a>
-              <a href="https://www.inpa.kr/data-policy" className="text-white/70 hover:text-white">데이터 처리 안내</a>
+              <a href="/blog" className="text-white/70 hover:text-white">인파 노트</a>
+              <a href="/faq" className="text-white/70 hover:text-white">자주 묻는 질문</a>
+              <a href="/legal/terms" className="text-white/70 hover:text-white">이용약관</a>
+              <a href="/legal/privacy" className="text-white/70 hover:text-white">개인정보처리방침</a>
+              <a href="/data-policy" className="text-white/70 hover:text-white">데이터 처리 안내</a>
+              <a href="mailto:hello.fingo.official@gmail.com" className="text-white/70 hover:text-white">문의</a>
             </nav>
           </div>
           <div className="mt-10 border-t border-white/15 pt-6 text-center text-xs leading-5 text-white/45">
@@ -483,6 +465,6 @@ export function TestLanding() {
           </div>
         </div>
       </footer>
-    </main>
+    </div>
   );
 }

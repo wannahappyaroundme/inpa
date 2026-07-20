@@ -1,5 +1,5 @@
 // sitemap.xml 생성 (Next 파일 컨벤션 — /sitemap.xml 로 서빙).
-// 정적 공개 페이지 5개(랜딩·FAQ·약관·개인정보·데이터 처리) + 인파 노트 목록(/blog) +
+// 정적 공개 페이지(랜딩·인파 이야기·FAQ·약관·개인정보·데이터 처리) + 인파 노트 목록(/blog) +
 // 게시된 인파 노트 글(BE sitemap 엔드포인트로 동적 열거).
 //
 // ★ force-dynamic: 요청 시점 생성 → (1) 빌드가 BE 를 부르지 않아 BE 다운 시에도 빌드 안전,
@@ -15,6 +15,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.inpa.kr";
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticEntries: MetadataRoute.Sitemap = [
     { url: `${SITE_URL}/`, changeFrequency: "weekly", priority: 1 },
+    { url: `${SITE_URL}/story`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${SITE_URL}/blog`, changeFrequency: "weekly", priority: 0.7 },
     { url: `${SITE_URL}/faq`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${SITE_URL}/legal/terms`, changeFrequency: "monthly", priority: 0.3 },
