@@ -980,25 +980,61 @@ def _apply_policy_changes(draft, changes):
         )
         existing['value'] = copy.deepcopy(change['value'])
         existing['state'] = 'manual'
+        # Only this server-owned patch path represents a planner actually
+        # confirming the displayed policy value.  Other manual-entry flows
+        # also use state="manual", but must not bypass cross-field checks.
+        existing['planner_confirmed'] = True
         existing['review_reason_codes'] = []
 
 
 def _apply_coverage_actions(draft, actions, *, force_manual_review):
     rows = _draft_rows(draft)
+    add_count = sum(action['action'] == 'add' for action in actions)
+    if (add_count
+            and len(rows) + add_count > settings.INSURANCE_MAX_CANDIDATES):
+        raise ImportReceptionError(
+            'COVERAGE_ROW_LIMIT_EXCEEDED', status_code=400,
+            detail='담보 수가 많아요. 현재 담보를 먼저 확인해 주세요.')
     rows_by_id = _row_by_id(rows)
     for action in actions:
+        operation = action['action']
+        if operation == 'add':
+            while True:
+                row_id = f'manual-{uuid.uuid4()}'
+                if row_id not in rows_by_id:
+                    break
+            row = {
+                'row_id': row_id,
+                **{
+                    field: copy.deepcopy(action.get(field))
+                    for field in (
+                        'raw_name', 'assurance_amount', 'premium',
+                        'is_renewal', 'renewal_period', 'payment_period',
+                        'payment_period_unit', 'warranty_period',
+                        'warranty_period_unit', 'standard_category',
+                        'standard_subcategory', 'standard_detail_name',
+                    )
+                },
+                'disposition': 'assigned',
+                'exclusion_reason': None,
+                'duplicate_of_row_id': None,
+                'source_candidate_ids': [],
+                'evidence_line_ids': [],
+                'manual_fields': list(MANUAL_COVERAGE_FIELDS),
+            }
+            rows.append(row)
+            rows_by_id[row_id] = row
+            continue
         row = rows_by_id.get(action['row_id'])
         if row is None:
             raise ImportReceptionError(
                 'COVERAGE_ROW_NOT_FOUND', status_code=400,
                 detail='담보 목록을 새로 읽은 뒤 다시 수정해 주세요.')
-        operation = action['action']
         if operation == 'edit':
             field = action['field']
             value = copy.deepcopy(action['value'])
-            if row.get(field) != value:
-                row[field] = value
-                _set_manual_fields(row, (field,))
+            row[field] = value
+            _set_manual_fields(row, (field,))
         elif operation == 'assign':
             path = (
                 action['standard_category'],
@@ -1168,6 +1204,7 @@ def patch_import_draft(*, owner, job_id, payload, idempotency_key):
             _draft_candidates(job),
             draft,
             allow_manual=True,
+            allow_manual_without_evidence=True,
         )
         validated_draft, validation_summary = apply_force_manual_review(
             validation,
@@ -1399,24 +1436,31 @@ def _standard_analysis_detail(row):
 
 def _catalog_detail_for_override(row, insurance_type):
     """Resolve one seeded compatibility FK without changing global rows."""
-    details = list(
-        InsuranceDetail.objects
-        .select_related('sub_category__category')
-        .filter(
-            sub_category__category__name=row['standard_category'],
-            sub_category__name=row['standard_subcategory'],
-            name=row['standard_detail_name'],
-        )
-        .order_by('pk')
-        [:2]
+    category_names = (
+        f'[표준]{row["standard_category"]}',
+        row['standard_category'],
     )
-    if len(details) != 1:
-        raise ImportReceptionError(
-            'STANDARD_COVERAGE_NOT_READY', status_code=409,
-            detail='담보 기준을 새로 맞춘 뒤 다시 확인해 주세요.')
-    # The selected AnalysisDetail is stored only on the customer case below.
-    # Never add/set/remove InsuranceDetail.analysis_detail here.
-    return details[0]
+    for category_name in category_names:
+        details = list(
+            InsuranceDetail.objects
+            .select_related('sub_category__category')
+            .filter(
+                sub_category__category__name=category_name,
+                sub_category__name=row['standard_subcategory'],
+                name=row['standard_detail_name'],
+            )
+            .order_by('pk')
+            [:2]
+        )
+        if len(details) == 1:
+            # The selected AnalysisDetail is stored only on the customer case.
+            # Never add/set/remove InsuranceDetail.analysis_detail here.
+            return details[0]
+        if len(details) > 1:
+            break
+    raise ImportReceptionError(
+        'STANDARD_COVERAGE_NOT_READY', status_code=409,
+        detail='담보 기준을 새로 맞춘 뒤 다시 확인해 주세요.')
 
 
 def _period_types(row):
@@ -1753,6 +1797,7 @@ def confirm_import(*, owner, job_id, payload, idempotency_key):
             _draft_candidates(job),
             copy.deepcopy(job.draft_payload),
             allow_manual=True,
+            allow_manual_without_evidence=True,
         )
         final_draft, validation_summary = apply_force_manual_review(
             validation, required=_force_manual_review_required(job))
