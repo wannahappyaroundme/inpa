@@ -666,11 +666,13 @@ class CompareFactsTests(TestCase):
         """계약 키 전부 존재 + publishable 항상 false + 면책 고정 + verdict 키 없음(판정 제거)."""
         _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1)
         body = self._get().json()
-        for key in ('mode', 'current', 'proposed', 'rows', 'guide_draft',
-                    'guide_enabled', 'switch_warnings', 'publishable',
+        for key in ('mode', 'current', 'proposed', 'rows', 'comparison_source',
+                    'guide_draft', 'guide_enabled', 'guide_source', 'switch_warnings', 'publishable',
                     'publish_blocked_reason', 'disclaimer'):
             self.assertIn(key, body)
         self.assertFalse(body['publishable'])
+        self.assertEqual(body['comparison_source'], 'deterministic')
+        self.assertIsNone(body['guide_source'])
         self.assertEqual(body['publish_blocked_reason'], '법무 검토 완료 전 발행 금지')
         self.assertIn('AI', body['disclaimer'])
         # ★ 2026-07-09 재정의: 인파는 KEEP/SWITCH 판정을 산출하지 않는다 → verdict 키 부재.
@@ -684,6 +686,8 @@ class CompareFactsTests(TestCase):
         body = self._get().json()
         self.assertIsNone(body['guide_draft'])
         self.assertFalse(body['guide_enabled'])
+        self.assertEqual(body['comparison_source'], 'deterministic')
+        self.assertIsNone(body['guide_source'])
 
     # ── 확인해야 할 사항(switch_warnings, 중립 사실 — 판정 아님) ──────────────
     # ★ 2026-07-09 재정의(PM 지시, §97 리스크 축소): 인파는 KEEP/SWITCH/NEUTRAL 판정을
@@ -749,6 +753,8 @@ class CompareFactsTests(TestCase):
             {'side_a_ids': [policy_a.id], 'side_b_ids': []},
             {'side_a_ids': [], 'side_b_ids': [policy_b.id]},
             {'side_a_ids': [str(policy_a.id)], 'side_b_ids': [policy_b.id]},
+            {'side_a_ids': [policy_a.id, 1.5], 'side_b_ids': [policy_b.id]},
+            {'side_a_ids': [policy_a.id, True], 'side_b_ids': [policy_b.id]},
             {'side_a_ids': policy_a.id, 'side_b_ids': [policy_b.id]},
             {'side_a_ids': [policy_a.id]},
             {'side_a_ids': [unavailable_policy.id], 'side_b_ids': [policy_b.id]},
@@ -758,6 +764,64 @@ class CompareFactsTests(TestCase):
                 selection,
                 format='json',
             )
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()['code'], 'INVALID_COMPARISON_SELECTION')
+
+    def test_side_ab_selection_rejects_mixed_ineligible_policy_ids(self):
+        """한 쪽에 취소 보험이 섞여도 일부만 골라 사실표를 만들지 않는다."""
+        policy_a = _make_portfolio_typed(
+            self.customer, self.idet, 40000000, portfolio_type=2, monthly=30000)
+        policy_b = _make_portfolio_typed(
+            self.customer, self.idet, 90000000, portfolio_type=2, monthly=55000)
+        canceled = _make_portfolio_typed(
+            self.customer, self.idet, 70000000, portfolio_type=2, monthly=45000)
+        canceled.is_cancelled = True
+        canceled.save(update_fields=['is_cancelled'])
+
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {'side_a_ids': [policy_a.id, canceled.id], 'side_b_ids': [policy_b.id]},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['code'], 'INVALID_COMPARISON_SELECTION')
+
+    def test_get_side_ab_selection_accepts_comma_and_repeated_integer_params(self):
+        """GET도 문서화된 콤마·반복 A/B 선택을 같은 계약으로 처리한다."""
+        policy_a = _make_portfolio_typed(
+            self.customer, self.idet, 40000000, portfolio_type=2, monthly=30000)
+        policy_b = _make_portfolio_typed(
+            self.customer, self.idet, 90000000, portfolio_type=2, monthly=55000)
+
+        response = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/compare/'
+            f'?side_a_ids={policy_a.id},{policy_a.id}&side_b_ids={policy_b.id}',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['current']['monthly_premiums'], 30000)
+
+        repeated = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/compare/'
+            f'?side_a_ids={policy_a.id}&side_a_ids={policy_a.id}&side_b_ids={policy_b.id}',
+        )
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(repeated.json()['current']['monthly_premiums'], 30000)
+
+    def test_get_side_ab_selection_rejects_malformed_or_empty_params(self):
+        """GET side 선택도 누락·빈값·문자열 오염 시 legacy 비교로 빠지지 않는다."""
+        policy_a = _make_portfolio_typed(
+            self.customer, self.idet, 40000000, portfolio_type=2, monthly=30000)
+        policy_b = _make_portfolio_typed(
+            self.customer, self.idet, 90000000, portfolio_type=2, monthly=55000)
+
+        for query in (
+            f'?side_a_ids={policy_a.id}',
+            f'?side_a_ids=&side_b_ids={policy_b.id}',
+            f'?side_a_ids={policy_a.id},oops&side_b_ids={policy_b.id}',
+        ):
+            response = self.client.get(
+                f'/api/v1/customers/{self.customer.id}/compare/{query}')
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json()['code'], 'INVALID_COMPARISON_SELECTION')
 
@@ -874,6 +938,8 @@ class CompareAiGateTests(TestCase):
             f'/api/v1/customers/{self.customer.id}/compare/').json()
         self.assertEqual(body['guide_draft'], '§97 6요건 초안 본문')
         self.assertTrue(body['guide_enabled'])
+        self.assertEqual(body['comparison_source'], 'deterministic')
+        self.assertEqual(body['guide_source'], 'ai')
         mock_gen.assert_called_once()
 
     @override_settings(COMPARE_AI_ENABLED=True)
@@ -885,6 +951,8 @@ class CompareAiGateTests(TestCase):
             f'/api/v1/customers/{self.customer.id}/compare/').json()
         self.assertIsNone(body['guide_draft'])
         self.assertFalse(body['guide_enabled'])
+        self.assertEqual(body['comparison_source'], 'deterministic')
+        self.assertIsNone(body['guide_source'])
         # 비교표(사실)는 여전히 존재
         self.assertTrue(any(x['coverage'] == '사망보장' for x in body['rows']))
 

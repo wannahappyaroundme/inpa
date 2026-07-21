@@ -87,11 +87,62 @@ function ruleApplies(rule, relPath) {
   return rule.paths.some((prefix) => p === prefix || p.startsWith(prefix + "/"));
 }
 
-/** 주석을 검사 대상에서 제외. 블록주석은 공백치환(줄번호 보존), 줄주석은 제거(://는 보존). */
+/** 주석만 검사 대상에서 제외한다. 문자열·템플릿 리터럴 속 // 및 /* 는 그대로 보존한다. */
 function stripComments(src) {
-  let s = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
-  s = s.replace(/(^|[^:])\/\/[^\n]*/g, "$1");
-  return s;
+  let result = "";
+  let state = "code";
+  for (let i = 0; i < src.length; i += 1) {
+    const char = src[i];
+    const next = src[i + 1];
+
+    if (state === "line-comment") {
+      if (char === "\n") {
+        state = "code";
+        result += char;
+      } else {
+        result += " ";
+      }
+      continue;
+    }
+    if (state === "block-comment") {
+      if (char === "*" && next === "/") {
+        result += "  ";
+        i += 1;
+        state = "code";
+      } else {
+        result += char === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+    if (state === "single" || state === "double" || state === "template") {
+      result += char;
+      if (char === "\\" && next !== undefined) {
+        result += next;
+        i += 1;
+      } else if ((state === "single" && char === "'")
+          || (state === "double" && char === '"')
+          || (state === "template" && char === "`")) {
+        state = "code";
+      }
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      result += "  ";
+      i += 1;
+      state = "line-comment";
+    } else if (char === "/" && next === "*") {
+      result += "  ";
+      i += 1;
+      state = "block-comment";
+    } else {
+      result += char;
+      if (char === "'") state = "single";
+      else if (char === '"') state = "double";
+      else if (char === "`") state = "template";
+    }
+  }
+  return result;
 }
 
 function walk(dir, out) {

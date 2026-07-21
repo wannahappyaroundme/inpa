@@ -40,7 +40,7 @@ import { ContactLogModal } from "@/components/contact-log-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
 import { AssignInsRow, InsuranceCards, type SideAssign } from "@/components/insurance-review-cards";
 import { BaselineRequiredModal } from "@/components/baseline-required-modal";
-import { PremiumSplitSection, ComparePremiumSplit } from "@/components/premium-split";
+import { PremiumSplitSection, CompareAiGuide, ComparePremiumSplit } from "@/components/premium-split";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 import { ShareLinkButton } from "@/components/share-link-button";
 import { ShareSnapshotButton } from "@/components/share-snapshot-panel";
@@ -1467,7 +1467,6 @@ function SwitchTab({ customerId }: { customerId: number }) {
 
   const labelA = "증권 A";
   const labelB = "증권 B";
-  const hasAiGuide = data.guide_enabled && data.guide_draft && data.guide_source === "ai";
   // 복사 가능 = 양쪽 배정 ≥1 + 재계산 중이 아님(진행 중엔 옛 데이터가 복사되지 않도록 잠근다).
   const canExport = aCount > 0 && bCount > 0 && !loading && !insRefreshError;
 
@@ -1546,13 +1545,12 @@ function SwitchTab({ customerId }: { customerId: number }) {
         />
       )}
 
-      {hasAiGuide && (
-        <section className="rounded-xl border border-line bg-surface2 px-4 py-3 mb-4">
-          <h3 className="text-[13px] font-bold text-ink">AI가 정리한 참고 자료</h3>
-          <p className="mt-1 text-[12px] leading-5 text-ink2 whitespace-pre-wrap">{data.guide_draft}</p>
-          <p className="mt-2 text-[11px] leading-4 text-ink3">{data.disclaimer}</p>
-        </section>
-      )}
+      <CompareAiGuide
+        guideEnabled={data.guide_enabled}
+        guideDraft={data.guide_draft}
+        guideSource={data.guide_source}
+        disclaimer={data.disclaimer}
+      />
 
       {/* 보험료 요약 */}
       <div className="grid grid-cols-2 gap-3 mb-4">

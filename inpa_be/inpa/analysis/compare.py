@@ -123,20 +123,43 @@ def _side_selection_ids(request, key):
     선택 오류로 처리해, 잘못된 요청을 0건 사실표처럼 보이지 않게 한다.
     """
     data = getattr(request, 'data', None)
-    if data is None or key not in data:
+    if data is not None and key in data:
+        raw = data.get(key)
+        if not isinstance(raw, (list, tuple)) or not raw:
+            raise InvalidComparisonSelection
+        values = raw
+        from_query = False
+    elif key in request.query_params:
+        # GET 하위호환: ?side_a_ids=1,2 와 ?side_a_ids=1&side_a_ids=2 모두 지원.
+        values = []
+        for raw in request.query_params.getlist(key):
+            if not isinstance(raw, str):
+                raise InvalidComparisonSelection
+            values.extend(raw.split(','))
+        if not values:
+            raise InvalidComparisonSelection
+        from_query = True
+    else:
         return None
-    raw = data.get(key)
-    if not isinstance(raw, (list, tuple)) or not raw:
-        raise InvalidComparisonSelection
 
     ids = []
     seen = set()
-    for value in raw:
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+    for value in values:
+        if isinstance(value, bool):
             raise InvalidComparisonSelection
-        if value not in seen:
-            seen.add(value)
-            ids.append(value)
+        if isinstance(value, int):
+            parsed = value
+        elif from_query and isinstance(value, str) and value.isascii() and value.isdecimal():
+            parsed = int(value)
+        else:
+            raise InvalidComparisonSelection
+        if parsed <= 0:
+            raise InvalidComparisonSelection
+        if parsed not in seen:
+            seen.add(parsed)
+            ids.append(parsed)
+    if not ids:
+        raise InvalidComparisonSelection
     return ids
 
 
@@ -397,10 +420,10 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
             owned_ids = set(customer.customer_insurance_list.values_list('id', flat=True))
             if not requested_ids.issubset(owned_ids):
                 raise NotFound('비교할 증권을 찾을 수 없어요.')
-            current_list = [by_id[i] for i in side_a_sel if i in by_id]
-            proposed_list = [by_id[i] for i in side_b_sel if i in by_id]
-            if not current_list or not proposed_list:
+            if not requested_ids.issubset(by_id):
                 return _invalid_selection_response()
+            current_list = [by_id[i] for i in side_a_sel]
+            proposed_list = [by_id[i] for i in side_b_sel]
         else:
             current_list = [ci for ci in all_list if ci.portfolio_type == 1]
             proposed_list = [ci for ci in all_list if ci.portfolio_type == 2]

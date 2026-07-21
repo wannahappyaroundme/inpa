@@ -27,6 +27,9 @@ describe("copy library honesty guard", () => {
     const source = readFileSync(join(process.cwd(), "lib/copy-library.ts"), "utf8");
     expect(source).toContain("COPY_CATEGORIES");
     expect(copyGuard.stripComments("// 부담 없이\nconst copy = '다음 행동';")).not.toMatch(/부담 없이/);
+    expect(copyGuard.stripComments('const copy = "https://example.test// 부담 없이";')).toContain("부담 없이");
+    expect(copyGuard.stripComments("const copy = `표시 /* 부담 없이 */`;"))
+      .toContain("부담 없이");
 
     const result = copyGuard.scanCopy();
     expect(result.files).toContain("lib/copy-library.ts");

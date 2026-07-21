@@ -1,10 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { CompareBarChart } from "@/components/charts";
-import { ComparePremiumSplit } from "@/components/premium-split";
+import { CompareAiGuide, ComparePremiumSplit } from "@/components/premium-split";
 import type { CompareResponse, CompareSide } from "@/lib/api";
 import { buildCompareExportText } from "@/lib/compare-export";
 import { compareMock } from "@/lib/mock";
@@ -65,10 +63,27 @@ describe("neutral multi-policy comparison copy", () => {
     expect(copy).not.toMatch(/현재와 제안|갈아타기|승환|비교안내서/);
   });
 
-  it("shows an AI notice only when a guide response exists", () => {
-    const customerPage = readFileSync(join(process.cwd(), "app/customer/[id]/page.tsx"), "utf8");
+  it("shows an AI notice only for an actual AI guide source", () => {
+    const { rerender } = render(
+      <CompareAiGuide
+        guideEnabled
+        guideDraft="AI 초안"
+        guideSource={null}
+        disclaimer="안내문"
+      />,
+    );
+    expect(screen.queryByText("AI가 정리한 참고 자료")).toBeNull();
+    expect(screen.queryByText("AI 초안")).toBeNull();
 
-    expect(customerPage).toContain("data.guide_enabled && data.guide_draft");
-    expect(customerPage).toContain("AI가 정리한 참고 자료");
+    rerender(
+      <CompareAiGuide
+        guideEnabled
+        guideDraft="AI 초안"
+        guideSource="ai"
+        disclaimer="안내문"
+      />,
+    );
+    expect(screen.getByText("AI가 정리한 참고 자료")).toBeTruthy();
+    expect(screen.getByText("AI 초안")).toBeTruthy();
   });
 });
