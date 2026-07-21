@@ -30,8 +30,9 @@ const EXT = new Set([".ts", ".tsx"]);
 const CUSTOMER_ROUTES = ["app/s", "app/b", "app/c", "app/d", "app/p"];
 // 고객 전송용 텍스트를 만드는 모듈 — 설계사 페이지 안이지만 이 텍스트는 고객이 직접 읽으므로 권유어 규칙을
 // 여기에도 적용한다(페이지 전체는 정당한 §97 내부 안내 문구 때문에 오탐이라 파일 단위로 분리해 가드한다).
-const ADVICE_PATHS = [...CUSTOMER_ROUTES, "lib/compare-export.ts"];
+const ADVICE_PATHS = [...CUSTOMER_ROUTES, "lib/compare-export.ts", "lib/copy-library.ts"];
 const ADVICE_HINT = "고객 대면 화면 권유어 금지(§97·금소법). 사실 서술·중립 표현으로 바꾸세요.";
+const COPY_LIBRARY_PATHS = ["lib/copy-library.ts"];
 
 // 증권 비교 노출면: 기능을 보험 교체 제안이 아니라 여러 증권의 중립 A/B 시각화로 설명한다.
 // 내부 API·법무 주석은 호환성과 기록을 위해 유지하므로 렌더링 가능성이 있는 파일만 검사한다.
@@ -69,6 +70,8 @@ const RULES = [
   { name: "권유어(더 유리)", re: /더 유리/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
   { name: "권유어(가입하세요)", re: /가입하세요/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
   { name: "권유어(전환하세요)", re: /전환하세요/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
+  { name: "가짜 수신거부 번호", re: /080-[0-9]/, paths: COPY_LIBRARY_PATHS, hint: "실제 번호가 없으면 담당 설계사 연락처로 안내하거나 전화 문구를 빼세요." },
+  { name: "검증 불가 약속", re: /부담 없이|무조건|확실한|보장됩니다/, paths: COPY_LIBRARY_PATHS, hint: "확인 가능한 사실과 다음 행동 중심으로 바꾸세요." },
   {
     name: "교체 전제 비교 문구",
     re: /현재와 제안|현재 보험과 새 제안|기존과 제안|제안과 나란히|보유 증권과 새 제안|기존.*제안|product:\s*"(?:기존|제안)|["']제안["']|^\s*제안\s*$|labelA\s*=\s*"현재"|유지·전환|갈아타기|승환|비교안내서/,
@@ -100,37 +103,48 @@ function walk(dir, out) {
   }
 }
 
-const base = path.resolve(__dirname, "..");
-const files = [];
-for (const r of ROOTS) {
-  const d = path.join(base, r);
-  if (fs.existsSync(d)) walk(d, files);
-}
+function scanCopy(base = path.resolve(__dirname, "..")) {
+  const files = [];
+  for (const r of ROOTS) {
+    const d = path.join(base, r);
+    if (fs.existsSync(d)) walk(d, files);
+  }
 
-const violations = [];
-for (const file of files) {
-  const rel = path.relative(base, file);
-  const rules = RULES.filter((r) => ruleApplies(r, rel));
-  if (!rules.length) continue;
-  const raw = fs.readFileSync(file, "utf8");
-  const original = raw.split("\n");
-  const scanned = stripComments(raw).split("\n");
-  for (let i = 0; i < scanned.length; i++) {
-    for (const rule of rules) {
-      if (rule.re.test(scanned[i])) {
-        violations.push({ file: rel, line: i + 1, rule, text: (original[i] || "").trim() });
+  const violations = [];
+  const relativeFiles = [];
+  for (const file of files) {
+    const rel = path.relative(base, file);
+    relativeFiles.push(rel);
+    const rules = RULES.filter((r) => ruleApplies(r, rel));
+    if (!rules.length) continue;
+    const raw = fs.readFileSync(file, "utf8");
+    const original = raw.split("\n");
+    const scanned = stripComments(raw).split("\n");
+    for (let i = 0; i < scanned.length; i++) {
+      for (const rule of rules) {
+        if (rule.re.test(scanned[i])) {
+          violations.push({ file: rel, line: i + 1, rule, text: (original[i] || "").trim() });
+        }
       }
     }
   }
+  return { files: relativeFiles, violations };
 }
 
-if (violations.length) {
-  console.error(`\n✗ 정직성 카피 가드: 금지 표기 ${violations.length}건 발견\n`);
-  for (const v of violations) {
-    console.error(`  ${v.file}:${v.line}  [${v.rule.name}] → ${v.rule.hint}`);
-    console.error(`     ${v.text}`);
+function main() {
+  const { files, violations } = scanCopy();
+  if (violations.length) {
+    console.error(`\n✗ 정직성 카피 가드: 금지 표기 ${violations.length}건 발견\n`);
+    for (const v of violations) {
+      console.error(`  ${v.file}:${v.line}  [${v.rule.name}] → ${v.rule.hint}`);
+      console.error(`     ${v.text}`);
+    }
+    console.error("");
+    process.exit(1);
   }
-  console.error("");
-  process.exit(1);
+  console.log(`✓ 정직성 카피 가드 통과 (${files.length}개 파일, 위반 0)`);
 }
-console.log(`✓ 정직성 카피 가드 통과 (${files.length}개 파일, 위반 0)`);
+
+if (require.main === module) main();
+
+module.exports = { scanCopy, stripComments };

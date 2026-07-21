@@ -1462,16 +1462,12 @@ function SwitchTab({ customerId }: { customerId: number }) {
   // 담보 변동: 추가(신규)/삭제(빠짐)/변경/유지 — 증권 A vs 증권 B 금액 기준.
   function diffLabel(cur: number | null, prop: number | null): { text: string; cls: string } {
     const text = compareDiffText(cur, prop);
-    const clsBy: Record<string, string> = {
-      "추가": "bg-emerald-50 text-emerald-700 border-emerald-200",
-      "삭제": "bg-rose-50 text-rose-600 border-rose-200",
-      "변경": "bg-amber-50 text-amber-700 border-amber-200",
-    };
-    return { text, cls: clsBy[text] ?? "bg-surface2 text-ink3 border-line" };
+    return { text, cls: "bg-surface2 text-ink3 border-line" };
   }
 
   const labelA = "증권 A";
   const labelB = "증권 B";
+  const hasAiGuide = data.guide_enabled && data.guide_draft && data.guide_source === "ai";
   // 복사 가능 = 양쪽 배정 ≥1 + 재계산 중이 아님(진행 중엔 옛 데이터가 복사되지 않도록 잠근다).
   const canExport = aCount > 0 && bCount > 0 && !loading && !insRefreshError;
 
@@ -1550,12 +1546,13 @@ function SwitchTab({ customerId }: { customerId: number }) {
         />
       )}
 
-      {/* AI 초안 면책 — 항상 노출, 접기 불가 */}
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4">
-        <p className="text-[12px] leading-5 text-amber-800">
-          {data.disclaimer}
-        </p>
-      </div>
+      {hasAiGuide && (
+        <section className="rounded-xl border border-line bg-surface2 px-4 py-3 mb-4">
+          <h3 className="text-[13px] font-bold text-ink">AI가 정리한 참고 자료</h3>
+          <p className="mt-1 text-[12px] leading-5 text-ink2 whitespace-pre-wrap">{data.guide_draft}</p>
+          <p className="mt-2 text-[11px] leading-4 text-ink3">{data.disclaimer}</p>
+        </section>
+      )}
 
       {/* 보험료 요약 */}
       <div className="grid grid-cols-2 gap-3 mb-4">
@@ -1635,17 +1632,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
                       ? new Intl.NumberFormat("ko-KR").format(row.proposed_amount)
                       : "-"}
                   </td>
-                  <td
-                    className={`px-3 py-2.5 text-right tnum font-semibold ${
-                      row.delta === null
-                        ? "text-ink3"
-                        : row.delta > 0
-                        ? "text-enough"
-                        : row.delta < 0
-                        ? "text-short"
-                        : "text-ink3"
-                    }`}
-                  >
+                  <td className={`px-3 py-2.5 text-right tnum font-semibold ${row.delta === null ? "text-ink3" : "text-ink2"}`}>
                     {fmtDelta(row.delta)}
                   </td>
                   <td className="px-3 py-2.5 text-center">

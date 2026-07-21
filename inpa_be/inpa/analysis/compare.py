@@ -44,6 +44,20 @@ from inpa.customers.models import Customer, PlannerBaseline
 
 logger = logging.getLogger(__name__)
 
+
+class InvalidComparisonSelection(ValueError):
+    """A/B 선택이 비교표를 만들 수 없는 형태일 때 사용하는 입력 오류."""
+
+
+def _invalid_selection_response():
+    return Response(
+        {
+            'detail': '증권 A와 증권 B에 각각 하나 이상 골라 주세요.',
+            'code': 'INVALID_COMPARISON_SELECTION',
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
 # ★ AI 초안 면책 — 절대 변경 금지(정직성 레드라인). "심의 완료/안전" 류 보증 문구 금지.
 COMPARE_DISCLAIMER = (
     '본 비교 자료는 AI가 생성한 초안입니다. 최종 책임은 보험을 권유하는 설계사에게 있으며, '
@@ -100,6 +114,30 @@ def _selected_ids(request, key):
         except (TypeError, ValueError):
             continue
     return ids  # 제공됐으면 빈 집합이라도 그대로(0개 선택 = 그쪽 0개 비교)
+
+
+def _side_selection_ids(request, key):
+    """명시 A/B 비교의 정수 배열을 순서 보존·중복 제거해 읽는다.
+
+    side_a_ids/side_b_ids 는 FE가 JSON 배열로 보내는 현재 계약이다. 문자열·빈 배열·0·bool은
+    선택 오류로 처리해, 잘못된 요청을 0건 사실표처럼 보이지 않게 한다.
+    """
+    data = getattr(request, 'data', None)
+    if data is None or key not in data:
+        return None
+    raw = data.get(key)
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise InvalidComparisonSelection
+
+    ids = []
+    seen = set()
+    for value in raw:
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise InvalidComparisonSelection
+        if value not in seen:
+            seen.add(value)
+            ids.append(value)
+    return ids
 
 
 def _aggregate_side(insurance_list):
@@ -346,12 +384,23 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
         # 임의의 두 집합을 A/B 로 비교(제안 vs 제안·증권 vs 증권 등 자유 비교).
         # 없으면 하위호환: 보유(portfolio_type=1)/제안(portfolio_type=2) 분리 +
         # current_ids/proposed_ids 선택(PM 06.29, 기존 동작 그대로).
-        side_a_sel = _selected_ids(request, 'side_a_ids')
-        side_b_sel = _selected_ids(request, 'side_b_ids')
+        try:
+            side_a_sel = _side_selection_ids(request, 'side_a_ids')
+            side_b_sel = _side_selection_ids(request, 'side_b_ids')
+        except InvalidComparisonSelection:
+            return _invalid_selection_response()
         if side_a_sel is not None or side_b_sel is not None:
+            if side_a_sel is None or side_b_sel is None:
+                return _invalid_selection_response()
             by_id = {ci.id: ci for ci in all_list}
-            current_list = [by_id[i] for i in (side_a_sel or set()) if i in by_id]
-            proposed_list = [by_id[i] for i in (side_b_sel or set()) if i in by_id]
+            requested_ids = set(side_a_sel) | set(side_b_sel)
+            owned_ids = set(customer.customer_insurance_list.values_list('id', flat=True))
+            if not requested_ids.issubset(owned_ids):
+                raise NotFound('비교할 증권을 찾을 수 없어요.')
+            current_list = [by_id[i] for i in side_a_sel if i in by_id]
+            proposed_list = [by_id[i] for i in side_b_sel if i in by_id]
+            if not current_list or not proposed_list:
+                return _invalid_selection_response()
         else:
             current_list = [ci for ci in all_list if ci.portfolio_type == 1]
             proposed_list = [ci for ci in all_list if ci.portfolio_type == 2]
@@ -413,8 +462,10 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
             'current': current_summary,
             'proposed': proposed_summary,
             'rows': rows,
+            'comparison_source': 'deterministic',
             'guide_draft': guide_draft,
             'guide_enabled': guide_enabled,
+            'guide_source': 'ai' if guide_draft is not None else None,
             # ── 확인해야 할 사항(중립 사실, planner_internal) — 공유뷰 누수 금지 ──
             # ★ 2026-07-09: verdict(판정) 키는 응답에서 완전히 제거됐다. 인파는 KEEP/SWITCH
             #   를 산출하지 않는다 — 남는 것은 설계사가 검토할 중립 사실뿐이다.

@@ -734,6 +734,73 @@ class CompareFactsTests(TestCase):
         self.assertEqual(row['proposed_amount'], 90000000)
         self.assertEqual(row['delta'], 50000000)
 
+    def test_side_ab_selection_requires_nonempty_integer_arrays(self):
+        """A/B 선택은 양쪽의 정수 배열이어야 하며 빈 선택을 사실 표로 처리하지 않는다."""
+        policy_a = _make_portfolio_typed(
+            self.customer, self.idet, 40000000, portfolio_type=2, monthly=30000)
+        policy_b = _make_portfolio_typed(
+            self.customer, self.idet, 90000000, portfolio_type=2, monthly=55000)
+        unavailable_policy = _make_portfolio_typed(
+            self.customer, self.idet, 70000000, portfolio_type=2, monthly=45000)
+        unavailable_policy.is_cancelled = True
+        unavailable_policy.save(update_fields=['is_cancelled'])
+
+        for selection in (
+            {'side_a_ids': [policy_a.id], 'side_b_ids': []},
+            {'side_a_ids': [], 'side_b_ids': [policy_b.id]},
+            {'side_a_ids': [str(policy_a.id)], 'side_b_ids': [policy_b.id]},
+            {'side_a_ids': policy_a.id, 'side_b_ids': [policy_b.id]},
+            {'side_a_ids': [policy_a.id]},
+            {'side_a_ids': [unavailable_policy.id], 'side_b_ids': [policy_b.id]},
+        ):
+            response = self.client.post(
+                f'/api/v1/customers/{self.customer.id}/compare/',
+                selection,
+                format='json',
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()['code'], 'INVALID_COMPARISON_SELECTION')
+
+    def test_side_ab_selection_deduplicates_each_side(self):
+        """같은 보험을 여러 번 보내도 한 번만 집계한다."""
+        policy_a = _make_portfolio_typed(
+            self.customer, self.idet, 40000000, portfolio_type=2, monthly=30000)
+        policy_b = _make_portfolio_typed(
+            self.customer, self.idet, 90000000, portfolio_type=2, monthly=55000)
+
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {'side_a_ids': [policy_a.id, policy_a.id],
+             'side_b_ids': [policy_b.id, policy_b.id]},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['current']['monthly_premiums'], 30000)
+        self.assertEqual(response.json()['proposed']['monthly_premiums'], 55000)
+
+    def test_side_ab_selection_hides_non_customer_or_unknown_policy_ids(self):
+        """다른 고객·다른 소유자·없는 보험 ID는 모두 존재를 알리지 않는 404다."""
+        policy_a = _make_portfolio_typed(
+            self.customer, self.idet, 40000000, portfolio_type=2, monthly=30000)
+        policy_b = _make_portfolio_typed(
+            self.customer, self.idet, 90000000, portfolio_type=2, monthly=55000)
+        another_customer = Customer.objects.create(owner=self.user, name='다른고객')
+        other_customer_policy = _make_portfolio_typed(
+            another_customer, self.idet, 70000000, portfolio_type=2, monthly=70000)
+        other_user, _ = _make_planner('other-cmp-selection@test.com')
+        foreign_customer = Customer.objects.create(owner=other_user, name='남의고객')
+        foreign_policy = _make_portfolio_typed(
+            foreign_customer, self.idet, 80000000, portfolio_type=2, monthly=80000)
+
+        for invalid_id in (other_customer_policy.id, foreign_policy.id, 999999):
+            response = self.client.post(
+                f'/api/v1/customers/{self.customer.id}/compare/',
+                {'side_a_ids': [policy_a.id], 'side_b_ids': [policy_b.id, invalid_id]},
+                format='json',
+            )
+            self.assertEqual(response.status_code, 404)
+
     def test_proposal_vs_proposal_no_replacement_warnings(self):
         """제안 vs 제안(교체 아님)엔 면책 리셋·이율 변동 유의사항이 뜨지 않는다(리뷰 major).
 
@@ -749,7 +816,7 @@ class CompareFactsTests(TestCase):
         self.assertNotIn('rate_change', types)
 
     def test_side_ab_ids_owner_isolation(self):
-        """다른 설계사 고객의 보험 id를 side_a_ids/side_b_ids 에 넣어도 무시된다(소유 격리)."""
+        """다른 설계사 고객의 보험 id는 존재를 알리지 않는 404다."""
         from inpa.accounts.models import Profile, User
         other = User.objects.create_user(email='other-cmp@test.com', password='inpaPass123!')
         other.is_active = True
@@ -760,22 +827,21 @@ class CompareFactsTests(TestCase):
         mine = _make_portfolio_typed(self.customer, self.idet, 40000000, portfolio_type=2, monthly=30000)
         r = self.client.post(
             f'/api/v1/customers/{self.customer.id}/compare/',
-            {'side_a_ids': [mine.id, foreign.id], 'side_b_ids': []}, format='json')
-        self.assertEqual(r.status_code, 200)
-        # 남의 보험(월 9.9만)은 집계에서 빠지고 내 것(월 3만)만 잡힌다.
-        self.assertEqual(r.json()['current']['monthly_premiums'], 30000)
+            {'side_a_ids': [mine.id], 'side_b_ids': [foreign.id]}, format='json')
+        self.assertEqual(r.status_code, 404)
 
     def test_side_ab_ids_take_priority_over_legacy_params(self):
         """side_a_ids/side_b_ids 가 오면 current_ids/proposed_ids 는 무시된다(신규 우선)."""
         h1 = _make_portfolio_typed(self.customer, self.idet, 50000000, portfolio_type=1, monthly=40000)
         p1 = _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2, monthly=60000)
+        p2 = _make_portfolio_typed(self.customer, self.idet, 80000000, portfolio_type=2, monthly=50000)
         r = self.client.post(
             f'/api/v1/customers/{self.customer.id}/compare/',
-            {'side_a_ids': [p1.id], 'side_b_ids': [], 'current_ids': [h1.id]}, format='json')
+            {'side_a_ids': [p1.id], 'side_b_ids': [p2.id], 'current_ids': [h1.id]}, format='json')
         body = r.json()
         # side_a=p1(제안, 월 6만) → current 자리에 실린다. current_ids(h1)는 무시.
         self.assertEqual(body['current']['monthly_premiums'], 60000)
-        self.assertIsNone(body['proposed']['monthly_premiums'])
+        self.assertEqual(body['proposed']['monthly_premiums'], 50000)
 
     def test_no_side_params_backward_compat_portfolio_split(self):
         """side_a_ids/side_b_ids 도, current_ids/proposed_ids 도 없으면 기존 동작(보유/제안 분리)."""
@@ -1386,9 +1452,7 @@ class AnalysisEligibilityGateTests(TestCase):
         response = self.client.post(
             f'/api/v1/customers/{self.customer.id}/compare/',
             {'side_a_ids': [self.included.id],
-             'side_b_ids': [proposed.id,
-                            self.customer.customer_insurance_list.get(
-                                name='기존보험').id]},
+             'side_b_ids': [proposed.id]},
             format='json')
         self.assertEqual(response.status_code, 200)
         row = next(item for item in response.json()['rows']
@@ -1503,7 +1567,7 @@ class CaseMappingOverrideTests(TestCase):
     def test_compare_and_share_use_same_effective_mapping(self):
         compare = self.client.post(
             f'/api/v1/customers/{self.customer_a.id}/compare/',
-            {'side_a_ids': [self.insurance_a.id], 'side_b_ids': []},
+            {'side_a_ids': [self.insurance_a.id], 'side_b_ids': [self.insurance_a.id]},
             format='json').json()
         self.assertEqual(
             [(row['coverage'], row['current_amount']) for row in compare['rows']],
@@ -1518,7 +1582,7 @@ class CaseMappingOverrideTests(TestCase):
         self.case_a.analysis_detail_override.clear()
         compare = self.client.post(
             f'/api/v1/customers/{self.customer_a.id}/compare/',
-            {'side_a_ids': [self.insurance_a.id], 'side_b_ids': []},
+            {'side_a_ids': [self.insurance_a.id], 'side_b_ids': [self.insurance_a.id]},
             format='json').json()
         self.assertEqual(compare['rows'], [])
 

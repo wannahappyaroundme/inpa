@@ -3168,6 +3168,8 @@ export interface CompareResponse {
   /** B안(오른쪽) 집계 — side_b_ids 로 고른 세트, 미지정 시 제안(하위호환) */
   proposed: CompareSide;
   rows: CompareRow[];
+  /** 보험료·담보·차이값은 서버가 계산한 사실값이다. */
+  comparison_source: "deterministic";
   /**
    * 확인해야 할 사항(중립 사실 — 해지환급 손실 추정·면책 리셋·이율 변동). ★ 판정 아님.
    * 2026-07-09: 인파는 KEEP/SWITCH 판정을 만들지 않는다(BE 응답에 verdict 키 자체가 없음).
@@ -3176,6 +3178,8 @@ export interface CompareResponse {
   switch_warnings: SwitchWarning[];
   guide_draft: string | null;
   guide_enabled: boolean;
+  /** 실제 AI 안내 초안이 생성됐을 때만 ai다. */
+  guide_source: "ai" | null;
   /** 항상 false — BE 권위. FE 절대 override 불가 */
   publishable: false;
   publish_blocked_reason: string;

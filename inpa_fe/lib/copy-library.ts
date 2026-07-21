@@ -40,7 +40,7 @@ export const COPY_CATEGORIES: CopyCategory[] = [
   {
     key: "referral",
     label: "소개 요청",
-    desc: "기존 고객에게 부담 없이 소개를 부탁할 때. 발굴의 가장 빠른 길.",
+    desc: "기존 고객에게 소개를 부탁할 때. 자연스럽게 안부를 전하는 흐름이에요.",
     templates: [
       {
         id: "referral-thanks",
@@ -120,7 +120,7 @@ export const COPY_CATEGORIES: CopyCategory[] = [
         id: "ta-noshow",
         title: "약속 미루어진 뒤 재제안",
         channel: "kakao",
-        body: "{고객명}님, 지난번엔 바쁘셨죠 😊 부담 없이 다시 한번만 잡아볼게요. 이번 주 안 되시면 다음 주도 괜찮아요. 편하신 요일만 알려주세요.",
+        body: "{고객명}님, 지난번엔 바쁘셨죠 😊 이번 주나 다음 주 중 편하신 요일을 알려주세요.",
       },
     ],
   },
@@ -182,14 +182,14 @@ export const COPY_CATEGORIES: CopyCategory[] = [
         id: "as-event-sms",
         title: "이벤트 안내 (광고문자 예시)",
         channel: "sms",
-        body: "(광고) {고객명}님, {설계사명}입니다. 무료 보장점검 이벤트 안내드려요. 신청: [링크]\n무료수신거부 080-000-0000",
+        body: "(광고) {고객명}님, {설계사명}입니다. 보장점검 안내: [링크]\n수신 거부 안내: 담당 설계사 연락처",
       },
     ],
   },
   {
     key: "prospecting",
     label: "신규 발굴 (지인 첫 접촉)",
-    desc: "아는 사람에게 부담 없이 첫 말을 꺼낼 때. 영업 티 안 나게, 도움 주는 톤으로.",
+    desc: "아는 사람에게 첫 말을 꺼낼 때. 안부를 먼저 전하는 톤으로.",
     templates: [
       {
         id: "prospect-acquaintance",
