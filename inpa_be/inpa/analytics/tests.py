@@ -24,6 +24,7 @@ from inpa.analysis.models import (
 )
 from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
+from inpa.analytics.sharing import PAYLOAD_VERSION_V2
 from inpa.customers.models import ConsentLog, Customer
 from inpa.insurances.models import (
     CustomerInsurance, CustomerInsuranceDetail, InsuranceCategory,
@@ -1400,6 +1401,7 @@ class ShareSnapshotRolloutCompatibilityTests(TestCase):
         self.customer.save(update_fields=('share_sent_at', 'share_expires_at'))
         response = self.public.get(f'/api/v1/s/{self.customer.share_token}/')
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()['reason'], 'SHARE_LINK_INVALID')
 
     @override_settings(LEGACY_SHARE_FALLBACK_ENABLED=True)
     def test_revoked_snapshot_is_terminal_even_with_legacy_fallback(self):
@@ -1410,13 +1412,15 @@ class ShareSnapshotRolloutCompatibilityTests(TestCase):
         ShareSnapshot.objects.create(
             owner=self.user, customer=customer,
             share_token=customer.share_token,
-            payload_version='v1-legacy-actions', payload={'mode': 'neutral'},
+            payload_version=PAYLOAD_VERSION_V2, payload={'mode': 'neutral'},
             revoked_at=timezone.now(),
+            link_expires_at=timezone.now() + timezone.timedelta(days=30),
             retention_expires_at=timezone.now() + timezone.timedelta(days=180))
 
         response = self.public.get(f'/api/v1/s/{customer.share_token}/')
 
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()['reason'], 'SHARE_LINK_REVOKED')
 
     @override_settings(LEGACY_SHARE_FALLBACK_ENABLED=True)
     def test_expired_snapshot_is_terminal_even_with_legacy_fallback(self):
@@ -1427,13 +1431,14 @@ class ShareSnapshotRolloutCompatibilityTests(TestCase):
         ShareSnapshot.objects.create(
             owner=self.user, customer=customer,
             share_token=customer.share_token,
-            payload_version='v1-legacy-actions', payload={'mode': 'neutral'},
+            payload_version=PAYLOAD_VERSION_V2, payload={'mode': 'neutral'},
             link_expires_at=timezone.now() - timezone.timedelta(seconds=1),
             retention_expires_at=timezone.now() + timezone.timedelta(days=180))
 
         response = self.public.get(f'/api/v1/s/{customer.share_token}/')
 
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()['reason'], 'SHARE_LINK_EXPIRED')
 
 
 class ShareSnapshotAuditCommandTests(TestCase):
