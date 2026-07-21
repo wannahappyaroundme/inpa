@@ -2582,6 +2582,53 @@ class SelfDiagnosisConsentTests(TestCase):
     @mock.patch(
         'inpa.insurances.self_diagnosis._extract_pdf_lines',
         return_value=(['line'], None))
+    def test_legacy_persistence_locks_customer_before_signature_read_and_write(
+            self, _extract):
+        from inpa.insurances import self_diagnosis
+
+        first_ocr = _fake_ocr_data()
+        second_ocr = _fake_ocr_data()
+        second_ocr.dict_loss_head_data['상품명'] = '다른 종합보험'
+        with mock.patch(
+                'inpa.insurances.self_diagnosis.claude_parse',
+                side_effect=[first_ocr, second_ocr]):
+            first = self._post()
+            self.assertEqual(first.status_code, 201, first.content)
+
+            customer_lock = Customer.objects.select_for_update
+            lock_calls = []
+
+            def lock_customer():
+                lock_calls.append(True)
+                return customer_lock()
+
+            original_signature = self_diagnosis._ci_signature
+            original_persist = self_diagnosis._persist_ocr
+
+            def signature_after_lock(ci):
+                self.assertEqual(len(lock_calls), 2)
+                return original_signature(ci)
+
+            def persist_after_lock(customer, ocr_data):
+                self.assertEqual(len(lock_calls), 2)
+                return original_persist(customer, ocr_data)
+
+            with mock.patch.object(
+                    Customer.objects,
+                    'select_for_update',
+                    side_effect=lock_customer), mock.patch(
+                    'inpa.insurances.self_diagnosis._ci_signature',
+                    side_effect=signature_after_lock), mock.patch(
+                    'inpa.insurances.self_diagnosis._persist_ocr',
+                    side_effect=persist_after_lock):
+                second = self._post()
+
+        self.assertEqual(second.status_code, 201, second.content)
+        self.assertEqual(CustomerInsurance.objects.count(), 2)
+
+    @mock.patch(
+        'inpa.insurances.self_diagnosis._extract_pdf_lines',
+        return_value=(['line'], None))
     def test_consent_receipts_exist_before_claude_parse(self, _extract):
         receipts_exist = []
 

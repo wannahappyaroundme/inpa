@@ -465,6 +465,8 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
         #    커밋됐으므로 공급자 실패가 감사 증적을 되돌리지 않는다.
         insurances_payload = None
         with transaction.atomic():
+            customer = Customer.objects.select_for_update().get(
+                pk=customer.pk, owner=planner)
             # ── 파싱 성공 보험 전부 이 고객에 귀속 + 보험별 카드 페이로드 구성 ──
             if has_files:
                 # ★ 중복 방지(재제출 시 금액 2배 버그): 같은 phone 리드를 재사용하므로
