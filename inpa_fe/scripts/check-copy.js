@@ -92,7 +92,7 @@ function ruleApplies(rule, relPath) {
  * TypeScript 파서가 인식한 리터럴 구간은 보호하고, 그 밖의 실제 comment trivia만 제외한다.
  * JSX는 일반 scanner 모드만으로는 템플릿 문맥을 잃을 수 있어 AST 범위를 기준으로 처리한다.
  */
-function stripComments(src) {
+function stripComments(src, context = "<source>") {
   const sourceFile = ts.createSourceFile(
     "copy-guard.tsx",
     src,
@@ -100,6 +100,11 @@ function stripComments(src) {
     false,
     ts.ScriptKind.TSX,
   );
+  if (sourceFile.parseDiagnostics.length) {
+    const codes = [...new Set(sourceFile.parseDiagnostics.map((diagnostic) => diagnostic.code))]
+      .join(", ");
+    throw new Error(`카피 검사 파싱 오류: ${context} (TS${codes}). 파일을 고친 뒤 다시 실행하세요.`);
+  }
   const protectedRanges = [];
 
   function protect(node) {
@@ -190,7 +195,7 @@ function scanCopy(base = path.resolve(__dirname, "..")) {
     if (!rules.length) continue;
     const raw = fs.readFileSync(file, "utf8");
     const original = raw.split("\n");
-    const scanned = stripComments(raw).split("\n");
+    const scanned = stripComments(raw, rel).split("\n");
     for (let i = 0; i < scanned.length; i++) {
       for (const rule of rules) {
         if (rule.re.test(scanned[i])) {
@@ -203,7 +208,14 @@ function scanCopy(base = path.resolve(__dirname, "..")) {
 }
 
 function main() {
-  const { files, violations } = scanCopy();
+  let result;
+  try {
+    result = scanCopy();
+  } catch (error) {
+    console.error(`\n✗ ${error.message}\n`);
+    process.exit(1);
+  }
+  const { files, violations } = result;
   if (violations.length) {
     console.error(`\n✗ 정직성 카피 가드: 금지 표기 ${violations.length}건 발견\n`);
     for (const v of violations) {

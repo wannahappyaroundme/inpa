@@ -6,7 +6,7 @@ import { COPY_CATEGORIES, renderCopy } from "@/lib/copy-library";
 
 const copyGuard = require("../../scripts/check-copy.js") as {
   scanCopy: () => { files: string[]; violations: unknown[] };
-  stripComments: (source: string) => string;
+  stripComments: (source: string, context?: string) => string;
 };
 
 describe("copy library honesty guard", () => {
@@ -41,5 +41,12 @@ describe("copy library honesty guard", () => {
     const result = copyGuard.scanCopy();
     expect(result.files).toContain("lib/copy-library.ts");
     expect(result.violations).toEqual([]);
+  });
+
+  it("fails closed when TypeScript source cannot be parsed", () => {
+    expect(() => copyGuard.stripComments("const incomplete = (", "fixtures/broken.tsx"))
+      .toThrow(/카피 검사 파싱 오류.*fixtures\/broken\.tsx/);
+    expect(() => copyGuard.stripComments("const incomplete = `outer ${value", "fixtures/broken-template.tsx"))
+      .toThrow(/카피 검사 파싱 오류.*fixtures\/broken-template\.tsx/);
   });
 });
