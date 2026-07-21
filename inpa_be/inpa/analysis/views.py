@@ -305,6 +305,7 @@ class CustomerHeatmapView(APIView):
             'customer_id': customer.id,
             'mode': mode,
             'baseline_present': bool(baselines),
+            'grading_enabled': bool(settings.HEATMAP_GRADING_ENABLED),
             'baseline_count': len(baselines),  # graded 근거(설계사가 보유한 살아있는 기준 수)
             'insurance_count': len(insurance_list),
             'included_insurance_count': included_insurance_count,

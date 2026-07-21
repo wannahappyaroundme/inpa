@@ -469,7 +469,7 @@ class PlannerBaseline(models.Model):
     recommend_min = models.DecimalField('권장 하한', max_digits=14, decimal_places=2, null=True, blank=True)
     recommend_max = models.DecimalField('권장 상한', max_digits=14, decimal_places=2, null=True, blank=True)
     unit = models.SmallIntegerField(
-        '금액 단위', choices=UNIT_CHOICES, default=UNIT_TEN_THOUSAND_WON)
+        '금액 단위', default=UNIT_TEN_THOUSAND_WON)
 
     # ★ 준법 통제점 물리 키 — null이면 분석 neutral 강제
     baseline_source = models.CharField('기준 출처', max_length=30, null=True, blank=True,

@@ -3,12 +3,19 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.conf import settings
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
+from rest_framework.test import APIClient
 
 from inpa.analysis.baselines import normalize_money, select_baseline
+from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory
 from inpa.analysis.views import _age_band
-from inpa.customers.models import PlannerBaseline
+from inpa.accounts.models import Profile, User
+from inpa.customers.models import Customer, PlannerBaseline
+from inpa.insurances.models import (
+    CustomerInsurance, CustomerInsuranceDetail, InsuranceCategory,
+    InsuranceDetail, InsuranceSubCategory,
+)
 
 
 def _baseline(product_group, age_band, gender, label):
@@ -107,7 +114,70 @@ class BaselineAgeBandTests(SimpleTestCase):
                 self.assertIsNone(_age_band(birth_day))
 
 
-class HeatmapGradingGateTests(SimpleTestCase):
+class HeatmapGradingGateTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='closed-gate@test.com', password='inpaPass123!')
+        self.user.is_active = True
+        self.user.save(update_fields=['is_active'])
+        Profile.objects.create(user=self.user, email_verified_at=timezone.now())
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.customer = Customer.objects.create(
+            owner=self.user, name='게이트고객', birth_day='1990-01-01', gender=1)
+
+        category = AnalysisCategory.objects.create(
+            insurance_type=2, name='상해', order=1)
+        sub_category = AnalysisSubCategory.objects.create(
+            insurance_type=2, category=category, name='사망/후유', order=1)
+        analysis_detail = AnalysisDetail.objects.create(
+            sub_category=sub_category, name='사망보장', order=1)
+        insurance_category = InsuranceCategory.objects.create(
+            insurance_type=2, name='손보상품', order=1)
+        insurance_sub_category = InsuranceSubCategory.objects.create(
+            insurance_type=2, category=insurance_category, name='보장', order=1)
+        insurance_detail = InsuranceDetail.objects.create(
+            sub_category=insurance_sub_category, name='사망담보', order=1)
+        insurance_detail.analysis_detail.add(analysis_detail)
+        insurance = CustomerInsurance.objects.create(
+            customer=self.customer, insurance_type=2, name='테스트보험',
+            portfolio_type=1, payment_period_type=1, payment_period=20,
+            monthly_premiums=50000, monthly_assurance_premium=50000,
+        )
+        CustomerInsuranceDetail.objects.create(
+            insurance=insurance, detail=insurance_detail,
+            assurance_amount=50000000, premium=10000,
+            payment_period_type=1, payment_period=20,
+            warranty_period_type=1, warranty_period='100',
+        )
+        insurance.set_renewal_month()
+        insurance.calculate()
+        insurance.save()
+        PlannerBaseline.objects.create(
+            owner=self.user, coverage_key='사망보장',
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s', gender=1,
+            recommend_min=100000000, recommend_max=300000000,
+            unit=PlannerBaseline.UNIT_WON, baseline_source='planner',
+        )
+
     @override_settings(HEATMAP_GRADING_ENABLED=False)
     def test_grading_gate_is_closed(self):
-        self.assertFalse(settings.HEATMAP_GRADING_ENABLED)
+        response = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/heatmap/')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body['mode'], 'neutral')
+        self.assertTrue(body['baseline_present'])
+        self.assertFalse(body['grading_enabled'])
+        details = [
+            detail
+            for category in body['tree']
+            for sub_category in category['sub_categories']
+            for detail in sub_category['details']
+        ]
+        self.assertTrue(details)
+        for detail in details:
+            self.assertEqual(detail['status'], 'neutral')
+            self.assertIsNone(detail['baseline'])
