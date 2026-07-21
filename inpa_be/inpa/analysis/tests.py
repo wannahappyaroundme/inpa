@@ -306,6 +306,7 @@ class HeatmapNeutralGateTests(TestCase):
         self.assertEqual(held, 0)
 
 
+@override_settings(HEATMAP_GRADING_ENABLED=True)
 class HeatmapGradedTests(TestCase):
     """살아있는 baseline(source!=null)이 있으면 mode='graded' + 담보별 판정."""
 
@@ -322,6 +323,7 @@ class HeatmapGradedTests(TestCase):
             product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
             age_band='30s', gender=1,
             recommend_min=lo, recommend_max=hi,
+            unit=PlannerBaseline.UNIT_WON,
             baseline_source='planner',  # ★ 살아있는 출처
         )
 
@@ -360,6 +362,7 @@ class HeatmapGradedTests(TestCase):
             owner=self.user, coverage_key='암진단비',
             product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
             age_band='30s', gender=1, recommend_min=10000000,
+            unit=PlannerBaseline.UNIT_WON,
             baseline_source='planner')
         ci = _make_portfolio(self.customer, self.idet, assurance_amount=50000000)
         ci.calculate(); ci.save()
