@@ -432,6 +432,25 @@ class ExtractionManifestValidationTests(unittest.TestCase):
             self.assert_contract_error(
                 'E_DATASET_PATH', _discover_git_worktree_roots)
 
+    def test_worktree_discovery_rejects_malformed_nonprunable_record(self):
+        live_root = self.dataset.root / 'live-worktree'
+        live_root.mkdir()
+        results = (
+            SimpleNamespace(stdout='/synthetic/common.git\n'),
+            SimpleNamespace(stdout=(
+                f'worktree {live_root}\n'
+                'HEAD cafebabe\n'
+                'detached\n\n'
+                'HEAD deadbeef\n'
+                'detached\n\n'
+            )),
+        )
+        with mock.patch(
+                'inpa.insurances.extraction_eval.subprocess.run',
+                side_effect=results):
+            self.assert_contract_error(
+                'E_DATASET_PATH', _discover_git_worktree_roots)
+
     def test_rejects_reviewed_output_without_provenance_attestation(self):
         reviewed_path = (
             self.dataset.root

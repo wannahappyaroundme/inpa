@@ -20,4 +20,4 @@ Prevention: After dependency-conflict resolution, never trust `npm install --pac
 Symptom: The private extraction evaluation command failed twice with `E_DATASET_PATH` before reading an otherwise valid dataset.
 Cause: Git kept a `prunable` record for a deleted temporary worktree. Discovery resolved every listed path with `strict=True`, including the explicitly stale record, and therefore failed closed before validation.
 Fix: Parse worktree porcelain records and skip only records Git marks `prunable`; missing non-prunable worktrees still fail closed.
-Prevention: Regression tests cover both the allowed prunable case and the rejected missing active-record case, plus the command-level aggregate-output path.
+Prevention: Regression tests cover the allowed prunable case, missing or malformed active records, and the command-level aggregate-output path.
