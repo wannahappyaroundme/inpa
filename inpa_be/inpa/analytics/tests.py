@@ -1322,7 +1322,7 @@ class ShareSnapshotAuthorityTests(TestCase):
 
 
 class ShareSnapshotRolloutCompatibilityTests(TestCase):
-    """gate OFF 과거 링크만 잠시 호환하고 신규 발급은 항상 v2를 쓴다."""
+    """명시적으로 연 legacy fallback만 과거 Customer 링크를 호환한다."""
 
     def setUp(self):
         self.user, self.client = _make_planner('snapshot-rollout@test.com')
@@ -1388,8 +1388,8 @@ class ShareSnapshotRolloutCompatibilityTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(set(response.json()), {'snapshot', 'actions'})
 
-    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
-    def test_matching_v1_snapshot_is_terminal_and_never_falls_back(self):
+    @override_settings(LEGACY_SHARE_FALLBACK_ENABLED=True)
+    def test_v1_history_snapshot_is_terminal_even_with_legacy_fallback(self):
         ShareSnapshot.objects.create(
             owner=self.user, customer=self.customer,
             share_token=self.customer.share_token,
@@ -1401,30 +1401,39 @@ class ShareSnapshotRolloutCompatibilityTests(TestCase):
         response = self.public.get(f'/api/v1/s/{self.customer.share_token}/')
         self.assertEqual(response.status_code, 404)
 
-    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
-    def test_revoked_or_expired_v1_snapshot_never_reopens_customer_fallback(self):
-        for state in ('revoked', 'expired'):
-            with self.subTest(state=state):
-                customer = Customer.objects.create(
-                    owner=self.user, name=f'{state}과거고객',
-                    share_sent_at=timezone.now(),
-                    share_expires_at=timezone.now() + timezone.timedelta(days=30))
-                fields = {
-                    'owner': self.user, 'customer': customer,
-                    'share_token': customer.share_token,
-                    'payload_version': 'v1-legacy-actions',
-                    'payload': {'mode': 'neutral'},
-                    'retention_expires_at': (
-                        timezone.now() + timezone.timedelta(days=180)),
-                }
-                if state == 'revoked':
-                    fields['revoked_at'] = timezone.now()
-                else:
-                    fields['link_expires_at'] = (
-                        timezone.now() - timezone.timedelta(seconds=1))
-                ShareSnapshot.objects.create(**fields)
-                response = self.public.get(f'/api/v1/s/{customer.share_token}/')
-                self.assertEqual(response.status_code, 404)
+    @override_settings(LEGACY_SHARE_FALLBACK_ENABLED=True)
+    def test_revoked_snapshot_is_terminal_even_with_legacy_fallback(self):
+        customer = Customer.objects.create(
+            owner=self.user, name='회수된과거고객',
+            share_sent_at=timezone.now(),
+            share_expires_at=timezone.now() + timezone.timedelta(days=30))
+        ShareSnapshot.objects.create(
+            owner=self.user, customer=customer,
+            share_token=customer.share_token,
+            payload_version='v1-legacy-actions', payload={'mode': 'neutral'},
+            revoked_at=timezone.now(),
+            retention_expires_at=timezone.now() + timezone.timedelta(days=180))
+
+        response = self.public.get(f'/api/v1/s/{customer.share_token}/')
+
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(LEGACY_SHARE_FALLBACK_ENABLED=True)
+    def test_expired_snapshot_is_terminal_even_with_legacy_fallback(self):
+        customer = Customer.objects.create(
+            owner=self.user, name='만료된과거고객',
+            share_sent_at=timezone.now(),
+            share_expires_at=timezone.now() + timezone.timedelta(days=30))
+        ShareSnapshot.objects.create(
+            owner=self.user, customer=customer,
+            share_token=customer.share_token,
+            payload_version='v1-legacy-actions', payload={'mode': 'neutral'},
+            link_expires_at=timezone.now() - timezone.timedelta(seconds=1),
+            retention_expires_at=timezone.now() + timezone.timedelta(days=180))
+
+        response = self.public.get(f'/api/v1/s/{customer.share_token}/')
+
+        self.assertEqual(response.status_code, 404)
 
 
 class ShareSnapshotAuditCommandTests(TestCase):
