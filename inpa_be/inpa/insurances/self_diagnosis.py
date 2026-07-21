@@ -249,16 +249,33 @@ def _upsert_customer_and_receipts(*, planner, name, phone, birth, gender,
         if third_party:
             receipts.append((ConsentLog.SCOPE_THIRD_PARTY,
                              '셀프진단 제3자 제공·인파 플랫폼 활용 동의'))
+        live_receipts = {}
         for scope, purpose in receipts:
-            ConsentLog.objects.get_or_create(
-                customer=customer,
-                scope=scope,
-                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
-                doc_version=CONSENT_TEXTS_VERSION,
-                defaults={'purpose': purpose, 'ip': ip},
+            receipt = (
+                ConsentLog.objects
+                .filter(
+                    customer=customer,
+                    scope=scope,
+                    subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                    doc_version=CONSENT_TEXTS_VERSION,
+                    revoked_at__isnull=True,
+                )
+                .order_by('-agreed_at', '-pk')
+                .first()
             )
-        if has_files and customer.consent_overseas_at is None:
-            customer.consent_overseas_at = timezone.now()
+            if receipt is None:
+                receipt = ConsentLog.objects.create(
+                    customer=customer,
+                    scope=scope,
+                    subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                    doc_version=CONSENT_TEXTS_VERSION,
+                    purpose=purpose,
+                    ip=ip,
+                )
+            live_receipts[scope] = receipt
+        if has_files:
+            overseas_receipt = live_receipts[ConsentLog.SCOPE_OVERSEAS_MEDICAL]
+            customer.consent_overseas_at = overseas_receipt.agreed_at
             customer.save(update_fields=['consent_overseas_at'])
         return customer
 

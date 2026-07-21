@@ -2582,6 +2582,54 @@ class SelfDiagnosisConsentTests(TestCase):
     @mock.patch(
         'inpa.insurances.self_diagnosis._extract_pdf_lines',
         return_value=(['line'], None))
+    def test_revoked_receipts_are_replaced_before_legacy_ai(self, _extract):
+        from inpa.customers.consent_texts import has_current_overseas_consent
+        from inpa.insurances.self_diagnosis import _upsert_customer_and_receipts
+
+        customer = _upsert_customer_and_receipts(
+            planner=self.planner,
+            name='셀프김',
+            phone='01099990000',
+            birth='1990-01-01',
+            gender=1,
+            ip='127.0.0.1',
+            has_files=True,
+            marketing=False,
+            third_party=False,
+        )
+        customer.consent_logs.update(revoked_at=timezone.now())
+        customer.consent_overseas_at = None
+        customer.save(update_fields=['consent_overseas_at'])
+
+        consent_state_during_ai = []
+
+        def assert_live_receipts_then_parse(*args, **kwargs):
+            customer.refresh_from_db()
+            consent_state_during_ai.append(
+                has_current_overseas_consent(customer)
+                and customer.consent_overseas_at is not None
+            )
+            return _fake_ocr_data()
+
+        with mock.patch(
+                'inpa.insurances.self_diagnosis.claude_parse',
+                side_effect=assert_live_receipts_then_parse):
+            response = self._post()
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(consent_state_during_ai, [True])
+        self.assertEqual(customer.consent_logs.filter(revoked_at__isnull=True).count(), 2)
+        self.assertEqual(customer.consent_logs.filter(revoked_at__isnull=False).count(), 2)
+        live_overseas = customer.consent_logs.get(
+            scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+            revoked_at__isnull=True,
+        )
+        customer.refresh_from_db()
+        self.assertEqual(customer.consent_overseas_at, live_overseas.agreed_at)
+
+    @mock.patch(
+        'inpa.insurances.self_diagnosis._extract_pdf_lines',
+        return_value=(['line'], None))
     def test_legacy_persistence_locks_customer_before_signature_read_and_write(
             self, _extract):
         from inpa.insurances import self_diagnosis
