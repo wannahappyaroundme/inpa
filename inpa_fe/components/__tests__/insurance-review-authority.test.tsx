@@ -6,6 +6,7 @@ import {
   AnalysisAuthoritySummary,
   AnalysisEmptyState,
   HeatCell,
+  HeatmapGrid,
 } from "@/components/heatmap";
 import {
   AssignInsRow,
@@ -51,6 +52,7 @@ function heatmap(overrides: Partial<HeatmapResponse> = {}): HeatmapResponse {
     customer_id: 31,
     mode: "neutral",
     baseline_present: false,
+    grading_enabled: false,
     baseline_count: 0,
     insurance_count: 0,
     included_insurance_count: 0,
@@ -169,7 +171,7 @@ describe("insurance review authority UI", () => {
 
     expect(screen.getByLabelText(
       mode === "neutral"
-        ? "일반암진단비: 보유 여부만 표시(기준 미설정)"
+        ? "일반암진단비: 보유 내역만 표시"
         : "일반암진단비: 부족"
     )).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "일반암진단비 합산 근거 보기" }));
@@ -180,5 +182,24 @@ describe("insurance review authority UI", () => {
     expect(within(detail).getByText("소액암 진단비").parentElement?.textContent).toContain("2,000만");
     expect(within(detail).getByText("소액암 진단비").parentElement?.textContent).toContain("직접 입력");
     await waitFor(() => expect(detail.textContent).not.toContain("source_text_masked"));
+  });
+
+  it("links stored baselines to their settings without showing grading colors", () => {
+    const storedBaseline = heatmap({
+      baseline_present: true,
+      baseline_count: 1,
+    });
+
+    render(<HeatmapGrid
+      heatmap={storedBaseline}
+      graded={false}
+      onGradedChange={() => undefined}
+      filter="all"
+      onFilterChange={() => undefined}
+    />);
+
+    const settingsLink = screen.getByText("설정한 기준 확인하기 ›").closest("a");
+    expect(settingsLink?.getAttribute("href")).toBe("/settings/baseline");
+    expect(screen.queryByText("내 기준 1개 적용 중")).toBeNull();
   });
 });

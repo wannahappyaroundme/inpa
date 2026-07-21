@@ -230,8 +230,12 @@ class CustomerHeatmapView(APIView):
                 status = 'over'
             else:
                 status = 'adequate'
-            return status, {'min': lo, 'max': hi, 'unit': chosen.unit,
-                            'baseline_source': chosen.baseline_source}
+            return status, {
+                'min': int(lo) if lo is not None else None,
+                'max': int(hi) if hi is not None else None,
+                'display_unit': chosen.unit,
+                'baseline_source': chosen.baseline_source,
+            }
 
         # ── 4) 집계 결과(case_list)를 표준 트리(category→sub→detail)로 재구성 ──
         held_by_detail_id = {c['id']: c.get('total_premium', 0) for c in result['case_list']}
@@ -254,7 +258,7 @@ class CustomerHeatmapView(APIView):
                             for row in contributions) != held:
                         raise AssertionError(
                             'heatmap contribution amount mismatch')
-                    status, baseline = _grade(det.name, held, sub.insurance_type)
+                    status, baseline = _grade(det.name, held, cat.insurance_type)
                     detail_nodes.append({
                         'detail_id': det.id,
                         'name': det.name,

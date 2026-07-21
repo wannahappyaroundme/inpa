@@ -317,13 +317,20 @@ class HeatmapGradedTests(TestCase):
         self.det = _build_std_tree()
         self.idet = _catalog_detail_linked_to(self.det)
 
-    def _baseline(self, lo, hi):
+    def _baseline(
+        self,
+        lo,
+        hi,
+        *,
+        unit=PlannerBaseline.UNIT_WON,
+        product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+    ):
         return PlannerBaseline.objects.create(
             owner=self.user, coverage_key='사망보장',
-            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            product_group=product_group,
             age_band='30s', gender=1,
             recommend_min=lo, recommend_max=hi,
-            unit=PlannerBaseline.UNIT_WON,
+            unit=unit,
             baseline_source='planner',  # ★ 살아있는 출처
         )
 
@@ -368,6 +375,73 @@ class HeatmapGradedTests(TestCase):
         ci.calculate(); ci.save()
         det = self._heatmap_detail_status()
         self.assertEqual(det['status'], 'neutral')
+
+    @override_settings(HEATMAP_GRADING_ENABLED=False)
+    def test_gate_closed_keeps_every_cell_neutral_even_with_baselines(self):
+        self._baseline(lo=30000000, hi=50000000)
+        ci = _make_portfolio(self.customer, self.idet, assurance_amount=50000000)
+        ci.calculate(); ci.save()
+
+        response = self.client.get(f'/api/v1/customers/{self.customer.id}/heatmap/')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['mode'], 'neutral')
+        self.assertTrue(body['baseline_present'])
+        self.assertFalse(body['grading_enabled'])
+        for category in body['tree']:
+            for sub_category in category['sub_categories']:
+                for detail in sub_category['details']:
+                    self.assertEqual(detail['status'], 'neutral')
+                    self.assertIsNone(detail['baseline'])
+
+    def test_fifty_million_won_equals_five_thousand_ten_thousand_won(self):
+        self._baseline(
+            lo=5000,
+            hi=6000,
+            unit=PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+        )
+        ci = _make_portfolio(self.customer, self.idet, assurance_amount=50000000)
+        ci.calculate(); ci.save()
+
+        detail = self._heatmap_detail_status()
+
+        self.assertEqual(detail['status'], 'adequate')
+        self.assertEqual(detail['baseline'], {
+            'min': 50000000,
+            'max': 60000000,
+            'display_unit': PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            'baseline_source': 'planner',
+        })
+
+    def test_twenty_million_is_shortage_against_thirty_million(self):
+        self._baseline(lo=30000000, hi=50000000)
+        ci = _make_portfolio(self.customer, self.idet, assurance_amount=20000000)
+        ci.calculate(); ci.save()
+
+        detail = self._heatmap_detail_status()
+
+        self.assertEqual(detail['status'], 'shortage')
+
+    def test_account_unit_and_wrong_scope_stay_neutral(self):
+        ci = _make_portfolio(self.customer, self.idet, assurance_amount=50000000)
+        ci.calculate(); ci.save()
+        self._baseline(
+            lo=3,
+            hi=5,
+            unit=PlannerBaseline.UNIT_ACCOUNT,
+        )
+
+        self.assertEqual(self._heatmap_detail_status()['status'], 'neutral')
+
+        PlannerBaseline.objects.filter(owner=self.user).delete()
+        self._baseline(
+            lo=30000000,
+            hi=50000000,
+            product_group=PlannerBaseline.PRODUCT_GROUP_LIFE,
+        )
+
+        self.assertEqual(self._heatmap_detail_status()['status'], 'neutral')
 
 
 class HeatmapOwnerIsolationTests(TestCase):

@@ -910,7 +910,7 @@ export type HeatmapStatus = "neutral" | "shortage" | "adequate" | "over";
 export interface HeatmapBaseline {
   min: number | null;
   max: number | null;
-  unit: string | null;
+  display_unit: number | null;
   baseline_source: string | null;
 }
 
@@ -991,6 +991,7 @@ export interface HeatmapResponse {
   customer_id: number;
   mode: "neutral" | "graded";
   baseline_present: boolean;
+  grading_enabled: boolean;
   baseline_count: number;       // graded 근거(보유한 살아있는 기준 수) — PM 06.24 명확화
   insurance_count: number;
   included_insurance_count: number;
