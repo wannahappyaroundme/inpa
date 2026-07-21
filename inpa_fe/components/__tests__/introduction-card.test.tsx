@@ -84,6 +84,33 @@ describe("introduction card consultation request", () => {
     expect(screen.queryByText("상담 내용을 확인한 뒤 연락드려요")).toBeNull();
   });
 
+  it("associates name and consent errors with the field that needs attention", async () => {
+    render(<IntroCardPage />);
+    await screen.findByLabelText("이름");
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "상담 신청" }));
+    const name = screen.getByLabelText("이름");
+    expect(name).toHaveAttribute("aria-describedby", "intro-card-name-error");
+    expect(screen.getByLabelText("연락받을 휴대폰 번호")).not.toHaveAttribute("aria-describedby");
+
+    await user.type(name, "김상담");
+    await user.type(screen.getByLabelText("연락받을 휴대폰 번호"), "010-1234-5678");
+    await user.click(screen.getByRole("button", { name: "상담 신청" }));
+    expect(screen.getByRole("checkbox")).toHaveAttribute("aria-describedby", "intro-card-consent-error");
+  });
+
+  it("shows a general server failure without attaching it to the phone field", async () => {
+    api.submitIntroLead.mockRejectedValue(new ApiError(500, "SERVER_ERROR", "잠시 후 다시 시도해 주세요."));
+    render(<IntroCardPage />);
+    await screen.findByLabelText("연락받을 휴대폰 번호");
+    const user = await fillRequiredFields("010-1234-5678");
+    await user.click(screen.getByRole("button", { name: "상담 신청" }));
+
+    expect(await screen.findByText("잠시 후 다시 시도해 주세요.")).toHaveAttribute("id", "intro-card-form-error");
+    expect(screen.getByLabelText("연락받을 휴대폰 번호")).not.toHaveAttribute("aria-describedby");
+  });
+
   it("keeps a 404 as an invalid-link state without offering retry", async () => {
     api.getIntroductionCard.mockRejectedValueOnce(new ApiError(404, "NOT_FOUND", "missing"));
 

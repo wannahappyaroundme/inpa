@@ -461,7 +461,26 @@ class IntroCardTests(TestCase):
         self.assertEqual(NorthStarEvent.objects.filter(customer=customer).count(), 1)
         self.assertEqual(Notification.objects.filter(customer=customer).count(), 1)
 
-    def test_intro_lead_matches_a_legacy_hyphenated_phone(self):
+    def test_intro_lead_records_a_later_repeat_application(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        url = f'/api/v1/p/{self.profile.ref_code}/'
+        payload = {'name': '김상담', 'phone': '010-1234-5678', 'agreed': True}
+        first = self.public.post(url, payload, format='json')
+        self.assertEqual(first.status_code, 201, first.content)
+        ConsentLog.objects.update(agreed_at=timezone.now() - timedelta(minutes=10))
+
+        second = self.public.post(url, payload, format='json')
+
+        self.assertEqual(second.status_code, 201, second.content)
+        customer = Customer.objects.get(owner=self.planner)
+        self.assertEqual(ConsentLog.objects.filter(customer=customer).count(), 2)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=customer).count(), 2)
+        self.assertEqual(Notification.objects.filter(customer=customer).count(), 2)
+
+    def test_intro_lead_reuses_legacy_phone_and_records_new_application(self):
         from inpa.analytics.models import NorthStarEvent
         from inpa.customers.models import ConsentLog, Customer
         from inpa.notifications.models import Notification
@@ -478,9 +497,45 @@ class IntroCardTests(TestCase):
         self.assertEqual(r.status_code, 201, r.content)
         self.assertEqual(Customer.objects.filter(owner=self.planner).count(), 1)
         self.assertEqual(Customer.objects.get(pk=legacy.pk).mobile_phone_number, '010-1234-5678')
-        self.assertEqual(ConsentLog.objects.count(), 0)
-        self.assertEqual(NorthStarEvent.objects.count(), 0)
-        self.assertEqual(Notification.objects.count(), 0)
+        receipt = ConsentLog.objects.get(customer=legacy)
+        self.assertEqual(receipt.scope, ConsentLog.SCOPE_PERSONAL_INFO)
+        self.assertEqual(receipt.subject, ConsentLog.SUBJECT_CUSTOMER_SELF)
+        self.assertIsNone(receipt.revoked_at)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=legacy).count(), 1)
+        self.assertEqual(Notification.objects.filter(customer=legacy).count(), 1)
+
+    def test_recent_consent_from_another_path_does_not_hide_intro_application(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        existing = Customer.objects.create(
+            owner=self.planner,
+            name='기존고객',
+            mobile_phone_number='01012345678',
+            is_agree_term=True,
+            lead_source=Customer.LEAD_INTRODUCTION,
+            lead_created_at=timezone.now(),
+        )
+        ConsentLog.objects.create(
+            customer=existing,
+            scope=ConsentLog.SCOPE_PERSONAL_INFO,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+            purpose='다른 동의 경로',
+            doc_version=CONSENT_TEXTS_VERSION,
+        )
+
+        response = self.public.post(
+            f'/api/v1/p/{self.profile.ref_code}/',
+            {'name': '김상담', 'phone': '010-1234-5678', 'agreed': True},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(ConsentLog.objects.filter(customer=existing).count(), 2)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=existing).count(), 1)
+        self.assertEqual(Notification.objects.filter(customer=existing).count(), 1)
 
     def test_invalid_phone_creates_no_customer_consent_event_or_notification(self):
         from inpa.analytics.models import NorthStarEvent

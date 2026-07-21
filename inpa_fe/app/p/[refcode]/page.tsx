@@ -11,6 +11,7 @@ import { getIntroductionCard, submitIntroLead, ApiError, type IntroCardResponse 
 
 const MOBILE_PHONE_PATTERN = /^01[0-9]{8,9}$/;
 type LoadState = "loading" | "ready" | "not-found" | "retryable";
+type FormError = { field: "name" | "phone" | "consent" | "form"; message: string };
 
 export default function IntroCardPage() {
   const params = useParams();
@@ -24,7 +25,7 @@ export default function IntroCardPage() {
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<FormError | null>(null);
 
   const loadCard = useCallback(async () => {
     setCard(null);
@@ -47,15 +48,15 @@ export default function IntroCardPage() {
 
   const submit = useCallback(async () => {
     if (!name.trim()) {
-      setError("이름을 입력해 주세요.");
+      setError({ field: "name", message: "이름을 입력해 주세요." });
       return;
     }
     if (!MOBILE_PHONE_PATTERN.test(phone.replace(/\D/g, ""))) {
-      setError("올바른 휴대폰 번호를 입력해 주세요.");
+      setError({ field: "phone", message: "올바른 휴대폰 번호를 입력해 주세요." });
       return;
     }
     if (!agreed) {
-      setError("개인정보 수집·연락 동의에 체크해 주세요.");
+      setError({ field: "consent", message: "개인정보 수집·연락 동의에 체크해 주세요." });
       return;
     }
     setSubmitting(true);
@@ -64,7 +65,17 @@ export default function IntroCardPage() {
       await submitIntroLead(refcode, { name: name.trim(), phone: phone.trim(), agreed: true });
       setSubmitted(true);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "신청에 실패했어요. 잠시 후 다시 시도해 주세요.");
+      const field = e instanceof ApiError && e.code === "INVALID_PHONE"
+        ? "phone"
+        : e instanceof ApiError && e.code === "NAME_REQUIRED"
+          ? "name"
+          : e instanceof ApiError && e.code === "CONSENT_REQUIRED"
+            ? "consent"
+            : "form";
+      setError({
+        field,
+        message: e instanceof ApiError ? e.message : "신청에 실패했어요. 잠시 후 다시 시도해 주세요.",
+      });
       setSubmitting(false);
     }
   }, [refcode, name, phone, agreed]);
@@ -133,12 +144,22 @@ export default function IntroCardPage() {
           <Card className="mt-5 p-5">
             <div className="text-[15px] font-bold text-ink">상담 신청하기</div>
             <p className="mt-1 text-[12px] text-ink3 leading-5">상담 내용을 확인한 뒤 연락드릴 수 있도록 휴대폰 번호를 남겨 주세요.</p>
+            <label htmlFor="intro-card-name" className="mt-3 block text-[12px] font-medium text-ink2">
+              이름
+            </label>
             <input
+              id="intro-card-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (error) setError(null);
+              }}
               placeholder="이름"
-              className="mt-3 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+              aria-invalid={error?.field === "name"}
+              aria-describedby={error?.field === "name" ? "intro-card-name-error" : undefined}
+              className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
             />
+            {error?.field === "name" && <div id="intro-card-name-error" role="alert" className="mt-2 text-[12px] text-cnone">{error.message}</div>}
             <label htmlFor="intro-card-phone" className="mt-3 block text-[12px] font-medium text-ink2">
               연락받을 휴대폰 번호
             </label>
@@ -153,15 +174,30 @@ export default function IntroCardPage() {
               autoComplete="tel"
               placeholder="예: 010-1234-5678"
               inputMode="tel"
-              aria-describedby={error ? "intro-card-phone-error" : undefined}
+              aria-invalid={error?.field === "phone"}
+              aria-describedby={error?.field === "phone" ? "intro-card-phone-error" : undefined}
               className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
             />
-            {error && <div id="intro-card-phone-error" role="alert" className="mt-2 text-[12px] text-cnone">{error}</div>}
-            <label className="mt-3 flex items-start gap-2 text-[12px] text-ink3 leading-5">
-              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5" />
+            {error?.field === "phone" && <div id="intro-card-phone-error" role="alert" className="mt-2 text-[12px] text-cnone">{error.message}</div>}
+            <label htmlFor="intro-card-consent" className="mt-3 flex items-start gap-2 text-[12px] text-ink3 leading-5">
+              <input
+                id="intro-card-consent"
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => {
+                  setAgreed(e.target.checked);
+                  if (error) setError(null);
+                }}
+                aria-invalid={error?.field === "consent"}
+                aria-describedby={error?.field === "consent" ? "intro-card-consent-error" : undefined}
+                className="mt-0.5"
+              />
               <span>개인정보(이름·연락처)를 상담 목적으로 수집·이용하고 담당 설계사에게 전달하는 데 동의해요.</span>
             </label>
+            {error?.field === "consent" && <div id="intro-card-consent-error" role="alert" className="mt-2 text-[12px] text-cnone">{error.message}</div>}
+            {error?.field === "form" && <div id="intro-card-form-error" role="alert" className="mt-2 text-[12px] text-cnone">{error.message}</div>}
             <button
+              type="button"
               onClick={submit}
               disabled={submitting}
               className="mt-3 w-full rounded-2xl bg-ink text-white text-[15px] font-bold py-3.5 disabled:opacity-50 hover:opacity-90 transition"
