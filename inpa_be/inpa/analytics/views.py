@@ -139,7 +139,10 @@ class ShareAnalysisView(_NoIndexMixin, APIView):
         else:
             # 분석 본문은 저장값만 사용하고 연락/예약 행동만 요청 시점 값으로 만든다.
             body = {
-                'snapshot': snapshot.payload,
+                'snapshot': {
+                    **snapshot.payload,
+                    'captured_at': snapshot.captured_at.isoformat(),
+                },
                 'actions': _build_live_actions(customer),
             }
             if not is_bot:
@@ -232,7 +235,7 @@ def _resolve_public_share(token):
             return None, None, 'SHARE_LINK_EXPIRED'
         return snapshot, customer, None
 
-    if getattr(settings, 'INSURANCE_REVIEW_GATE_ENABLED', False):
+    if not settings.LEGACY_SHARE_FALLBACK_ENABLED:
         return None, None, 'SHARE_LINK_INVALID'
     try:
         customer = Customer.objects.select_related(

@@ -1143,7 +1143,10 @@ class ShareSnapshotAuthorityTests(TestCase):
         second = self.public.get(url).json()['snapshot']
         snapshot.refresh_from_db()
         self.assertEqual(first, second)
-        self.assertEqual(second, snapshot.payload)
+        self.assertEqual(second, {
+            **snapshot.payload,
+            'captured_at': snapshot.captured_at.isoformat(),
+        })
         self.assertNotIn('발급 뒤 바뀐 전역 담보명', str(second))
 
     def test_reissue_revokes_previous_link(self):
@@ -1255,7 +1258,10 @@ class ShareSnapshotAuthorityTests(TestCase):
             second = self.public.get(url).json()
 
         self.assertEqual(first['snapshot'], second['snapshot'])
-        self.assertEqual(first['snapshot'], snapshot.payload)
+        self.assertEqual(first['snapshot'], {
+            **snapshot.payload,
+            'captured_at': snapshot.captured_at.isoformat(),
+        })
         self.assertNotEqual(
             first['actions']['booking_url'], second['actions']['booking_url'])
         self.assertEqual(first['actions']['planner_contact'], '010-1111-2222')
@@ -1295,10 +1301,24 @@ class ShareSnapshotAuthorityTests(TestCase):
             self.assertEqual(read_booking_token(fresh_token), self.customer.pk)
         self.assertEqual(first['snapshot'], second['snapshot'])
 
-    def test_gate_on_never_falls_back_to_customer_token(self):
+    @override_settings(LEGACY_SHARE_FALLBACK_ENABLED=False)
+    def test_unbacked_customer_token_is_404(self):
         legacy = Customer.objects.create(owner=self.user, name='스냅샷없는고객')
         response = self.public.get(f'/api/v1/s/{legacy.share_token}/')
         self.assertEqual(response.status_code, 404)
+
+    def test_snapshot_captured_at_is_server_authoritative_over_payload(self):
+        issued, snapshot = self._issue()
+        snapshot.payload['captured_at'] = '2000-01-01T00:00:00+00:00'
+        snapshot.save(update_fields=['payload'])
+
+        response = self.public.get(f"/api/v1/s/{issued['share_token']}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['snapshot']['captured_at'],
+            snapshot.captured_at.isoformat(),
+        )
 
 
 class ShareSnapshotRolloutCompatibilityTests(TestCase):
@@ -1310,12 +1330,53 @@ class ShareSnapshotRolloutCompatibilityTests(TestCase):
             owner=self.user, name='과거링크고객', birth_day='1985.05.05')
         self.public = APIClient()
 
-    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
+    @override_settings(LEGACY_SHARE_FALLBACK_ENABLED=True)
     def test_gate_off_customer_token_keeps_legacy_shape(self):
         response = self.public.get(f'/api/v1/s/{self.customer.share_token}/')
         self.assertEqual(response.status_code, 200)
         self.assertIn('mode', response.json())
         self.assertNotIn('snapshot', response.json())
+
+    @override_settings(
+        LEGACY_SHARE_FALLBACK_ENABLED=True,
+        INSURANCE_REVIEW_GATE_ENABLED=True,
+    )
+    def test_legacy_fallback_is_independent_from_review_gate(self):
+        response = self.public.get(f'/api/v1/s/{self.customer.share_token}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('mode', response.json())
+        self.assertNotIn('snapshot', response.json())
+
+    def test_customer_patch_cannot_change_share_lifecycle_fields(self):
+        self.customer.share_sent_at = timezone.now()
+        self.customer.share_expires_at = timezone.now() + timezone.timedelta(days=30)
+        self.customer.save(update_fields=('share_sent_at', 'share_expires_at'))
+        original = (
+            self.customer.share_token,
+            self.customer.share_sent_at,
+            self.customer.share_expires_at,
+        )
+
+        response = self.client.patch(
+            f'/api/v1/customers/{self.customer.id}/',
+            {
+                'share_token': str(uuid.uuid4()),
+                'share_sent_at': '2030-01-01T00:00:00Z',
+                'share_expires_at': '2030-02-01T00:00:00Z',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.customer.refresh_from_db()
+        self.assertEqual(
+            (
+                self.customer.share_token,
+                self.customer.share_sent_at,
+                self.customer.share_expires_at,
+            ),
+            original,
+        )
 
     @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
     def test_new_link_is_v2_even_while_gate_is_off(self):

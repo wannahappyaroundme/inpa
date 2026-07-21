@@ -6,7 +6,6 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
-import { DisclaimerFooter } from "@/components/ui";
 import { ContentProtect, Watermark } from "@/components/content-guard";
 import { ShareSnapshotContent } from "@/components/share-snapshot-content";
 import { SkeletonBar, SkeletonCard, SkeletonRow, TokenLoadingShell } from "@/components/token-skeleton";
@@ -240,6 +239,12 @@ export default function SharePage() {
       <main className="flex-1 px-5 pb-6">
         <ShareSnapshotContent payload={snapshot} variant="public" />
 
+        <section className="mt-4">
+          <div className="rounded-xl border border-line bg-surface2 px-4 py-3 text-[12px] leading-5 text-ink3">
+            인파가 등록된 보장 정보를 정리한 참고 자료입니다.
+          </div>
+        </section>
+
         {/* 클립보드 복사 */}
         <section className="mt-3">
           <button
@@ -249,8 +254,6 @@ export default function SharePage() {
             {copied ? "링크 복사됐어요!" : "이 링크 복사하기"}
           </button>
         </section>
-
-        <DisclaimerFooter />
       </main>
 
       {/* 하단 고정 CTA */}

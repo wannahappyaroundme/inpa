@@ -177,7 +177,7 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
                   'last_contacted_at', 'is_favorite', 'is_pinned', 'business_card',
                   'insurance_age', 'job_risk_grade', 'job_name', 'marketing_consent', 'personal_info_consent', 'consents',
                   'created_at', 'updated_at')
-        read_only_fields = ('id', 'share_token', 'consent_overseas_at', 'share_sent_at',
+        read_only_fields = ('id', 'share_token', 'consent_overseas_at', 'share_sent_at', 'share_expires_at',
                             'user_view_at', 'created_at', 'updated_at')
 
     def validate_tag_ids(self, value):
