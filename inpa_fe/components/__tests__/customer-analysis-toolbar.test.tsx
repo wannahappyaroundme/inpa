@@ -18,5 +18,8 @@ describe("customer analysis toolbar", () => {
     expect(actionClasses).toContain("sm:flex");
     expect(actionClasses).toContain("[&_button]:whitespace-nowrap");
     expect(actionClasses).toContain("[&_label]:whitespace-nowrap");
+    expect(actionClasses).toContain("[&>[role=alert]]:col-span-3");
+    expect(actionClasses).toContain("sm:[&>[role=alert]]:basis-full");
+    expect(actionClasses).toContain("sm:[&>[role=alert]]:max-w-full");
   });
 });
