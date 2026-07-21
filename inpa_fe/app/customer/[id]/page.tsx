@@ -1084,7 +1084,7 @@ function AnalysisTab({
       {/* 증권 OCR 업로드 입구 (분석 탭으로 이동) */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-[13px] text-ink3">담보 한눈표 · 설계사 도구</div>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full grid-cols-3 items-start gap-2 sm:w-auto sm:flex sm:flex-wrap sm:items-center [&_button]:whitespace-nowrap [&_label]:whitespace-nowrap">
           <button
             type="button"
             onClick={() => setBookingOpen(true)}
