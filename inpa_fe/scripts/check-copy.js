@@ -22,9 +22,10 @@
  */
 const fs = require("fs");
 const path = require("path");
+const ts = require("typescript");
 
 const ROOTS = ["app", "components", "lib"];
-const EXT = new Set([".ts", ".tsx"]);
+const EXT = new Set([".js", ".jsx", ".ts", ".tsx"]);
 
 // 고객 대면(비로그인 공개) 라우트 — 권유 단어 규칙은 여기만 검사(설계사 내부 화면은 규칙 설명 등 정당 언급 허용).
 const CUSTOMER_ROUTES = ["app/s", "app/b", "app/c", "app/d", "app/p"];
@@ -87,60 +88,79 @@ function ruleApplies(rule, relPath) {
   return rule.paths.some((prefix) => p === prefix || p.startsWith(prefix + "/"));
 }
 
-/** 주석만 검사 대상에서 제외한다. 문자열·템플릿 리터럴 속 // 및 /* 는 그대로 보존한다. */
+/**
+ * TypeScript 파서가 인식한 리터럴 구간은 보호하고, 그 밖의 실제 comment trivia만 제외한다.
+ * JSX는 일반 scanner 모드만으로는 템플릿 문맥을 잃을 수 있어 AST 범위를 기준으로 처리한다.
+ */
 function stripComments(src) {
+  const sourceFile = ts.createSourceFile(
+    "copy-guard.tsx",
+    src,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.TSX,
+  );
+  const protectedRanges = [];
+
+  function protect(node) {
+    protectedRanges.push([node.getStart(sourceFile), node.end]);
+  }
+
+  function collectLiteralRanges(node) {
+    if (
+      ts.isStringLiteral(node)
+      || ts.isNoSubstitutionTemplateLiteral(node)
+      || ts.isTemplateHead(node)
+      || ts.isTemplateMiddle(node)
+      || ts.isTemplateTail(node)
+      || ts.isRegularExpressionLiteral(node)
+      || ts.isJsxText(node)
+    ) {
+      protect(node);
+    }
+    ts.forEachChild(node, collectLiteralRanges);
+  }
+
+  collectLiteralRanges(sourceFile);
+  protectedRanges.sort((a, b) => a[0] - b[0]);
+
+  const mergedRanges = [];
+  for (const range of protectedRanges) {
+    const previous = mergedRanges.at(-1);
+    if (previous && range[0] <= previous[1]) previous[1] = Math.max(previous[1], range[1]);
+    else mergedRanges.push([...range]);
+  }
+
   let result = "";
-  let state = "code";
-  for (let i = 0; i < src.length; i += 1) {
-    const char = src[i];
-    const next = src[i + 1];
-
-    if (state === "line-comment") {
-      if (char === "\n") {
-        state = "code";
-        result += char;
-      } else {
-        result += " ";
-      }
+  let rangeIndex = 0;
+  for (let index = 0; index < src.length;) {
+    const range = mergedRanges[rangeIndex];
+    if (range && index === range[0]) {
+      result += src.slice(range[0], range[1]);
+      index = range[1];
+      rangeIndex += 1;
       continue;
     }
-    if (state === "block-comment") {
-      if (char === "*" && next === "/") {
-        result += "  ";
-        i += 1;
-        state = "code";
-      } else {
-        result += char === "\n" ? "\n" : " ";
-      }
+    if (range && index > range[1]) {
+      rangeIndex += 1;
       continue;
     }
-    if (state === "single" || state === "double" || state === "template") {
-      result += char;
-      if (char === "\\" && next !== undefined) {
-        result += next;
-        i += 1;
-      } else if ((state === "single" && char === "'")
-          || (state === "double" && char === '"')
-          || (state === "template" && char === "`")) {
-        state = "code";
-      }
+    if (src.startsWith("//", index)) {
+      const end = src.indexOf("\n", index);
+      const comment = src.slice(index, end === -1 ? src.length : end);
+      result += comment.replace(/[^\n]/g, " ");
+      index = end === -1 ? src.length : end;
       continue;
     }
-
-    if (char === "/" && next === "/") {
-      result += "  ";
-      i += 1;
-      state = "line-comment";
-    } else if (char === "/" && next === "*") {
-      result += "  ";
-      i += 1;
-      state = "block-comment";
-    } else {
-      result += char;
-      if (char === "'") state = "single";
-      else if (char === '"') state = "double";
-      else if (char === "`") state = "template";
+    if (src.startsWith("/*", index)) {
+      const closing = src.indexOf("*/", index + 2);
+      const end = closing === -1 ? src.length : closing + 2;
+      result += src.slice(index, end).replace(/[^\n]/g, " ");
+      index = end;
+      continue;
     }
+    result += src[index];
+    index += 1;
   }
   return result;
 }

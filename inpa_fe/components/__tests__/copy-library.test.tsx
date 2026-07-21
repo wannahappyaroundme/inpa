@@ -31,6 +31,13 @@ describe("copy library honesty guard", () => {
     expect(copyGuard.stripComments("const copy = `표시 /* 부담 없이 */`;"))
       .toContain("부담 없이");
 
+    const nestedTemplate = "const rendered = `outer ${`inner // 부담 없이`}`;";
+    expect(copyGuard.stripComments(nestedTemplate)).toContain("부담 없이");
+    const expressionComment = "const rendered = `outer ${value /* 부담 없이 */}`;";
+    expect(copyGuard.stripComments(expressionComment)).not.toMatch(/부담 없이/);
+    const nestedBlockMarker = "const rendered = `outer ${`inner /* 부담 없이 */`}`;";
+    expect(copyGuard.stripComments(nestedBlockMarker)).toContain("부담 없이");
+
     const result = copyGuard.scanCopy();
     expect(result.files).toContain("lib/copy-library.ts");
     expect(result.violations).toEqual([]);
