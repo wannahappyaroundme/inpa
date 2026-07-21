@@ -1,6 +1,8 @@
 """계정 도메인 happy-path + 핵심 게이트 테스트."""
 from datetime import timedelta
-from threading import Barrier, Thread
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import time
 from unittest import mock, skipUnless
 
 from django.db import close_old_connections, connection
@@ -11,6 +13,88 @@ from rest_framework.test import APIClient
 
 from .models import Profile, User
 from .tokens import make_email_verify_token
+
+
+THREAD_TIMEOUT = 5
+PG_STATE_TIMEOUT = 3
+
+
+def _thread_call(callback):
+    close_old_connections()
+    try:
+        return callback()
+    finally:
+        close_old_connections()
+
+
+def _backend_pid():
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT pg_backend_pid()')
+        return cursor.fetchone()[0]
+
+
+def _wait_for_peer_blocked_by(blocker_pid):
+    deadline = time.monotonic() + PG_STATE_TIMEOUT
+    while time.monotonic() < deadline:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT pid, xact_start IS NOT NULL, pg_blocking_pids(pid)
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND pid <> pg_backend_pid()
+                  AND %s = ANY(pg_blocking_pids(pid))
+                ORDER BY pid
+                """,
+                [blocker_pid],
+            )
+            row = cursor.fetchone()
+        if row is not None:
+            return {'pid': row[0], 'in_transaction': row[1], 'blockers': row[2]}
+        time.sleep(0.02)
+    raise AssertionError('No PostgreSQL peer blocked behind the profile lock holder.')
+
+
+class _PgBlockingProbe:
+    """Prove the introduction-card profile lock blocks a concurrent request."""
+
+    def __init__(self):
+        self._start = threading.Barrier(2)
+        self._mutex = threading.Lock()
+        self._holder_pid = None
+        self._holder_ready = threading.Event()
+        self._release = threading.Event()
+
+    def register_worker(self):
+        self._start.wait(timeout=THREAD_TIMEOUT)
+
+    def hold_first_after_lock(self):
+        if not connection.in_atomic_block:
+            raise AssertionError('Profile lock probe must run inside transaction.atomic().')
+        pid = _backend_pid()
+        with self._mutex:
+            first = self._holder_pid is None
+            if first:
+                self._holder_pid = pid
+        if first:
+            self._holder_ready.set()
+            if not self._release.wait(timeout=THREAD_TIMEOUT):
+                raise AssertionError('PostgreSQL profile lock release timed out.')
+
+    def assert_peer_blocked(self):
+        if not self._holder_ready.wait(timeout=THREAD_TIMEOUT):
+            raise AssertionError('PostgreSQL profile lock holder was not reached.')
+        with self._mutex:
+            holder_pid = self._holder_pid
+        activity = _wait_for_peer_blocked_by(holder_pid)
+        if activity['pid'] == holder_pid:
+            raise AssertionError('Profile lock holder and blocked peer must be distinct.')
+        if not activity['in_transaction']:
+            raise AssertionError('Blocked PostgreSQL peer has no open transaction.')
+        return activity
+
+    def release(self):
+        self._release.set()
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -429,28 +513,38 @@ class IntroCardConcurrencyTests(TransactionTestCase):
         from inpa.customers.models import ConsentLog, Customer
         from inpa.notifications.models import Notification
 
-        barrier = Barrier(2)
-        results = []
+        probe = _PgBlockingProbe()
+        original_lock = Profile.objects.select_for_update
 
-        def submit():
-            close_old_connections()
-            try:
-                barrier.wait(timeout=10)
-                response = APIClient().post(
-                    f'/api/v1/p/{self.refcode}/',
-                    {'name': '김상담', 'phone': '010-1234-5678', 'agreed': True}, format='json')
-                results.append(response.status_code)
-            finally:
-                close_old_connections()
+        def lock_profile():
+            locked_profiles = original_lock()
 
-        threads = [Thread(target=submit) for _ in range(2)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=15)
+            def get(*args, **kwargs):
+                profile = locked_profiles.get(*args, **kwargs)
+                probe.hold_first_after_lock()
+                return profile
 
-        self.assertTrue(all(not thread.is_alive() for thread in threads))
-        self.assertEqual(sorted(results), [201, 201])
+            return mock.Mock(get=get)
+
+        def request():
+            probe.register_worker()
+            return APIClient().post(
+                f'/api/v1/p/{self.refcode}/',
+                {'name': '김상담', 'phone': '010-1234-5678', 'agreed': True}, format='json')
+
+        with mock.patch.object(
+                Profile.objects, 'select_for_update', side_effect=lock_profile):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(_thread_call, request) for _ in range(2)]
+                try:
+                    probe.assert_peer_blocked()
+                finally:
+                    probe.release()
+                responses = [
+                    future.result(timeout=THREAD_TIMEOUT) for future in futures]
+
+        self.assertEqual([response.status_code for response in responses], [201, 201])
         customer = Customer.objects.get(owner=self.planner, mobile_phone_number='01012345678')
         self.assertEqual(Customer.objects.filter(owner=self.planner).count(), 1)
         self.assertEqual(ConsentLog.objects.filter(customer=customer).count(), 1)

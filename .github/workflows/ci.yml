@@ -137,6 +137,7 @@ jobs:
         working-directory: inpa_be
         run: >-
           python manage.py test
+          inpa.accounts.tests.IntroCardConcurrencyTests
           inpa.insurances.test_import_concurrency
           inpa.analytics.test_share_snapshot_concurrency
           --settings=config.settings.test_postgres --parallel=1 -v 2
