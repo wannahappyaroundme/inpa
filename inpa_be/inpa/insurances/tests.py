@@ -2470,7 +2470,7 @@ class ManualInsuranceTests(TestCase):
 # ──────────────────────────────────────────────────────────────────────
 @override_settings(ANTHROPIC_API_KEY='test-key')
 class SelfDiagnosisConsentTests(TestCase):
-    """셀프진단 리드 생성 시 personal_info 동의가 항상, marketing은 선택으로 기록되는지."""
+    """셀프진단 동의 receipt는 외부 처리보다 먼저 확정되고 재시도에 안전해야 한다."""
 
     def setUp(self):
         from django.core.cache import cache
@@ -2481,6 +2481,140 @@ class SelfDiagnosisConsentTests(TestCase):
 
     def _pdf(self):
         return SimpleUploadedFile('p.pdf', b'%PDF-1.4 test', content_type='application/pdf')
+
+    def _payload(self, **extra):
+        return {
+            'file': self._pdf(), 'consent_overseas': 'true',
+            'consent_share': 'true', 'name': '셀프김',
+            'phone': '010-9999-0000', 'birth': '1990-01-01',
+            'gender': '1', **extra,
+        }
+
+    def _post(self, **extra):
+        return self.anon.post(
+            f'/api/v1/d/{self.ref}/', self._payload(**extra),
+            format='multipart')
+
+    @mock.patch(
+        'inpa.insurances.self_diagnosis._extract_pdf_lines',
+        return_value=(['line'], None))
+    def test_consent_receipts_exist_before_claude_parse(self, _extract):
+        receipts_exist = []
+
+        def assert_receipts_then_parse(*args, **kwargs):
+            customer = Customer.objects.filter(
+                owner=self.planner,
+                mobile_phone_number='01099990000',
+            ).first()
+            receipts_exist.append(customer is not None and all(
+                ConsentLog.objects.filter(
+                    customer=customer,
+                    scope=scope,
+                    subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                    doc_version=CONSENT_TEXTS_VERSION,
+                ).exists()
+                for scope in (
+                    ConsentLog.SCOPE_PERSONAL_INFO,
+                    ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+                )))
+            raise RuntimeError('provider unavailable')
+
+        with mock.patch(
+                'inpa.insurances.self_diagnosis.claude_parse',
+                side_effect=assert_receipts_then_parse):
+            response = self._post()
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(receipts_exist, [True])
+
+    @mock.patch(
+        'inpa.insurances.self_diagnosis._extract_pdf_lines',
+        return_value=(['line'], None))
+    def test_provider_failure_keeps_consent_and_customer_but_no_insurance(
+            self, _extract):
+        with mock.patch(
+                'inpa.insurances.self_diagnosis.claude_parse',
+                side_effect=RuntimeError('provider unavailable')):
+            response = self._post()
+
+        self.assertEqual(response.status_code, 201, response.content)
+        customer = Customer.objects.get(
+            owner=self.planner, mobile_phone_number='01099990000')
+        self.assertEqual(
+            customer.consent_logs.filter(
+                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                doc_version=CONSENT_TEXTS_VERSION).count(),
+            2)
+        self.assertFalse(
+            CustomerInsurance.objects.filter(customer=customer).exists())
+
+    @mock.patch(
+        'inpa.insurances.self_diagnosis._extract_pdf_lines',
+        return_value=(['line'], None))
+    @mock.patch(
+        'inpa.insurances.self_diagnosis.claude_parse',
+        return_value=_fake_ocr_data())
+    def test_retry_reuses_customer_and_does_not_duplicate_same_receipt(
+            self, _parse, _extract):
+        first = self._post()
+        second = self._post()
+
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertEqual(second.status_code, 201, second.content)
+        customer = Customer.objects.get(
+            owner=self.planner, mobile_phone_number='01099990000')
+        self.assertEqual(
+            Customer.objects.filter(
+                owner=self.planner, mobile_phone_number='01099990000').count(),
+            1)
+        self.assertEqual(
+            customer.consent_logs.filter(
+                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                doc_version=CONSENT_TEXTS_VERSION).count(),
+            2)
+
+    def test_invalid_date_phone_or_file_never_creates_receipt(self):
+        invalid_requests = (
+            self._payload(birth='2026-02-30'),
+            self._payload(phone='123'),
+            self._payload(file=SimpleUploadedFile(
+                'not-a-policy.txt', b'not a PDF', content_type='text/plain')),
+        )
+
+        for payload in invalid_requests:
+            response = self.anon.post(
+                f'/api/v1/d/{self.ref}/', payload, format='multipart')
+            self.assertGreaterEqual(response.status_code, 400, response.content)
+            self.assertFalse(Customer.objects.filter(owner=self.planner).exists())
+            self.assertFalse(ConsentLog.objects.exists())
+
+    @mock.patch(
+        'inpa.insurances.self_diagnosis._extract_pdf_lines',
+        return_value=(['line'], None))
+    @mock.patch(
+        'inpa.insurances.self_diagnosis.claude_parse',
+        side_effect=[RuntimeError('provider unavailable'), _fake_ocr_data()])
+    def test_partial_file_failure_keeps_successful_file_only(
+            self, _parse, _extract):
+        from inpa.analytics.models import NorthStarEvent
+
+        payload = self._payload()
+        payload.pop('file')
+        payload['files'] = [self._pdf(), self._pdf()]
+        response = self.anon.post(
+            f'/api/v1/d/{self.ref}/', payload, format='multipart')
+
+        self.assertEqual(response.status_code, 201, response.content)
+        customer = Customer.objects.get(
+            owner=self.planner, mobile_phone_number='01099990000')
+        self.assertEqual(
+            CustomerInsurance.objects.filter(customer=customer).count(), 1)
+        event = NorthStarEvent.objects.get(
+            event_type=NorthStarEvent.REFERRAL_ATTRIBUTED,
+            customer=customer,
+        )
+        self.assertEqual(event.payload['successful_file_count'], 1)
+        self.assertEqual(event.payload['failed_file_count'], 1)
 
     @mock.patch('inpa.insurances.self_diagnosis.claude_parse', return_value=_fake_ocr_data())
     @mock.patch('inpa.insurances.self_diagnosis._extract_pdf_lines', return_value=(['line'], None))
