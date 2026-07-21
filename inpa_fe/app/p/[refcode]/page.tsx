@@ -10,14 +10,14 @@ import { Card } from "@/components/ui";
 import { getIntroductionCard, submitIntroLead, ApiError, type IntroCardResponse } from "@/lib/api";
 
 const MOBILE_PHONE_PATTERN = /^01[0-9]{8,9}$/;
+type LoadState = "loading" | "ready" | "not-found" | "retryable";
 
 export default function IntroCardPage() {
   const params = useParams();
   const refcode = typeof params?.refcode === "string" ? params.refcode : "";
 
   const [card, setCard] = useState<IntroCardResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const [loadState, setLoadState] = useState<LoadState>("loading");
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -26,13 +26,24 @@ export default function IntroCardPage() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!refcode) return;
-    getIntroductionCard(refcode)
-      .then(setCard)
-      .catch(() => setNotFound(true))
-      .finally(() => setLoading(false));
+  const loadCard = useCallback(async () => {
+    setCard(null);
+    setLoadState("loading");
+    if (!refcode) {
+      setLoadState("not-found");
+      return;
+    }
+    try {
+      setCard(await getIntroductionCard(refcode));
+      setLoadState("ready");
+    } catch (e) {
+      setLoadState(e instanceof ApiError && e.status === 404 ? "not-found" : "retryable");
+    }
   }, [refcode]);
+
+  useEffect(() => {
+    void loadCard();
+  }, [loadCard]);
 
   const submit = useCallback(async () => {
     if (!name.trim()) {
@@ -58,13 +69,28 @@ export default function IntroCardPage() {
     }
   }, [refcode, name, phone, agreed]);
 
-  if (loading) {
+  if (loadState === "loading") {
     return <div className="mx-auto w-full max-w-md min-h-dvh bg-surface2 grid place-items-center text-[14px] text-ink3">불러오는 중...</div>;
   }
-  if (notFound || !card) {
+  if (loadState === "not-found") {
     return (
       <div className="mx-auto w-full max-w-md min-h-dvh bg-surface2 grid place-items-center px-6 text-center">
         <p className="text-[15px] font-semibold text-ink2">유효하지 않은 링크예요.</p>
+      </div>
+    );
+  }
+  if (loadState === "retryable" || !card) {
+    return (
+      <div className="mx-auto w-full max-w-md min-h-dvh bg-surface2 flex flex-col items-center justify-center px-6 text-center">
+        <h1 className="text-[20px] font-extrabold text-ink">잠시 연결이 원활하지 않아요</h1>
+        <p className="mt-2 text-[14px] text-ink3 leading-6">다시 시도하면 소개 내용을 확인할 수 있어요.</p>
+        <button
+          type="button"
+          onClick={loadCard}
+          className="mt-5 rounded-xl bg-brand px-5 py-3 text-[14px] font-bold text-white"
+        >
+          다시 불러오기
+        </button>
       </div>
     );
   }

@@ -40,6 +40,8 @@ async function fillRequiredFields(phone: string) {
 describe("introduction card consultation request", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.getIntroductionCard.mockReset();
+    api.submitIntroLead.mockReset();
     api.getIntroductionCard.mockResolvedValue(card);
     api.submitIntroLead.mockResolvedValue({ lead_created: true });
   });
@@ -80,5 +82,32 @@ describe("introduction card consultation request", () => {
 
     expect(await screen.findByText("올바른 휴대폰 번호를 입력해 주세요.")).toBeInTheDocument();
     expect(screen.queryByText("상담 내용을 확인한 뒤 연락드려요")).toBeNull();
+  });
+
+  it("keeps a 404 as an invalid-link state without offering retry", async () => {
+    api.getIntroductionCard.mockRejectedValueOnce(new ApiError(404, "NOT_FOUND", "missing"));
+
+    render(<IntroCardPage />);
+
+    expect(await screen.findByText("유효하지 않은 링크예요.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다시 불러오기" })).toBeNull();
+  });
+
+  it.each([
+    ["429", new ApiError(429, "THROTTLED", "busy")],
+    ["500", new ApiError(500, "SERVER_ERROR", "down")],
+    ["network", new TypeError("network")],
+  ])("offers one working retry after a %s load error", async (_label, loadError) => {
+    api.getIntroductionCard.mockRejectedValueOnce(loadError).mockResolvedValueOnce(card);
+
+    render(<IntroCardPage />);
+
+    expect(await screen.findByText("잠시 연결이 원활하지 않아요")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "다시 불러오기" })).toHaveLength(1);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "다시 불러오기" }));
+
+    expect(await screen.findByText("홍길동")).toBeInTheDocument();
+    expect(api.getIntroductionCard).toHaveBeenCalledTimes(2);
   });
 });
