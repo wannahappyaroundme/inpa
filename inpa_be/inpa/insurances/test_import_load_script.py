@@ -515,7 +515,8 @@ class LoadScriptContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, serialized)
         for customer_id in (owner['customer_id'] for owner in scenario['owners']):
-            self.assertNotIn(str(customer_id), serialized)
+            self.assertFalse(load._identifier_in_text(
+                serialized, str(customer_id)))
         for job_id in (*transport.created, *transport.prepared):
             self.assertNotIn(job_id, serialized)
         with self.assertRaises(load.PreflightError):
