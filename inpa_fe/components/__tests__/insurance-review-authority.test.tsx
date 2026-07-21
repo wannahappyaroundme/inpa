@@ -188,6 +188,23 @@ describe("insurance review authority UI", () => {
     const storedBaseline = heatmap({
       baseline_present: true,
       baseline_count: 1,
+      tree: [{
+        category_id: 1,
+        name: "진단",
+        insurance_type: "손해보험",
+        sub_categories: [{
+          sub_category_id: 11,
+          name: "암",
+          details: [{
+            detail_id: 111,
+            name: "일반암진단비",
+            held_amount: 50_000_000,
+            status: "shortage",
+            baseline: null,
+            contributions: [],
+          }],
+        }],
+      }],
     });
 
     render(<HeatmapGrid
@@ -201,5 +218,10 @@ describe("insurance review authority UI", () => {
     const settingsLink = screen.getByText("설정한 기준 확인하기 ›").closest("a");
     expect(settingsLink?.getAttribute("href")).toBe("/settings/baseline");
     expect(screen.queryByText("내 기준 1개 적용 중")).toBeNull();
+    const detail = screen.getByLabelText("일반암진단비: 보유 내역만 표시");
+    expect(within(detail).queryByText("부족")).toBeNull();
+    expect(within(detail).queryByText("적정")).toBeNull();
+    expect(within(detail).queryByText("넉넉")).toBeNull();
+    expect(detail.className).not.toContain("bg-rose-50");
   });
 });

@@ -324,11 +324,13 @@ class HeatmapGradedTests(TestCase):
         *,
         unit=PlannerBaseline.UNIT_WON,
         product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+        age_band='30s',
+        gender=1,
     ):
         return PlannerBaseline.objects.create(
             owner=self.user, coverage_key='사망보장',
             product_group=product_group,
-            age_band='30s', gender=1,
+            age_band=age_band, gender=gender,
             recommend_min=lo, recommend_max=hi,
             unit=unit,
             baseline_source='planner',  # ★ 살아있는 출처
@@ -442,6 +444,52 @@ class HeatmapGradedTests(TestCase):
         )
 
         self.assertEqual(self._heatmap_detail_status()['status'], 'neutral')
+
+    def test_category_type_wins_over_mismatched_subcategory_type(self):
+        category = self.det.sub_category.category
+        category.insurance_type = 1
+        category.save(update_fields=['insurance_type'])
+        self._baseline(lo=30000000, hi=50000000)
+        ci = _make_portfolio(self.customer, self.idet, assurance_amount=50000000)
+        ci.calculate(); ci.save()
+
+        detail = self._heatmap_detail_status()
+
+        self.assertEqual(detail['status'], 'neutral')
+        self.assertIsNone(detail['baseline'])
+
+    def test_wrong_age_baseline_stays_neutral(self):
+        self._baseline(lo=30000000, hi=50000000, age_band='40s')
+        ci = _make_portfolio(self.customer, self.idet, assurance_amount=50000000)
+        ci.calculate(); ci.save()
+
+        detail = self._heatmap_detail_status()
+
+        self.assertEqual(detail['status'], 'neutral')
+        self.assertIsNone(detail['baseline'])
+
+    def test_wrong_gender_baseline_stays_neutral(self):
+        self._baseline(lo=30000000, hi=50000000, gender=2)
+        ci = _make_portfolio(self.customer, self.idet, assurance_amount=50000000)
+        ci.calculate(); ci.save()
+
+        detail = self._heatmap_detail_status()
+
+        self.assertEqual(detail['status'], 'neutral')
+        self.assertIsNone(detail['baseline'])
+
+    def test_common_category_stays_neutral_even_with_nonlife_baseline(self):
+        category = self.det.sub_category.category
+        category.insurance_type = 0
+        category.save(update_fields=['insurance_type'])
+        self._baseline(lo=30000000, hi=50000000)
+        ci = _make_portfolio(self.customer, self.idet, assurance_amount=50000000)
+        ci.calculate(); ci.save()
+
+        detail = self._heatmap_detail_status()
+
+        self.assertEqual(detail['status'], 'neutral')
+        self.assertIsNone(detail['baseline'])
 
 
 class HeatmapOwnerIsolationTests(TestCase):
