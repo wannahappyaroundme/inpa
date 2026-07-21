@@ -16,6 +16,7 @@ from .extraction_eval import (
     EvalContractError,
     EvalObservation,
     EvalRunContext,
+    _discover_git_worktree_roots,
     evaluate_dataset,
     nearest_rank_summary,
     parse_compare,
@@ -391,6 +392,45 @@ class ExtractionManifestValidationTests(unittest.TestCase):
         self.assertEqual(len(loaded.cases), 100)
         self.assertEqual(loaded.gold_row_count, 1000)
         self.assertTrue(loaded.has_reviewed_outputs)
+
+    def test_worktree_discovery_ignores_only_git_prunable_records(self):
+        live_root = self.dataset.root / 'live-worktree'
+        live_root.mkdir()
+        stale_root = self.dataset.root / 'removed-worktree'
+        results = (
+            SimpleNamespace(stdout='/synthetic/common.git\n'),
+            SimpleNamespace(stdout=(
+                f'worktree {stale_root}\n'
+                'HEAD deadbeef\n'
+                'detached\n'
+                'prunable gitdir file points to non-existent location\n\n'
+                f'worktree {live_root}\n'
+                'HEAD cafebabe\n'
+                'detached\n\n'
+            )),
+        )
+        with mock.patch(
+                'inpa.insurances.extraction_eval.subprocess.run',
+                side_effect=results):
+            roots = _discover_git_worktree_roots()
+
+        self.assertEqual(roots, (live_root.resolve(),))
+
+    def test_worktree_discovery_rejects_missing_nonprunable_record(self):
+        missing_root = self.dataset.root / 'missing-worktree'
+        results = (
+            SimpleNamespace(stdout='/synthetic/common.git\n'),
+            SimpleNamespace(stdout=(
+                f'worktree {missing_root}\n'
+                'HEAD deadbeef\n'
+                'detached\n\n'
+            )),
+        )
+        with mock.patch(
+                'inpa.insurances.extraction_eval.subprocess.run',
+                side_effect=results):
+            self.assert_contract_error(
+                'E_DATASET_PATH', _discover_git_worktree_roots)
 
     def test_rejects_reviewed_output_without_provenance_attestation(self):
         reviewed_path = (

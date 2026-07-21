@@ -488,12 +488,22 @@ def _discover_git_worktree_roots() -> tuple[Path, ...]:
     except Exception:
         raise EvalContractError('E_DATASET_PATH') from None
     roots = []
-    for line in output.splitlines():
-        if line.startswith('worktree '):
-            try:
-                roots.append(Path(line[9:]).resolve(strict=True))
-            except OSError:
-                raise EvalContractError('E_DATASET_PATH') from None
+    for record in output.split('\n\n'):
+        lines = record.splitlines()
+        if any(
+                line == 'prunable' or line.startswith('prunable ')
+                for line in lines):
+            continue
+        worktree_lines = [
+            line for line in lines if line.startswith('worktree ')]
+        if not worktree_lines:
+            continue
+        if len(worktree_lines) != 1:
+            raise EvalContractError('E_DATASET_PATH')
+        try:
+            roots.append(Path(worktree_lines[0][9:]).resolve(strict=True))
+        except OSError:
+            raise EvalContractError('E_DATASET_PATH') from None
     if not roots:
         raise EvalContractError('E_DATASET_PATH')
     return tuple(roots)

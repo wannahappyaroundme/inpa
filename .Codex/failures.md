@@ -15,3 +15,9 @@ Symptom: `npm install --package-lock-only` reported success after a merge, but `
 Cause: npm 11 regenerated the lock incrementally while a platform-specific `node_modules` tree existed, so dependencies of optional wasm bindings were referenced but their package records were omitted.
 Fix: Generate `package-lock.json` from the final `package.json` in an empty directory with `--include=optional`, then prove it with `npm ci`.
 Prevention: After dependency-conflict resolution, never trust `npm install --package-lock-only` alone. Regenerate from an empty tree and keep `npm ci` as the authoritative CI gate.
+
+### 2026-07-21 Prunable Git worktree blocks private evaluation
+Symptom: The private extraction evaluation command failed twice with `E_DATASET_PATH` before reading an otherwise valid dataset.
+Cause: Git kept a `prunable` record for a deleted temporary worktree. Discovery resolved every listed path with `strict=True`, including the explicitly stale record, and therefore failed closed before validation.
+Fix: Parse worktree porcelain records and skip only records Git marks `prunable`; missing non-prunable worktrees still fail closed.
+Prevention: Regression tests cover both the allowed prunable case and the rejected missing active-record case, plus the command-level aggregate-output path.
