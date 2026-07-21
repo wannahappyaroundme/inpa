@@ -22,16 +22,18 @@
  */
 const fs = require("fs");
 const path = require("path");
+const ts = require("typescript");
 
 const ROOTS = ["app", "components", "lib"];
-const EXT = new Set([".ts", ".tsx"]);
+const EXT = new Set([".js", ".jsx", ".ts", ".tsx"]);
 
 // 고객 대면(비로그인 공개) 라우트 — 권유 단어 규칙은 여기만 검사(설계사 내부 화면은 규칙 설명 등 정당 언급 허용).
 const CUSTOMER_ROUTES = ["app/s", "app/b", "app/c", "app/d", "app/p"];
 // 고객 전송용 텍스트를 만드는 모듈 — 설계사 페이지 안이지만 이 텍스트는 고객이 직접 읽으므로 권유어 규칙을
 // 여기에도 적용한다(페이지 전체는 정당한 §97 내부 안내 문구 때문에 오탐이라 파일 단위로 분리해 가드한다).
-const ADVICE_PATHS = [...CUSTOMER_ROUTES, "lib/compare-export.ts"];
+const ADVICE_PATHS = [...CUSTOMER_ROUTES, "lib/compare-export.ts", "lib/copy-library.ts"];
 const ADVICE_HINT = "고객 대면 화면 권유어 금지(§97·금소법). 사실 서술·중립 표현으로 바꾸세요.";
+const COPY_LIBRARY_PATHS = ["lib/copy-library.ts"];
 
 // 증권 비교 노출면: 기능을 보험 교체 제안이 아니라 여러 증권의 중립 A/B 시각화로 설명한다.
 // 내부 API·법무 주석은 호환성과 기록을 위해 유지하므로 렌더링 가능성이 있는 파일만 검사한다.
@@ -69,6 +71,8 @@ const RULES = [
   { name: "권유어(더 유리)", re: /더 유리/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
   { name: "권유어(가입하세요)", re: /가입하세요/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
   { name: "권유어(전환하세요)", re: /전환하세요/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
+  { name: "가짜 수신거부 번호", re: /080-[0-9]/, paths: COPY_LIBRARY_PATHS, hint: "실제 번호가 없으면 담당 설계사 연락처로 안내하거나 전화 문구를 빼세요." },
+  { name: "검증 불가 약속", re: /부담 없이|무조건|확실한|보장됩니다/, paths: COPY_LIBRARY_PATHS, hint: "확인 가능한 사실과 다음 행동 중심으로 바꾸세요." },
   {
     name: "교체 전제 비교 문구",
     re: /현재와 제안|현재 보험과 새 제안|기존과 제안|제안과 나란히|보유 증권과 새 제안|기존.*제안|product:\s*"(?:기존|제안)|["']제안["']|^\s*제안\s*$|labelA\s*=\s*"현재"|유지·전환|갈아타기|승환|비교안내서/,
@@ -84,11 +88,86 @@ function ruleApplies(rule, relPath) {
   return rule.paths.some((prefix) => p === prefix || p.startsWith(prefix + "/"));
 }
 
-/** 주석을 검사 대상에서 제외. 블록주석은 공백치환(줄번호 보존), 줄주석은 제거(://는 보존). */
-function stripComments(src) {
-  let s = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
-  s = s.replace(/(^|[^:])\/\/[^\n]*/g, "$1");
-  return s;
+/**
+ * TypeScript 파서가 인식한 리터럴 구간은 보호하고, 그 밖의 실제 comment trivia만 제외한다.
+ * JSX는 일반 scanner 모드만으로는 템플릿 문맥을 잃을 수 있어 AST 범위를 기준으로 처리한다.
+ */
+function stripComments(src, context = "<source>") {
+  const sourceFile = ts.createSourceFile(
+    "copy-guard.tsx",
+    src,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.TSX,
+  );
+  if (sourceFile.parseDiagnostics.length) {
+    const codes = [...new Set(sourceFile.parseDiagnostics.map((diagnostic) => diagnostic.code))]
+      .join(", ");
+    throw new Error(`카피 검사 파싱 오류: ${context} (TS${codes}). 파일을 고친 뒤 다시 실행하세요.`);
+  }
+  const protectedRanges = [];
+
+  function protect(node) {
+    protectedRanges.push([node.getStart(sourceFile), node.end]);
+  }
+
+  function collectLiteralRanges(node) {
+    if (
+      ts.isStringLiteral(node)
+      || ts.isNoSubstitutionTemplateLiteral(node)
+      || ts.isTemplateHead(node)
+      || ts.isTemplateMiddle(node)
+      || ts.isTemplateTail(node)
+      || ts.isRegularExpressionLiteral(node)
+      || ts.isJsxText(node)
+    ) {
+      protect(node);
+    }
+    ts.forEachChild(node, collectLiteralRanges);
+  }
+
+  collectLiteralRanges(sourceFile);
+  protectedRanges.sort((a, b) => a[0] - b[0]);
+
+  const mergedRanges = [];
+  for (const range of protectedRanges) {
+    const previous = mergedRanges.at(-1);
+    if (previous && range[0] <= previous[1]) previous[1] = Math.max(previous[1], range[1]);
+    else mergedRanges.push([...range]);
+  }
+
+  let result = "";
+  let rangeIndex = 0;
+  for (let index = 0; index < src.length;) {
+    const range = mergedRanges[rangeIndex];
+    if (range && index === range[0]) {
+      result += src.slice(range[0], range[1]);
+      index = range[1];
+      rangeIndex += 1;
+      continue;
+    }
+    if (range && index > range[1]) {
+      rangeIndex += 1;
+      continue;
+    }
+    if (src.startsWith("//", index)) {
+      const end = src.indexOf("\n", index);
+      const comment = src.slice(index, end === -1 ? src.length : end);
+      result += comment.replace(/[^\n]/g, " ");
+      index = end === -1 ? src.length : end;
+      continue;
+    }
+    if (src.startsWith("/*", index)) {
+      const closing = src.indexOf("*/", index + 2);
+      const end = closing === -1 ? src.length : closing + 2;
+      result += src.slice(index, end).replace(/[^\n]/g, " ");
+      index = end;
+      continue;
+    }
+    result += src[index];
+    index += 1;
+  }
+  return result;
 }
 
 function walk(dir, out) {
@@ -100,37 +179,55 @@ function walk(dir, out) {
   }
 }
 
-const base = path.resolve(__dirname, "..");
-const files = [];
-for (const r of ROOTS) {
-  const d = path.join(base, r);
-  if (fs.existsSync(d)) walk(d, files);
-}
+function scanCopy(base = path.resolve(__dirname, "..")) {
+  const files = [];
+  for (const r of ROOTS) {
+    const d = path.join(base, r);
+    if (fs.existsSync(d)) walk(d, files);
+  }
 
-const violations = [];
-for (const file of files) {
-  const rel = path.relative(base, file);
-  const rules = RULES.filter((r) => ruleApplies(r, rel));
-  if (!rules.length) continue;
-  const raw = fs.readFileSync(file, "utf8");
-  const original = raw.split("\n");
-  const scanned = stripComments(raw).split("\n");
-  for (let i = 0; i < scanned.length; i++) {
-    for (const rule of rules) {
-      if (rule.re.test(scanned[i])) {
-        violations.push({ file: rel, line: i + 1, rule, text: (original[i] || "").trim() });
+  const violations = [];
+  const relativeFiles = [];
+  for (const file of files) {
+    const rel = path.relative(base, file);
+    relativeFiles.push(rel);
+    const rules = RULES.filter((r) => ruleApplies(r, rel));
+    if (!rules.length) continue;
+    const raw = fs.readFileSync(file, "utf8");
+    const original = raw.split("\n");
+    const scanned = stripComments(raw, rel).split("\n");
+    for (let i = 0; i < scanned.length; i++) {
+      for (const rule of rules) {
+        if (rule.re.test(scanned[i])) {
+          violations.push({ file: rel, line: i + 1, rule, text: (original[i] || "").trim() });
+        }
       }
     }
   }
+  return { files: relativeFiles, violations };
 }
 
-if (violations.length) {
-  console.error(`\n✗ 정직성 카피 가드: 금지 표기 ${violations.length}건 발견\n`);
-  for (const v of violations) {
-    console.error(`  ${v.file}:${v.line}  [${v.rule.name}] → ${v.rule.hint}`);
-    console.error(`     ${v.text}`);
+function main() {
+  let result;
+  try {
+    result = scanCopy();
+  } catch (error) {
+    console.error(`\n✗ ${error.message}\n`);
+    process.exit(1);
   }
-  console.error("");
-  process.exit(1);
+  const { files, violations } = result;
+  if (violations.length) {
+    console.error(`\n✗ 정직성 카피 가드: 금지 표기 ${violations.length}건 발견\n`);
+    for (const v of violations) {
+      console.error(`  ${v.file}:${v.line}  [${v.rule.name}] → ${v.rule.hint}`);
+      console.error(`     ${v.text}`);
+    }
+    console.error("");
+    process.exit(1);
+  }
+  console.log(`✓ 정직성 카피 가드 통과 (${files.length}개 파일, 위반 0)`);
 }
-console.log(`✓ 정직성 카피 가드 통과 (${files.length}개 파일, 위반 0)`);
+
+if (require.main === module) main();
+
+module.exports = { scanCopy, stripComments };

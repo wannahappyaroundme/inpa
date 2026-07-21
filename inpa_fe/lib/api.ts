@@ -550,7 +550,7 @@ export async function getIntroductionCard(refcode: string): Promise<IntroCardRes
   return data as IntroCardResponse;
 }
 /** POST /api/v1/p/<refcode>/ — 상담 신청(설계사 db 리드 자동 생성) */
-export async function submitIntroLead(refcode: string, payload: { name: string; phone?: string; agreed: boolean }): Promise<{ lead_created: boolean }> {
+export async function submitIntroLead(refcode: string, payload: { name: string; phone: string; agreed: boolean }): Promise<{ lead_created: boolean }> {
   const res = await fetch(`${API_BASE}/p/${encodeURIComponent(refcode)}/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -910,7 +910,7 @@ export type HeatmapStatus = "neutral" | "shortage" | "adequate" | "over";
 export interface HeatmapBaseline {
   min: number | null;
   max: number | null;
-  unit: string | null;
+  display_unit: number | null;
   baseline_source: string | null;
 }
 
@@ -991,6 +991,7 @@ export interface HeatmapResponse {
   customer_id: number;
   mode: "neutral" | "graded";
   baseline_present: boolean;
+  grading_enabled: boolean;
   baseline_count: number;       // graded 근거(보유한 살아있는 기준 수) — PM 06.24 명확화
   insurance_count: number;
   included_insurance_count: number;
@@ -2941,12 +2942,17 @@ export interface ShareSummary {
   [key: string]: number | null;
 }
 
-export interface ShareSnapshotPayload {
+export interface ShareSnapshotArchivePayload {
   customer: ShareCustomer;
   mode: "neutral" | "graded";
   summary: ShareSummary;
   tree: ShareCategory[];
   disclaimer: string;
+}
+
+/** v2 공개 응답은 저장 본문에 서버가 보장하는 캡처 시각을 더한다. */
+export interface ShareSnapshotPayload extends ShareSnapshotArchivePayload {
+  captured_at: string;
 }
 
 export interface ShareLiveActions {
@@ -2955,7 +2961,7 @@ export interface ShareLiveActions {
 }
 
 /** Gate OFF에서 과거 Customer 토큰에만 반환되는 평면 응답. */
-export interface LegacyShareViewResponse extends ShareSnapshotPayload {
+export interface LegacyShareViewResponse extends ShareSnapshotArchivePayload {
   booking_url?: string;
   planner_contact: string | null;
 }
@@ -2971,7 +2977,7 @@ export type ShareViewResponse = LegacyShareViewResponse | ShareViewV2Response;
 
 /** 화면은 호환 처리를 마친 이 한 형태만 사용한다. */
 export interface NormalizedShareViewResponse {
-  snapshot: ShareSnapshotPayload;
+  snapshot: ShareSnapshotPayload | ShareSnapshotArchivePayload;
   actions: {
     booking_url: string | null;
     planner_contact: string | null;
@@ -3018,7 +3024,7 @@ function isShareCategory(value: unknown): value is ShareCategory {
 }
 
 /** 저장된 공개 본문을 렌더하기 전에 모든 사용 필드를 확인한다. */
-export function isShareSnapshotPayload(value: unknown): value is ShareSnapshotPayload {
+export function isShareSnapshotPayload(value: unknown): value is ShareSnapshotArchivePayload {
   if (!isRecordValue(value)) return false;
   const customer = value.customer;
   const summary = value.summary;
@@ -3034,6 +3040,14 @@ export function isShareSnapshotPayload(value: unknown): value is ShareSnapshotPa
     Array.isArray(value.tree) &&
     value.tree.every(isShareCategory) &&
     typeof value.disclaimer === "string"
+  );
+}
+
+function isPublicShareSnapshotPayload(value: unknown): value is ShareSnapshotPayload {
+  return (
+    isShareSnapshotPayload(value) &&
+    "captured_at" in value &&
+    typeof value.captured_at === "string"
   );
 }
 
@@ -3053,7 +3067,7 @@ export function normalizeShareViewResponse(
   }
 
   if ("snapshot" in response) {
-    if (!isShareSnapshotPayload(response.snapshot)) {
+    if (!isPublicShareSnapshotPayload(response.snapshot)) {
       throw new ApiError(502, "INVALID_SHARE_RESPONSE", "공유 내용을 다시 불러와 주세요.");
     }
     const actions = isRecordValue(response.actions) ? response.actions : {};
@@ -3154,6 +3168,8 @@ export interface CompareResponse {
   /** B안(오른쪽) 집계 — side_b_ids 로 고른 세트, 미지정 시 제안(하위호환) */
   proposed: CompareSide;
   rows: CompareRow[];
+  /** 보험료·담보·차이값은 서버가 계산한 사실값이다. */
+  comparison_source: "deterministic";
   /**
    * 확인해야 할 사항(중립 사실 — 해지환급 손실 추정·면책 리셋·이율 변동). ★ 판정 아님.
    * 2026-07-09: 인파는 KEEP/SWITCH 판정을 만들지 않는다(BE 응답에 verdict 키 자체가 없음).
@@ -3162,6 +3178,8 @@ export interface CompareResponse {
   switch_warnings: SwitchWarning[];
   guide_draft: string | null;
   guide_enabled: boolean;
+  /** 실제 AI 안내 초안이 생성됐을 때만 ai다. */
+  guide_source: "ai" | null;
   /** 항상 false — BE 권위. FE 절대 override 불가 */
   publishable: false;
   publish_blocked_reason: string;

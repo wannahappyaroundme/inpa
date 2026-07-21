@@ -40,7 +40,7 @@ import { ContactLogModal } from "@/components/contact-log-modal";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
 import { AssignInsRow, InsuranceCards, type SideAssign } from "@/components/insurance-review-cards";
 import { BaselineRequiredModal } from "@/components/baseline-required-modal";
-import { PremiumSplitSection, ComparePremiumSplit } from "@/components/premium-split";
+import { PremiumSplitSection, CompareAiGuide, ComparePremiumSplit } from "@/components/premium-split";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
 import { ShareLinkButton } from "@/components/share-link-button";
 import { ShareSnapshotButton } from "@/components/share-snapshot-panel";
@@ -1084,7 +1084,7 @@ function AnalysisTab({
       {/* 증권 OCR 업로드 입구 (분석 탭으로 이동) */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-[13px] text-ink3">담보 한눈표 · 설계사 도구</div>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full grid-cols-3 items-start gap-2 sm:w-auto sm:flex sm:flex-wrap sm:items-center [&_button]:whitespace-nowrap [&_label]:whitespace-nowrap [&>[role=alert]]:col-span-3 sm:[&>[role=alert]]:basis-full sm:[&>[role=alert]]:max-w-full">
           <button
             type="button"
             onClick={() => setBookingOpen(true)}
@@ -1462,12 +1462,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
   // 담보 변동: 추가(신규)/삭제(빠짐)/변경/유지 — 증권 A vs 증권 B 금액 기준.
   function diffLabel(cur: number | null, prop: number | null): { text: string; cls: string } {
     const text = compareDiffText(cur, prop);
-    const clsBy: Record<string, string> = {
-      "추가": "bg-emerald-50 text-emerald-700 border-emerald-200",
-      "삭제": "bg-rose-50 text-rose-600 border-rose-200",
-      "변경": "bg-amber-50 text-amber-700 border-amber-200",
-    };
-    return { text, cls: clsBy[text] ?? "bg-surface2 text-ink3 border-line" };
+    return { text, cls: "bg-surface2 text-ink3 border-line" };
   }
 
   const labelA = "증권 A";
@@ -1550,12 +1545,12 @@ function SwitchTab({ customerId }: { customerId: number }) {
         />
       )}
 
-      {/* AI 초안 면책 — 항상 노출, 접기 불가 */}
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4">
-        <p className="text-[12px] leading-5 text-amber-800">
-          {data.disclaimer}
-        </p>
-      </div>
+      <CompareAiGuide
+        guideEnabled={data.guide_enabled}
+        guideDraft={data.guide_draft}
+        guideSource={data.guide_source}
+        disclaimer={data.disclaimer}
+      />
 
       {/* 보험료 요약 */}
       <div className="grid grid-cols-2 gap-3 mb-4">
@@ -1635,17 +1630,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
                       ? new Intl.NumberFormat("ko-KR").format(row.proposed_amount)
                       : "-"}
                   </td>
-                  <td
-                    className={`px-3 py-2.5 text-right tnum font-semibold ${
-                      row.delta === null
-                        ? "text-ink3"
-                        : row.delta > 0
-                        ? "text-enough"
-                        : row.delta < 0
-                        ? "text-short"
-                        : "text-ink3"
-                    }`}
-                  >
+                  <td className={`px-3 py-2.5 text-right tnum font-semibold ${row.delta === null ? "text-ink3" : "text-ink2"}`}>
                     {fmtDelta(row.delta)}
                   </td>
                   <td className="px-3 py-2.5 text-center">

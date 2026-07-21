@@ -1,14 +1,100 @@
 """계정 도메인 happy-path + 핵심 게이트 테스트."""
 from datetime import timedelta
-from unittest import mock
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import time
+from unittest import mock, skipUnless
 
+from django.db import close_old_connections, connection
 from django.core import mail
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from .models import Profile, User
 from .tokens import make_email_verify_token
+
+
+THREAD_TIMEOUT = 5
+PG_STATE_TIMEOUT = 3
+
+
+def _thread_call(callback):
+    close_old_connections()
+    try:
+        return callback()
+    finally:
+        close_old_connections()
+
+
+def _backend_pid():
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT pg_backend_pid()')
+        return cursor.fetchone()[0]
+
+
+def _wait_for_peer_blocked_by(blocker_pid):
+    deadline = time.monotonic() + PG_STATE_TIMEOUT
+    while time.monotonic() < deadline:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT pid, xact_start IS NOT NULL, pg_blocking_pids(pid)
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND pid <> pg_backend_pid()
+                  AND %s = ANY(pg_blocking_pids(pid))
+                ORDER BY pid
+                """,
+                [blocker_pid],
+            )
+            row = cursor.fetchone()
+        if row is not None:
+            return {'pid': row[0], 'in_transaction': row[1], 'blockers': row[2]}
+        time.sleep(0.02)
+    raise AssertionError('No PostgreSQL peer blocked behind the profile lock holder.')
+
+
+class _PgBlockingProbe:
+    """Prove the introduction-card profile lock blocks a concurrent request."""
+
+    def __init__(self):
+        self._start = threading.Barrier(2)
+        self._mutex = threading.Lock()
+        self._holder_pid = None
+        self._holder_ready = threading.Event()
+        self._release = threading.Event()
+
+    def register_worker(self):
+        self._start.wait(timeout=THREAD_TIMEOUT)
+
+    def hold_first_after_lock(self):
+        if not connection.in_atomic_block:
+            raise AssertionError('Profile lock probe must run inside transaction.atomic().')
+        pid = _backend_pid()
+        with self._mutex:
+            first = self._holder_pid is None
+            if first:
+                self._holder_pid = pid
+        if first:
+            self._holder_ready.set()
+            if not self._release.wait(timeout=THREAD_TIMEOUT):
+                raise AssertionError('PostgreSQL profile lock release timed out.')
+
+    def assert_peer_blocked(self):
+        if not self._holder_ready.wait(timeout=THREAD_TIMEOUT):
+            raise AssertionError('PostgreSQL profile lock holder was not reached.')
+        with self._mutex:
+            holder_pid = self._holder_pid
+        activity = _wait_for_peer_blocked_by(holder_pid)
+        if activity['pid'] == holder_pid:
+            raise AssertionError('Profile lock holder and blocked peer must be distinct.')
+        if not activity['in_transaction']:
+            raise AssertionError('Blocked PostgreSQL peer has no open transaction.')
+        return activity
+
+    def release(self):
+        self._release.set()
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -341,11 +427,184 @@ class IntroCardTests(TestCase):
 
     def test_post_requires_consent(self):
         r = self.public.post(f'/api/v1/p/{self.profile.ref_code}/',
-                             {'name': '김상담', 'agreed': False}, format='json')
+                             {'name': '김상담', 'phone': '010-1234-5678', 'agreed': False}, format='json')
         self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['code'], 'CONSENT_REQUIRED')
+
+    def test_intro_lead_requires_valid_mobile_phone(self):
+        for phone in ('', '010-1234-56', '021-1234-5678', '010-1234-56789', ['01012345678']):
+            with self.subTest(phone=phone):
+                r = self.public.post(
+                    f'/api/v1/p/{self.profile.ref_code}/',
+                    {'name': '김상담', 'phone': phone, 'agreed': True}, format='json')
+                self.assertEqual(r.status_code, 400, r.content)
+                self.assertEqual(r.json(), {
+                    'code': 'INVALID_PHONE',
+                    'detail': '올바른 휴대폰 번호를 입력해 주세요.',
+                })
+
+    def test_intro_lead_normalizes_hyphens_before_deduplication(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        for phone in ('01012345678', '010-1234-5678'):
+            r = self.public.post(
+                f'/api/v1/p/{self.profile.ref_code}/',
+                {'name': '김상담', 'phone': phone, 'agreed': True}, format='json')
+            self.assertEqual(r.status_code, 201, r.content)
+
+        customer = Customer.objects.get(owner=self.planner, lead_source=Customer.LEAD_INTRODUCTION)
+        self.assertEqual(customer.mobile_phone_number, '01012345678')
+        self.assertEqual(Customer.objects.filter(owner=self.planner).count(), 1)
+        self.assertEqual(ConsentLog.objects.filter(customer=customer).count(), 1)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=customer).count(), 1)
+        self.assertEqual(Notification.objects.filter(customer=customer).count(), 1)
+
+    def test_intro_lead_records_a_later_repeat_application(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        url = f'/api/v1/p/{self.profile.ref_code}/'
+        payload = {'name': '김상담', 'phone': '010-1234-5678', 'agreed': True}
+        first = self.public.post(url, payload, format='json')
+        self.assertEqual(first.status_code, 201, first.content)
+        ConsentLog.objects.update(agreed_at=timezone.now() - timedelta(minutes=10))
+
+        second = self.public.post(url, payload, format='json')
+
+        self.assertEqual(second.status_code, 201, second.content)
+        customer = Customer.objects.get(owner=self.planner)
+        self.assertEqual(ConsentLog.objects.filter(customer=customer).count(), 2)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=customer).count(), 2)
+        self.assertEqual(Notification.objects.filter(customer=customer).count(), 2)
+
+    def test_intro_lead_reuses_legacy_phone_and_records_new_application(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        legacy = Customer.objects.create(
+            owner=self.planner, name='기존고객', mobile_phone_number='010-1234-5678',
+            is_agree_term=True, lead_source=Customer.LEAD_INTRODUCTION,
+            lead_created_at=timezone.now())
+
+        r = self.public.post(
+            f'/api/v1/p/{self.profile.ref_code}/',
+            {'name': '김상담', 'phone': '01012345678', 'agreed': True}, format='json')
+
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(Customer.objects.filter(owner=self.planner).count(), 1)
+        self.assertEqual(Customer.objects.get(pk=legacy.pk).mobile_phone_number, '010-1234-5678')
+        receipt = ConsentLog.objects.get(customer=legacy)
+        self.assertEqual(receipt.scope, ConsentLog.SCOPE_PERSONAL_INFO)
+        self.assertEqual(receipt.subject, ConsentLog.SUBJECT_CUSTOMER_SELF)
+        self.assertIsNone(receipt.revoked_at)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=legacy).count(), 1)
+        self.assertEqual(Notification.objects.filter(customer=legacy).count(), 1)
+
+    def test_recent_consent_from_another_path_does_not_hide_intro_application(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        existing = Customer.objects.create(
+            owner=self.planner,
+            name='기존고객',
+            mobile_phone_number='01012345678',
+            is_agree_term=True,
+            lead_source=Customer.LEAD_INTRODUCTION,
+            lead_created_at=timezone.now(),
+        )
+        ConsentLog.objects.create(
+            customer=existing,
+            scope=ConsentLog.SCOPE_PERSONAL_INFO,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+            purpose='다른 동의 경로',
+            doc_version=CONSENT_TEXTS_VERSION,
+        )
+
+        response = self.public.post(
+            f'/api/v1/p/{self.profile.ref_code}/',
+            {'name': '김상담', 'phone': '010-1234-5678', 'agreed': True},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(ConsentLog.objects.filter(customer=existing).count(), 2)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=existing).count(), 1)
+        self.assertEqual(Notification.objects.filter(customer=existing).count(), 1)
+
+    def test_invalid_phone_creates_no_customer_consent_event_or_notification(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        r = self.public.post(
+            f'/api/v1/p/{self.profile.ref_code}/',
+            {'name': '김상담', 'phone': '010-1234-56', 'agreed': True}, format='json')
+
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(r.json()['code'], 'INVALID_PHONE')
+        self.assertEqual(Customer.objects.count(), 0)
+        self.assertEqual(ConsentLog.objects.count(), 0)
+        self.assertEqual(NorthStarEvent.objects.count(), 0)
+        self.assertEqual(Notification.objects.count(), 0)
 
     def test_invalid_ref_404(self):
         self.assertEqual(self.public.get('/api/v1/p/NOPENOPE/').status_code, 404)
+
+
+@skipUnless(connection.vendor == 'postgresql', 'row locking needs PostgreSQL')
+class IntroCardConcurrencyTests(TransactionTestCase):
+    def setUp(self):
+        self.planner, _ = _verified_planner('intro-concurrent@test.com')
+        self.refcode = Profile.objects.get(user=self.planner).ref_code
+
+    def test_concurrent_same_phone_creates_one_lead_and_side_effect_set(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        probe = _PgBlockingProbe()
+        original_lock = Profile.objects.select_for_update
+
+        def lock_profile():
+            locked_profiles = original_lock()
+
+            def get(*args, **kwargs):
+                profile = locked_profiles.get(*args, **kwargs)
+                probe.hold_first_after_lock()
+                return profile
+
+            return mock.Mock(get=get)
+
+        def request():
+            probe.register_worker()
+            return APIClient().post(
+                f'/api/v1/p/{self.refcode}/',
+                {'name': '김상담', 'phone': '010-1234-5678', 'agreed': True}, format='json')
+
+        with mock.patch.object(
+                Profile.objects, 'select_for_update', side_effect=lock_profile):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(_thread_call, request) for _ in range(2)]
+                try:
+                    probe.assert_peer_blocked()
+                finally:
+                    probe.release()
+                responses = [
+                    future.result(timeout=THREAD_TIMEOUT) for future in futures]
+
+        self.assertEqual([response.status_code for response in responses], [201, 201])
+        customer = Customer.objects.get(owner=self.planner, mobile_phone_number='01012345678')
+        self.assertEqual(Customer.objects.filter(owner=self.planner).count(), 1)
+        self.assertEqual(ConsentLog.objects.filter(customer=customer).count(), 1)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=customer).count(), 1)
+        self.assertEqual(Notification.objects.filter(customer=customer).count(), 1)
 
 
 class TeamInviteTests(TestCase):

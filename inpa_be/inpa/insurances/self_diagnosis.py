@@ -22,6 +22,7 @@
 import logging
 import re
 import uuid
+from datetime import date
 
 from django.conf import settings
 from django.core.cache import cache
@@ -180,6 +181,105 @@ def _ci_signature(ci):
     return (ci.company, (ci.name or '').strip(), tuple(sorted(coverages)))
 
 
+def _parse_provider_configured():
+    api_key = getattr(settings, 'ANTHROPIC_API_KEY', '')
+    model_id = getattr(settings, 'CLAUDE_MODEL_PARSE', '')
+    return bool(
+        isinstance(api_key, str) and api_key.strip()
+        and isinstance(model_id, str) and model_id.strip())
+
+
+def _provider_unavailable_response(*, review_gate, submitted_file_count):
+    if review_gate:
+        response_status, code, detail = _safe_review_failure(
+            [status.HTTP_503_SERVICE_UNAVAILABLE])
+        return Response({
+            'lead_created': False,
+            'analyzed': False,
+            'review_pending': False,
+            'accepted_file_count': 0,
+            'existing_file_count': 0,
+            'failed_file_count': submitted_file_count,
+            'code': code,
+            'detail': detail,
+        }, status=response_status)
+    return Response(
+        {'code': 'OCR_UNAVAILABLE',
+         'detail': '지금은 증권을 바로 정리하기 어려워요. 담당 설계사가 직접 확인해 도와드릴게요.'},
+        status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+def _upsert_customer_and_receipts(*, planner, name, phone, birth, gender,
+                                  ip, has_files, marketing, third_party):
+    """Commit a self-diagnosis lead and its customer-self receipts before AI work."""
+    with transaction.atomic():
+        planner = type(planner).objects.select_for_update().get(pk=planner.pk)
+        customer, created = (
+            Customer.objects.select_for_update().get_or_create(
+                owner=planner,
+                lead_source=Customer.LEAD_SELF_DIAGNOSIS,
+                mobile_phone_number=phone[:15],
+                defaults={
+                    'name': name[:20],
+                    'birth_day': birth,
+                    'gender': gender,
+                    'is_agree_term': True,
+                    'lead_created_at': timezone.now(),
+                },
+            ))
+        if not created:
+            fields = []
+            if not customer.birth_day and birth:
+                customer.birth_day = birth
+                fields.append('birth_day')
+            if customer.gender is None:
+                customer.gender = gender
+                fields.append('gender')
+            if fields:
+                customer.save(update_fields=fields)
+
+        receipts = [(ConsentLog.SCOPE_PERSONAL_INFO,
+                     '셀프진단 본인 제출·담당 설계사 전달')]
+        if has_files:
+            receipts.append((ConsentLog.SCOPE_OVERSEAS_MEDICAL,
+                             '셀프진단 증권 OCR 국외이전(Claude, 미국)'))
+        if marketing:
+            receipts.append((ConsentLog.SCOPE_MARKETING,
+                             '셀프진단 마케팅 수신 동의'))
+        if third_party:
+            receipts.append((ConsentLog.SCOPE_THIRD_PARTY,
+                             '셀프진단 제3자 제공·인파 플랫폼 활용 동의'))
+        live_receipts = {}
+        for scope, purpose in receipts:
+            receipt = (
+                ConsentLog.objects
+                .filter(
+                    customer=customer,
+                    scope=scope,
+                    subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                    doc_version=CONSENT_TEXTS_VERSION,
+                    revoked_at__isnull=True,
+                )
+                .order_by('-agreed_at', '-pk')
+                .first()
+            )
+            if receipt is None:
+                receipt = ConsentLog.objects.create(
+                    customer=customer,
+                    scope=scope,
+                    subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                    doc_version=CONSENT_TEXTS_VERSION,
+                    purpose=purpose,
+                    ip=ip,
+                )
+            live_receipts[scope] = receipt
+        if has_files:
+            overseas_receipt = live_receipts[ConsentLog.SCOPE_OVERSEAS_MEDICAL]
+            customer.consent_overseas_at = overseas_receipt.agreed_at
+            customer.save(update_fields=['consent_overseas_at'])
+        return customer
+
+
 class SelfDiagnosisView(_NoIndexMixin, APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -234,6 +334,11 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
         if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', birth):
             return Response({'code': 'INVALID_BIRTH', 'detail': '생년월일을 정확히 선택해 주세요.'},
                             status=status.HTTP_400_BAD_REQUEST)
+        try:
+            date.fromisoformat(birth)
+        except ValueError:
+            return Response({'code': 'INVALID_BIRTH', 'detail': '생년월일을 정확히 선택해 주세요.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         if gender_raw not in ('1', '2'):
             return Response({'code': 'INVALID_GENDER', 'detail': '성별을 선택해 주세요.'},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -254,15 +359,64 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                  'detail': '증권 분석을 위해 국외이전(Claude, 미국) 동의가 필요합니다.'},
                 status=status.HTTP_412_PRECONDITION_FAILED)
 
-        # 4) (PDF 있을 때만) 파일별 검증 → 텍스트 추출 → Claude 파싱.
+        # 4) 모든 사전 검증을 끝낸 뒤 receipt를 먼저 확정한다. 파일마다 허용되는
+        #    부분 실패는 유지하되, 처리할 PDF가 하나도 없으면 리드/receipt를 만들지 않는다.
+        if has_files and not any(
+                upload.size <= SELF_DIAG_MAX_BYTES
+                and upload.name.lower().endswith('.pdf')
+                for upload in files):
+            if review_gate:
+                failed_count = submitted_file_count
+                return Response({
+                    'lead_created': False,
+                    'analyzed': False,
+                    'review_pending': False,
+                    'accepted_file_count': 0,
+                    'existing_file_count': 0,
+                    'failed_file_count': failed_count,
+                    'code': 'POLICY_FILES_NOT_RECEIVED',
+                    'detail': 'PDF 증권 파일을 다시 선택해 주세요.',
+                }, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'code': 'POLICY_FILES_NOT_RECEIVED',
+                 'detail': 'PDF 증권 파일을 다시 선택해 주세요.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        if has_files and not _parse_provider_configured():
+            return _provider_unavailable_response(
+                review_gate=review_gate,
+                submitted_file_count=submitted_file_count,
+            )
+        if has_files:
+            attempt_key = f'selfdiag-attempts:{refcode}:{today.isoformat()}'
+            cache.add(attempt_key, 0, 60 * 60 * 24)
+            if cache.get(attempt_key, 0) >= SELF_DIAG_DAILY_CAP_PER_REF:
+                if review_gate:
+                    return Response({
+                        'lead_created': False,
+                        'analyzed': False,
+                        'review_pending': False,
+                        'accepted_file_count': 0,
+                        'existing_file_count': 0,
+                        'failed_file_count': submitted_file_count,
+                        'code': 'REVIEW_BUSY',
+                        'detail': '담당 설계사에게 확인 요청을 남겼어요. 잠시 후 다시 제출해 주세요.',
+                    }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+                return Response(
+                    {'code': 'DAILY_LIMIT',
+                     'detail': '오늘 이 링크의 진단 한도를 초과했습니다. 내일 다시 시도해 주세요.'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        customer = _upsert_customer_and_receipts(
+            planner=planner, name=name, phone=phone_digits, birth=birth,
+            gender=gender, ip=ip, has_files=has_files,
+            marketing=_truthy(request.data.get('consent_marketing')),
+            third_party=_truthy(request.data.get('consent_thirdparty')),
+        )
+
+        # 5) (PDF 있을 때만) 파일별 검증 → 텍스트 추출 → Claude 파싱.
         #    ★ 파일별 독립 실패 격리 — 한 장이 실패해도 나머지는 진행(status 로 구분).
         parsed_items = []   # 업로드 순서 보존: {display_name, ocr_data|None, status, message}
         if has_files and not review_gate:
-            if not getattr(settings, 'ANTHROPIC_API_KEY', ''):
-                return Response({'code': 'OCR_UNAVAILABLE',
-                                 'detail': '지금은 증권을 바로 정리하기 어려워요. 담당 설계사가 직접 확인해 도와드릴게요.'},
-                                status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
             # ★ refcode 일일 '파싱 시도' 상한 — 동일 phone 재사용으로 DB 리드수 캡 우회하는
             #   비용폭탄 차단. prod는 DatabaseCache(워커 공유)라 정확. ★ 파일 1장 = 1회 소모.
             attempt_key = f'selfdiag-attempts:{refcode}:{today.isoformat()}'
@@ -324,59 +478,12 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                     item.update(status='ok', ocr_data=ocr_data, message=None)
                 parsed_items.append(item)
 
-        # 5) 리드 Customer 생성(설계사 소유) + 동의 로그 (+ 파싱 성공 보험 전부 귀속)
-        phone = phone_digits
+        # 6) 파싱 성공 보험은 별도 트랜잭션에서만 저장한다. 고객·동의 receipt는 이미
+        #    커밋됐으므로 공급자 실패가 감사 증적을 되돌리지 않는다.
         insurances_payload = None
         with transaction.atomic():
-            # 같은 phone+설계사 셀프진단 리드가 이미 있으면 재사용(CRM 중복 오염 방지).
-            customer = Customer.objects.filter(
-                owner=planner, lead_source='self_diagnosis',
-                mobile_phone_number=phone[:15]).first()
-            if customer is None:
-                customer = Customer.objects.create(
-                    owner=planner, name=name[:20], mobile_phone_number=phone[:15],
-                    birth_day=birth, gender=gender,
-                    is_agree_term=True,                    # 개인정보 수집·이용 + 설계사 전달 동의
-                    lead_source='self_diagnosis', lead_created_at=timezone.now(),
-                )
-            else:
-                # 재방문 — 본인이 다시 제출한 최신 식별정보로 빈 칸만 보강(설계사 수정값은 보존).
-                fields = []
-                if not customer.birth_day and birth:
-                    customer.birth_day = birth; fields.append('birth_day')
-                if customer.gender is None:
-                    customer.gender = gender; fields.append('gender')
-                if fields:
-                    customer.save(update_fields=fields)
-            if has_files:
-                # 국외이전 동의 → OCR 게이트 충족(이 시점에 실제 전송 발생).
-                customer.consent_overseas_at = timezone.now()
-                customer.save(update_fields=['consent_overseas_at'])
-                ConsentLog.objects.create(
-                    customer=customer, scope=ConsentLog.SCOPE_OVERSEAS_MEDICAL,
-                    subject=ConsentLog.SUBJECT_CUSTOMER_SELF,  # 잠재고객 본인 동의(P3c)
-                    purpose='셀프진단 증권 OCR 국외이전(Claude, 미국)',
-                    doc_version=CONSENT_TEXTS_VERSION, ip=ip)
-            # ✦ DB 자산화: 본인이 직접 제출 + 설계사 전달 동의 = 개인정보 수집·이용 동의로 명시 기록.
-            ConsentLog.objects.create(
-                customer=customer, scope=ConsentLog.SCOPE_PERSONAL_INFO,
-                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
-                purpose='셀프진단 본인 제출·담당 설계사 전달',
-                doc_version=CONSENT_TEXTS_VERSION, ip=ip)
-            # ✦ 마케팅 수신(선택) — 체크 시에만.
-            if _truthy(request.data.get('consent_marketing')):
-                ConsentLog.objects.create(
-                    customer=customer, scope=ConsentLog.SCOPE_MARKETING,
-                    subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
-                    purpose='셀프진단 마케팅 수신 동의',
-                    doc_version=CONSENT_TEXTS_VERSION, ip=ip)
-            # ✦ 제3자 제공·인파 플랫폼 활용(선택) — 체크 시에만. ★법상 강제 금지(필수 아님).
-            if _truthy(request.data.get('consent_thirdparty')):
-                ConsentLog.objects.create(
-                    customer=customer, scope=ConsentLog.SCOPE_THIRD_PARTY,
-                    subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
-                    purpose='셀프진단 제3자 제공·인파 플랫폼 활용 동의',
-                    doc_version=CONSENT_TEXTS_VERSION, ip=ip)
+            customer = Customer.objects.select_for_update().get(
+                pk=customer.pk, owner=planner)
             # ── 파싱 성공 보험 전부 이 고객에 귀속 + 보험별 카드 페이로드 구성 ──
             if has_files:
                 # ★ 중복 방지(재제출 시 금액 2배 버그): 같은 phone 리드를 재사용하므로
@@ -533,12 +640,19 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                     failure_status_codes.append(
                         status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        intake_available = (
-            accepted_file_count + existing_file_count > 0)
+        legacy_successful_file_count = sum(
+            item.get('status') == 'ok' for item in parsed_items)
+        if not review_gate:
+            failed_file_count = (
+                overflow_file_count + len(parsed_items)
+                - legacy_successful_file_count)
+        successful_file_count = (
+            accepted_file_count + existing_file_count
+            if review_gate else legacy_successful_file_count)
+        intake_available = successful_file_count > 0
         review_pending = bool(
             pending_accepted_count or pending_existing_count)
-        event_file_count = (
-            submitted_file_count if review_gate else len(files))
+        event_file_count = submitted_file_count
         legacy_analyzed = bool(
             not review_gate
             and any(
@@ -556,6 +670,7 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                       'queued_files': accepted_file_count,
                       'accepted_file_count': accepted_file_count,
                       'existing_file_count': existing_file_count,
+                      'successful_file_count': successful_file_count,
                       'failed_file_count': failed_file_count,
                       'intake_succeeded': intake_available,
                   })

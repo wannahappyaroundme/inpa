@@ -451,6 +451,14 @@ class PlannerBaseline(models.Model):
         (1, '남'),
         (2, '여'),
     )
+    UNIT_TEN_THOUSAND_WON = 1
+    UNIT_WON = 2
+    UNIT_ACCOUNT = 3
+    UNIT_CHOICES = (
+        (UNIT_TEN_THOUSAND_WON, '만원'),
+        (UNIT_WON, '원'),
+        (UNIT_ACCOUNT, '구좌'),
+    )
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                               related_name='planner_baselines')
@@ -460,7 +468,8 @@ class PlannerBaseline(models.Model):
     gender = models.SmallIntegerField('성별', choices=GENDER_TYPE, null=True, blank=True)  # null=공통
     recommend_min = models.DecimalField('권장 하한', max_digits=14, decimal_places=2, null=True, blank=True)
     recommend_max = models.DecimalField('권장 상한', max_digits=14, decimal_places=2, null=True, blank=True)
-    unit = models.SmallIntegerField('금액 단위', default=1)  # 1=만원/2=원/3=구좌
+    unit = models.SmallIntegerField(
+        '금액 단위', default=UNIT_TEN_THOUSAND_WON)
 
     # ★ 준법 통제점 물리 키 — null이면 분석 neutral 강제
     baseline_source = models.CharField('기준 출처', max_length=30, null=True, blank=True,

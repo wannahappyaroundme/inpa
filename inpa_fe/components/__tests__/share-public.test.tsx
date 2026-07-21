@@ -39,6 +39,7 @@ const callbackSuccess = {
 
 function snapshot(name = "발급 때 담보") {
   return {
+    captured_at: "2026-07-21T01:30:00Z",
     customer: { name_masked: "김**", gender: null, birth_year: 1985 },
     mode: "neutral" as const,
     summary: { monthly_premiums: 50_000, total_premiums: 12_000_000 },
@@ -112,6 +113,20 @@ describe("public immutable share", () => {
     expect(await screen.findByText("발급 때 담보")).toBeTruthy();
     expect(screen.getByRole("button", { name: /바로 상담 예약하기/ }).getAttribute("data-booking-url")).toBe("/b/day-four");
     expect(screen.queryByText("010-9999-9999")).toBeNull();
+  });
+
+  it("shows the KST capture time and the customer notice once without live-data wording", async () => {
+    api.getShareView.mockResolvedValueOnce({
+      snapshot: snapshot(),
+      actions: { booking_url: null, planner_contact: null },
+    });
+
+    render(<SharePage />);
+
+    expect(await screen.findByText("공유 당시 2026. 7. 21. 10:30")).toBeTruthy();
+    expect(screen.queryByText("지금 보장 현황이에요")).toBeNull();
+    expect(screen.queryByText("지금 보장받는 담보")).toBeNull();
+    expect(screen.getAllByText("인파가 등록된 보장 정보를 정리한 참고 자료입니다.")).toHaveLength(1);
   });
 
   it("ignores an older token response and safely rejects a malformed stored body", async () => {

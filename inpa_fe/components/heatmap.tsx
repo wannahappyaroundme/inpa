@@ -51,7 +51,7 @@ function statusAriaLabel(
   status: HeatmapStatus,
   mode: "neutral" | "graded"
 ): string {
-  if (mode === "neutral") return `${name}: 보유 여부만 표시(기준 미설정)`;
+  if (mode === "neutral") return `${name}: 보유 내역만 표시`;
   switch (status) {
     case "shortage":
       return `${name}: 부족`;
@@ -370,6 +370,11 @@ export function HeatmapGrid({
   // '보험 0건' 빈 상태(호출부에서 처리)와 다른 케이스라 별도 안내를 띄운다. 판정어 없음.
   const totalHeld = Array.from(heldByCat.values()).reduce((s, n) => s + n, 0);
   const noHeldCoverage = heatmap.insurance_count > 0 && totalHeld === 0;
+  const storedBaselineWithoutGrading =
+    heatmap.baseline_present && !heatmap.grading_enabled;
+  const baselineSettingsLabel = storedBaselineWithoutGrading
+    ? "설정한 기준 확인하기"
+    : "기준 설정하기";
 
   return (
     <div>
@@ -385,9 +390,13 @@ export function HeatmapGrid({
             className="flex items-center justify-between gap-2 rounded-xl bg-surface2 border border-line px-3.5 py-2.5 hover:border-brand transition"
           >
             <span className="text-ink2">
-              기준을 정하면 <b className="text-ink">넉넉·적정·부족</b>을 색으로 한눈에 볼 수 있어요. (지금은 보유 내역만 표시돼요)
+              {storedBaselineWithoutGrading ? (
+                <>설정한 기준은 계속 확인할 수 있어요. 지금은 보유 내역만 표시돼요.</>
+              ) : (
+                <>기준을 정하면 <b className="text-ink">넉넉·적정·부족</b>을 색으로 한눈에 볼 수 있어요. (지금은 보유 내역만 표시돼요)</>
+              )}
             </span>
-            <span className="shrink-0 text-[12px] font-semibold text-brand whitespace-nowrap">기준 설정하기 ›</span>
+            <span className="shrink-0 text-[12px] font-semibold text-brand whitespace-nowrap">{baselineSettingsLabel} ›</span>
           </Link>
         )}
       </div>
@@ -452,7 +461,7 @@ export function HeatmapGrid({
             <FilterChip
               key={key}
               active={filter === key}
-              title={heatmap.mode !== "graded" && key !== "all" ? "보장 기준을 먼저 설정해 주세요." : undefined}
+              title={heatmap.mode !== "graded" && key !== "all" ? "보장 기준을 확인해 주세요." : undefined}
               onClick={() => {
                 // 기준 미설정이면 넉넉/적정/부족은 판정이 없으므로 필터 대신 기준 설정으로 유도.
                 if (heatmap.mode !== "graded" && key !== "all") { setGateNotice(true); return; }
@@ -469,8 +478,8 @@ export function HeatmapGrid({
       {/* 기준 미설정 상태에서 판정 필터를 누른 경우 — 기준 설정으로 유도(부정어 없이 다음 단계로) */}
       {gateNotice && heatmap.mode !== "graded" && (
         <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12px]">
-          <span className="text-amber-800">보장 기준을 먼저 설정해 주세요. 그러면 넉넉·적정·부족을 색으로 볼 수 있어요.</span>
-          <Link href="/settings/baseline" className="shrink-0 font-semibold text-brand whitespace-nowrap">기준 설정하기 ›</Link>
+          <span className="text-amber-800">보장 기준을 확인하면 넉넉·적정·부족을 색으로 볼 수 있어요.</span>
+          <Link href="/settings/baseline" className="shrink-0 font-semibold text-brand whitespace-nowrap">{baselineSettingsLabel} ›</Link>
         </div>
       )}
 

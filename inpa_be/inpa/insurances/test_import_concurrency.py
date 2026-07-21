@@ -29,6 +29,7 @@ from rest_framework.test import APIClient
 from inpa.accounts.models import Profile, User
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory
 from inpa.billing.models import RuntimeConfig, UsageMeter
+from inpa.core.ocr.ocrdata import Ocr_Data
 from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
 from inpa.customers.models import ConsentLog, Customer
 
@@ -100,6 +101,29 @@ def _consent(customer):
 def _pdf():
     return SimpleUploadedFile(
         'synthetic-policy.pdf', PDF_BYTES, content_type='application/pdf')
+
+
+def _self_diagnosis_ocr_data():
+    ocr = Ocr_Data()
+    ocr.parsing_method = 'claude'
+    ocr.is_same_insured = True
+    head = ocr.dict_loss_head_data
+    head.update({
+        '손해보험': 2,
+        '상품명': '무배당 동시성 종합보험',
+        '계약자': '홍길동',
+        '피보험자': '홍길동',
+        '납입기간': 20,
+        '보장기간': 100,
+        '월납입보험료': 50000,
+        '월보장보험료': 50000,
+        '계약일': '2020.01.15',
+        'payment_period_type': 1,
+        'warranty_period_type': 1,
+    })
+    ocr.dict_detail_data['진단비']['암']['일반암'].append(
+        '20:1:100:1:50000000:10000')
+    return ocr
 
 
 def _extracted():
@@ -346,6 +370,80 @@ class _PgConcurrentTransactionsProbe:
 
     def release(self):
         self._release.set()
+
+
+@POSTGRES_ONLY
+@override_settings(
+    ANTHROPIC_API_KEY='test-key',
+    CLAUDE_MODEL_PARSE='test-model',
+)
+class SelfDiagnosisLegacyPostgresConcurrencyTests(TransactionTestCase):
+    """Legacy self-diagnosis persists one policy for concurrent duplicate PDFs."""
+
+    reset_sequences = True
+
+    def setUp(self):
+        self.planner, _ = _planner('pg-selfdiag-owner@example.invalid')
+        self.refcode = self.planner.profile.ref_code
+
+    def _post(self):
+        return APIClient().post(
+            f'/api/v1/d/{self.refcode}/',
+            {
+                'file': _pdf(),
+                'consent_overseas': 'true',
+                'consent_share': 'true',
+                'name': '동시성김',
+                'phone': '010-9999-0000',
+                'birth': '1990-01-01',
+                'gender': '1',
+            },
+            format='multipart',
+        )
+
+    def test_concurrent_duplicate_pdf_persists_one_policy(self):
+        from . import self_diagnosis
+
+        parse_barrier = threading.Barrier(2)
+        probe = _PgBlockingProbe()
+        original_persist = self_diagnosis._persist_ocr
+
+        def parse(*_args, **_kwargs):
+            parse_barrier.wait(timeout=THREAD_TIMEOUT)
+            return _self_diagnosis_ocr_data()
+
+        def persist(customer, ocr_data):
+            persisted = original_persist(customer, ocr_data)
+            probe.hold_first_after_lock()
+            return persisted
+
+        def request():
+            probe.register_worker()
+            return self._post()
+
+        with mock.patch(
+                'inpa.insurances.self_diagnosis._extract_pdf_lines',
+                return_value=(['line'], None)), mock.patch(
+                'inpa.insurances.self_diagnosis.claude_parse',
+                side_effect=parse), mock.patch(
+                'inpa.insurances.self_diagnosis._persist_ocr',
+                side_effect=persist):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(_thread_call, request) for _ in range(2)]
+                try:
+                    probe.assert_peer_blocked()
+                finally:
+                    probe.release()
+                responses = [
+                    future.result(timeout=THREAD_TIMEOUT) for future in futures]
+
+        self.assertEqual(
+            [response.status_code for response in responses], [201, 201])
+        customer = Customer.objects.get(
+            owner=self.planner, mobile_phone_number='01099990000')
+        self.assertEqual(
+            CustomerInsurance.objects.filter(customer=customer).count(), 1)
 
 
 @POSTGRES_ONLY

@@ -125,6 +125,27 @@ function CompareRow({ label, cur, prop }: { label: string; cur: number | null; p
   );
 }
 
+export function CompareAiGuide({
+  guideEnabled,
+  guideDraft,
+  guideSource,
+  disclaimer,
+}: {
+  guideEnabled: boolean;
+  guideDraft: string | null;
+  guideSource: "ai" | null;
+  disclaimer: string;
+}) {
+  if (!guideEnabled || !guideDraft || guideSource !== "ai") return null;
+  return (
+    <section className="rounded-xl border border-line bg-surface2 px-4 py-3 mb-4">
+      <h3 className="text-[13px] font-bold text-ink">AI가 정리한 참고 자료</h3>
+      <p className="mt-1 text-[12px] leading-5 text-ink2 whitespace-pre-wrap">{guideDraft}</p>
+      <p className="mt-2 text-[11px] leading-4 text-ink3">{disclaimer}</p>
+    </section>
+  );
+}
+
 export function ComparePremiumSplit({ current, proposed, labelA = "증권 A", labelB = "증권 B" }: { current: CompareSide; proposed: CompareSide; labelA?: string; labelB?: string }) {
   return (
     <section className="mt-5 rounded-xl border border-line bg-surface px-4 py-3">

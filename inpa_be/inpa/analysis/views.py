@@ -17,7 +17,11 @@
 
 순수 계산 — Claude API 불필요.
 """
+from decimal import Decimal
+
+from django.conf import settings
 from django.db.models import Max
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -32,18 +36,8 @@ from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer, PlannerBaseline
 from inpa.insurances.serializers import InsuranceFeeSerializer
 
+from .baselines import normalize_money, select_baseline
 from .calculate import calculate_total_analysis
-
-# 상품군(PlannerBaseline.product_group) ↔ 보험종류(AnalysisDetail.insurance_type) 매핑.
-# 생명(1)=생명보험(1), 손해/실손/연금(2·3·4)=손해보험(2). neutral 게이트는 상품군 무관하게
-# "살아있는 baseline 존재 여부"로 결정하므로 이 매핑은 grading 단계 보조용이다.
-_PRODUCT_GROUP_TO_INSURANCE_TYPE = {
-    PlannerBaseline.PRODUCT_GROUP_LIFE: 1,
-    PlannerBaseline.PRODUCT_GROUP_NONLIFE: 2,
-    PlannerBaseline.PRODUCT_GROUP_INDEMNITY: 2,
-    PlannerBaseline.PRODUCT_GROUP_ANNUITY: 2,
-}
-
 
 def _credit_exhausted_response(exc: LimitExceeded, user) -> Response:
     """LimitExceeded → 402 Payment Required (dev/02 §16 shape).
@@ -67,22 +61,27 @@ def _credit_exhausted_response(exc: LimitExceeded, user) -> Response:
 
 
 def _age_band(birth_day):
-    """'YYYY.MM.DD' / 'YYYY-MM-DD' → '20s'|'30s'|...|'60s+'. 파싱 실패 시 None."""
+    """Complete real birth dates → age band, calculated from KST local date."""
     if not birth_day:
         return None
-    import datetime
-    raw = str(birth_day).replace('-', '.').strip()
-    for fmt in ('%Y.%m.%d', '%Y.%m', '%Y'):
+    from datetime import datetime
+
+    raw = str(birth_day).strip()
+    for fmt in ('%Y-%m-%d', '%Y.%m.%d'):
         try:
-            dt = datetime.datetime.strptime(raw, fmt)
+            birth_date = datetime.strptime(raw, fmt).date()
             break
         except ValueError:
-            dt = None
-    if dt is None:
+            birth_date = None
+    if birth_date is None:
         return None
-    age = datetime.datetime.now().year - dt.year
+    today = timezone.localdate()
+    age = today.year - birth_date.year - (
+        (today.month, today.day) < (birth_date.month, birth_date.day))
+    if age < 0:
+        return None
     if age < 20:
-        return '20s'  # 20대 미만도 가장 낮은 밴드로 귀속(보수적)
+        return '20s'
     if age >= 60:
         return '60s+'
     return f'{(age // 10) * 10}s'
@@ -193,7 +192,11 @@ class CustomerHeatmapView(APIView):
             .filter(owner=customer.owner, is_active=True)
             .exclude(baseline_source__isnull=True)
         )
-        mode = 'graded' if baselines else 'neutral'
+        mode = (
+            'graded'
+            if settings.HEATMAP_GRADING_ENABLED and baselines
+            else 'neutral'
+        )
         band = _age_band(customer.birth_day)
 
         # coverage_key 별 baseline 조회 인덱스 (성별/연령 우선, 없으면 공통으로 완화)
@@ -201,27 +204,42 @@ class CustomerHeatmapView(APIView):
         for b in baselines:
             baseline_index.setdefault(b.coverage_key, []).append(b)
 
-        def _grade(detail_name, held_amount):
+        def _grade(detail_name, held_amount, insurance_type):
             """담보 한 칸의 status 판정. graded 모드 + 매칭 baseline 있을 때만 비교."""
             if mode != 'graded':
                 return 'neutral', None
             candidates = baseline_index.get(detail_name)
             if not candidates:
                 return 'neutral', None  # ★ baseline 없는 담보는 단정 금지
-            chosen = self._pick_baseline(candidates, customer.gender, band)
+            chosen = select_baseline(
+                candidates,
+                insurance_type=insurance_type,
+                age_band=band,
+                gender=customer.gender,
+            )
             if chosen is None:
                 return 'neutral', None
-            lo = float(chosen.recommend_min) if chosen.recommend_min is not None else None
-            hi = float(chosen.recommend_max) if chosen.recommend_max is not None else None
-            held = held_amount or 0
+            lo = normalize_money(chosen.recommend_min, chosen.unit)
+            hi = normalize_money(chosen.recommend_max, chosen.unit)
+            if lo is None and hi is None:
+                return 'neutral', None
+            if ((lo is not None and lo < 0)
+                    or (hi is not None and hi < 0)
+                    or (lo is not None and hi is not None and lo > hi)):
+                return 'neutral', None
+            held = Decimal(held_amount or 0)
             if lo is not None and held < lo:
                 status = 'shortage'
             elif hi is not None and hi > 0 and held > hi:
                 status = 'over'
             else:
                 status = 'adequate'
-            return status, {'min': lo, 'max': hi, 'unit': chosen.unit,
-                            'baseline_source': chosen.baseline_source}
+            return status, {
+                'min': int(lo) if lo is not None else None,
+                'max': int(hi) if hi is not None else None,
+                'display_unit': chosen.unit,
+                'baseline_source': chosen.baseline_source,
+            }
 
         # ── 4) 집계 결과(case_list)를 표준 트리(category→sub→detail)로 재구성 ──
         held_by_detail_id = {c['id']: c.get('total_premium', 0) for c in result['case_list']}
@@ -244,7 +262,7 @@ class CustomerHeatmapView(APIView):
                             for row in contributions) != held:
                         raise AssertionError(
                             'heatmap contribution amount mismatch')
-                    status, baseline = _grade(det.name, held)
+                    status, baseline = _grade(det.name, held, cat.insurance_type)
                     detail_nodes.append({
                         'detail_id': det.id,
                         'name': det.name,
@@ -295,6 +313,7 @@ class CustomerHeatmapView(APIView):
             'customer_id': customer.id,
             'mode': mode,
             'baseline_present': bool(baselines),
+            'grading_enabled': bool(settings.HEATMAP_GRADING_ENABLED),
             'baseline_count': len(baselines),  # graded 근거(설계사가 보유한 살아있는 기준 수)
             'insurance_count': len(insurance_list),
             'included_insurance_count': included_insurance_count,
@@ -311,21 +330,3 @@ class CustomerHeatmapView(APIView):
             'chart_list': result['chart_list'],
             'tree': tree,
         })
-
-    @staticmethod
-    def _pick_baseline(candidates, gender, band):
-        """coverage_key 매칭 후보 중 (성별·연령) 가장 구체적인 것을 고른다.
-
-        우선순위: (gender 일치 + band 일치) > (gender 공통 + band 일치)
-                > (gender 일치) > (gender 공통) > 첫 후보.
-        """
-        def score(b):
-            s = 0
-            if b.gender is not None and b.gender == gender:
-                s += 2
-            elif b.gender is None:
-                s += 1
-            if band and b.age_band == band:
-                s += 4
-            return s
-        return max(candidates, key=score) if candidates else None

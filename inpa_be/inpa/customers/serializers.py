@@ -80,6 +80,24 @@ class ConsentLogSerializer(serializers.ModelSerializer):
 
 
 class PlannerBaselineSerializer(serializers.ModelSerializer):
+    def validate(self, attrs):
+        values = {
+            field: attrs.get(field, getattr(self.instance, field, None))
+            for field in ('recommend_min', 'recommend_max')
+        }
+        errors = {
+            field: '0 이상을 입력해 주세요.'
+            for field, value in values.items()
+            if value is not None and value < 0
+        }
+        minimum = values['recommend_min']
+        maximum = values['recommend_max']
+        if not errors and minimum is not None and maximum is not None and minimum > maximum:
+            errors['recommend_max'] = '최댓값은 최솟값 이상으로 입력해 주세요.'
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
     class Meta:
         model = PlannerBaseline
         fields = ('id', 'coverage_key', 'product_group', 'age_band', 'gender',
@@ -177,7 +195,7 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
                   'last_contacted_at', 'is_favorite', 'is_pinned', 'business_card',
                   'insurance_age', 'job_risk_grade', 'job_name', 'marketing_consent', 'personal_info_consent', 'consents',
                   'created_at', 'updated_at')
-        read_only_fields = ('id', 'share_token', 'consent_overseas_at', 'share_sent_at',
+        read_only_fields = ('id', 'share_token', 'consent_overseas_at', 'share_sent_at', 'share_expires_at',
                             'user_view_at', 'created_at', 'updated_at')
 
     def validate_tag_ids(self, value):

@@ -197,6 +197,12 @@ CLAUDE_MODEL_BULK = env('CLAUDE_MODEL_BULK', default='')
 # 기능 게이트는 운영 검증·승인 전까지 닫아 둔다. 모델 ID 역시 env에서만 주입한다.
 INSURANCE_REVIEW_GATE_ENABLED = env.bool(
     'INSURANCE_REVIEW_GATE_ENABLED', default=False)
+# 과거 Customer 토큰 호환은 검토형 가져오기와 독립적으로, 명시적으로만 연다.
+LEGACY_SHARE_FALLBACK_ENABLED = env.bool(
+    'LEGACY_SHARE_FALLBACK_ENABLED', default=False)
+# 도메인 검토 전에는 False를 유지한다. 기준선 판정은 명시적 승인 뒤에만 연다.
+HEATMAP_GRADING_ENABLED = env.bool(
+    'HEATMAP_GRADING_ENABLED', default=False)
 # 합성 staging 부하 자료 생성·정리는 별도 스위치를 한 번 더 열어야 한다.
 # 운영과 일반 staging 시작값은 항상 닫힘이다.
 INSURANCE_LOAD_TEST_ENABLED = env.bool(
