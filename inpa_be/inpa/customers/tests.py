@@ -433,6 +433,45 @@ class ApplyPresetTests(TestCase):
         self.assertEqual(r.status_code, 403)
 
 
+class PlannerBaselineValidationTests(TestCase):
+    URL = '/api/v1/planner-baselines/'
+
+    def setUp(self):
+        self.user, self.client = _make_planner('baseline-validation@test.com')
+        self.valid = {
+            'coverage_key': '일반사망',
+            'product_group': PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            'age_band': '30s',
+            'gender': 1,
+            'recommend_min': '10000000',
+            'recommend_max': '30000000',
+            'unit': PlannerBaseline.UNIT_WON,
+            'baseline_source': 'planner',
+            'is_active': True,
+        }
+
+    def test_negative_recommendation_bounds_are_rejected(self):
+        for field in ('recommend_min', 'recommend_max'):
+            with self.subTest(field=field):
+                payload = {**self.valid, field: '-1'}
+                response = self.client.post(self.URL, payload, format='json')
+
+                self.assertEqual(response.status_code, 400, response.content)
+                self.assertIn(field, response.json())
+        self.assertFalse(PlannerBaseline.objects.filter(owner=self.user).exists())
+
+    def test_recommendation_minimum_above_maximum_is_rejected(self):
+        response = self.client.post(
+            self.URL,
+            {**self.valid, 'recommend_min': '30000001'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn('recommend_max', response.json())
+        self.assertFalse(PlannerBaseline.objects.filter(owner=self.user).exists())
+
+
 class SalesStageTests(TestCase):
     """영업 단계(칸반/퍼널) — 기본값·PATCH 단계이동·목록 노출·owner 격리."""
 

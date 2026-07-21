@@ -223,6 +223,10 @@ class CustomerHeatmapView(APIView):
             hi = normalize_money(chosen.recommend_max, chosen.unit)
             if lo is None and hi is None:
                 return 'neutral', None
+            if ((lo is not None and lo < 0)
+                    or (hi is not None and hi < 0)
+                    or (lo is not None and hi is not None and lo > hi)):
+                return 'neutral', None
             held = Decimal(held_amount or 0)
             if lo is not None and held < lo:
                 status = 'shortage'

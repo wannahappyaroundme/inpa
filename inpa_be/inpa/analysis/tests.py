@@ -364,6 +364,18 @@ class HeatmapGradedTests(TestCase):
         det = self._heatmap_detail_status()
         self.assertEqual(det['status'], 'over')
 
+    def test_invalid_persisted_bounds_fail_closed_to_neutral(self):
+        ci = _make_portfolio(self.customer, self.idet, assurance_amount=200000000)
+        ci.calculate(); ci.save()
+
+        for lo, hi in ((-1, 300000000), (300000001, 300000000)):
+            with self.subTest(lo=lo, hi=hi):
+                PlannerBaseline.objects.filter(owner=self.user).delete()
+                self._baseline(lo=lo, hi=hi)
+                det = self._heatmap_detail_status()
+                self.assertEqual(det['status'], 'neutral')
+                self.assertIsNone(det['baseline'])
+
     def test_unmatched_detail_stays_neutral_even_in_graded(self):
         """graded 모드라도 baseline 매칭 없는 담보는 neutral(단정 금지)."""
         # coverage_key 가 트리 담보명과 다른 baseline → '사망보장'엔 매칭 없음
@@ -677,6 +689,22 @@ class CompareFactsTests(TestCase):
         self.assertIn('AI', body['disclaimer'])
         # ★ 2026-07-09 재정의: 인파는 KEEP/SWITCH 판정을 산출하지 않는다 → verdict 키 부재.
         self.assertNotIn('verdict', body)
+
+    @override_settings(HEATMAP_GRADING_ENABLED=False)
+    def test_mode_stays_neutral_while_heatmap_grading_gate_is_closed(self):
+        PlannerBaseline.objects.create(
+            owner=self.user,
+            coverage_key='사망보장',
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=100000000,
+            recommend_max=300000000,
+            unit=PlannerBaseline.UNIT_WON,
+            baseline_source='planner',
+        )
+
+        self.assertEqual(self._get().json()['mode'], 'neutral')
 
     @override_settings(COMPARE_AI_ENABLED=False)
     def test_ai_disabled_guide_null(self):

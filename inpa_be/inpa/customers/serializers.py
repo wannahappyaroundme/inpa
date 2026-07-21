@@ -80,6 +80,24 @@ class ConsentLogSerializer(serializers.ModelSerializer):
 
 
 class PlannerBaselineSerializer(serializers.ModelSerializer):
+    def validate(self, attrs):
+        values = {
+            field: attrs.get(field, getattr(self.instance, field, None))
+            for field in ('recommend_min', 'recommend_max')
+        }
+        errors = {
+            field: '0 이상을 입력해 주세요.'
+            for field, value in values.items()
+            if value is not None and value < 0
+        }
+        minimum = values['recommend_min']
+        maximum = values['recommend_max']
+        if not errors and minimum is not None and maximum is not None and minimum > maximum:
+            errors['recommend_max'] = '최댓값은 최솟값 이상으로 입력해 주세요.'
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
     class Meta:
         model = PlannerBaseline
         fields = ('id', 'coverage_key', 'product_group', 'age_band', 'gender',

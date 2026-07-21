@@ -241,6 +241,8 @@ def _build_rows(current_amounts, proposed_amounts):
 
 def _mode_for_customer(customer):
     """히트맵과 동일 neutral/graded 게이트. 살아있는 baseline 있으면 graded."""
+    if not getattr(settings, 'HEATMAP_GRADING_ENABLED', False):
+        return 'neutral'
     has_live_baseline = (
         PlannerBaseline.objects
         .filter(owner=customer.owner, is_active=True)
