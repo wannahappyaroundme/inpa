@@ -23,7 +23,7 @@ from inpa.analysis.models import (
     AnalysisCategory, AnalysisDetail, AnalysisSubCategory,
 )
 from inpa.analytics.events import log_event
-from inpa.analytics.models import NorthStarEvent
+from inpa.analytics.models import NorthStarEvent, ShareSnapshot
 from inpa.analytics.sharing import PAYLOAD_VERSION_V2
 from inpa.customers.models import ConsentLog, Customer
 from inpa.insurances.models import (
@@ -77,6 +77,13 @@ def _make_portfolio(customer, catalog_detail, assurance_amount):
     return ci
 
 
+def _issue_share_snapshot(test_case, client, customer):
+    response = client.post(f'/api/v1/customers/{customer.id}/share/')
+    test_case.assertEqual(response.status_code, 201, response.content)
+    return ShareSnapshot.objects.get(
+        share_token=response.json()['share_token'])
+
+
 class ShareCreateTests(TestCase):
     """1) 공유 토큰 발급 — POST /customers/<id>/share/."""
 
@@ -123,10 +130,12 @@ class ShareViewTests(TestCase):
         self.det = _build_std_tree()
         self.idet = _catalog_detail_linked_to(self.det)
         _make_portfolio(self.customer, self.idet, assurance_amount=50000000)
+        self.snapshot = _issue_share_snapshot(
+            self, self.client, self.customer)
         self.public = APIClient()  # 비인증
 
     def _url(self):
-        return f'/api/v1/s/{self.customer.share_token}/'
+        return f'/api/v1/s/{self.snapshot.share_token}/'
 
     def test_share_view_excludes_planner_verdict(self):
         """★ 회귀 가드(§97): 설계사 내부 판정(verdict·switch_warnings)은 고객 공유뷰에 절대 누수 금지."""
@@ -142,7 +151,7 @@ class ShareViewTests(TestCase):
     def test_share_view_returns_200_neutral(self):
         r = self.public.get(self._url())
         self.assertEqual(r.status_code, 200)
-        body = r.json()
+        body = r.json()['snapshot']
         self.assertEqual(body['mode'], 'neutral')
         self.assertIn('disclaimer', body)
         # ★ 부족/충분 단정 부재 — status 는 none|neutral 만, baseline 키 물리 부재
@@ -154,7 +163,7 @@ class ShareViewTests(TestCase):
 
     def test_share_view_held_amount_visible(self):
         r = self.public.get(self._url())
-        body = r.json()
+        body = r.json()['snapshot']
         held = body['tree'][0]['sub_categories'][0]['details'][0]['held_amount']
         self.assertEqual(held, 50000000)
         # 보유 담보 → status='neutral'(보유 사실), 0원이면 'none'
@@ -163,7 +172,7 @@ class ShareViewTests(TestCase):
 
     def test_share_view_pii_masked(self):
         r = self.public.get(self._url())
-        cust = r.json()['customer']
+        cust = r.json()['snapshot']['customer']
         self.assertEqual(cust['name_masked'], '홍**')          # 이름 마스킹
         self.assertEqual(cust['birth_year'], 1985)             # 연도만(생월일 부재)
         self.assertNotIn('mobile_phone_number', cust)          # 연락처 부재
@@ -171,8 +180,8 @@ class ShareViewTests(TestCase):
 
     def test_share_view_no_booking_url_without_work_hours(self):
         """영업시간 미설정 → booking_url 키 부재(FE는 기존 안내문으로 폴백)."""
-        body = self.public.get(self._url()).json()
-        self.assertNotIn('booking_url', body)
+        actions = self.public.get(self._url()).json()['actions']
+        self.assertNotIn('booking_url', actions)
 
     def test_share_view_booking_url_present_with_work_hours(self):
         """설계사 영업시간 설정 → '바로 예약' booking_url 포함(/b/<token>)."""
@@ -180,16 +189,16 @@ class ShareViewTests(TestCase):
         from inpa.booking.models import WorkHour
         WorkHour.objects.create(owner=self.user, weekday=0,
                                 start_time=time(9, 0), end_time=time(18, 0))
-        body = self.public.get(self._url()).json()
-        self.assertIn('booking_url', body)
-        self.assertIn('/b/', body['booking_url'])
+        actions = self.public.get(self._url()).json()['actions']
+        self.assertIn('booking_url', actions)
+        self.assertIn('/b/', actions['booking_url'])
 
     def test_share_view_logs_share_view_event(self):
         self.public.get(self._url())
         self.assertEqual(
             NorthStarEvent.objects.filter(
                 event_type=NorthStarEvent.SHARE_VIEW,
-                share_token=self.customer.share_token).count(), 1)
+                share_token=self.snapshot.share_token).count(), 1)
 
     def test_share_view_dedup_within_24h(self):
         """동일 viewer_fp 24h 내 재열람 → share_view 1건만(분모 오염 방지)."""
@@ -198,30 +207,30 @@ class ShareViewTests(TestCase):
         self.assertEqual(
             NorthStarEvent.objects.filter(
                 event_type=NorthStarEvent.SHARE_VIEW,
-                share_token=self.customer.share_token).count(), 1)
+                share_token=self.snapshot.share_token).count(), 1)
 
     def test_share_view_bot_ua_excluded_as_bot_channel(self):
         """카톡 프리뷰 봇 UA → channel='bot'(신뢰 KPI 분자 제외)."""
         self.public.get(self._url(), HTTP_USER_AGENT='KaKaoTalk-Scrap/1.0')
         ev = NorthStarEvent.objects.get(
             event_type=NorthStarEvent.SHARE_VIEW,
-            share_token=self.customer.share_token)
+            share_token=self.snapshot.share_token)
         self.assertEqual(ev.channel, 'bot')
 
     def test_share_view_noindex_header(self):
         r = self.public.get(self._url())
         self.assertEqual(r['X-Robots-Tag'], 'noindex, nofollow')
 
-    def test_share_view_updates_user_view_at(self):
+    def test_share_view_updates_snapshot_first_viewed_at(self):
         self.public.get(self._url())
-        self.customer.refresh_from_db()
-        self.assertIsNotNone(self.customer.user_view_at)
+        self.snapshot.refresh_from_db()
+        self.assertIsNotNone(self.snapshot.first_viewed_at)
 
     def test_share_view_records_ref_code(self):
         self.public.get(self._url() + '?ref=A7K3XX')
         ev = NorthStarEvent.objects.get(
             event_type=NorthStarEvent.SHARE_VIEW,
-            share_token=self.customer.share_token)
+            share_token=self.snapshot.share_token)
         self.assertEqual(ev.ref_code, 'A7K3XX')
 
 
@@ -229,7 +238,7 @@ class SharePayloadProposalExclusionTests(TestCase):
     """★ 제안(portfolio_type=2)이 고객 공유뷰(/s)에 '보유'로 섞이지 않는다."""
 
     def setUp(self):
-        self.user, _ = _make_planner('share-proposal@test.com')
+        self.user, self.client = _make_planner('share-proposal@test.com')
         self.customer = Customer.objects.create(
             owner=self.user, name='제안고객', birth_day='1985.05.05', gender=1)
         self.det = _build_std_tree()
@@ -248,10 +257,13 @@ class SharePayloadProposalExclusionTests(TestCase):
         prop.set_renewal_month()
         prop.calculate()
         prop.save()
+        self.snapshot = _issue_share_snapshot(
+            self, self.client, self.customer)
         self.public = APIClient()
 
     def test_proposal_excluded_from_share_payload(self):
-        body = self.public.get(f'/api/v1/s/{self.customer.share_token}/').json()
+        body = self.public.get(
+            f'/api/v1/s/{self.snapshot.share_token}/').json()['snapshot']
         held = body['tree'][0]['sub_categories'][0]['details'][0]['held_amount']
         self.assertEqual(held, 50000000)  # 보유만(제안 3억 제외)
 
@@ -296,15 +308,18 @@ class ShareViewGateTests(TestCase):
     """4) 만료/회수/없는 토큰 → 404 (데이터 0)."""
 
     def setUp(self):
-        self.user, _ = _make_planner('share-gate@test.com')
+        self.user, self.client = _make_planner('share-gate@test.com')
         self.customer = Customer.objects.create(
             owner=self.user, name='만료고객', birth_day='1985.05.05')
+        self.snapshot = _issue_share_snapshot(
+            self, self.client, self.customer)
         self.public = APIClient()
 
     def test_expired_token_returns_404_no_data(self):
-        self.customer.share_expires_at = timezone.now() - timezone.timedelta(days=1)
-        self.customer.save(update_fields=['share_expires_at'])
-        r = self.public.get(f'/api/v1/s/{self.customer.share_token}/')
+        self.snapshot.link_expires_at = (
+            timezone.now() - timezone.timedelta(days=1))
+        self.snapshot.save(update_fields=['link_expires_at'])
+        r = self.public.get(f'/api/v1/s/{self.snapshot.share_token}/')
         self.assertEqual(r.status_code, 404)
         body = r.json()
         self.assertEqual(body['reason'], 'SHARE_LINK_EXPIRED')
@@ -325,13 +340,15 @@ class ShareEventTests(TestCase):
     """3) 공유뷰 이벤트 적재 — POST /s/<token>/event/."""
 
     def setUp(self):
-        self.user, _ = _make_planner('share-event@test.com')
+        self.user, self.client = _make_planner('share-event@test.com')
         self.customer = Customer.objects.create(
             owner=self.user, name='이벤트고객', birth_day='1985.05.05')
+        self.snapshot = _issue_share_snapshot(
+            self, self.client, self.customer)
         self.public = APIClient()
 
     def _url(self):
-        return f'/api/v1/s/{self.customer.share_token}/event/'
+        return f'/api/v1/s/{self.snapshot.share_token}/event/'
 
     def test_clipboard_copy_logged_with_clipboard_channel(self):
         r = self.public.post(self._url(),
@@ -339,7 +356,7 @@ class ShareEventTests(TestCase):
         self.assertEqual(r.status_code, 201)
         ev = NorthStarEvent.objects.get(
             event_type=NorthStarEvent.CLIPBOARD_COPY,
-            share_token=self.customer.share_token)
+            share_token=self.snapshot.share_token)
         # ★ 자동발송 사칭 금지 — channel='clipboard' 고정
         self.assertEqual(ev.channel, 'clipboard')
         self.assertEqual(ev.payload.get('delivery'), 'clipboard')
@@ -351,7 +368,7 @@ class ShareEventTests(TestCase):
         self.assertEqual(r.status_code, 201, r.content)
         ev = NorthStarEvent.objects.get(
             event_type=NorthStarEvent.CTA_CLICK,
-            share_token=self.customer.share_token)
+            share_token=self.snapshot.share_token)
         self.assertEqual(ev.channel, 'web')
         self.assertEqual(ev.sender, self.user)
 
@@ -363,8 +380,9 @@ class ShareEventTests(TestCase):
         self.assertEqual(r.json()['code'], 'EVENT_NOT_ALLOWED')
 
     def test_event_on_expired_token_404(self):
-        self.customer.share_expires_at = timezone.now() - timezone.timedelta(days=1)
-        self.customer.save(update_fields=['share_expires_at'])
+        self.snapshot.link_expires_at = (
+            timezone.now() - timezone.timedelta(days=1))
+        self.snapshot.save(update_fields=['link_expires_at'])
         r = self.public.post(self._url(),
                              {'event_type': 'clipboard_copy'}, format='json')
         self.assertEqual(r.status_code, 404)
@@ -519,22 +537,24 @@ class ShareContactLayerTests(TestCase):
     """planner_contact 페이로드 + callback_request 이벤트 → 설계사 알림(하루 1회)."""
 
     def setUp(self):
-        self.user, _ = _make_planner('contact-layer@test.com')
+        self.user, self.client = _make_planner('contact-layer@test.com')
         self.customer = Customer.objects.create(
             owner=self.user, name='콜백고객', birth_day='1990.01.01')
+        self.snapshot = _issue_share_snapshot(
+            self, self.client, self.customer)
         self.public = APIClient()
 
     def _view_url(self):
-        return f'/api/v1/s/{self.customer.share_token}/'
+        return f'/api/v1/s/{self.snapshot.share_token}/'
 
     def _event_url(self):
-        return f'/api/v1/s/{self.customer.share_token}/event/'
+        return f'/api/v1/s/{self.snapshot.share_token}/event/'
 
     def test_payload_planner_contact_null_when_no_phone_field(self):
         """Profile.phone(2026-07-07 신설)이 비어 있으면 planner_contact=null(키는 존재)."""
         r = self.public.get(self._view_url())
         self.assertEqual(r.status_code, 200)
-        body = r.json()
+        body = r.json()['actions']
         self.assertIn('planner_contact', body)
         self.assertIsNone(body['planner_contact'])
         self.assertEqual(r['Cache-Control'], 'private, no-store')
@@ -544,7 +564,8 @@ class ShareContactLayerTests(TestCase):
         with mock.patch('inpa.analytics.views._planner_phone',
                         return_value='010-1234-5678'):
             r = self.public.get(self._view_url())
-        self.assertEqual(r.json()['planner_contact'], '010-1234-5678')
+        self.assertEqual(
+            r.json()['actions']['planner_contact'], '010-1234-5678')
 
     def test_payload_planner_contact_from_profile_phone_field(self):
         """실필드 회귀(2026-07-07 Profile.phone): 마이페이지에 전화번호를 저장하면
@@ -554,7 +575,8 @@ class ShareContactLayerTests(TestCase):
         profile.save(update_fields=['phone'])
         r = self.public.get(self._view_url())
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()['planner_contact'], '010-9876-5432')
+        self.assertEqual(
+            r.json()['actions']['planner_contact'], '010-9876-5432')
 
     def test_callback_request_creates_notification_to_owner(self):
         """callback_request → 이벤트 적재 + 소유 설계사에게 알림 1건(기존 타입 재사용)."""
@@ -570,7 +592,7 @@ class ShareContactLayerTests(TestCase):
         self.assertEqual(r['Cache-Control'], 'private, no-store')
         self.assertEqual(NorthStarEvent.objects.filter(
             event_type=NorthStarEvent.CALLBACK_REQUEST,
-            share_token=self.customer.share_token).count(), 1)
+            share_token=self.snapshot.share_token).count(), 1)
         notif = Notification.objects.get(owner=self.user)
         self.assertEqual(notif.notif_type, NotifType.SELF_DIAGNOSIS_LEAD)
         self.assertEqual(notif.title, '고객 연락 요청')
@@ -641,8 +663,9 @@ class ShareContactLayerTests(TestCase):
             event_type=NorthStarEvent.CALLBACK_REQUEST).count(), 1)
 
     def test_callback_on_expired_token_404_no_notification(self):
-        self.customer.share_expires_at = timezone.now() - timezone.timedelta(days=1)
-        self.customer.save(update_fields=['share_expires_at'])
+        self.snapshot.link_expires_at = (
+            timezone.now() - timezone.timedelta(days=1))
+        self.snapshot.save(update_fields=['link_expires_at'])
         r = self.public.post(self._event_url(),
                              {'event_type': 'callback_request'}, format='json')
         self.assertEqual(r.status_code, 404)
@@ -701,9 +724,6 @@ class AdviceCopyGuardTests(TestCase):
 # ─── 공유(/s) 스냅샷 보관 — spec 2026-07-08, 프리런치 #27 ─────────────────
 
 from datetime import timedelta as _timedelta  # noqa: E402
-
-from inpa.analytics.models import ShareSnapshot  # noqa: E402
-
 
 class ShareSnapshotCaptureTests(TestCase):
     """공유 생성 시 스냅샷 캡처 — payload 일치, 동의/사전 버전 스탬프, 보존기간 계산."""
