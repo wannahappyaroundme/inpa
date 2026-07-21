@@ -21,3 +21,9 @@ Symptom: The private extraction evaluation command failed twice with `E_DATASET_
 Cause: Git kept a `prunable` record for a deleted temporary worktree. Discovery resolved every listed path with `strict=True`, including the explicitly stale record, and therefore failed closed before validation.
 Fix: Parse worktree porcelain records and skip only records Git marks `prunable`; missing non-prunable worktrees still fail closed.
 Prevention: Regression tests cover the allowed prunable case, missing or malformed active records, and the command-level aggregate-output path.
+
+### 2026-07-22 Render Free cold start exceeds health-check client timeout
+Symptom: Production `/healthz/` succeeded in 0.29s, then one 60s request and three independent 20s requests connected but received no bytes. Render health logs stopped for about 14 minutes before recovering.
+Cause: Render Events showed the web service had changed from Starter to Free on 2026-07-17. After roughly 15 minutes without external traffic, Gunicorn received SIGTERM. The wake path then ran migrations, cache setup, and five seed commands sequentially before starting Gunicorn, taking about 2m24s.
+Fix: Waited for the new instance to finish booting and verified repeated internal health 200 responses plus an external 200 response in 0.51s. No billing or infrastructure tier was changed without PM approval.
+Prevention: Restore an always-on Render plan before launch, or approve a deployment change that moves setup work out of the runtime start command. Keep the PM and agent docs aligned with the actual Render tier, and do not treat a 60s timeout during Free-tier wake as an application regression without checking Render events and boot logs.
