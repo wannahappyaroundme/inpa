@@ -1,9 +1,11 @@
 """계정 도메인 happy-path + 핵심 게이트 테스트."""
 from datetime import timedelta
-from unittest import mock
+from threading import Barrier, Thread
+from unittest import mock, skipUnless
 
+from django.db import close_old_connections, connection
 from django.core import mail
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -341,11 +343,119 @@ class IntroCardTests(TestCase):
 
     def test_post_requires_consent(self):
         r = self.public.post(f'/api/v1/p/{self.profile.ref_code}/',
-                             {'name': '김상담', 'agreed': False}, format='json')
+                             {'name': '김상담', 'phone': '010-1234-5678', 'agreed': False}, format='json')
         self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['code'], 'CONSENT_REQUIRED')
+
+    def test_intro_lead_requires_valid_mobile_phone(self):
+        for phone in ('', '010-1234-56', '021-1234-5678', '010-1234-56789', ['01012345678']):
+            with self.subTest(phone=phone):
+                r = self.public.post(
+                    f'/api/v1/p/{self.profile.ref_code}/',
+                    {'name': '김상담', 'phone': phone, 'agreed': True}, format='json')
+                self.assertEqual(r.status_code, 400, r.content)
+                self.assertEqual(r.json(), {
+                    'code': 'INVALID_PHONE',
+                    'detail': '올바른 휴대폰 번호를 입력해 주세요.',
+                })
+
+    def test_intro_lead_normalizes_hyphens_before_deduplication(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        for phone in ('01012345678', '010-1234-5678'):
+            r = self.public.post(
+                f'/api/v1/p/{self.profile.ref_code}/',
+                {'name': '김상담', 'phone': phone, 'agreed': True}, format='json')
+            self.assertEqual(r.status_code, 201, r.content)
+
+        customer = Customer.objects.get(owner=self.planner, lead_source=Customer.LEAD_INTRODUCTION)
+        self.assertEqual(customer.mobile_phone_number, '01012345678')
+        self.assertEqual(Customer.objects.filter(owner=self.planner).count(), 1)
+        self.assertEqual(ConsentLog.objects.filter(customer=customer).count(), 1)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=customer).count(), 1)
+        self.assertEqual(Notification.objects.filter(customer=customer).count(), 1)
+
+    def test_intro_lead_matches_a_legacy_hyphenated_phone(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        legacy = Customer.objects.create(
+            owner=self.planner, name='기존고객', mobile_phone_number='010-1234-5678',
+            is_agree_term=True, lead_source=Customer.LEAD_INTRODUCTION,
+            lead_created_at=timezone.now())
+
+        r = self.public.post(
+            f'/api/v1/p/{self.profile.ref_code}/',
+            {'name': '김상담', 'phone': '01012345678', 'agreed': True}, format='json')
+
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(Customer.objects.filter(owner=self.planner).count(), 1)
+        self.assertEqual(Customer.objects.get(pk=legacy.pk).mobile_phone_number, '010-1234-5678')
+        self.assertEqual(ConsentLog.objects.count(), 0)
+        self.assertEqual(NorthStarEvent.objects.count(), 0)
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_invalid_phone_creates_no_customer_consent_event_or_notification(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        r = self.public.post(
+            f'/api/v1/p/{self.profile.ref_code}/',
+            {'name': '김상담', 'phone': '010-1234-56', 'agreed': True}, format='json')
+
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(r.json()['code'], 'INVALID_PHONE')
+        self.assertEqual(Customer.objects.count(), 0)
+        self.assertEqual(ConsentLog.objects.count(), 0)
+        self.assertEqual(NorthStarEvent.objects.count(), 0)
+        self.assertEqual(Notification.objects.count(), 0)
 
     def test_invalid_ref_404(self):
         self.assertEqual(self.public.get('/api/v1/p/NOPENOPE/').status_code, 404)
+
+
+@skipUnless(connection.vendor == 'postgresql', 'row locking needs PostgreSQL')
+class IntroCardConcurrencyTests(TransactionTestCase):
+    def setUp(self):
+        self.planner, _ = _verified_planner('intro-concurrent@test.com')
+        self.refcode = Profile.objects.get(user=self.planner).ref_code
+
+    def test_concurrent_same_phone_creates_one_lead_and_side_effect_set(self):
+        from inpa.analytics.models import NorthStarEvent
+        from inpa.customers.models import ConsentLog, Customer
+        from inpa.notifications.models import Notification
+
+        barrier = Barrier(2)
+        results = []
+
+        def submit():
+            close_old_connections()
+            try:
+                barrier.wait(timeout=10)
+                response = APIClient().post(
+                    f'/api/v1/p/{self.refcode}/',
+                    {'name': '김상담', 'phone': '010-1234-5678', 'agreed': True}, format='json')
+                results.append(response.status_code)
+            finally:
+                close_old_connections()
+
+        threads = [Thread(target=submit) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=15)
+
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(sorted(results), [201, 201])
+        customer = Customer.objects.get(owner=self.planner, mobile_phone_number='01012345678')
+        self.assertEqual(Customer.objects.filter(owner=self.planner).count(), 1)
+        self.assertEqual(ConsentLog.objects.filter(customer=customer).count(), 1)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=customer).count(), 1)
+        self.assertEqual(Notification.objects.filter(customer=customer).count(), 1)
 
 
 class TeamInviteTests(TestCase):

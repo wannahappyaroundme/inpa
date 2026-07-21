@@ -550,7 +550,7 @@ export async function getIntroductionCard(refcode: string): Promise<IntroCardRes
   return data as IntroCardResponse;
 }
 /** POST /api/v1/p/<refcode>/ — 상담 신청(설계사 db 리드 자동 생성) */
-export async function submitIntroLead(refcode: string, payload: { name: string; phone?: string; agreed: boolean }): Promise<{ lead_created: boolean }> {
+export async function submitIntroLead(refcode: string, payload: { name: string; phone: string; agreed: boolean }): Promise<{ lead_created: boolean }> {
   const res = await fetch(`${API_BASE}/p/${encodeURIComponent(refcode)}/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
