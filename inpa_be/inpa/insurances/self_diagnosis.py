@@ -181,10 +181,39 @@ def _ci_signature(ci):
     return (ci.company, (ci.name or '').strip(), tuple(sorted(coverages)))
 
 
+def _parse_provider_configured():
+    api_key = getattr(settings, 'ANTHROPIC_API_KEY', '')
+    model_id = getattr(settings, 'CLAUDE_MODEL_PARSE', '')
+    return bool(
+        isinstance(api_key, str) and api_key.strip()
+        and isinstance(model_id, str) and model_id.strip())
+
+
+def _provider_unavailable_response(*, review_gate, submitted_file_count):
+    if review_gate:
+        response_status, code, detail = _safe_review_failure(
+            [status.HTTP_503_SERVICE_UNAVAILABLE])
+        return Response({
+            'lead_created': False,
+            'analyzed': False,
+            'review_pending': False,
+            'accepted_file_count': 0,
+            'existing_file_count': 0,
+            'failed_file_count': submitted_file_count,
+            'code': code,
+            'detail': detail,
+        }, status=response_status)
+    return Response(
+        {'code': 'OCR_UNAVAILABLE',
+         'detail': '지금은 증권을 바로 정리하기 어려워요. 담당 설계사가 직접 확인해 도와드릴게요.'},
+        status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
 def _upsert_customer_and_receipts(*, planner, name, phone, birth, gender,
                                   ip, has_files, marketing, third_party):
     """Commit a self-diagnosis lead and its customer-self receipts before AI work."""
     with transaction.atomic():
+        planner = type(planner).objects.select_for_update().get(pk=planner.pk)
         customer, created = (
             Customer.objects.select_for_update().get_or_create(
                 owner=planner,
@@ -335,11 +364,11 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
                 {'code': 'POLICY_FILES_NOT_RECEIVED',
                  'detail': 'PDF 증권 파일을 다시 선택해 주세요.'},
                 status=status.HTTP_400_BAD_REQUEST)
-        if has_files and not review_gate and not getattr(
-                settings, 'ANTHROPIC_API_KEY', ''):
-            return Response({'code': 'OCR_UNAVAILABLE',
-                             'detail': '지금은 증권을 바로 정리하기 어려워요. 담당 설계사가 직접 확인해 도와드릴게요.'},
-                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if has_files and not _parse_provider_configured():
+            return _provider_unavailable_response(
+                review_gate=review_gate,
+                submitted_file_count=submitted_file_count,
+            )
         if has_files:
             attempt_key = f'selfdiag-attempts:{refcode}:{today.isoformat()}'
             cache.add(attempt_key, 0, 60 * 60 * 24)

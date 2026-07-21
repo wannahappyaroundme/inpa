@@ -1418,7 +1418,7 @@ def _tree_detail_names(tree):
 # ──────────────────────────────────────────────────────────────────────
 # 셀프진단 다중 증권(files) — 파일별 독립 파싱·캡 소모 + insurances[] 카드 응답
 # ──────────────────────────────────────────────────────────────────────
-@override_settings(ANTHROPIC_API_KEY='test-key')
+@override_settings(ANTHROPIC_API_KEY='test-key', CLAUDE_MODEL_PARSE='test-model')
 class SelfDiagnosisMultiPdfTests(TestCase):
     """PM 2026-07-07: 증권 여러 장 업로드 → 보험별 카드(insurances[]) 응답."""
 
@@ -2468,7 +2468,7 @@ class ManualInsuranceTests(TestCase):
 # ──────────────────────────────────────────────────────────────────────
 # 셀프진단 동의 기록 — personal_info(필수) + marketing(선택) ConsentLog
 # ──────────────────────────────────────────────────────────────────────
-@override_settings(ANTHROPIC_API_KEY='test-key')
+@override_settings(ANTHROPIC_API_KEY='test-key', CLAUDE_MODEL_PARSE='test-model')
 class SelfDiagnosisConsentTests(TestCase):
     """셀프진단 동의 receipt는 외부 처리보다 먼저 확정되고 재시도에 안전해야 한다."""
 
@@ -2494,6 +2494,90 @@ class SelfDiagnosisConsentTests(TestCase):
         return self.anon.post(
             f'/api/v1/d/{self.ref}/', self._payload(**extra),
             format='multipart')
+
+    def _assert_no_self_diagnosis_persistence(self):
+        from inpa.insurances.models import InsuranceExtractionJob
+
+        self.assertFalse(Customer.objects.filter(owner=self.planner).exists())
+        self.assertFalse(ConsentLog.objects.exists())
+        self.assertFalse(CustomerInsurance.objects.exists())
+        self.assertFalse(InsuranceExtractionJob.objects.exists())
+
+    @override_settings(ANTHROPIC_API_KEY='', CLAUDE_MODEL_PARSE='test-model')
+    @mock.patch('inpa.insurances.self_diagnosis.claude_parse')
+    def test_legacy_missing_provider_key_never_persists_receipt(self, parse):
+        response = self._post()
+
+        self.assertEqual(response.status_code, 503, response.content)
+        self.assertEqual(response.json()['code'], 'OCR_UNAVAILABLE')
+        parse.assert_not_called()
+        self._assert_no_self_diagnosis_persistence()
+
+    @override_settings(ANTHROPIC_API_KEY='test-key', CLAUDE_MODEL_PARSE='')
+    @mock.patch('inpa.insurances.self_diagnosis.claude_parse')
+    def test_legacy_missing_provider_model_never_persists_receipt(self, parse):
+        response = self._post()
+
+        self.assertEqual(response.status_code, 503, response.content)
+        self.assertEqual(response.json()['code'], 'OCR_UNAVAILABLE')
+        parse.assert_not_called()
+        self._assert_no_self_diagnosis_persistence()
+
+    @override_settings(
+        INSURANCE_REVIEW_GATE_ENABLED=True,
+        ANTHROPIC_API_KEY='',
+        CLAUDE_MODEL_PARSE='test-model',
+    )
+    @mock.patch('inpa.insurances.import_services.receive_import')
+    def test_review_missing_provider_key_never_persists_receipt(self, receive):
+        response = self._post()
+
+        self.assertEqual(response.status_code, 503, response.content)
+        self.assertFalse(response.json()['lead_created'])
+        self.assertEqual(response.json()['code'], 'REVIEW_INTAKE_UNAVAILABLE')
+        receive.assert_not_called()
+        self._assert_no_self_diagnosis_persistence()
+
+    @override_settings(
+        INSURANCE_REVIEW_GATE_ENABLED=True,
+        ANTHROPIC_API_KEY='test-key',
+        CLAUDE_MODEL_PARSE='',
+    )
+    @mock.patch('inpa.insurances.import_services.receive_import')
+    def test_review_missing_provider_model_never_persists_receipt(self, receive):
+        response = self._post()
+
+        self.assertEqual(response.status_code, 503, response.content)
+        self.assertFalse(response.json()['lead_created'])
+        self.assertEqual(response.json()['code'], 'REVIEW_INTAKE_UNAVAILABLE')
+        receive.assert_not_called()
+        self._assert_no_self_diagnosis_persistence()
+
+    def test_customer_receipt_upsert_locks_owner_before_lookup(self):
+        from inpa.insurances.self_diagnosis import _upsert_customer_and_receipts
+
+        with mock.patch.object(
+                type(self.planner).objects,
+                'select_for_update',
+                wraps=type(self.planner).objects.select_for_update) as owner_lock:
+            _upsert_customer_and_receipts(
+                planner=self.planner,
+                name='셀프김',
+                phone='01099990000',
+                birth='1990-01-01',
+                gender=1,
+                ip='127.0.0.1',
+                has_files=True,
+                marketing=False,
+                third_party=False,
+            )
+
+        owner_lock.assert_called_once_with()
+        self.assertEqual(
+            Customer.objects.filter(
+                owner=self.planner,
+                mobile_phone_number='01099990000').count(),
+            1)
 
     @mock.patch(
         'inpa.insurances.self_diagnosis._extract_pdf_lines',
