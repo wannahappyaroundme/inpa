@@ -147,6 +147,12 @@ class _CustomerComputedMethods:
     def get_personal_info_consent(self, obj):
         return self._consent_state(obj, ConsentLog.SCOPE_PERSONAL_INFO)['status']
 
+    def get_memo_count(self, obj):
+        annotated_count = getattr(obj, 'memo_count', None)
+        if annotated_count is not None:
+            return max(0, annotated_count)
+        return max(0, obj.memos.count())
+
     def get_consents(self, obj):
         return {
             'marketing': self._consent_state(obj, ConsentLog.SCOPE_MARKETING),
@@ -162,6 +168,7 @@ class CustomerListSerializer(_CustomerComputedMethods, serializers.ModelSerializ
     job_risk_grade = serializers.SerializerMethodField()
     marketing_consent = serializers.SerializerMethodField()
     personal_info_consent = serializers.SerializerMethodField()
+    memo_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
@@ -169,7 +176,8 @@ class CustomerListSerializer(_CustomerComputedMethods, serializers.ModelSerializ
                   'consent_overseas_at', 'color', 'avatar_label', 'tags', 'family_count',
                   'sales_stage', 'status', 'share_token', 'created_at', 'lead_source',
                   'last_contacted_at', 'is_favorite', 'is_pinned',
-                  'insurance_age', 'job_risk_grade', 'marketing_consent', 'personal_info_consent')
+                  'insurance_age', 'job_risk_grade', 'marketing_consent', 'personal_info_consent',
+                  'memo_count')
 
 
 class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
@@ -190,6 +198,7 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
     marketing_consent = serializers.SerializerMethodField()
     personal_info_consent = serializers.SerializerMethodField()
     consents = serializers.SerializerMethodField()
+    memo_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
@@ -199,7 +208,7 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
                   'tags', 'tag_ids', 'family_members', 'medical_histories',
                   'last_contacted_at', 'is_favorite', 'is_pinned', 'business_card',
                   'insurance_age', 'job_risk_grade', 'job_name', 'marketing_consent', 'personal_info_consent', 'consents',
-                  'created_at', 'updated_at')
+                  'memo_count', 'created_at', 'updated_at')
         read_only_fields = ('id', 'share_token', 'consent_overseas_at', 'share_sent_at',
                             'user_view_at', 'created_at', 'updated_at')
 
@@ -237,4 +246,6 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
                     source=CustomerMemo.SOURCE_LEGACY,
                 )
                 instance.refresh_from_db()
+                if hasattr(instance, 'memo_count'):
+                    delattr(instance, 'memo_count')
             return super().update(instance, validated_data)

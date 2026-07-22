@@ -638,6 +638,7 @@ export interface CustomerListItem {
   avatar_label: string;              // 아바타 글씨(약자·숫자, 빈값=색만/로고)
   tags: CustomerTag[];
   family_count: number;
+  memo_count: number;
   sales_stage: SalesStage;
   status: CustomerStatus;            // 진행 상태(진행중/보류/휴면/종료)
   share_token: string | null;

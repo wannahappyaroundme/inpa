@@ -20,6 +20,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 from rest_framework.test import APIClient
 from django.test import TestCase, TransactionTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from inpa.accounts.models import Profile, User
 from inpa.billing.models import Plan, Subscription, UsageMeter
@@ -31,6 +32,7 @@ from .models import (
     PlannerBaseline,
 )
 from .presets import PRESET_ORIGIN_V0, PRESET_V0, iter_preset_rows
+from .serializers import CustomerListSerializer, CustomerSerializer
 from .tokens import make_consent_token, read_consent_token
 
 
@@ -152,6 +154,89 @@ class CustomerMemoModelTests(TestCase):
         self.assertEqual(
             list(self.customer.memos.values_list('id', flat=True)),
             [second.id, first.id])
+
+
+class CustomerMemoCountTests(TestCase):
+    """고객 목록/상세의 메모 개수는 출처와 고객 수에 관계없이 정확해야 한다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('memo-count-owner@test.com')
+        self.other_user, self.other_client = _make_planner('memo-count-other@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='메모 개수 고객')
+        self.empty_customer = Customer.objects.create(owner=self.user, name='빈 메모 고객')
+        self.other_customer = Customer.objects.create(owner=self.other_user, name='다른 설계사 고객')
+        CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='직접 메모', occurred_at=timezone.now())
+        CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_AI_SUMMARY, body='요약 메모', occurred_at=timezone.now())
+        CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_LEGACY, body='기존 메모')
+        CustomerMemo.objects.create(
+            owner=self.other_user, customer=self.other_customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='다른 설계사 메모', occurred_at=timezone.now())
+
+    def test_customer_detail_returns_all_memo_sources_and_hides_other_owner(self):
+        response = self.client.get(f'/api/v1/customers/{self.customer.id}/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['memo_count'], 3)
+        self.assertEqual(
+            self.client.get(f'/api/v1/customers/{self.other_customer.id}/').status_code,
+            404,
+        )
+
+    def test_customer_list_returns_zero_and_nonzero_counts_with_owner_isolation(self):
+        response = self.client.get('/api/v1/customers/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        rows = {row['id']: row for row in response.data['results']}
+        self.assertEqual(rows[self.customer.id]['memo_count'], 3)
+        self.assertEqual(rows[self.empty_customer.id]['memo_count'], 0)
+        self.assertNotIn(self.other_customer.id, rows)
+
+    def test_customer_list_counts_memos_without_per_customer_queries(self):
+        for index in range(4):
+            customer = Customer.objects.create(owner=self.user, name=f'추가 고객 {index}')
+            CustomerMemo.objects.create(
+                owner=self.user, customer=customer,
+                source=CustomerMemo.SOURCE_MANUAL, body=f'추가 메모 {index}',
+                occurred_at=timezone.now())
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get('/api/v1/customers/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(all('memo_count' in row for row in response.data['results']))
+        memo_queries = [
+            query['sql'] for query in queries.captured_queries
+            if 'customer_memo' in query['sql'].lower()
+        ]
+        self.assertLessEqual(len(memo_queries), 2, memo_queries)
+        self.assertTrue(any('COUNT(DISTINCT' in query.upper() for query in memo_queries), memo_queries)
+
+    def test_customer_serializers_fall_back_to_real_count_without_annotation(self):
+        plain_customer = Customer.objects.get(pk=self.customer.pk)
+
+        self.assertEqual(CustomerListSerializer(plain_customer).data['memo_count'], 3)
+        self.assertEqual(CustomerSerializer(plain_customer).data['memo_count'], 3)
+
+    def test_legacy_memo_bridge_returns_live_count_after_create_and_clear(self):
+        created = self.client.patch(
+            f'/api/v1/customers/{self.empty_customer.id}/',
+            {'memo': '호환 메모 생성'}, format='json')
+        self.assertEqual(created.status_code, 200, created.data)
+        self.assertEqual(created.data['memo'], '호환 메모 생성')
+        self.assertEqual(created.data['memo_count'], 1)
+
+        cleared = self.client.patch(
+            f'/api/v1/customers/{self.empty_customer.id}/',
+            {'memo': ''}, format='json')
+        self.assertEqual(cleared.status_code, 200, cleared.data)
+        self.assertEqual(cleared.data['memo'], '')
+        self.assertEqual(cleared.data['memo_count'], 0)
 
 
 class CustomerMemoMigrationTests(TransactionTestCase):

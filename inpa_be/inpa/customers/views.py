@@ -9,7 +9,7 @@
   CustomerMedicalHistory 생성을 412(PRECONDITION_FAILED)로 물리 차단. UI 숨김은 방어가 아니다.
 """
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -89,7 +89,9 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         return (super().get_queryset()
                 .select_related('job_code')
                 .prefetch_related('tags', 'family_members', 'medical_histories',
-                                  'consent_logs'))
+                                  'consent_logs')
+                .annotate(memo_count=models.Count('memos', distinct=True))
+                .order_by('-created_at'))
 
     def get_serializer_class(self):
         if self.action == 'list':

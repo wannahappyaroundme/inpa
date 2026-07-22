@@ -4,7 +4,7 @@
 // 고객 1명 중심 상세 셸 — ★ 한 동선 IA 복원 (docs/dev/12 §12 고객상세·탭 IA)
 //
 // 발굴 → 보장분석 → 비교(나란히 정리)를 한 고객 화면에서 탭으로 연결한다.
-// 탭: 분석(히트맵 + 증권 OCR 입구) / 비교 분석(중립 시각화, §97 컴플라이언스 게이트) / 정보 / 계약 / 이력.
+// 탭: 분석(히트맵 + 증권 OCR 입구) / 비교 분석(중립 시각화, §97 컴플라이언스 게이트) / 정보 / 계약 / 기록.
 //
 // 정직성 레드라인:
 //  - 분석 판정은 BE 권위(neutral/graded). neutral 이면 부족/충분 단정 금지.
@@ -12,7 +12,7 @@
 //    AI 안내서(guide_draft)만 별도 통제, 가짜 데이터 금지·게이트 사유 명시.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useCallback, useRef, Suspense, type ChangeEvent } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense, type ChangeEvent, type KeyboardEvent } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
@@ -37,6 +37,7 @@ import {
 import { InsuranceImportCards } from "@/components/insurance-import-cards";
 import { BookingModal } from "@/components/booking-modal";
 import { ContactLogModal } from "@/components/contact-log-modal";
+import { CustomerMemos } from "@/components/customer-memos";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
 import { AssignInsRow, InsuranceCards, type SideAssign } from "@/components/insurance-review-cards";
 import { BaselineRequiredModal } from "@/components/baseline-required-modal";
@@ -85,10 +86,10 @@ type TabKey = "analysis" | "switch" | "info" | "contract" | "history";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "analysis", label: "분석" },
-  { key: "switch", label: "증권 비교" },
+  { key: "switch", label: "여러 증권 비교" },
   { key: "info", label: "정보" },
   { key: "contract", label: "계약" },
-  { key: "history", label: "이력" },
+  { key: "history", label: "기록" },
 ];
 
 // ── 헬퍼 ──────────────────────────────────────
@@ -323,6 +324,12 @@ function CustomerDetailInner() {
     [customerId]
   );
 
+  const handleMemoCountChange = useCallback((count: number) => {
+    setCustomer((current) => current
+      ? { ...current, memo_count: Math.max(0, count) }
+      : current);
+  }, []);
+
   if (!ready) return null;
 
   // 잘못된 ID
@@ -432,7 +439,13 @@ function CustomerDetailInner() {
                 <InfoTab customer={customer} onUpdated={setCustomer} />
               )}
               {activeTab === "contract" && <ChecklistTab customerId={customerId} />}
-              {activeTab === "history" && <HistoryTab customerId={customerId} />}
+              {activeTab === "history" && customer && (
+                <HistoryTab
+                  customerId={customerId}
+                  memoCount={customer.memo_count}
+                  onMemoCountChange={handleMemoCountChange}
+                />
+              )}
             </div>
           </>
         )}
@@ -546,6 +559,12 @@ function CustomerSummary({
           >
             세부정보 →
           </Link>
+          <Link
+            href={`/customer/${customer.id}?tab=history&view=memos`}
+            className="ml-2 mt-1 inline-block text-[12px] font-semibold text-brand"
+          >
+            메모 {customer.memo_count}개
+          </Link>
         </div>
       </div>
 
@@ -604,7 +623,7 @@ function CustomerSummary({
   );
 }
 
-// ── 정보 탭 (폴리오식: 좌=메모 / 우=상세정보 / 하단=명함) — PM 06.24 ──
+// ── 정보 탭 (상세정보 + 명함) ──
 function InfoTab({
   customer,
   onUpdated,
@@ -623,20 +642,18 @@ function InfoTab({
   const birth = by && bm && bd ? `${by}-${bm.padStart(2, "0")}-${bd.padStart(2, "0")}` : "";
   const [color, setColor] = useState(customer.color ?? "");
   const [avatarLabel, setAvatarLabel] = useState(customer.avatar_label ?? "");
-  const [memo, setMemo] = useState(customer.memo ?? "");
   // 직업 변경(검색해서 고르면 급수 자동). pickedJob !== null 이면 저장 시 job_code 전송.
   const [pickedJob, setPickedJob] = useState<JobMatch | null>(null);
   const [jobQuery, setJobQuery] = useState("");
   const [jobResults, setJobResults] = useState<JobMatch[]>([]);
   const [jobOpen, setJobOpen] = useState(false);
   const [savingInfo, setSavingInfo] = useState(false);
-  const [savingMemo, setSavingMemo] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   // 저장 성공 안내는 폼을 다시 수정하면 사라진다(직업·생년월일 포함 모든 편집 필드).
-  useEffect(() => { setMsg(null); }, [name, phone, gender, by, bm, bd, color, avatarLabel, memo, pickedJob]);
+  useEffect(() => { setMsg(null); }, [name, phone, gender, by, bm, bd, color, avatarLabel, pickedJob]);
 
   // 직업 검색 — 250ms 디바운스
   useEffect(() => {
@@ -671,14 +688,6 @@ function InfoTab({
       setPickedJob(null);
       flash("상세정보를 저장했어요.");
     } catch (e) { fail(e); } finally { setSavingInfo(false); }
-  }
-  async function saveMemo() {
-    setSavingMemo(true);
-    try {
-      const c = await updateCustomer(customer.id, { memo });
-      onUpdated(c);
-      flash("메모를 저장했어요.");
-    } catch (e) { fail(e); } finally { setSavingMemo(false); }
   }
   async function onPickCard(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -732,27 +741,7 @@ function InfoTab({
         </div>
       )}
 
-      <div className="grid lg:grid-cols-[1fr_1.2fr] gap-4">
-        {/* 왼쪽: 메모 */}
-        <Card className="p-4 flex flex-col">
-          <h3 className="text-[15px] font-bold text-ink">메모</h3>
-          <textarea
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-            rows={10}
-            placeholder="상담 내용·특이사항·다음 액션을 적어두세요."
-            className={`${inputCls} mt-2 flex-1 resize-none`}
-          />
-          <button
-            onClick={saveMemo}
-            disabled={savingMemo}
-            className="mt-2 self-end rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-60"
-          >
-            {savingMemo ? "저장 중…" : "메모 저장"}
-          </button>
-        </Card>
-
-        {/* 오른쪽: 상세정보 */}
+      <div>
         <Card className="p-4">
           <div className="flex items-center gap-3">
             <CustomerAvatar label={avatarLabel} color={color || null} size={44} />
@@ -1696,8 +1685,124 @@ function SwitchTab({ customerId }: { customerId: number }) {
 }
 
 
-// ── 이력 탭 ── getCustomerHistory 실연결. 타입별 아이콘·시각 표시 ─────────────
-function HistoryTab({ customerId }: { customerId: number }) {
+type HistoryView = "memos" | "activity";
+
+const HISTORY_VIEWS: Array<{ key: HistoryView; label: string }> = [
+  { key: "memos", label: "메모" },
+  { key: "activity", label: "활동" },
+];
+
+function HistoryTab({
+  customerId,
+  memoCount,
+  onMemoCountChange,
+}: {
+  customerId: number;
+  memoCount: number;
+  onMemoCountChange: (count: number) => void;
+}) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const rawView = searchParams.get("view");
+  const view: HistoryView = rawView === "activity" ? "activity" : "memos";
+  const [visited, setVisited] = useState<Record<HistoryView, boolean>>({
+    memos: view === "memos",
+    activity: view === "activity",
+  });
+  const tabRefs = useRef<Partial<Record<HistoryView, HTMLButtonElement | null>>>({});
+
+  useEffect(() => {
+    setVisited((current) => current[view] ? current : { ...current, [view]: true });
+  }, [view]);
+
+  const navigateToView = useCallback((nextView: HistoryView) => {
+    if (nextView === view) return;
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("tab", "history");
+    nextParams.set("view", nextView);
+    router.push(`/customer/${customerId}?${nextParams.toString()}`, { scroll: false });
+  }, [customerId, router, searchParams, view]);
+
+  function handleViewKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    const currentView = event.currentTarget.dataset.historyView as HistoryView | undefined;
+    if (!currentView) return;
+    const currentIndex = HISTORY_VIEWS.findIndex((item) => item.key === currentView);
+    const lastIndex = HISTORY_VIEWS.length - 1;
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = currentIndex === lastIndex ? 0 : currentIndex + 1;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = currentIndex === 0 ? lastIndex : currentIndex - 1;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = lastIndex;
+    if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const nextView = HISTORY_VIEWS[nextIndex].key;
+    tabRefs.current[nextView]?.focus();
+    navigateToView(nextView);
+  }
+
+  return (
+    <div>
+      <div
+        role="tablist"
+        aria-label="고객 기록"
+        className="flex gap-2 rounded-2xl border border-line bg-surface p-1.5 shadow-card"
+      >
+        {HISTORY_VIEWS.map((item) => {
+          const active = item.key === view;
+          const label = item.key === "memos" ? `메모 ${memoCount}개` : item.label;
+          return (
+            <button
+              key={item.key}
+              ref={(element) => { tabRefs.current[item.key] = element; }}
+              id={`customer-history-tab-${item.key}`}
+              data-history-view={item.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              aria-controls={`customer-history-panel-${item.key}`}
+              tabIndex={active ? 0 : -1}
+              onClick={() => navigateToView(item.key)}
+              onKeyDown={handleViewKeyDown}
+              className={`min-h-11 flex-1 rounded-xl px-4 py-2.5 text-[14px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
+                active ? "bg-brand text-white" : "text-ink2 hover:bg-surface2"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {(visited.memos || view === "memos") && (
+        <div
+          id="customer-history-panel-memos"
+          role="tabpanel"
+          aria-labelledby="customer-history-tab-memos"
+          hidden={view !== "memos"}
+          tabIndex={0}
+          className="mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4"
+        >
+          <CustomerMemos customerId={customerId} onCountChange={onMemoCountChange} />
+        </div>
+      )}
+      {(visited.activity || view === "activity") && (
+        <div
+          id="customer-history-panel-activity"
+          role="tabpanel"
+          aria-labelledby="customer-history-tab-activity"
+          hidden={view !== "activity"}
+          tabIndex={0}
+          className="mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4"
+        >
+          <CustomerActivity customerId={customerId} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 활동 이력 ── 기존 getCustomerHistory 로딩·정렬·상태·행동을 그대로 보존한다. ───
+function CustomerActivity({ customerId }: { customerId: number }) {
   const [events, setEvents] = useState<HistoryEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
