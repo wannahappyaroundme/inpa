@@ -22,24 +22,28 @@ class Command(BaseCommand):
     help = '기존 메모와 상담 메모 이관 상태를 안전하게 대조합니다.'
 
     def handle(self, *args, **options):
-        old_rows = Customer.objects.order_by('pk').values_list('pk', 'memo').iterator(chunk_size=500)
+        old_rows = (Customer.objects.order_by('pk')
+                    .values_list('pk', 'owner_id', 'memo').iterator(chunk_size=500))
         mirror_rows = (CustomerMemo.objects
                        .filter(source__in=(CustomerMemo.SOURCE_LEGACY, CustomerMemo.SOURCE_MANUAL))
                        .order_by('customer_id', 'id')
-                       .values_list('customer_id', 'source', 'body')
+                       .values_list('customer_id', 'owner_id', 'source', 'body')
                        .iterator(chunk_size=500))
         current_mirror = next(mirror_rows, None)
         old_hash = hashlib.sha256()
         mirror_hash = hashlib.sha256()
         old_count = mirror_count = missing_count = mismatched_count = duplicate_count = 0
+        owner_mismatch_count = 0
         seen_sources = set()
 
-        for customer_id, old_body in old_rows:
+        for customer_id, owner_id, old_body in old_rows:
             clean_old = _clean(old_body)
             matching_count = wrong_count = 0
             while current_mirror is not None and current_mirror[0] == customer_id:
-                _, source, mirror_body = current_mirror
+                _, memo_owner_id, source, mirror_body = current_mirror
                 clean_mirror = _clean(mirror_body)
+                if memo_owner_id != owner_id:
+                    owner_mismatch_count += 1
                 if clean_old:
                     mirror_count += 1
                     seen_sources.add(source)
@@ -70,9 +74,10 @@ class Command(BaseCommand):
             'missing_count': missing_count,
             'old_count': old_count,
             'old_hash': old_hash.hexdigest(),
+            'owner_mismatch_count': owner_mismatch_count,
             'sources': sorted(seen_sources),
         }
         self.stdout.write(json.dumps(result, ensure_ascii=False, sort_keys=True))
-        if (missing_count or mismatched_count or duplicate_count
+        if (missing_count or mismatched_count or duplicate_count or owner_mismatch_count
                 or old_count != mirror_count or old_hash.hexdigest() != mirror_hash.hexdigest()):
             raise CommandError('기존 메모 이관 대조가 일치하지 않습니다.')

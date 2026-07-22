@@ -20,6 +20,23 @@ def _clean_body(body):
     return clean
 
 
+def _schedule_memo_event(event_type, memo):
+    """주 트랜잭션이 확정된 뒤에만 개인정보 없는 메모 이벤트를 적재한다."""
+    customer_id = memo.customer_id
+    source = memo.source
+
+    def record():
+        try:
+            customer = Customer.objects.select_related('owner').get(pk=customer_id)
+        except Customer.DoesNotExist:
+            return
+        from inpa.analytics.events import log_event
+        log_event(event_type, customer=customer, sender=customer.owner,
+                  payload={'source': source})
+
+    transaction.on_commit(record)
+
+
 def bump_last_contacted_at(customer_id, at):
     """기존 시각보다 새 접촉 시각이 늦을 때만 고객의 접촉 시각을 갱신한다."""
     with transaction.atomic():
@@ -42,6 +59,8 @@ def create_manual_memo(*, customer, owner, body):
             occurred_at=now,
         )
         bump_last_contacted_at(customer.id, now)
+        from inpa.analytics.models import NorthStarEvent
+        _schedule_memo_event(NorthStarEvent.CONSULTATION_MEMO_CREATED, memo)
     return memo
 
 
@@ -57,6 +76,8 @@ def update_memo(*, memo, body, expected_revision):
             locked.revision += 1
             locked.edited_at = timezone.now()
             locked.save(update_fields=['body', 'revision', 'edited_at', 'updated_at'])
+            from inpa.analytics.models import NorthStarEvent
+            _schedule_memo_event(NorthStarEvent.CONSULTATION_MEMO_EDITED, locked)
         return locked
 
 
@@ -95,20 +116,25 @@ def sync_legacy_memo(*, customer, owner, body, source):
                 legacy.delete()
             return None, None
 
-        if locked.memo != clean:
+        if (locked.memo or '').strip() != clean:
             locked.memo = clean
             locked.save(update_fields=['memo', 'updated_at'])
         if legacy is None:
-            return CustomerMemo.objects.create(
+            memo = CustomerMemo.objects.create(
                 owner=owner,
                 customer=locked,
                 source=CustomerMemo.SOURCE_LEGACY,
                 body=clean,
-            ), 'created'
-        if legacy.body != clean:
+            )
+            from inpa.analytics.models import NorthStarEvent
+            _schedule_memo_event(NorthStarEvent.CONSULTATION_MEMO_CREATED, memo)
+            return memo, 'created'
+        if (legacy.body or '').strip() != clean:
             legacy.body = clean
             legacy.revision += 1
             legacy.edited_at = timezone.now()
             legacy.save(update_fields=['body', 'revision', 'edited_at', 'updated_at'])
+            from inpa.analytics.models import NorthStarEvent
+            _schedule_memo_event(NorthStarEvent.CONSULTATION_MEMO_EDITED, legacy)
             return legacy, 'edited'
         return legacy, None

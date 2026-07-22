@@ -1543,11 +1543,12 @@ class CustomerMemoApiTests(TestCase):
 
         self.assertIsNone(self.customer.last_contacted_at)
         before = timezone.now()
-        response = self.client.post(self._url(), {
-            'body': '  첫 상담 메모  ',
-            'source': CustomerMemo.SOURCE_AI_SUMMARY,
-            'occurred_at': '2000-01-01T00:00:00Z',
-        }, format='json')
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self._url(), {
+                'body': '  첫 상담 메모  ',
+                'source': CustomerMemo.SOURCE_AI_SUMMARY,
+                'occurred_at': '2000-01-01T00:00:00Z',
+            }, format='json')
 
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data['body'], '첫 상담 메모')
@@ -1564,6 +1565,31 @@ class CustomerMemoApiTests(TestCase):
         self.assertEqual(event.customer_id, self.customer.id)
         self.assertEqual(event.sender_id, self.user.id)
         self.assertEqual(event.payload, {'source': 'manual'})
+
+    def test_task2_memo_events_wait_for_commit_and_run_once(self):
+        from inpa.analytics.models import NorthStarEvent
+
+        with self.captureOnCommitCallbacks(execute=False) as create_callbacks:
+            created = self.client.post(self._url(), {'body': '커밋 뒤 생성'}, format='json')
+        self.assertEqual(created.status_code, 201, created.data)
+        self.assertEqual(len(create_callbacks), 1)
+        self.assertFalse(NorthStarEvent.objects.filter(customer=self.customer).exists())
+        create_callbacks[0]()
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CONSULTATION_MEMO_CREATED,
+            customer=self.customer, payload={'source': CustomerMemo.SOURCE_MANUAL}).count(), 1)
+
+        with self.captureOnCommitCallbacks(execute=False) as edit_callbacks:
+            changed = self.client.patch(
+                self._detail_url(created.data['id']),
+                {'body': '커밋 뒤 수정', 'revision': 1}, format='json')
+        self.assertEqual(changed.status_code, 200, changed.data)
+        self.assertEqual(len(edit_callbacks), 1)
+        self.assertEqual(NorthStarEvent.objects.filter(customer=self.customer).count(), 1)
+        edit_callbacks[0]()
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CONSULTATION_MEMO_EDITED,
+            customer=self.customer, payload={'source': CustomerMemo.SOURCE_MANUAL}).count(), 1)
 
     def test_edit_noop_and_delete_do_not_bump_contact_time(self):
         created = self.client.post(self._url(), {'body': '첫 상담 메모'}, format='json')
@@ -1722,14 +1748,17 @@ class CustomerMemoApiTests(TestCase):
 
         with mock.patch('inpa.analytics.models.NorthStarEvent.objects.create',
                         side_effect=RuntimeError('analytics unavailable')):
-            failed_analytics = self.client.post(self._url(), {'body': '저장되는 메모'}, format='json')
+            with self.captureOnCommitCallbacks(execute=True):
+                failed_analytics = self.client.post(self._url(), {'body': '저장되는 메모'}, format='json')
         self.assertEqual(failed_analytics.status_code, 201, failed_analytics.data)
 
-        created = self.client.post(self._url(), {'body': '이벤트 확인 메모'}, format='json')
+        with self.captureOnCommitCallbacks(execute=True):
+            created = self.client.post(self._url(), {'body': '이벤트 확인 메모'}, format='json')
         self.assertEqual(created.status_code, 201, created.data)
         memo_id = created.data['id']
-        changed = self.client.patch(
-            self._detail_url(memo_id), {'body': '이벤트 수정 메모', 'revision': 1}, format='json')
+        with self.captureOnCommitCallbacks(execute=True):
+            changed = self.client.patch(
+                self._detail_url(memo_id), {'body': '이벤트 수정 메모', 'revision': 1}, format='json')
         self.assertEqual(changed.status_code, 200, changed.data)
         noop = self.client.patch(
             self._detail_url(memo_id), {'body': '이벤트 수정 메모', 'revision': 2}, format='json')
@@ -1749,8 +1778,9 @@ class CustomerMemoApiTests(TestCase):
             body='수정 전 메모', occurred_at=timezone.now())
         with mock.patch('inpa.analytics.models.NorthStarEvent.objects.create',
                         side_effect=RuntimeError('analytics unavailable')):
-            changed = self.client.patch(
-                self._detail_url(memo.id), {'body': '수정 후 메모', 'revision': 1}, format='json')
+            with self.captureOnCommitCallbacks(execute=True):
+                changed = self.client.patch(
+                    self._detail_url(memo.id), {'body': '수정 후 메모', 'revision': 1}, format='json')
 
         self.assertEqual(changed.status_code, 200, changed.data)
         memo.refresh_from_db()
@@ -1845,9 +1875,33 @@ class CustomerMemoCompatibilityTests(TestCase):
         self.assertFalse(self.customer.memos.filter(source=CustomerMemo.SOURCE_LEGACY).exists())
         self.assertEqual(self.customer.last_contacted_at, original_contacted_at)
 
+    def test_migration_padded_legacy_body_is_a_normalized_noop(self):
+        from inpa.analytics.models import NorthStarEvent
+
+        self.customer.memo = '  이관된 메모  '
+        self.customer.save(update_fields=['memo'])
+        legacy = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_LEGACY,
+            body='  이관된 메모  ')
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(self._url(), {'memo': '이관된 메모'}, format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        legacy.refresh_from_db()
+        self.customer.refresh_from_db()
+        self.assertEqual(legacy.body, '  이관된 메모  ')
+        self.assertEqual(legacy.revision, 1)
+        self.assertIsNone(legacy.edited_at)
+        self.assertEqual(self.customer.memo, '  이관된 메모  ')
+        self.assertFalse(NorthStarEvent.objects.filter(customer=self.customer).exists())
+
     def test_new_customer_memo_creates_manual_mirror_and_bumps_contact_time(self):
-        response = self.client.post(
-            '/api/v1/customers/', {'name': '단건 고객', 'memo': '  단건 메모  '}, format='json')
+        from inpa.analytics.models import NorthStarEvent
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            response = self.client.post(
+                '/api/v1/customers/', {'name': '단건 고객', 'memo': '  단건 메모  '}, format='json')
 
         self.assertEqual(response.status_code, 201, response.data)
         customer = Customer.objects.get(pk=response.data['id'])
@@ -1857,12 +1911,22 @@ class CustomerMemoCompatibilityTests(TestCase):
         self.assertEqual(memo.body, '단건 메모')
         self.assertIsNotNone(memo.occurred_at)
         self.assertIsNotNone(customer.last_contacted_at)
+        self.assertEqual(len(callbacks), 1)
+        self.assertFalse(NorthStarEvent.objects.filter(customer=customer).exists())
+        callbacks[0]()
+        self.assertEqual(NorthStarEvent.objects.filter(
+            customer=customer,
+            event_type=NorthStarEvent.CONSULTATION_MEMO_CREATED,
+            payload={'source': CustomerMemo.SOURCE_MANUAL}).count(), 1)
 
     def test_bulk_customer_memo_creates_manual_mirror_and_skips_blank(self):
-        response = self.client.post('/api/v1/customers/bulk/', {'customers': [
-            {'name': '일괄 메모 고객', 'memo': '  일괄 메모  '},
-            {'name': '빈 메모 고객', 'memo': ' \t '},
-        ]}, format='json')
+        from inpa.analytics.models import NorthStarEvent
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            response = self.client.post('/api/v1/customers/bulk/', {'customers': [
+                {'name': '일괄 메모 고객', 'memo': '  일괄 메모  '},
+                {'name': '빈 메모 고객', 'memo': ' \t '},
+            ]}, format='json')
 
         self.assertEqual(response.status_code, 201, response.data)
         mirrored = Customer.objects.get(owner=self.user, name='일괄 메모 고객')
@@ -1874,6 +1938,30 @@ class CustomerMemoCompatibilityTests(TestCase):
         self.assertEqual(blank.memo, '')
         self.assertFalse(blank.memos.exists())
         self.assertIsNone(blank.last_contacted_at)
+        self.assertEqual(len(callbacks), 1)
+        self.assertFalse(NorthStarEvent.objects.filter(customer=mirrored).exists())
+        callbacks[0]()
+        self.assertEqual(NorthStarEvent.objects.filter(
+            customer=mirrored,
+            event_type=NorthStarEvent.CONSULTATION_MEMO_CREATED,
+            payload={'source': CustomerMemo.SOURCE_MANUAL}).count(), 1)
+
+    def test_bulk_analytics_integrity_error_does_not_rollback_primary_writes(self):
+        from inpa.analytics.models import NorthStarEvent
+
+        with mock.patch('inpa.analytics.models.NorthStarEvent.objects.create',
+                        side_effect=IntegrityError('analytics unavailable')):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post('/api/v1/customers/bulk/', {'customers': [
+                    {'name': '계측 오류 일괄 고객', 'memo': '일괄 메모'},
+                ]}, format='json')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        customer = Customer.objects.get(owner=self.user, name='계측 오류 일괄 고객')
+        self.assertEqual(customer.memo, '일괄 메모')
+        self.assertTrue(customer.memos.filter(
+            source=CustomerMemo.SOURCE_MANUAL, body='일괄 메모').exists())
+        self.assertIsNotNone(customer.last_contacted_at)
 
     def test_legacy_patch_does_not_bump_contact_but_other_substantive_change_does(self):
         self.assertIsNone(self.customer.last_contacted_at)
@@ -1899,14 +1987,15 @@ class CustomerMemoCompatibilityTests(TestCase):
     def test_bridge_telemetry_is_content_safe_and_only_records_real_row_changes(self):
         from inpa.analytics.models import NorthStarEvent
 
-        created = self.client.patch(self._url(), {'memo': '첫 호환 메모'}, format='json')
-        self.assertEqual(created.status_code, 200, created.data)
-        edited = self.client.patch(self._url(), {'memo': '수정 호환 메모'}, format='json')
-        self.assertEqual(edited.status_code, 200, edited.data)
-        noop = self.client.patch(self._url(), {'memo': ' 수정 호환 메모 '}, format='json')
-        self.assertEqual(noop.status_code, 200, noop.data)
-        cleared = self.client.patch(self._url(), {'memo': ''}, format='json')
-        self.assertEqual(cleared.status_code, 200, cleared.data)
+        with self.captureOnCommitCallbacks(execute=True):
+            created = self.client.patch(self._url(), {'memo': '첫 호환 메모'}, format='json')
+            self.assertEqual(created.status_code, 200, created.data)
+            edited = self.client.patch(self._url(), {'memo': '수정 호환 메모'}, format='json')
+            self.assertEqual(edited.status_code, 200, edited.data)
+            noop = self.client.patch(self._url(), {'memo': ' 수정 호환 메모 '}, format='json')
+            self.assertEqual(noop.status_code, 200, noop.data)
+            cleared = self.client.patch(self._url(), {'memo': ''}, format='json')
+            self.assertEqual(cleared.status_code, 200, cleared.data)
 
         events = list(NorthStarEvent.objects.filter(customer=self.customer).order_by('id'))
         self.assertEqual(
@@ -1922,7 +2011,8 @@ class CustomerMemoCompatibilityTests(TestCase):
     def test_bridge_analytics_failure_does_not_block_successful_write(self):
         with mock.patch('inpa.analytics.models.NorthStarEvent.objects.create',
                         side_effect=RuntimeError('analytics unavailable')):
-            response = self.client.patch(self._url(), {'memo': '계측 실패에도 저장'}, format='json')
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(self._url(), {'memo': '계측 실패에도 저장'}, format='json')
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(
@@ -1930,16 +2020,30 @@ class CustomerMemoCompatibilityTests(TestCase):
             '계측 실패에도 저장')
 
     def test_single_create_rolls_back_customer_when_manual_mirror_fails(self):
-        with mock.patch('inpa.customers.serializers.sync_legacy_memo',
-                        side_effect=RuntimeError('mirror failed')):
-            with self.assertRaises(RuntimeError):
-                self.client.post('/api/v1/customers/', {'name': '롤백 단건', 'memo': '메모'}, format='json')
+        with override_settings(FREE_TIER_UNLIMITED=False):
+            _subscribe_free(self.user, limit_customer=5)
+            with mock.patch('inpa.customers.serializers.sync_legacy_memo',
+                            side_effect=RuntimeError('mirror failed')):
+                with self.assertRaises(RuntimeError):
+                    self.client.post('/api/v1/customers/', {'name': '롤백 단건', 'memo': '메모'}, format='json')
 
         self.assertFalse(Customer.objects.filter(owner=self.user, name='롤백 단건').exists())
+        self.assertFalse(CustomerMemo.objects.filter(owner=self.user).exists())
+        self.assertFalse(UsageMeter.objects.filter(user=self.user, action='customer').exists())
 
     def test_bulk_create_rolls_back_every_customer_when_manual_mirror_fails(self):
-        with mock.patch('inpa.customers.views.sync_legacy_memo',
-                        side_effect=RuntimeError('mirror failed')):
+        from inpa.customers.memos import sync_legacy_memo
+
+        calls = 0
+
+        def fail_after_first(**kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError('mirror failed')
+            return sync_legacy_memo(**kwargs)
+
+        with mock.patch('inpa.customers.views.sync_legacy_memo', side_effect=fail_after_first):
             with self.assertRaises(RuntimeError):
                 self.client.post('/api/v1/customers/bulk/', {'customers': [
                     {'name': '롤백 일괄 하나', 'memo': '메모 하나'},
@@ -1976,6 +2080,7 @@ class CustomerMemoAuditCommandTests(TestCase):
         self.assertEqual(result['missing_count'], 0)
         self.assertEqual(result['mismatched_count'], 0)
         self.assertEqual(result['duplicate_count'], 0)
+        self.assertEqual(result['owner_mismatch_count'], 0)
         self.assertEqual(result['old_hash'], result['mirror_hash'])
         self.assertEqual(result['sources'], [
             CustomerMemo.SOURCE_LEGACY, CustomerMemo.SOURCE_MANUAL])
@@ -2005,3 +2110,19 @@ class CustomerMemoAuditCommandTests(TestCase):
         rendered = output.getvalue()
         for body in ('누락 메모', '기준 메모', '다른 내용', '같은 내용'):
             self.assertNotIn(body, rendered)
+
+    def test_audit_fails_for_owner_drift_without_outputting_identity(self):
+        other_owner = User.objects.create_user('memo-audit-other@test.com', password='pass1234')
+        customer = Customer.objects.create(owner=self.user, name='소유자 대조', memo='대조 메모')
+        memo = CustomerMemo.objects.create(
+            owner=self.user, customer=customer, source=CustomerMemo.SOURCE_LEGACY,
+            body='대조 메모')
+        CustomerMemo.objects.filter(pk=memo.pk).update(owner=other_owner)
+
+        output = StringIO()
+        with self.assertRaisesRegex(CommandError, '기존 메모 이관 대조가 일치하지 않습니다'):
+            call_command('audit_customer_memos', stdout=output)
+
+        result = json.loads(output.getvalue())
+        self.assertEqual(result['owner_mismatch_count'], 1)
+        self.assertNotIn(other_owner.email, output.getvalue())

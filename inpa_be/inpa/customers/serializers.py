@@ -214,31 +214,27 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
 
     def create(self, validated_data):
         memo = validated_data.pop('memo', serializers.empty)
-        self.memo_bridge_event = None
         with transaction.atomic():
             customer = super().create(validated_data)
             if memo is not serializers.empty and (memo or '').strip():
-                mirrored, event = sync_legacy_memo(
+                sync_legacy_memo(
                     customer=customer,
                     owner=customer.owner,
                     body=memo,
                     source=CustomerMemo.SOURCE_MANUAL,
                 )
-                self.memo_bridge_event = (event, mirrored)
                 customer.refresh_from_db()
             return customer
 
     def update(self, instance, validated_data):
         memo = validated_data.pop('memo', serializers.empty)
-        self.memo_bridge_event = None
         with transaction.atomic():
             if memo is not serializers.empty:
-                mirrored, event = sync_legacy_memo(
+                sync_legacy_memo(
                     customer=instance,
                     owner=instance.owner,
                     body=memo,
                     source=CustomerMemo.SOURCE_LEGACY,
                 )
-                self.memo_bridge_event = (event, mirrored)
                 instance.refresh_from_db()
             return super().update(instance, validated_data)

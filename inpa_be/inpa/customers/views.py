@@ -21,8 +21,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from inpa.billing.credit import LimitExceeded, check_and_consume, check_and_consume_n
-from inpa.analytics.events import log_event
-from inpa.analytics.models import NorthStarEvent
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.insurances.models import CustomerInsurance
@@ -104,28 +102,8 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         'lead_source', 'is_agree_term', 'sales_stage', 'tag_ids',
     }
 
-    @staticmethod
-    def _log_memo_bridge_event(serializer, sender):
-        event = getattr(serializer, 'memo_bridge_event', None)
-        if not event:
-            return
-        action, memo = event
-        if action == 'created':
-            event_type = NorthStarEvent.CONSULTATION_MEMO_CREATED
-        elif action == 'edited':
-            event_type = NorthStarEvent.CONSULTATION_MEMO_EDITED
-        else:
-            return
-        log_event(
-            event_type,
-            customer=memo.customer,
-            sender=sender,
-            payload={'source': memo.source},
-        )
-
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
-        self._log_memo_bridge_event(serializer, self.request.user)
 
     def perform_update(self, serializer):
         keys = set(self.request.data.keys())
@@ -133,7 +111,6 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             serializer.save(last_contacted_at=timezone.now())
         else:
             serializer.save()
-        self._log_memo_bridge_event(serializer, self.request.user)
 
     def create(self, request, *args, **kwargs):
         """단건 등록 — 신규 고객 추가 한도 강제(spec 2026-07-09 pricing-limits-align).
@@ -148,10 +125,11 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            check_and_consume(request.user, 'customer')
+            with transaction.atomic():
+                check_and_consume(request.user, 'customer')
+                self.perform_create(serializer)
         except LimitExceeded as exc:
             return _credit_exhausted_response(exc, request.user)
-        self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
@@ -240,19 +218,12 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
                     for customer, memo_body in zip(to_create, memo_bodies):
                         if not memo_body:
                             continue
-                        memo, event = sync_legacy_memo(
+                        sync_legacy_memo(
                             customer=customer,
                             owner=owner,
                             body=memo_body,
                             source=CustomerMemo.SOURCE_MANUAL,
                         )
-                        if event == 'created':
-                            log_event(
-                                NorthStarEvent.CONSULTATION_MEMO_CREATED,
-                                customer=memo.customer,
-                                sender=owner,
-                                payload={'source': memo.source},
-                            )
             except LimitExceeded as exc:
                 return _credit_exhausted_response(exc, owner)
         return Response({'created': len(to_create), 'skipped': skipped},
@@ -512,12 +483,6 @@ class CustomerMemoViewSet(_CustomerScopedViewSet):
             customer=self.get_customer(), owner=self.request.user,
             body=serializer.validated_data['body'])
         serializer.instance = memo
-        log_event(
-            NorthStarEvent.CONSULTATION_MEMO_CREATED,
-            customer=memo.customer,
-            sender=self.request.user,
-            payload={'source': memo.source},
-        )
 
     def create(self, request, *args, **kwargs):
         self.get_customer()
@@ -548,13 +513,6 @@ class CustomerMemoViewSet(_CustomerScopedViewSet):
                      'detail': '다른 화면에서 수정된 메모예요. 최신 내용을 확인해 주세요.'},
                     status=status.HTTP_409_CONFLICT)
             raise
-        if memo.revision != revision:
-            log_event(
-                NorthStarEvent.CONSULTATION_MEMO_EDITED,
-                customer=memo.customer,
-                sender=self.request.user,
-                payload={'source': memo.source},
-            )
         return Response(self.get_serializer(memo).data)
 
 
