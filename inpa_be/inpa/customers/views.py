@@ -9,6 +9,7 @@
   CustomerMedicalHistory 생성을 412(PRECONDITION_FAILED)로 물리 차단. UI 숨김은 방어가 아니다.
 """
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -33,7 +34,7 @@ from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
     CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
 )
-from .memos import create_manual_memo, update_memo
+from .memos import create_manual_memo, sync_legacy_memo, update_memo
 from .presets import (
     BASELINE_SOURCE_PRESET, PRESET_NOTE, PRESET_ORIGIN_V0, PRESET_V0,
     iter_preset_rows,
@@ -103,12 +104,36 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         'lead_source', 'is_agree_term', 'sales_stage', 'tag_ids',
     }
 
+    @staticmethod
+    def _log_memo_bridge_event(serializer, sender):
+        event = getattr(serializer, 'memo_bridge_event', None)
+        if not event:
+            return
+        action, memo = event
+        if action == 'created':
+            event_type = NorthStarEvent.CONSULTATION_MEMO_CREATED
+        elif action == 'edited':
+            event_type = NorthStarEvent.CONSULTATION_MEMO_EDITED
+        else:
+            return
+        log_event(
+            event_type,
+            customer=memo.customer,
+            sender=sender,
+            payload={'source': memo.source},
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+        self._log_memo_bridge_event(serializer, self.request.user)
+
     def perform_update(self, serializer):
         keys = set(self.request.data.keys())
-        if keys & self.SUBSTANTIVE:
+        if (keys & self.SUBSTANTIVE) - {'memo'}:
             serializer.save(last_contacted_at=timezone.now())
         else:
             serializer.save()
+        self._log_memo_bridge_event(serializer, self.request.user)
 
     def create(self, request, *args, **kwargs):
         """단건 등록 — 신규 고객 추가 한도 강제(spec 2026-07-09 pricing-limits-align).
@@ -161,6 +186,7 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
 
         seen = set()
         to_create = []
+        memo_bodies = []
         skipped = 0
         for row in rows:
             if not isinstance(row, dict):
@@ -188,28 +214,47 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             jid = _to_int(row.get('job_code'))
             job_id = jid if jid in valid_job_ids else None
 
+            memo = (row.get('memo') or '').strip()
             to_create.append(Customer(
                 owner=owner,
                 name=name,
                 mobile_phone_number=phone,
                 gender=gender,
                 birth_day=(row.get('birth_day') or '').strip()[:10],
-                memo=(row.get('memo') or '').strip(),
+                memo=memo,
                 color=(row.get('color') or '').strip()[:10],
                 avatar_label=(row.get('avatar_label') or '').strip()[:8],
                 job_code_id=job_id,
                 sales_stage=stage,
                 lead_source=lead,
             ))
+            memo_bodies.append(memo)
         if to_create:
             # ★ 신규 고객 추가 한도(spec 2026-07-09) — 실제로 만들 건수(중복·빈 행 제외한
             #   len(to_create))만큼 잔여 한도를 확인한다. 잔여 < N이면 전량 402(부분 생성 없음)
             #   — bulk_create 자체를 아예 호출하지 않는다. 베타(FREE_TIER_UNLIMITED)는 dormant.
             try:
-                check_and_consume_n(owner, 'customer', len(to_create))
+                with transaction.atomic():
+                    check_and_consume_n(owner, 'customer', len(to_create))
+                    Customer.objects.bulk_create(to_create)
+                    for customer, memo_body in zip(to_create, memo_bodies):
+                        if not memo_body:
+                            continue
+                        memo, event = sync_legacy_memo(
+                            customer=customer,
+                            owner=owner,
+                            body=memo_body,
+                            source=CustomerMemo.SOURCE_MANUAL,
+                        )
+                        if event == 'created':
+                            log_event(
+                                NorthStarEvent.CONSULTATION_MEMO_CREATED,
+                                customer=memo.customer,
+                                sender=owner,
+                                payload={'source': memo.source},
+                            )
             except LimitExceeded as exc:
                 return _credit_exhausted_response(exc, owner)
-            Customer.objects.bulk_create(to_create)
         return Response({'created': len(to_create), 'skipped': skipped},
                         status=status.HTTP_201_CREATED)
 

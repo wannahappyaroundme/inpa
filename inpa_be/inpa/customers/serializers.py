@@ -3,12 +3,14 @@
 owner는 절대 클라이언트 입력으로 받지 않는다 — ViewSet의 perform_create(OwnedQuerySetMixin)가
 request.user를 주입한다. 하위 라우트(태그/가족/병력/동의)도 부모 customer를 URL에서 잡아 격리한다.
 """
+from django.db import transaction
 from rest_framework import serializers
 
 from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
     CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, compute_insurance_age,
 )
+from .memos import sync_legacy_memo
 
 
 class JobRiskCodeSerializer(serializers.ModelSerializer):
@@ -209,3 +211,34 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
                 if tag.owner_id != request.user.id:
                     raise serializers.ValidationError('본인 소유 태그만 지정할 수 있습니다.')
         return value
+
+    def create(self, validated_data):
+        memo = validated_data.pop('memo', serializers.empty)
+        self.memo_bridge_event = None
+        with transaction.atomic():
+            customer = super().create(validated_data)
+            if memo is not serializers.empty and (memo or '').strip():
+                mirrored, event = sync_legacy_memo(
+                    customer=customer,
+                    owner=customer.owner,
+                    body=memo,
+                    source=CustomerMemo.SOURCE_MANUAL,
+                )
+                self.memo_bridge_event = (event, mirrored)
+                customer.refresh_from_db()
+            return customer
+
+    def update(self, instance, validated_data):
+        memo = validated_data.pop('memo', serializers.empty)
+        self.memo_bridge_event = None
+        with transaction.atomic():
+            if memo is not serializers.empty:
+                mirrored, event = sync_legacy_memo(
+                    customer=instance,
+                    owner=instance.owner,
+                    body=memo,
+                    source=CustomerMemo.SOURCE_LEGACY,
+                )
+                self.memo_bridge_event = (event, mirrored)
+                instance.refresh_from_db()
+            return super().update(instance, validated_data)
