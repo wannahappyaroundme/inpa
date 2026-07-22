@@ -9,7 +9,7 @@ import datetime
 import importlib
 import json
 from io import StringIO
-from unittest import mock
+from unittest import mock, skipUnless
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -394,6 +394,243 @@ class CustomerMemoMirrorMarkerMigrationTests(TransactionTestCase):
                 MigratedMemo.objects.create(
                     owner_id=owner.pk, customer_id=legacy_customer.pk,
                     source='manual', body='중복 호환 메모', is_legacy_mirror=True)
+
+
+@skipUnless(connection.vendor == 'postgresql', 'PostgreSQL cutover test')
+class CustomerMemoRollingBridgeMigrationTests(TransactionTestCase):
+    migrate_from = [('customers', '0018_customermemo_mirror_constraint')]
+    migrate_to = [('customers', '0019_customer_memo_rolling_bridge')]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        executor = MigrationExecutor(connection)
+        executor.migrate(cls.migrate_from)
+        cls.old_apps = executor.loader.project_state(cls.migrate_from).apps
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            executor = MigrationExecutor(connection)
+            executor.migrate(executor.loader.graph.leaf_nodes())
+        finally:
+            super().tearDownClass()
+
+    def test_install_reconciles_writes_that_landed_after_0017_backfill(self):
+        User = self.old_apps.get_model('accounts', 'User')
+        Customer = self.old_apps.get_model('customers', 'Customer')
+        OldMemo = self.old_apps.get_model('customers', 'CustomerMemo')
+        owner = User.objects.create(email='memo-cutover@example.com')
+        missing = Customer.objects.create(
+            owner_id=owner.pk, name='설치 전 누락', memo='설치 전 단일 메모')
+        matching = Customer.objects.create(
+            owner_id=owner.pk, name='설치 전 직접 메모', memo='설치 전 같은 메모')
+        blank = Customer.objects.create(
+            owner_id=owner.pk, name='설치 전 공백 메모', memo=' \n\t ')
+        manual = OldMemo.objects.create(
+            owner_id=owner.pk,
+            customer_id=matching.pk,
+            source='manual',
+            body='설치 전 같은 메모',
+            occurred_at=timezone.now(),
+        )
+        stale = OldMemo.objects.create(
+            owner_id=owner.pk,
+            customer_id=blank.pk,
+            source='manual',
+            body='지워질 이전 호환 행',
+            is_legacy_mirror=True,
+            occurred_at=timezone.now(),
+        )
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_to)
+
+        recovered = CustomerMemo.objects.get(
+            customer_id=missing.pk, is_legacy_mirror=True)
+        self.assertEqual(recovered.source, CustomerMemo.SOURCE_LEGACY)
+        self.assertEqual(recovered.body, '설치 전 단일 메모')
+        self.assertTrue(CustomerMemo.objects.get(pk=manual.pk).is_legacy_mirror)
+        self.assertEqual(CustomerMemo.objects.filter(customer_id=matching.pk).count(), 1)
+        self.assertFalse(CustomerMemo.objects.filter(pk=stale.pk).exists())
+
+        output = StringIO()
+        call_command('audit_customer_memos', stdout=output)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result['missing_count'], 0)
+        self.assertEqual(result['mismatched_count'], 0)
+        self.assertEqual(result['duplicate_count'], 0)
+        self.assertEqual(result['owner_mismatch_count'], 0)
+
+
+@skipUnless(connection.vendor == 'postgresql', 'PostgreSQL deferred trigger test')
+class CustomerMemoRollingBridgeTriggerTests(TransactionTestCase):
+    """구버전 쓰기가 0017 이관 뒤 도착해도 커밋 시 호환 행을 복구한다."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            'memo-rolling-trigger@example.com', password='pass1234')
+        executor = MigrationExecutor(connection)
+        old_apps = executor.loader.project_state(
+            [('customers', '0016_customermemo')]).apps
+        self.OldCustomer = old_apps.get_model('customers', 'Customer')
+        self.OldCustomerMemo = old_apps.get_model('customers', 'CustomerMemo')
+
+    def test_customer_only_old_writer_create_update_and_clear_stay_in_sync(self):
+        with transaction.atomic():
+            customer = self.OldCustomer.objects.create(
+                owner_id=self.user.pk, name='구버전 단일 필드', memo='처음 메모')
+
+        mirror = CustomerMemo.objects.get(
+            customer_id=customer.pk, is_legacy_mirror=True)
+        self.assertEqual(mirror.source, CustomerMemo.SOURCE_LEGACY)
+        self.assertEqual(mirror.body, '처음 메모')
+        self.assertEqual(mirror.owner_id, self.user.pk)
+        self.assertEqual(mirror.revision, 1)
+
+        other_owner = User.objects.create(email='memo-rolling-other@example.com')
+        CustomerMemo.objects.filter(pk=mirror.pk).update(owner=other_owner)
+        with transaction.atomic():
+            self.OldCustomer.objects.filter(pk=customer.pk).update(memo='수정 메모')
+
+        mirror.refresh_from_db()
+        self.assertEqual(mirror.body, '수정 메모')
+        self.assertEqual(mirror.owner_id, self.user.pk)
+        self.assertEqual(mirror.revision, 2)
+        self.assertIsNotNone(mirror.edited_at)
+
+        with transaction.atomic():
+            self.OldCustomer.objects.filter(pk=customer.pk).update(memo='잠시 메모')
+            self.OldCustomer.objects.filter(pk=customer.pk).update(memo=' \n\t ')
+
+        self.assertFalse(CustomerMemo.objects.filter(
+            customer_id=customer.pk, is_legacy_mirror=True).exists())
+
+        with transaction.atomic():
+            unicode_blank = self.OldCustomer.objects.create(
+                owner_id=self.user.pk, name='유니코드 공백', memo='\u00a0\u3000')
+        self.assertFalse(CustomerMemo.objects.filter(
+            customer_id=unicode_blank.pk, is_legacy_mirror=True).exists())
+
+    def test_d008_writer_marks_matching_manual_and_leaves_later_manual_unmarked(self):
+        with transaction.atomic():
+            customer = self.OldCustomer.objects.create(
+                owner_id=self.user.pk,
+                name='구버전 복수 메모',
+                memo='\u00a0같은 트랜잭션 메모\u3000',
+            )
+            matching = self.OldCustomerMemo.objects.create(
+                owner_id=self.user.pk,
+                customer_id=customer.pk,
+                source=CustomerMemo.SOURCE_MANUAL,
+                body='같은 트랜잭션 메모',
+                occurred_at=timezone.now(),
+            )
+
+        marked = CustomerMemo.objects.get(pk=matching.pk)
+        self.assertTrue(marked.is_legacy_mirror)
+        self.assertEqual(marked.body, '\u00a0같은 트랜잭션 메모\u3000')
+        self.assertEqual(marked.revision, 2)
+        self.assertEqual(CustomerMemo.objects.filter(customer_id=customer.pk).count(), 1)
+
+        ordinary = self.OldCustomerMemo.objects.create(
+            owner_id=self.user.pk,
+            customer_id=customer.pk,
+            source=CustomerMemo.SOURCE_MANUAL,
+            body='추가 일반 메모',
+            occurred_at=timezone.now(),
+        )
+        self.assertFalse(CustomerMemo.objects.get(pk=ordinary.pk).is_legacy_mirror)
+        self.assertEqual(CustomerMemo.objects.filter(
+            customer_id=customer.pk, is_legacy_mirror=True).count(), 1)
+
+        output = StringIO()
+        call_command('audit_customer_memos', stdout=output)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result['missing_count'], 0)
+        self.assertEqual(result['mismatched_count'], 0)
+        self.assertEqual(result['duplicate_count'], 0)
+        self.assertEqual(result['owner_mismatch_count'], 0)
+
+    def test_blank_insert_then_multiple_updates_preserve_matching_manual_identity(self):
+        with transaction.atomic():
+            customer = self.OldCustomer.objects.create(
+                owner_id=self.user.pk, name='여러 번 수정', memo='')
+            self.OldCustomer.objects.filter(pk=customer.pk).update(memo='중간 메모')
+            self.OldCustomer.objects.filter(pk=customer.pk).update(memo='최종 메모')
+            matching = self.OldCustomerMemo.objects.create(
+                owner_id=self.user.pk,
+                customer_id=customer.pk,
+                source=CustomerMemo.SOURCE_MANUAL,
+                body='최종 메모',
+                occurred_at=timezone.now(),
+            )
+
+        marked = CustomerMemo.objects.get(pk=matching.pk)
+        self.assertTrue(marked.is_legacy_mirror)
+        self.assertEqual(marked.source, CustomerMemo.SOURCE_MANUAL)
+        self.assertEqual(marked.body, '최종 메모')
+        self.assertEqual(marked.revision, 1)
+        self.assertEqual(CustomerMemo.objects.filter(customer_id=customer.pk).count(), 1)
+
+    def test_deferred_event_is_noop_when_customer_was_deleted(self):
+        customer = self.OldCustomer.objects.create(
+            owner_id=self.user.pk, name='커밋 전 삭제', memo='')
+
+        with transaction.atomic():
+            self.OldCustomer.objects.filter(pk=customer.pk).update(memo='삭제 전 메모')
+            self.OldCustomer.objects.filter(pk=customer.pk).delete()
+
+        self.assertFalse(Customer.objects.filter(pk=customer.pk).exists())
+        self.assertFalse(CustomerMemo.objects.filter(customer_id=customer.pk).exists())
+
+    def test_serializer_create_preserves_manual_source(self):
+        serializer = CustomerSerializer(data={
+            'name': '실제 신규 등록',
+            'memo': '직접 작성 원문',
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        customer = serializer.save(owner=self.user)
+
+        memo = CustomerMemo.objects.get(customer=customer)
+        self.assertTrue(memo.is_legacy_mirror)
+        self.assertEqual(memo.source, CustomerMemo.SOURCE_MANUAL)
+        self.assertEqual(memo.body, '직접 작성 원문')
+        self.assertIsNotNone(memo.occurred_at)
+        self.assertEqual(memo.revision, 1)
+
+    def test_current_service_and_deferred_bridge_do_not_create_duplicates(self):
+        from inpa.customers.memos import sync_legacy_memo
+
+        with transaction.atomic():
+            customer = Customer.objects.create(owner=self.user, name='신규 서비스 고객')
+            memo, result = sync_legacy_memo(
+                customer=customer,
+                owner=self.user,
+                body='신규 서비스 메모',
+                source=CustomerMemo.SOURCE_MANUAL,
+            )
+            original_memo_id = memo.pk
+
+        self.assertEqual(result, 'created')
+        memo = CustomerMemo.objects.get(pk=original_memo_id)
+        self.assertTrue(memo.is_legacy_mirror)
+        self.assertEqual(memo.source, CustomerMemo.SOURCE_MANUAL)
+        self.assertEqual(CustomerMemo.objects.filter(customer=customer).count(), 1)
+
+        memo, result = sync_legacy_memo(
+            customer=customer,
+            owner=self.user,
+            body='신규 서비스 수정',
+            source=CustomerMemo.SOURCE_LEGACY,
+        )
+
+        self.assertEqual(result, 'edited')
+        self.assertEqual(CustomerMemo.objects.filter(customer=customer).count(), 1)
+        memo.refresh_from_db()
+        self.assertEqual(memo.body, '신규 서비스 수정')
+        self.assertEqual(memo.revision, 2)
 
 
 class OwnerIsolationTests(TestCase):
