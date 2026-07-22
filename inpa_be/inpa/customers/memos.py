@@ -23,18 +23,15 @@ def _clean_body(body):
 def _schedule_memo_event(event_type, memo):
     """주 트랜잭션이 확정된 뒤에만 개인정보 없는 메모 이벤트를 적재한다."""
     customer_id = memo.customer_id
+    sender_id = memo.owner_id
     source = memo.source
+    from inpa.analytics.events import log_event
 
     def record():
-        try:
-            customer = Customer.objects.select_related('owner').get(pk=customer_id)
-        except Customer.DoesNotExist:
-            return
-        from inpa.analytics.events import log_event
-        log_event(event_type, customer=customer, sender=customer.owner,
+        log_event(event_type, customer_id=customer_id, sender_id=sender_id,
                   payload={'source': source})
 
-    transaction.on_commit(record)
+    transaction.on_commit(record, robust=True)
 
 
 def bump_last_contacted_at(customer_id, at):

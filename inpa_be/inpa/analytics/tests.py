@@ -76,6 +76,23 @@ def _make_portfolio(customer, catalog_detail, assurance_amount):
     return ci
 
 
+class LogEventIdentifierTests(TestCase):
+    def test_log_event_accepts_customer_and_sender_ids_without_object_callers(self):
+        user, _ = _make_planner('analytics-event-id@test.com')
+        customer = Customer.objects.create(owner=user, name='ID 계측 고객')
+
+        event = log_event(
+            NorthStarEvent.CONSULTATION_MEMO_CREATED,
+            customer_id=customer.id,
+            sender_id=user.id,
+            payload={'source': 'manual'},
+        )
+
+        self.assertEqual(event.customer_id, customer.id)
+        self.assertEqual(event.sender_id, user.id)
+        self.assertEqual(event.payload, {'source': 'manual'})
+
+
 class ShareCreateTests(TestCase):
     """1) 공유 토큰 발급 — POST /customers/<id>/share/."""
 

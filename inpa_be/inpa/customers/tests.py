@@ -15,7 +15,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core import signing
 from django.core.cache import cache
-from django.db import IntegrityError, connection, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -2126,3 +2126,63 @@ class CustomerMemoAuditCommandTests(TestCase):
         result = json.loads(output.getvalue())
         self.assertEqual(result['owner_mismatch_count'], 1)
         self.assertNotIn(other_owner.email, output.getvalue())
+
+
+@override_settings(FREE_TIER_UNLIMITED=False)
+class CustomerMemoCommitCallbackTests(TransactionTestCase):
+    """실제 커밋 뒤 메모 계측 실패가 고객 저장 결과를 바꾸지 않는다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('memo-commit-owner@test.com')
+        _subscribe_free(self.user, limit_customer=5)
+
+    def _bulk(self):
+        return self.client.post('/api/v1/customers/bulk/', {'customers': [
+            {'name': '커밋 고객 하나', 'memo': '메모 하나'},
+            {'name': '커밋 고객 둘', 'memo': '메모 둘'},
+        ]}, format='json')
+
+    def _assert_primary_rows_committed(self):
+        customers = Customer.objects.filter(
+            owner=self.user, name__in=['커밋 고객 하나', '커밋 고객 둘']).order_by('name')
+        self.assertEqual(customers.count(), 2)
+        self.assertEqual(CustomerMemo.objects.filter(customer__in=customers).count(), 2)
+        self.assertTrue(all(customer.last_contacted_at is not None for customer in customers))
+        meter = UsageMeter.objects.get(
+            user=self.user, action='customer', year_month=UsageMeter.current_month())
+        self.assertEqual(meter.count, 2)
+
+    def test_callback_query_operational_error_cannot_change_committed_bulk_response(self):
+        from inpa.analytics.models import NorthStarEvent
+
+        with mock.patch('inpa.customers.memos.Customer.objects.select_related',
+                        side_effect=OperationalError('callback query unavailable')):
+            response = self._bulk()
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self._assert_primary_rows_committed()
+        self.assertEqual(NorthStarEvent.objects.filter(sender=self.user).count(), 2)
+
+    def test_unexpected_first_callback_error_does_not_block_later_bulk_callback(self):
+        from inpa.analytics.events import log_event as real_log_event
+        from inpa.analytics.models import NorthStarEvent
+
+        calls = []
+
+        def fail_first(*args, **kwargs):
+            calls.append((args, kwargs))
+            if len(calls) == 1:
+                raise OperationalError('unexpected callback failure')
+            return real_log_event(*args, **kwargs)
+
+        with mock.patch('inpa.analytics.events.log_event', side_effect=fail_first):
+            response = self._bulk()
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self._assert_primary_rows_committed()
+        self.assertEqual(len(calls), 2)
+        second = Customer.objects.get(owner=self.user, name='커밋 고객 둘')
+        self.assertEqual(NorthStarEvent.objects.filter(
+            customer=second,
+            event_type=NorthStarEvent.CONSULTATION_MEMO_CREATED,
+            payload={'source': CustomerMemo.SOURCE_MANUAL}).count(), 1)
