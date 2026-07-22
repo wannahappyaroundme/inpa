@@ -1773,30 +1773,30 @@ function HistoryTab({
         })}
       </div>
 
-      {(visited.memos || view === "memos") && (
-        <div
-          id="customer-history-panel-memos"
-          role="tabpanel"
-          aria-labelledby="customer-history-tab-memos"
-          hidden={view !== "memos"}
-          tabIndex={0}
-          className="mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4"
-        >
+      <div
+        id="customer-history-panel-memos"
+        role="tabpanel"
+        aria-labelledby="customer-history-tab-memos"
+        hidden={view !== "memos"}
+        tabIndex={0}
+        className="mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4"
+      >
+        {visited.memos && (
           <CustomerMemos customerId={customerId} onCountChange={onMemoCountChange} />
-        </div>
-      )}
-      {(visited.activity || view === "activity") && (
-        <div
-          id="customer-history-panel-activity"
-          role="tabpanel"
-          aria-labelledby="customer-history-tab-activity"
-          hidden={view !== "activity"}
-          tabIndex={0}
-          className="mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4"
-        >
+        )}
+      </div>
+      <div
+        id="customer-history-panel-activity"
+        role="tabpanel"
+        aria-labelledby="customer-history-tab-activity"
+        hidden={view !== "activity"}
+        tabIndex={0}
+        className="mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4"
+      >
+        {visited.activity && (
           <CustomerActivity customerId={customerId} />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

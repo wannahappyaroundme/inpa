@@ -38,6 +38,12 @@ const navigation = vi.hoisted(() => {
         notify();
       }
     },
+    forward() {
+      if (index < entries.length - 1) {
+        index += 1;
+        notify();
+      }
+    },
     current: () => entries[index],
   };
 });
@@ -508,7 +514,11 @@ describe("고객 상세 기록 통합", () => {
     const memoTab = screen.getByRole("tab", { name: "메모 2개" });
     const activityTab = screen.getByRole("tab", { name: "활동" });
     expect(memoTab).toHaveAttribute("aria-controls", "customer-history-panel-memos");
+    expect(document.getElementById("customer-history-panel-memos")).not.toBeNull();
+    expect(document.getElementById("customer-history-panel-activity")).not.toBeNull();
+    expect(document.getElementById("customer-history-panel-activity")).toHaveAttribute("hidden");
     expect(activityTab).toHaveAttribute("tabindex", "-1");
+    expect(getCustomerHistory).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "메모 작성" }));
     await user.type(screen.getByLabelText("새 메모"), "작성 중인 초안");
@@ -523,6 +533,35 @@ describe("고객 상세 기록 통합", () => {
     act(() => navigation.back());
     await waitFor(() => expect(screen.getByRole("tab", { name: "메모 2개" })).toHaveAttribute("aria-selected", "true"));
     expect(screen.getByLabelText("새 메모")).toHaveValue("작성 중인 초안");
+    expect(listCustomerMemos).toHaveBeenCalledOnce();
+    expect(getCustomerHistory).toHaveBeenCalledOnce();
+  });
+
+  it("잘못된 보기 값은 메모 0건으로 열고 뒤로·앞으로 가도 초안과 방문별 요청을 보존한다", async () => {
+    const user = userEvent.setup();
+    navigation.reset("tab=history&view=invalid&campaign=winter");
+    vi.mocked(getCustomer).mockResolvedValue(customer({ memo_count: 0 }));
+    vi.mocked(listCustomerMemos).mockResolvedValue(page([], { count: 0 }));
+    render(<CustomerDetailPage />);
+
+    await screen.findByRole("heading", { name: "상담 메모 0개" });
+    expect(screen.getByRole("link", { name: "메모 0개" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "메모 0개" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "활동" })).toHaveAttribute("aria-selected", "false");
+
+    await user.click(screen.getByRole("button", { name: "메모 작성" }));
+    await user.type(screen.getByLabelText("새 메모"), "0건에서 작성 중");
+    await user.click(screen.getByRole("tab", { name: "활동" }));
+    await screen.findByRole("heading", { name: "접점 이력 2건" });
+
+    act(() => navigation.back());
+    await waitFor(() => expect(screen.getByRole("tab", { name: "메모 0개" })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getByLabelText("새 메모")).toHaveValue("0건에서 작성 중");
+
+    act(() => navigation.forward());
+    await waitFor(() => expect(screen.getByRole("tab", { name: "활동" })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getByLabelText("새 메모")).toHaveValue("0건에서 작성 중");
+    expect(navigation.current()).toBe("/customer/31?tab=history&view=activity&campaign=winter");
     expect(listCustomerMemos).toHaveBeenCalledOnce();
     expect(getCustomerHistory).toHaveBeenCalledOnce();
   });
