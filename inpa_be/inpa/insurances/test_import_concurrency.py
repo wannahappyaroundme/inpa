@@ -919,11 +919,8 @@ class ImportCommandPostgresConcurrencyTests(TransactionTestCase):
     def test_patch_cancel_race_has_only_ordered_contract_outcomes(self):
         job = _review_job(self.owner, self.customer, digest='2' * 64)
         original_draft = copy.deepcopy(job.draft_payload)
-        patched_draft = copy.deepcopy(original_draft)
-        patched_product = patched_draft['policy']['product_name']
-        patched_product['value'] = '경합 뒤 상품'
-        patched_product['state'] = 'manual'
-        patched_product['review_reason_codes'] = []
+        original_coverage_rows = copy.deepcopy(
+            original_draft['coverage_rows'])
         probe = _PgBlockingProbe()
         original_owned_job = import_services._owned_import_job
 
@@ -980,10 +977,14 @@ class ImportCommandPostgresConcurrencyTests(TransactionTestCase):
         self.assertIsNotNone(cancel_commands.get().completed_at)
         if patch_response.status_code == 200:
             self.assertEqual(job.draft_version, 2)
+            patched_product = job.draft_payload['policy']['product_name']
+            self.assertEqual(patched_product['value'], '경합 뒤 상품')
+            self.assertEqual(patched_product['state'], 'manual')
+            self.assertEqual(patched_product['evidence_line_ids'], [])
+            self.assertEqual(patched_product['review_reason_codes'], [])
+            self.assertIs(patched_product['planner_confirmed'], True)
             self.assertEqual(
-                job.draft_payload['policy']['product_name']['value'],
-                '경합 뒤 상품')
-            self.assertEqual(job.draft_payload, patched_draft)
+                job.draft_payload['coverage_rows'], original_coverage_rows)
             self.assertEqual(patch_commands.count(), 1)
             self.assertIsNotNone(patch_commands.get().completed_at)
         else:

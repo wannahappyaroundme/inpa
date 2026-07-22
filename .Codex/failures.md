@@ -25,5 +25,11 @@ Prevention: Regression tests cover the allowed prunable case, missing or malform
 ### 2026-07-22 Render Free cold start exceeds health-check client timeout
 Symptom: Production `/healthz/` succeeded in 0.29s, then one 60s request and three independent 20s requests connected but received no bytes. Render health logs stopped for about 14 minutes before recovering.
 Cause: Render Events showed the web service had changed from Starter to Free on 2026-07-17. After roughly 15 minutes without external traffic, Gunicorn received SIGTERM. The wake path then ran migrations, cache setup, and five seed commands sequentially before starting Gunicorn, taking about 2m24s.
-Fix: Waited for the new instance to finish booting and verified repeated internal health 200 responses plus an external 200 response in 0.51s. No billing or infrastructure tier was changed without PM approval.
-Prevention: Restore an always-on Render plan before launch, or approve a deployment change that moves setup work out of the runtime start command. Keep the PM and agent docs aligned with the actual Render tier, and do not treat a 60s timeout during Free-tier wake as an application regression without checking Render events and boot logs.
+Fix: After the PM approved the billing change, restored `inpa-be` to Starter on 2026-07-22 and verified the instance-change deploy was Live plus external `/healthz/` returned 200. The Render workspace remains Hobby at $0; only web compute is Starter at $7/month.
+Prevention: Keep `render.yaml` on `plan: starter` so Blueprint sync cannot silently restore Free. Keep PM and agent docs aligned with the actual service instance, and check Render events plus boot logs before treating deployment-time health delays as application regressions.
+
+### 2026-07-22 PostgreSQL PATCH-cancel race assertion depends on winner
+Symptom: `test_patch_cancel_race_has_only_ordered_contract_outcomes` passed when cancel won but failed when PATCH won, so identical code produced an intermittent PostgreSQL concurrency gate result.
+Cause: The PATCH-wins branch compared the stored draft with a hand-built expected payload that omitted server-owned `planner_confirmed` and legitimate validation recomputation. The transaction behavior was correct; the assertion encoded an incomplete internal representation.
+Fix: Assert the durable contract instead: version increment, manual confirmed product value, cleared evidence/review reasons, unchanged coverage rows, completed command, and canceled terminal state.
+Prevention: Race tests must validate the allowed externally meaningful outcomes for every winner, not reconstruct a full mutable JSON payload. Re-run both observed orderings before accepting a concurrency gate fix.
