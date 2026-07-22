@@ -79,6 +79,43 @@ describe("상담 메모 신뢰성", () => {
     expect(secondCount.mock.calls.map(([count]) => count)).toEqual([1]);
   });
 
+  it("고객 전환 뒤 새 작성은 독립적으로 잠기며 이전 요청의 finally가 이를 풀지 않는다", async () => {
+    const user = userEvent.setup();
+    const firstCreate = deferred<CustomerMemo>();
+    const secondCreate = deferred<CustomerMemo>();
+    vi.mocked(createCustomerMemo)
+      .mockReturnValueOnce(firstCreate.promise)
+      .mockReturnValueOnce(secondCreate.promise);
+    vi.mocked(listCustomerMemos)
+      .mockResolvedValueOnce(page([]))
+      .mockResolvedValueOnce(page([]));
+    const secondCount = vi.fn();
+    const view = render(<CustomerMemos customerId={31} onCountChange={vi.fn()} />);
+    await screen.findByText("첫 상담 메모를 남겨보세요.");
+    await user.click(screen.getByRole("button", { name: "메모 작성" }));
+    await user.type(screen.getByLabelText("새 메모"), "31번 저장");
+    await user.click(screen.getByRole("button", { name: "메모 저장" }));
+
+    view.rerender(<CustomerMemos customerId={32} onCountChange={secondCount} />);
+    expect(await screen.findByText("첫 상담 메모를 남겨보세요.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "메모 작성" }));
+    const textarea = screen.getByLabelText("새 메모");
+    expect(textarea).not.toHaveAttribute("readonly");
+    await user.type(textarea, "32번 저장");
+    await user.click(screen.getByRole("button", { name: "메모 저장" }));
+    expect(textarea).toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "저장 중" })).toBeDisabled();
+
+    firstCreate.resolve(memo({ id: 81, body: "31번 저장" }));
+    await waitFor(() => expect(screen.getByLabelText("새 메모")).toHaveAttribute("readonly"));
+    expect(screen.getByRole("button", { name: "저장 중" })).toBeDisabled();
+    expect(screen.queryByText("31번 저장")).toBeNull();
+    secondCreate.resolve(memo({ id: 82, body: "32번 저장" }));
+
+    expect(await screen.findByText("32번 저장")).toBeTruthy();
+    expect(secondCount.mock.calls.map(([count]) => count)).toEqual([0, 1]);
+  });
+
   it("고객을 바꾼 뒤 늦은 수정 충돌은 이전 고객을 다시 읽거나 새 목록을 바꾸지 않는다", async () => {
     const user = userEvent.setup();
     const update = deferred<CustomerMemo>();

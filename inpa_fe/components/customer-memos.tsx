@@ -160,6 +160,8 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
     pageRef.current = 1;
     moreBusyRef.current = false;
     createBusyRef.current = false;
+    setCreating(false);
+    setLoadingMore(false);
     replaceData(null);
     setMode("list");
     setDraft("");
