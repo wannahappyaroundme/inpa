@@ -9,6 +9,7 @@ import datetime
 
 from django.core import signing
 from django.core.cache import cache
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 from django.test import TestCase, override_settings
@@ -19,7 +20,7 @@ from inpa.insurances.models import CustomerInsurance
 
 from .consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
 from .models import (
-    ConsentLog, Customer, CustomerMedicalHistory, CustomerTag, JobRiskCode,
+    ConsentLog, Customer, CustomerMedicalHistory, CustomerMemo, CustomerTag, JobRiskCode,
     PlannerBaseline,
 )
 from .presets import PRESET_ORIGIN_V0, PRESET_V0, iter_preset_rows
@@ -47,6 +48,29 @@ def _make_planner(email):
     client = APIClient()
     client.force_authenticate(user=user)
     return user, client
+
+
+class CustomerMemoModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('memo-owner@example.com', password='pass1234')
+        self.customer = Customer.objects.create(owner=self.user, name='메모 고객')
+
+    def test_customer_allows_many_memos_but_only_one_legacy_row(self):
+        CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='첫 메모', occurred_at=timezone.now())
+        CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='둘째 메모', occurred_at=timezone.now())
+        CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_LEGACY, body='기존 메모')
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                CustomerMemo.objects.create(
+                    owner=self.user, customer=self.customer,
+                    source=CustomerMemo.SOURCE_LEGACY, body='중복 기존 메모')
 
 
 class OwnerIsolationTests(TestCase):

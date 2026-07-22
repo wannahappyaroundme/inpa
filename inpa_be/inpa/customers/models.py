@@ -173,6 +173,41 @@ class Customer(models.Model):
         return self.name
 
 
+class CustomerMemo(models.Model):
+    SOURCE_MANUAL = 'manual'
+    SOURCE_AI_SUMMARY = 'ai_summary'
+    SOURCE_LEGACY = 'legacy_migrated'
+    SOURCE_CHOICES = (
+        (SOURCE_MANUAL, '직접 작성'),
+        (SOURCE_AI_SUMMARY, '녹음 요약'),
+        (SOURCE_LEGACY, '기존 메모'),
+    )
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='customer_memos')
+    customer = models.ForeignKey(
+        Customer, on_delete=models.CASCADE, related_name='memos')
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
+    body = models.TextField(max_length=10_000)
+    occurred_at = models.DateTimeField(null=True, blank=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    revision = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'customer_memo'
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(body=''), name='customer_memo_body_not_empty'),
+            models.UniqueConstraint(
+                fields=['customer'], condition=models.Q(source='legacy_migrated'),
+                name='uniq_customer_legacy_memo'),
+        ]
+        indexes = [models.Index(fields=['customer', '-created_at'])]
+
+
 class JobRiskCode(models.Model):
     """직업 위험등급 코드 (foliio ♻ 축약 포팅 — 전역 표준 마스터, 공유).
 
