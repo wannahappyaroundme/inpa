@@ -174,6 +174,12 @@ class Customer(models.Model):
 
 
 class CustomerMemo(models.Model):
+    """고객 상담 메모.
+
+    owner는 customer.owner에서 파생되는 조회용 비정규화 필드다. save()는 둘을 항상
+    정렬한다. bulk_create()와 QuerySet.update()는 model save 훅을 우회하므로, 해당
+    배치 경로는 customer.owner와 같은 owner_id를 반드시 제공해야 한다.
+    """
     SOURCE_MANUAL = 'manual'
     SOURCE_AI_SUMMARY = 'ai_summary'
     SOURCE_LEGACY = 'legacy_migrated'
@@ -198,6 +204,7 @@ class CustomerMemo(models.Model):
 
     class Meta:
         db_table = 'customer_memo'
+        ordering = ['-created_at', '-id']
         constraints = [
             models.CheckConstraint(
                 condition=~models.Q(body=''), name='customer_memo_body_not_empty'),
@@ -205,7 +212,14 @@ class CustomerMemo(models.Model):
                 fields=['customer'], condition=models.Q(source='legacy_migrated'),
                 name='uniq_customer_legacy_memo'),
         ]
-        indexes = [models.Index(fields=['customer', '-created_at'])]
+        indexes = [models.Index(fields=['customer', '-created_at', '-id'])]
+
+    def save(self, *args, **kwargs):
+        if self.customer_id:
+            self.owner_id = self.customer.owner_id
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = set(kwargs['update_fields']) | {'owner'}
+        super().save(*args, **kwargs)
 
 
 class JobRiskCode(models.Model):

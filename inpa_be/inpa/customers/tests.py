@@ -6,13 +6,15 @@
 + 하위 라우트 owner 격리, ConsentLog append-only, 동의 생성 시 스냅샷 동기화 보강.
 """
 import datetime
+import importlib
 
 from django.core import signing
 from django.core.cache import cache
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
+from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 from rest_framework.test import APIClient
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from inpa.accounts.models import Profile, User
 from inpa.billing.models import Plan, Subscription, UsageMeter
@@ -71,6 +73,74 @@ class CustomerMemoModelTests(TestCase):
                 CustomerMemo.objects.create(
                     owner=self.user, customer=self.customer,
                     source=CustomerMemo.SOURCE_LEGACY, body='중복 기존 메모')
+
+    def test_customer_memo_derives_owner_from_customer(self):
+        other_user = User.objects.create_user('memo-other@example.com', password='pass1234')
+
+        memo = CustomerMemo.objects.create(
+            owner=other_user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='소유자 일치')
+
+        memo.refresh_from_db()
+        self.assertEqual(memo.owner_id, self.customer.owner_id)
+
+    def test_customer_memos_are_newest_first_with_id_tiebreaker(self):
+        first = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='첫 메모')
+        second = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='둘째 메모')
+        CustomerMemo.objects.filter(id__in=[first.id, second.id]).update(
+            created_at=timezone.now())
+
+        self.assertEqual(
+            list(self.customer.memos.values_list('id', flat=True)),
+            [second.id, first.id])
+
+
+class CustomerMemoMigrationTests(TransactionTestCase):
+    migrate_from = [('customers', '0015_alter_consentlog_scope')]
+    migrate_to = [('customers', '0016_customermemo')]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.executor = MigrationExecutor(connection)
+        cls.executor.migrate(cls.migrate_from)
+        cls.old_apps = cls.executor.loader.project_state(cls.migrate_from).apps
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.executor.migrate(cls.executor.loader.graph.leaf_nodes())
+        super().tearDownClass()
+
+    def test_migration_preserves_legacy_memos_and_is_idempotent(self):
+        User = self.old_apps.get_model('accounts', 'User')
+        Customer = self.old_apps.get_model('customers', 'Customer')
+        owner = User.objects.create(email='migration-owner@example.com')
+        padded = Customer.objects.create(
+            owner_id=owner.pk, name='원문 보존', memo='  앞뒤 공백 보존  ')
+        empty = Customer.objects.create(owner_id=owner.pk, name='빈 메모', memo='')
+        whitespace = Customer.objects.create(owner_id=owner.pk, name='공백 메모', memo=' \n\t ')
+
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate(self.migrate_to)
+        new_apps = self.executor.loader.project_state(self.migrate_to).apps
+        CustomerMemo = new_apps.get_model('customers', 'CustomerMemo')
+
+        migrated = CustomerMemo.objects.get(customer_id=padded.pk)
+        self.assertEqual(migrated.owner_id, owner.pk)
+        self.assertEqual(migrated.customer_id, padded.pk)
+        self.assertEqual(migrated.source, 'legacy_migrated')
+        self.assertEqual(migrated.body, '  앞뒤 공백 보존  ')
+        self.assertIsNone(migrated.occurred_at)
+        self.assertFalse(CustomerMemo.objects.filter(customer_id=empty.pk).exists())
+        self.assertFalse(CustomerMemo.objects.filter(customer_id=whitespace.pk).exists())
+
+        migration = importlib.import_module('inpa.customers.migrations.0016_customermemo')
+        migration.forwards(new_apps, None)
+        self.assertEqual(CustomerMemo.objects.filter(customer_id=padded.pk).count(), 1)
 
 
 class OwnerIsolationTests(TestCase):

@@ -18,7 +18,11 @@ def forwards(apps, schema_editor):
                 body=customer.memo,
                 occurred_at=None,
             ))
-    CustomerMemo.objects.bulk_create(rows, ignore_conflicts=True, batch_size=500)
+        if len(rows) == 500:
+            CustomerMemo.objects.bulk_create(rows, ignore_conflicts=True, batch_size=500)
+            rows = []
+    if rows:
+        CustomerMemo.objects.bulk_create(rows, ignore_conflicts=True, batch_size=500)
 
 
 class Migration(migrations.Migration):
@@ -45,7 +49,8 @@ class Migration(migrations.Migration):
             ],
             options={
                 'db_table': 'customer_memo',
-                'indexes': [models.Index(fields=['customer', '-created_at'], name='customer_me_custome_99be30_idx')],
+                'ordering': ['-created_at', '-id'],
+                'indexes': [models.Index(fields=['customer', '-created_at', '-id'], name='customer_me_custome_abeaf8_idx')],
                 'constraints': [models.CheckConstraint(condition=models.Q(('body', ''), _negated=True), name='customer_memo_body_not_empty'), models.UniqueConstraint(condition=models.Q(('source', 'legacy_migrated')), fields=('customer',), name='uniq_customer_legacy_memo')],
             },
         ),
