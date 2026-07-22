@@ -814,7 +814,7 @@ pre-commit run --all-files
 | G-7 | **매니지드 MariaDB 선택 확정** — PlanetScale 무료 vs Aiven 무료 vs Render 내장 PostgreSQL 전환 검토 | DB 연결 문자열·설정 파일·마이그레이션 적용 | Phase 1 배포 전 |
 | G-8 | **Sentry FE 프로젝트 분리** — 현재 foliio와 공유 여부 불명 | 노이즈 격리 + 인파 전용 알림 | CI 구성 시 |
 | G-9 | **GitHub Branch Protection 설정** — main 브랜치 직접 push 차단, CI 필수 통과 강제 | 자동배포 품질 게이트 | GitHub 연동 설정 시 |
-| G-10 | **Render Free 슬립 정책** — 15분 미사용 시 슬립(첫 요청 30초 지연). MVP 졸업 시 Starter $7/월 전환 시점 결정 필요 | 첫 방문자 UX 저하 | 베타 사용자 수 증가 시 |
+| G-10 | **완료(2026-07-22): Render Starter 전환** — 작업공간은 Hobby 무료 유지, `inpa-be`만 Starter $7/월 | 무료 인스턴스의 절전·첫 방문 지연 해소 | 배포 `Live` + `/healthz/` 정상 확인 |
 
 ---
 

@@ -1,11 +1,11 @@
-# Render Blueprint — 인파 백엔드(inpa_be) 무료 배포.
-# DB는 Neon(무료 PostgreSQL) 외부 사용 → DATABASE_URL만 붙이면 됨(Render 무료 DB는 만료 정책이 있어 Neon 권장).
+# Render Blueprint — 인파 백엔드(inpa_be) Starter 배포.
+# Render 작업공간은 Hobby 무료, inpa-be 컴퓨트만 Starter($7/월). DB는 Neon(무료 PostgreSQL) 외부 사용.
 # 사용법: Render → New → Blueprint → 이 저장소 선택 → sync:false 변수(DATABASE_URL 등) 입력.
 services:
   - type: web
     name: inpa-be
     runtime: python
-    plan: free
+    plan: starter
     region: oregon
     rootDir: inpa_be          # ★ FE/BE 한 저장소 — 백엔드 경로 지정(미설정 시 빌드 실패)
     healthCheckPath: /healthz/

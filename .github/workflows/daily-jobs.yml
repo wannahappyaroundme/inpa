@@ -34,8 +34,8 @@ jobs:
           echo "attempt 1: HTTP ${code}"
           cat body.json 2>/dev/null || true
           if [ "${code}" != "200" ]; then
-            # Render 무료 티어 콜드스타트(슬립) 허용 — 90초 뒤 1회 재시도(멱등이라 안전)
-            echo "retrying in 90s (cold start tolerance)..."
+            # 배포 재시작·일시 네트워크 오류 허용 — 90초 뒤 1회 재시도(멱등이라 안전)
+            echo "retrying in 90s (transient failure tolerance)..."
             sleep 90
             code=$(call)
             echo "attempt 2: HTTP ${code}"

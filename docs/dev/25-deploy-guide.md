@@ -4,8 +4,8 @@
 > **작성일**: 2026-06-19
 > **대상 독자**: PM(대표, 비개발자) — 마우스 클릭만으로 따라 할 수 있게 작성.
 > **정본 아키텍처**: `dev/20-devops-and-deploy.md` (이 문서는 그 실행판이다.)
-> **배포 그림(무료 $0)**: FE = Vercel (GitHub 자동배포) / BE = Render (무료 Web) / DB = Neon (무료 PostgreSQL) / CI = GitHub Actions(검증만).
-> **갱신(2026-06-21)**: Railway 무료 티어 폐지로 **BE=Render·DB=Neon(무료)** 로 전환. DB는 MariaDB→**PostgreSQL**(Django ORM이라 코드 영향 없음, 로컬은 SQLite 유지).
+> **현재 배포 그림(월 $7 + 사용량)**: FE = Vercel / Render 작업공간 = Hobby 무료 / BE = Render Starter($7/월) / DB = Neon 무료 PostgreSQL / CI = GitHub Actions(검증만).
+> **갱신(2026-07-22)**: `inpa-be`를 Starter 상시 가동으로 전환했고 배포 `Live`와 `/healthz/` 정상 응답을 확인했다. DB는 PostgreSQL, 로컬은 SQLite를 유지한다.
 
 ---
 
@@ -98,10 +98,10 @@ git push -u origin main
 
 ---
 
-## (c) Neon(무료 DB) + Render(무료 BE) 연결
+## (c) Neon(무료 DB) + Render Starter(BE) 연결
 
-> **무료 조합 ($0)**: DB = **Neon**(무료 PostgreSQL, 자동삭제 없음) / BE = **Render**(무료 Web).
-> Render 무료는 **15분 미사용 시 잠들어 첫 요청이 ~30~50초** 느림(데모엔 무방, 신경 끄고 싶으면 Render Starter $7/월).
+> **현재 조합 (월 $7 + 사용량)**: DB = **Neon**(무료 PostgreSQL) / Render 작업공간 = **Hobby 무료** / BE = **Starter $7/월**.
+> Starter는 유휴 절전 대상이 아니므로 고객의 첫 접속이 무료 인스턴스 기동을 기다리지 않는다.
 
 ### c-1. Neon에서 무료 PostgreSQL 만들기
 1. https://neon.tech → **GitHub로 로그인** → **Create project** (이름 `inpa`, 리전은 Render와 가깝게 **US West(Oregon)** 권장).
@@ -111,7 +111,7 @@ git push -u origin main
 
 ### c-2. Render에 백엔드 배포 (Blueprint)
 1. https://render.com → **GitHub로 로그인**.
-2. **New → Blueprint** → `inpa` 저장소 선택. 저장소 루트의 **`render.yaml`**을 Render가 자동 인식(서비스 `inpa-be`, Root `inpa_be`, 무료 플랜, 빌드·시작·헬스체크 전부 정의됨).
+2. **New → Blueprint** → `inpa` 저장소 선택. 저장소 루트의 **`render.yaml`**을 Render가 자동 인식(서비스 `inpa-be`, Root `inpa_be`, Starter 플랜, 빌드·시작·헬스체크 전부 정의됨).
    - (Blueprint가 안 보이면 **New → Web Service** → repo 선택 → **Root Directory `inpa_be`** 지정 → Build/Start 명령은 `render.yaml` 내용 그대로 입력.)
 3. 생성 중 **sync:false 변수 입력 창**이 뜨면 아래 (c-3) 값을 넣고 **Apply**.
 
@@ -164,7 +164,7 @@ git push -u origin main
 - **확인**: Render BE 서비스 → **Logs** → `Applying ... OK` 줄들이 보이면 성공.
 
 ### d-2. 초기 데이터 시드 (최초 1회 수동)
-> 담보 표준 트리 + 보험사별 담보명 정규화 사전(v0)을 1회만 수동 주입. Render 서비스 → **Shell** 탭(무료 플랜은 Shell 미지원일 수 있음 → 그 경우 로컬에서 `DATABASE_URL=<Neon주소> DJANGO_SETTINGS_MODULE=config.settings.prod python manage.py seed_normalization` 로 원격 주입) 에서 실행.
+> 담보 표준 트리 + 보험사별 담보명 정규화 사전(v0)을 1회만 수동 주입. Render Starter 서비스의 **Shell** 탭에서 실행한다.
 
 ```bash
 python manage.py seed_normalization
