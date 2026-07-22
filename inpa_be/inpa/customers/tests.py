@@ -1612,6 +1612,51 @@ class CustomerMemoApiTests(TestCase):
         self.assertEqual(ids, sorted(ids, reverse=True))
         self.assertEqual(ids, sorted((memo.id for memo in memos), reverse=True))
 
+    def test_list_orders_coalesced_time_then_created_time_before_id(self):
+        base = timezone.now()
+        latest_occurred = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='발생 시각 최신', occurred_at=base)
+        legacy_between = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_LEGACY,
+            body='기존 메모', occurred_at=None)
+        same_display_newer_created = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='같은 발생 시각, 생성 최신', occurred_at=base)
+        same_display_older_created = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='같은 발생 시각, 생성 이전', occurred_at=base)
+        earliest_occurred = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='발생 시각 이전', occurred_at=base)
+        CustomerMemo.objects.filter(pk=latest_occurred.pk).update(
+            occurred_at=base + datetime.timedelta(minutes=4), created_at=base)
+        CustomerMemo.objects.filter(pk=legacy_between.pk).update(
+            created_at=base + datetime.timedelta(minutes=3))
+        CustomerMemo.objects.filter(pk=same_display_newer_created.pk).update(
+            occurred_at=base + datetime.timedelta(minutes=1),
+            created_at=base + datetime.timedelta(minutes=6))
+        CustomerMemo.objects.filter(pk=same_display_older_created.pk).update(
+            occurred_at=base + datetime.timedelta(minutes=1),
+            created_at=base + datetime.timedelta(minutes=5))
+        CustomerMemo.objects.filter(pk=earliest_occurred.pk).update(
+            occurred_at=base, created_at=base + datetime.timedelta(minutes=9))
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200, response.data)
+        rows = response.data['results'] if isinstance(response.data, dict) else response.data
+        self.assertEqual(
+            [row['id'] for row in rows],
+            [
+                latest_occurred.id,
+                legacy_between.id,
+                same_display_newer_created.id,
+                same_display_older_created.id,
+                earliest_occurred.id,
+            ],
+        )
+
     def test_blank_and_too_long_body_are_rejected(self):
         for body in ('   ', '가' * 10_001):
             response = self.client.post(self._url(), {'body': body}, format='json')
