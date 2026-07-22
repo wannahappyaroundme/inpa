@@ -1534,16 +1534,23 @@ class CustomerMemoApiTests(TestCase):
     def _detail_url(self, memo_id, customer_id=None):
         return f'{self._url(customer_id)}{memo_id}/'
 
-    def test_create_sets_contact_time_and_returns_manual_event_without_content(self):
+    def test_create_keeps_server_source_and_occurred_time_authoritative(self):
         from inpa.analytics.models import NorthStarEvent
 
         self.assertIsNone(self.customer.last_contacted_at)
-        response = self.client.post(self._url(), {'body': '  첫 상담 메모  '}, format='json')
+        before = timezone.now()
+        response = self.client.post(self._url(), {
+            'body': '  첫 상담 메모  ',
+            'source': CustomerMemo.SOURCE_AI_SUMMARY,
+            'occurred_at': '2000-01-01T00:00:00Z',
+        }, format='json')
 
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data['body'], '첫 상담 메모')
         self.assertEqual(response.data['source'], CustomerMemo.SOURCE_MANUAL)
         self.assertEqual(response.data['revision'], 1)
+        self.assertGreaterEqual(
+            CustomerMemo.objects.get(pk=response.data['id']).occurred_at, before)
         retrieved = self.client.get(self._detail_url(response.data['id']))
         self.assertEqual(retrieved.status_code, 200, retrieved.data)
         self.assertEqual(retrieved.data['body'], '첫 상담 메모')
@@ -1583,24 +1590,27 @@ class CustomerMemoApiTests(TestCase):
         self.customer.refresh_from_db()
         self.assertEqual(self.customer.last_contacted_at, contacted_at)
 
-    def test_list_uses_coalesced_time_then_created_at_and_id_descending(self):
+    def test_list_uses_tie_breakers_across_pagination_boundary(self):
         base = timezone.now()
-        first = CustomerMemo.objects.create(
+        memos = [CustomerMemo.objects.create(
             owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
-            body='첫째', occurred_at=base)
-        legacy = CustomerMemo.objects.create(
-            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_LEGACY,
-            body='기존 메모', occurred_at=None)
-        latest = CustomerMemo.objects.create(
-            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
-            body='셋째', occurred_at=base + datetime.timedelta(minutes=2))
-        CustomerMemo.objects.filter(pk=legacy.pk).update(created_at=base + datetime.timedelta(minutes=1))
+            body=f'동률 메모 {number}', occurred_at=base)
+            for number in range(21)]
+        CustomerMemo.objects.filter(pk__in=[memo.pk for memo in memos]).update(created_at=base)
 
-        response = self.client.get(self._url())
+        first_page = self.client.get(self._url())
+        second_page = self.client.get(f'{self._url()}?page=2')
 
-        self.assertEqual(response.status_code, 200, response.data)
-        rows = response.data['results'] if isinstance(response.data, dict) else response.data
-        self.assertEqual([row['id'] for row in rows], [latest.id, legacy.id, first.id])
+        self.assertEqual(first_page.status_code, 200, first_page.data)
+        self.assertEqual(second_page.status_code, 200, second_page.data)
+        first_rows = first_page.data['results']
+        second_rows = second_page.data['results']
+        ids = [row['id'] for row in first_rows + second_rows]
+        self.assertEqual(len(first_rows), 20)
+        self.assertEqual(len(ids), 21)
+        self.assertEqual(len(set(ids)), 21)
+        self.assertEqual(ids, sorted(ids, reverse=True))
+        self.assertEqual(ids, sorted((memo.id for memo in memos), reverse=True))
 
     def test_blank_and_too_long_body_are_rejected(self):
         for body in ('   ', '가' * 10_001):
@@ -1633,10 +1643,17 @@ class CustomerMemoApiTests(TestCase):
         self.assertEqual(
             self.other_client.post(self._url(), {'body': '침입 시도'}, format='json').status_code, 404)
         self.assertEqual(self.other_client.get(self._detail_url(memo.id)).status_code, 404)
-        self.assertEqual(
-            self.other_client.patch(
-                self._detail_url(memo.id), {'body': '침입 수정', 'revision': 1}, format='json').status_code,
-            404)
+        for payload in (
+            {'body': '침입 수정', 'revision': 1},
+            {},
+            {'body': '침입 수정', 'revision': True},
+            {'body': '침입 수정', 'revision': '1'},
+            {'body': '   ', 'revision': 1},
+            {'body': '가' * 10_001, 'revision': 1},
+        ):
+            self.assertEqual(
+                self.other_client.patch(self._detail_url(memo.id), payload, format='json').status_code,
+                404)
         self.assertEqual(self.other_client.delete(self._detail_url(memo.id)).status_code, 404)
         self.assertEqual(
             self.other_client.post(self._url(), {'body': '   '}, format='json').status_code, 404)
@@ -1674,6 +1691,28 @@ class CustomerMemoApiTests(TestCase):
         self.assertEqual(NorthStarEvent.objects.filter(
             event_type=NorthStarEvent.CONSULTATION_MEMO_EDITED,
             customer=self.customer).count(), 1)
+
+    def test_edit_analytics_failure_persists_change_and_noop_emits_nothing(self):
+        from inpa.analytics.models import NorthStarEvent
+
+        memo = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='수정 전 메모', occurred_at=timezone.now())
+        with mock.patch('inpa.analytics.models.NorthStarEvent.objects.create',
+                        side_effect=RuntimeError('analytics unavailable')):
+            changed = self.client.patch(
+                self._detail_url(memo.id), {'body': '수정 후 메모', 'revision': 1}, format='json')
+
+        self.assertEqual(changed.status_code, 200, changed.data)
+        memo.refresh_from_db()
+        self.assertEqual(memo.body, '수정 후 메모')
+        self.assertEqual(memo.revision, 2)
+        noop = self.client.patch(
+            self._detail_url(memo.id), {'body': '수정 후 메모', 'revision': 2}, format='json')
+        self.assertEqual(noop.status_code, 200, noop.data)
+        self.assertFalse(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CONSULTATION_MEMO_EDITED,
+            customer=self.customer).exists())
 
 
 class CustomerMemoServiceTests(TestCase):
