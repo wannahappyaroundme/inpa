@@ -290,7 +290,7 @@ class CustomerMemoMigrationTests(TransactionTestCase):
 
 class CustomerMemoMirrorMarkerMigrationTests(TransactionTestCase):
     migrate_from = [('customers', '0016_customermemo')]
-    migrate_to = [('customers', '0017_customermemo_is_legacy_mirror')]
+    migrate_to = [('customers', '0018_customermemo_mirror_constraint')]
 
     @classmethod
     def setUpClass(cls):
@@ -307,7 +307,7 @@ class CustomerMemoMirrorMarkerMigrationTests(TransactionTestCase):
         finally:
             super().tearDownClass()
 
-    def test_migration_marks_only_legacy_rows_and_enforces_one_mirror_per_customer(self):
+    def test_migration_recovers_every_rolling_deploy_mirror_without_marking_ordinary_rows(self):
         User = self.old_apps.get_model('accounts', 'User')
         Customer = self.old_apps.get_model('customers', 'Customer')
         CustomerMemo = self.old_apps.get_model('customers', 'CustomerMemo')
@@ -316,12 +316,31 @@ class CustomerMemoMirrorMarkerMigrationTests(TransactionTestCase):
             owner_id=owner.pk, name='기존 고객', memo='기존 메모')
         manual_customer = Customer.objects.create(
             owner_id=owner.pk, name='직접 고객', memo='직접 메모')
+        multi_customer = Customer.objects.create(
+            owner_id=owner.pk, name='여러 메모 고객', memo='같은 직접 메모')
+        missing_customer = Customer.objects.create(
+            owner_id=owner.pk, name='누락 고객', memo='  누락 원문 보존  ')
+        mismatch_customer = Customer.objects.create(
+            owner_id=owner.pk, name='불일치 고객', memo='호환 기준')
+        blank_customer = Customer.objects.create(
+            owner_id=owner.pk, name='빈 고객', memo=' \n\t ')
+        rolling_customer = Customer.objects.create(
+            owner_id=owner.pk, name='롤링 고객', memo='')
         CustomerMemo.objects.create(
             owner_id=owner.pk, customer_id=legacy_customer.pk,
             source='legacy_migrated', body='기존 메모')
-        CustomerMemo.objects.create(
+        manual = CustomerMemo.objects.create(
             owner_id=owner.pk, customer_id=manual_customer.pk,
             source='manual', body='직접 메모')
+        first_matching = CustomerMemo.objects.create(
+            owner_id=owner.pk, customer_id=multi_customer.pk,
+            source='manual', body='같은 직접 메모')
+        later_matching = CustomerMemo.objects.create(
+            owner_id=owner.pk, customer_id=multi_customer.pk,
+            source='manual', body='같은 직접 메모')
+        mismatched = CustomerMemo.objects.create(
+            owner_id=owner.pk, customer_id=mismatch_customer.pk,
+            source='manual', body='일반 메모')
 
         executor = MigrationExecutor(connection)
         executor.migrate(self.migrate_to)
@@ -329,7 +348,47 @@ class CustomerMemoMirrorMarkerMigrationTests(TransactionTestCase):
         MigratedMemo = new_apps.get_model('customers', 'CustomerMemo')
 
         self.assertTrue(MigratedMemo.objects.get(customer_id=legacy_customer.pk).is_legacy_mirror)
-        self.assertFalse(MigratedMemo.objects.get(customer_id=manual_customer.pk).is_legacy_mirror)
+        self.assertTrue(MigratedMemo.objects.get(pk=manual.pk).is_legacy_mirror)
+        self.assertTrue(MigratedMemo.objects.get(pk=first_matching.pk).is_legacy_mirror)
+        self.assertFalse(MigratedMemo.objects.get(pk=later_matching.pk).is_legacy_mirror)
+
+        recovered = MigratedMemo.objects.get(customer_id=missing_customer.pk)
+        self.assertEqual(recovered.source, 'legacy_migrated')
+        self.assertEqual(recovered.body, '  누락 원문 보존  ')
+        self.assertTrue(recovered.is_legacy_mirror)
+        self.assertFalse(MigratedMemo.objects.filter(customer_id=blank_customer.pk).exists())
+
+        self.assertFalse(MigratedMemo.objects.get(pk=mismatched.pk).is_legacy_mirror)
+        mismatch_mirror = MigratedMemo.objects.get(
+            customer_id=mismatch_customer.pk, is_legacy_mirror=True)
+        self.assertEqual(mismatch_mirror.source, 'legacy_migrated')
+        self.assertEqual(mismatch_mirror.body, '호환 기준')
+
+        migration = importlib.import_module(
+            'inpa.customers.migrations.0017_customermemo_is_legacy_mirror')
+        migration.mark_legacy_mirrors(new_apps, None)
+        self.assertEqual(
+            MigratedMemo.objects.filter(is_legacy_mirror=True).count(), 5)
+        self.assertEqual(MigratedMemo.objects.filter(customer_id=missing_customer.pk).count(), 1)
+
+        old_writer_row = CustomerMemo.objects.create(
+            owner_id=owner.pk, customer_id=rolling_customer.pk,
+            source='manual', body='구버전 프로세스 메모')
+        self.assertFalse(
+            MigratedMemo.objects.get(pk=old_writer_row.pk).is_legacy_mirror)
+        self.assertIs(MigratedMemo._meta.get_field('is_legacy_mirror').db_default, False)
+        if connection.vendor == 'postgresql':
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT column_default
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'customer_memo'
+                      AND column_name = 'is_legacy_mirror'
+                """)
+                db_default = cursor.fetchone()[0]
+            self.assertEqual(db_default.lower(), 'false')
+
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 MigratedMemo.objects.create(

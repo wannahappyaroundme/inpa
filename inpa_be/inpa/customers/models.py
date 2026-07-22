@@ -196,7 +196,8 @@ class CustomerMemo(models.Model):
         Customer, on_delete=models.CASCADE, related_name='memos')
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
     body = models.TextField(max_length=10_000)
-    is_legacy_mirror = models.BooleanField(default=False, editable=False)
+    is_legacy_mirror = models.BooleanField(
+        default=False, db_default=False, editable=False)
     occurred_at = models.DateTimeField(null=True, blank=True)
     edited_at = models.DateTimeField(null=True, blank=True)
     revision = models.PositiveIntegerField(default=1)
