@@ -50,6 +50,8 @@ class NorthStarEvent(models.Model):
     CALLBACK_REQUEST = 'callback_request'
     # ⑧ 공유뷰(/s) '바로 상담 예약' CTA 클릭 — 분석→예약 전환 계측(FE가 이미 전송).
     CTA_CLICK = 'cta_click'
+    CONSULTATION_MEMO_CREATED = 'consultation_memo_created'
+    CONSULTATION_MEMO_EDITED = 'consultation_memo_edited'
 
     EVENT_TYPE_CHOICES = (
         (OCR_UPLOAD, '증권 OCR 업로드'),
@@ -59,6 +61,8 @@ class NorthStarEvent(models.Model):
         (SHARE_VIEW, '공유뷰 열람'),
         (REFERRAL_ATTRIBUTED, '인바운드 귀속'),
         (CTA_CLICK, '예약 CTA 클릭'),
+        (CONSULTATION_MEMO_CREATED, '상담 메모 작성'),
+        (CONSULTATION_MEMO_EDITED, '상담 메모 수정'),
     )
 
     event_type = models.CharField('이벤트 종류', max_length=40, choices=EVENT_TYPE_CHOICES)

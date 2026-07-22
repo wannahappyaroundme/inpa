@@ -10,6 +10,7 @@
 """
 from django.conf import settings
 from django.db.models import Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -19,6 +20,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from inpa.billing.credit import LimitExceeded, check_and_consume, check_and_consume_n
+from inpa.analytics.events import log_event
+from inpa.analytics.models import NorthStarEvent
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.insurances.models import CustomerInsurance
@@ -28,15 +31,16 @@ from inpa.notifications.jobs import _next_birthday, _parse_date
 from .consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
 from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
-    CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
+    CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
 )
+from .memos import create_manual_memo, update_memo
 from .presets import (
     BASELINE_SOURCE_PRESET, PRESET_NOTE, PRESET_ORIGIN_V0, PRESET_V0,
     iter_preset_rows,
 )
 from .serializers import (
     ConsentLogSerializer, ContactLogSerializer, ContractChecklistItemSerializer, CustomerListSerializer,
-    CustomerSerializer, CustomerMedicalHistorySerializer, CustomerTagSerializer,
+    CustomerMemoSerializer, CustomerSerializer, CustomerMedicalHistorySerializer, CustomerTagSerializer,
     FamilyMemberSerializer, JobRiskCodeSerializer, PlannerBaselineSerializer,
 )
 from .tokens import make_consent_token
@@ -445,6 +449,68 @@ class ContactLogViewSet(_CustomerScopedViewSet):
         # 접촉 기록 = 연락한 사실 → 무접촉 경보 리셋(기존 markContacted와 동일).
         customer.last_contacted_at = timezone.now()
         customer.save(update_fields=['last_contacted_at'])
+
+
+class CustomerMemoViewSet(_CustomerScopedViewSet):
+    """고객 상담 메모 CRUD — 생성만 고객 접촉 시각을 갱신한다."""
+    serializer_class = CustomerMemoSerializer
+    queryset = CustomerMemo.objects.all()
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        return (super().get_queryset()
+                .annotate(display_at=Coalesce('occurred_at', 'created_at'))
+                .order_by('-display_at', '-created_at', '-id'))
+
+    def perform_create(self, serializer):
+        memo = create_manual_memo(
+            customer=self.get_customer(), owner=self.request.user,
+            body=serializer.validated_data['body'])
+        serializer.instance = memo
+        log_event(
+            NorthStarEvent.CONSULTATION_MEMO_CREATED,
+            customer=memo.customer,
+            sender=self.request.user,
+            payload={'source': memo.source},
+        )
+
+    def create(self, request, *args, **kwargs):
+        self.get_customer()
+        return super().create(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        memo = self.get_object()
+        serializer = self.get_serializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        revision = request.data.get('revision')
+        if type(revision) is not int:
+            return Response(
+                {'code': 'MEMO_REVISION_REQUIRED',
+                 'detail': '최신 메모를 다시 불러와 주세요.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        if 'body' not in serializer.validated_data:
+            return Response(
+                {'body': ['메모 내용을 입력해 주세요.']},
+                status=status.HTTP_400_BAD_REQUEST)
+        try:
+            memo = update_memo(
+                memo=memo, body=serializer.validated_data['body'],
+                expected_revision=revision)
+        except ValueError as exc:
+            if str(exc) == 'MEMO_EDIT_CONFLICT':
+                return Response(
+                    {'code': 'MEMO_EDIT_CONFLICT',
+                     'detail': '다른 화면에서 수정된 메모예요. 최신 내용을 확인해 주세요.'},
+                    status=status.HTTP_409_CONFLICT)
+            raise
+        if memo.revision != revision:
+            log_event(
+                NorthStarEvent.CONSULTATION_MEMO_EDITED,
+                customer=memo.customer,
+                sender=self.request.user,
+                payload={'source': memo.source},
+            )
+        return Response(self.get_serializer(memo).data)
 
 
 class ConsentRequestCreateView(APIView):

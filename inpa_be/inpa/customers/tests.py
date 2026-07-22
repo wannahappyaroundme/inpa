@@ -7,6 +7,7 @@
 """
 import datetime
 import importlib
+from unittest import mock
 
 from django.core import signing
 from django.core.cache import cache
@@ -1516,3 +1517,180 @@ class InboundLeadQuotaExclusionTests(TestCase):
         ym = UsageMeter.current_month()
         meter = UsageMeter.objects.get(user=planner, action='customer', year_month=ym)
         self.assertEqual(meter.count, 5)
+
+
+class CustomerMemoApiTests(TestCase):
+    """상담 메모 CRUD는 고객 소유자 범위 안에서만 동작한다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('memo-api-owner@test.com')
+        self.other_user, self.other_client = _make_planner('memo-api-other@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='메모 고객')
+        self.other_customer = Customer.objects.create(owner=self.other_user, name='다른 고객')
+
+    def _url(self, customer_id=None):
+        return f'/api/v1/customers/{customer_id or self.customer.id}/memos/'
+
+    def _detail_url(self, memo_id, customer_id=None):
+        return f'{self._url(customer_id)}{memo_id}/'
+
+    def test_create_sets_contact_time_and_returns_manual_event_without_content(self):
+        from inpa.analytics.models import NorthStarEvent
+
+        self.assertIsNone(self.customer.last_contacted_at)
+        response = self.client.post(self._url(), {'body': '  첫 상담 메모  '}, format='json')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data['body'], '첫 상담 메모')
+        self.assertEqual(response.data['source'], CustomerMemo.SOURCE_MANUAL)
+        self.assertEqual(response.data['revision'], 1)
+        retrieved = self.client.get(self._detail_url(response.data['id']))
+        self.assertEqual(retrieved.status_code, 200, retrieved.data)
+        self.assertEqual(retrieved.data['body'], '첫 상담 메모')
+        self.customer.refresh_from_db()
+        self.assertIsNotNone(self.customer.last_contacted_at)
+        event = NorthStarEvent.objects.get(event_type=NorthStarEvent.CONSULTATION_MEMO_CREATED)
+        self.assertEqual(event.customer_id, self.customer.id)
+        self.assertEqual(event.sender_id, self.user.id)
+        self.assertEqual(event.payload, {'source': 'manual'})
+
+    def test_edit_noop_and_delete_do_not_bump_contact_time(self):
+        created = self.client.post(self._url(), {'body': '첫 상담 메모'}, format='json')
+        self.assertEqual(created.status_code, 201, created.data)
+        memo_id = created.data['id']
+        self.customer.refresh_from_db()
+        contacted_at = self.customer.last_contacted_at
+
+        changed = self.client.patch(
+            self._detail_url(memo_id),
+            {'body': '첫 상담 메모 수정', 'revision': 1}, format='json')
+        self.assertEqual(changed.status_code, 200, changed.data)
+        self.assertEqual(changed.data['revision'], 2)
+        self.assertIsNotNone(changed.data['edited_at'])
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.last_contacted_at, contacted_at)
+
+        noop = self.client.patch(
+            self._detail_url(memo_id),
+            {'body': '첫 상담 메모 수정', 'revision': 2}, format='json')
+        self.assertEqual(noop.status_code, 200, noop.data)
+        self.assertEqual(noop.data['revision'], 2)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.last_contacted_at, contacted_at)
+
+        deleted = self.client.delete(self._detail_url(memo_id))
+        self.assertEqual(deleted.status_code, 204)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.last_contacted_at, contacted_at)
+
+    def test_list_uses_coalesced_time_then_created_at_and_id_descending(self):
+        base = timezone.now()
+        first = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='첫째', occurred_at=base)
+        legacy = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_LEGACY,
+            body='기존 메모', occurred_at=None)
+        latest = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='셋째', occurred_at=base + datetime.timedelta(minutes=2))
+        CustomerMemo.objects.filter(pk=legacy.pk).update(created_at=base + datetime.timedelta(minutes=1))
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200, response.data)
+        rows = response.data['results'] if isinstance(response.data, dict) else response.data
+        self.assertEqual([row['id'] for row in rows], [latest.id, legacy.id, first.id])
+
+    def test_blank_and_too_long_body_are_rejected(self):
+        for body in ('   ', '가' * 10_001):
+            response = self.client.post(self._url(), {'body': body}, format='json')
+            self.assertEqual(response.status_code, 400, response.data)
+            self.assertIn('body', response.data)
+
+    def test_revision_is_required_integer_and_stale_revision_conflicts(self):
+        memo = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='기존 메모', occurred_at=timezone.now())
+        for revision in (None, True, '1', 1.0):
+            payload = {'body': '수정 메모'}
+            if revision is not None:
+                payload['revision'] = revision
+            response = self.client.patch(self._detail_url(memo.id), payload, format='json')
+            self.assertEqual(response.status_code, 400, response.data)
+            self.assertEqual(response.data['code'], 'MEMO_REVISION_REQUIRED')
+
+        response = self.client.patch(
+            self._detail_url(memo.id), {'body': '충돌 메모', 'revision': 999}, format='json')
+        self.assertEqual(response.status_code, 409, response.data)
+        self.assertEqual(response.data['code'], 'MEMO_EDIT_CONFLICT')
+
+    def test_other_owner_gets_404_for_every_customer_and_memo_path(self):
+        memo = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='비공개 메모', occurred_at=timezone.now())
+        self.assertEqual(self.other_client.get(self._url()).status_code, 404)
+        self.assertEqual(
+            self.other_client.post(self._url(), {'body': '침입 시도'}, format='json').status_code, 404)
+        self.assertEqual(self.other_client.get(self._detail_url(memo.id)).status_code, 404)
+        self.assertEqual(
+            self.other_client.patch(
+                self._detail_url(memo.id), {'body': '침입 수정', 'revision': 1}, format='json').status_code,
+            404)
+        self.assertEqual(self.other_client.delete(self._detail_url(memo.id)).status_code, 404)
+        self.assertEqual(
+            self.other_client.post(self._url(), {'body': '   '}, format='json').status_code, 404)
+
+    def test_put_is_not_a_memo_edit_endpoint(self):
+        memo = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='기존 메모', occurred_at=timezone.now())
+
+        response = self.client.put(
+            self._detail_url(memo.id), {'body': 'PUT 수정', 'revision': 1}, format='json')
+
+        self.assertEqual(response.status_code, 405)
+
+    def test_analytics_failure_never_blocks_creation_and_edit_only_logs_real_change(self):
+        from inpa.analytics.models import NorthStarEvent
+
+        with mock.patch('inpa.analytics.models.NorthStarEvent.objects.create',
+                        side_effect=RuntimeError('analytics unavailable')):
+            failed_analytics = self.client.post(self._url(), {'body': '저장되는 메모'}, format='json')
+        self.assertEqual(failed_analytics.status_code, 201, failed_analytics.data)
+
+        created = self.client.post(self._url(), {'body': '이벤트 확인 메모'}, format='json')
+        self.assertEqual(created.status_code, 201, created.data)
+        memo_id = created.data['id']
+        changed = self.client.patch(
+            self._detail_url(memo_id), {'body': '이벤트 수정 메모', 'revision': 1}, format='json')
+        self.assertEqual(changed.status_code, 200, changed.data)
+        noop = self.client.patch(
+            self._detail_url(memo_id), {'body': '이벤트 수정 메모', 'revision': 2}, format='json')
+        self.assertEqual(noop.status_code, 200, noop.data)
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CONSULTATION_MEMO_CREATED,
+            customer=self.customer).count(), 1)
+        self.assertEqual(NorthStarEvent.objects.filter(
+            event_type=NorthStarEvent.CONSULTATION_MEMO_EDITED,
+            customer=self.customer).count(), 1)
+
+
+class CustomerMemoServiceTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('memo-service@test.com', password='pass1234')
+        self.customer = Customer.objects.create(owner=self.user, name='서비스 고객')
+
+    def test_service_rejects_whitespace_only_and_too_long_bodies(self):
+        from .memos import create_manual_memo, update_memo
+
+        with self.assertRaisesRegex(ValueError, 'EMPTY_MEMO'):
+            create_manual_memo(customer=self.customer, owner=self.user, body='   ')
+        with self.assertRaisesRegex(ValueError, 'MEMO_BODY_TOO_LONG'):
+            create_manual_memo(customer=self.customer, owner=self.user, body='가' * 10_001)
+
+        memo = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_MANUAL,
+            body='기존 메모')
+        with self.assertRaisesRegex(ValueError, 'MEMO_BODY_TOO_LONG'):
+            update_memo(memo=memo, body='가' * 10_001, expected_revision=1)

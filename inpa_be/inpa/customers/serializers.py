@@ -7,7 +7,7 @@ from rest_framework import serializers
 
 from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
-    CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, compute_insurance_age,
+    CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, compute_insurance_age,
 )
 
 
@@ -44,6 +44,27 @@ class ContactLogSerializer(serializers.ModelSerializer):
         model = ContactLog
         fields = ('id', 'result', 'result_display', 'memo', 'created_at')
         read_only_fields = ('id', 'result_display', 'created_at')
+
+
+class CustomerMemoSerializer(serializers.ModelSerializer):
+    source_label = serializers.CharField(source='get_source_display', read_only=True)
+
+    class Meta:
+        model = CustomerMemo
+        fields = (
+            'id', 'source', 'source_label', 'body', 'occurred_at', 'created_at',
+            'updated_at', 'edited_at', 'revision',
+        )
+        read_only_fields = (
+            'id', 'source', 'source_label', 'occurred_at', 'created_at',
+            'updated_at', 'edited_at', 'revision',
+        )
+
+    def validate_body(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('메모 내용을 입력해 주세요.')
+        return value
 
 
 class CustomerTagSerializer(serializers.ModelSerializer):

@@ -471,6 +471,19 @@ class CustomerHistoryTests(TestCase):
         self.assertIn('복사', copy_ev['label'])
         self.assertNotIn('발송', copy_ev['label'])
 
+    def test_consultation_memo_events_have_stable_korean_history_labels(self):
+        """상담 메모 생성·수정은 이력에서 사람이 읽을 수 있는 고정 라벨을 쓴다."""
+        log_event(NorthStarEvent.CONSULTATION_MEMO_CREATED, customer=self.customer,
+                  sender=self.user, payload={'source': 'manual'})
+        log_event(NorthStarEvent.CONSULTATION_MEMO_EDITED, customer=self.customer,
+                  sender=self.user, payload={'source': 'manual'})
+
+        events = self.client.get(self._url()).json()['events']
+        labels = {event['type']: event['label'] for event in events}
+
+        self.assertEqual(labels['consultation_memo_created'], '상담 메모 작성')
+        self.assertEqual(labels['consultation_memo_edited'], '상담 메모 수정')
+
     def test_history_empty_when_no_events(self):
         """이벤트 없으면 빈 배열(200)."""
         r = self.client.get(self._url())
