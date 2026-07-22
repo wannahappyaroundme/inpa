@@ -758,6 +758,61 @@ export async function getCustomer(id: number): Promise<CustomerDetail> {
   return request<CustomerDetail>("GET", `/customers/${id}/`, undefined, true);
 }
 
+// ─── Customer consultation memos ──────────────────────────────────────────
+
+export type CustomerMemoSource = "manual" | "ai_summary" | "legacy_migrated";
+
+export interface CustomerMemo {
+  id: number;
+  source: CustomerMemoSource;
+  source_label: string;
+  body: string;
+  occurred_at: string | null;
+  created_at: string;
+  updated_at: string;
+  edited_at: string | null;
+  revision: number;
+}
+
+/** 고객별 상담 메모 목록. 서버의 정렬·페이지 순서를 그대로 사용한다. */
+export function listCustomerMemos(
+  customerId: number,
+  page = 1,
+): Promise<PaginatedResult<CustomerMemo>> {
+  return request<PaginatedResult<CustomerMemo>>(
+    "GET",
+    `/customers/${customerId}/memos/?page=${page}`,
+    undefined,
+    true,
+  );
+}
+
+/** 새 상담 메모는 서버가 작성 시각과 출처를 정한다. */
+export function createCustomerMemo(
+  customerId: number,
+  body: string,
+): Promise<CustomerMemo> {
+  return request<CustomerMemo>("POST", `/customers/${customerId}/memos/`, { body }, true);
+}
+
+/** 수정에는 서버가 준 revision을 함께 보내 최신 메모 보호를 받는다. */
+export function updateCustomerMemo(
+  customerId: number,
+  memo: CustomerMemo,
+  body: string,
+): Promise<CustomerMemo> {
+  return request<CustomerMemo>(
+    "PATCH",
+    `/customers/${customerId}/memos/${memo.id}/`,
+    { body, revision: memo.revision },
+    true,
+  );
+}
+
+export function deleteCustomerMemo(customerId: number, memoId: number): Promise<void> {
+  return requestVoid("DELETE", `/customers/${customerId}/memos/${memoId}/`, true);
+}
+
 /** POST /api/v1/customers/ */
 export async function createCustomer(payload: CustomerWritePayload): Promise<CustomerDetail> {
   return request<CustomerDetail>("POST", "/customers/", payload, true);
