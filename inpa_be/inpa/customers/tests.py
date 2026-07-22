@@ -84,6 +84,56 @@ class CustomerMemoModelTests(TestCase):
         memo.refresh_from_db()
         self.assertEqual(memo.owner_id, self.customer.owner_id)
 
+    def test_body_update_corrects_mismatched_in_memory_owner(self):
+        other_user = User.objects.create_user('memo-other@example.com', password='pass1234')
+        memo = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='첫 메모')
+        memo.owner = other_user
+        memo.body = '수정 메모'
+
+        memo.save(update_fields=['body'])
+        memo.refresh_from_db()
+
+        self.assertEqual(memo.owner_id, self.customer.owner_id)
+        self.assertEqual(memo.body, '수정 메모')
+
+    def test_customer_update_persists_derived_owner(self):
+        other_user = User.objects.create_user('memo-other@example.com', password='pass1234')
+        other_customer = Customer.objects.create(owner=other_user, name='다른 고객')
+        memo = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='첫 메모')
+        memo.customer = other_customer
+
+        memo.save(update_fields=['customer'])
+        memo.refresh_from_db()
+
+        self.assertEqual(memo.customer_id, other_customer.id)
+        self.assertEqual(memo.owner_id, other_customer.owner_id)
+
+    def test_existing_memo_empty_update_fields_is_a_noop(self):
+        memo = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='첫 메모')
+        memo.body = '저장되면 안 되는 메모'
+
+        with self.assertNumQueries(0):
+            memo.save(update_fields=[])
+        memo.refresh_from_db()
+
+        self.assertEqual(memo.body, '첫 메모')
+
+    def test_unsaved_memo_empty_update_fields_is_a_noop(self):
+        memo = CustomerMemo(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='저장되면 안 되는 메모')
+
+        with self.assertNumQueries(0):
+            memo.save(update_fields=[])
+
+        self.assertIsNone(memo.pk)
+
     def test_customer_memos_are_newest_first_with_id_tiebreaker(self):
         first = CustomerMemo.objects.create(
             owner=self.user, customer=self.customer,
@@ -106,14 +156,19 @@ class CustomerMemoMigrationTests(TransactionTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.executor = MigrationExecutor(connection)
-        cls.executor.migrate(cls.migrate_from)
-        cls.old_apps = cls.executor.loader.project_state(cls.migrate_from).apps
+        executor = MigrationExecutor(connection)
+        executor.migrate(cls.migrate_from)
+        cls.old_apps = executor.loader.project_state(cls.migrate_from).apps
 
     @classmethod
     def tearDownClass(cls):
-        cls.executor.migrate(cls.executor.loader.graph.leaf_nodes())
-        super().tearDownClass()
+        try:
+            executor = MigrationExecutor(connection)
+            executor.migrate(executor.loader.graph.leaf_nodes())
+            if CustomerMemo._meta.db_table not in connection.introspection.table_names():
+                raise AssertionError('CustomerMemo schema was not restored')
+        finally:
+            super().tearDownClass()
 
     def test_migration_preserves_legacy_memos_and_is_idempotent(self):
         User = self.old_apps.get_model('accounts', 'User')
@@ -124,9 +179,9 @@ class CustomerMemoMigrationTests(TransactionTestCase):
         empty = Customer.objects.create(owner_id=owner.pk, name='빈 메모', memo='')
         whitespace = Customer.objects.create(owner_id=owner.pk, name='공백 메모', memo=' \n\t ')
 
-        self.executor = MigrationExecutor(connection)
-        self.executor.migrate(self.migrate_to)
-        new_apps = self.executor.loader.project_state(self.migrate_to).apps
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_to)
+        new_apps = executor.loader.project_state(self.migrate_to).apps
         CustomerMemo = new_apps.get_model('customers', 'CustomerMemo')
 
         migrated = CustomerMemo.objects.get(customer_id=padded.pk)

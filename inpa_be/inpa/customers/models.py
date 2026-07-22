@@ -215,10 +215,13 @@ class CustomerMemo(models.Model):
         indexes = [models.Index(fields=['customer', '-created_at', '-id'])]
 
     def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None and not update_fields:
+            return super().save(*args, **kwargs)
         if self.customer_id:
             self.owner_id = self.customer.owner_id
-            if kwargs.get('update_fields') is not None:
-                kwargs['update_fields'] = set(kwargs['update_fields']) | {'owner'}
+            if update_fields is not None:
+                kwargs['update_fields'] = set(update_fields) | {'owner'}
         super().save(*args, **kwargs)
 
 
