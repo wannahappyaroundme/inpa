@@ -83,6 +83,23 @@ describe("상담 메모", () => {
     expect(screen.getByRole("button", { name: "메모 작성" })).toBeTruthy();
   });
 
+  it("직접·요약·기존 메모의 출처와 Asia/Seoul 시각을 정확히 보여 주고 없는 수정 표시는 숨긴다", async () => {
+    vi.mocked(listCustomerMemos).mockResolvedValue(page([
+      memo({ id: 73, source: "manual", source_label: "직접 작성", body: "직접", edited_at: null }),
+      memo({ id: 72, source: "ai_summary", source_label: "녹음 요약", body: "요약", edited_at: null }),
+      memo({ id: 71, source: "legacy_migrated", source_label: "기존 메모", body: "기존", occurred_at: null, created_at: "not-a-date", edited_at: null }),
+    ]));
+    render(<CustomerMemos customerId={customerId} onCountChange={vi.fn()} />);
+
+    expect(await screen.findByText("직접 작성")).toBeTruthy();
+    expect(screen.getByText("녹음 요약")).toBeTruthy();
+    expect(screen.getByText("기존 메모")).toBeTruthy();
+    expect(screen.getByText("작성 시각 2026. 7. 23. 오전 10:30")).toBeTruthy();
+    expect(screen.getByText("상담 시각 2026. 7. 23. 오전 10:30")).toBeTruthy();
+    expect(screen.getByText("옮긴 시각 -")).toBeTruthy();
+    expect(screen.queryByText(/수정됨/)).toBeNull();
+  });
+
   it("처음 불러오기에 실패하면 목록 대신 재시도 행동을 보여준다", async () => {
     const user = userEvent.setup();
     vi.mocked(listCustomerMemos)

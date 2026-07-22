@@ -30,14 +30,17 @@ interface MemoListViewProps {
   onDraftChange: (value: string) => void;
   onCreate: () => Promise<void>;
   onEdit: (memo: CustomerMemo, body: string) => Promise<EditResult>;
+  onRefreshLatest: () => Promise<boolean>;
   onDelete: (memoId: number) => Promise<string | null>;
-  onReload: () => Promise<void>;
+  onReload: () => Promise<boolean>;
   onLoadMore: () => Promise<void>;
   onModeChange: (mode: "list" | "create") => void;
+  customerId: number;
+  focusRestoreVersion: number;
 }
 
 interface EditResult {
-  kind: "saved" | "noop" | "error" | "reconciled";
+  kind: "saved" | "noop" | "error" | "reconciled" | "refresh_needed" | "stale";
   message?: string;
 }
 
@@ -89,10 +92,12 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
   const [creating, setCreating] = useState(false);
   const dataRef = useRef<PaginatedResult<CustomerMemo> | null>(null);
   const countCallbackRef = useRef(onCountChange);
-  const requestGenerationRef = useRef(0);
+  const customerGenerationRef = useRef(0);
+  const listGenerationRef = useRef(0);
   const pageRef = useRef(1);
   const moreBusyRef = useRef(false);
   const createBusyRef = useRef(false);
+  const [focusRestoreVersion, setFocusRestoreVersion] = useState(0);
 
   useEffect(() => {
     countCallbackRef.current = onCountChange;
@@ -107,8 +112,9 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
     countCallbackRef.current(count);
   }, []);
 
-  const loadPage = useCallback(async (page: number, append: boolean) => {
-    const requestId = ++requestGenerationRef.current;
+  const loadPage = useCallback(async (page: number, append: boolean, customerGeneration: number): Promise<boolean> => {
+    const requestId = ++listGenerationRef.current;
+    const isCurrent = () => customerGeneration === customerGenerationRef.current && requestId === listGenerationRef.current;
     if (append) setLoadingMore(true);
     else {
       setLoading(true);
@@ -117,11 +123,11 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
 
     try {
       const result = await listCustomerMemos(customerId, page);
-      if (requestId !== requestGenerationRef.current) return;
+      if (!isCurrent()) return false;
 
       if (append) {
         const current = dataRef.current;
-        if (!current) return;
+        if (!current) return false;
         const knownIds = new Set(current.results.map((memo) => memo.id));
         const next = {
           ...result,
@@ -134,11 +140,13 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
       pageRef.current = page;
       setLoadError(null);
       emitCount(result.count);
+      return true;
     } catch (error) {
-      if (requestId !== requestGenerationRef.current) return;
+      if (!isCurrent()) return false;
       setLoadError(messageFrom(error, "상담 메모를 불러오지 못했어요. 다시 불러와 주세요."));
+      return false;
     } finally {
-      if (requestId === requestGenerationRef.current) {
+      if (isCurrent()) {
         setLoading(false);
         setLoadingMore(false);
         moreBusyRef.current = false;
@@ -147,22 +155,39 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
   }, [customerId, emitCount, replaceData]);
 
   useEffect(() => {
-    requestGenerationRef.current += 1;
+    const customerGeneration = ++customerGenerationRef.current;
+    listGenerationRef.current += 1;
     pageRef.current = 1;
     moreBusyRef.current = false;
+    createBusyRef.current = false;
     replaceData(null);
     setMode("list");
     setDraft("");
     setCreateError(null);
     setLoadError(null);
     setLoading(true);
-    void loadPage(1, false);
-    return () => { requestGenerationRef.current += 1; };
+    void loadPage(1, false, customerGeneration);
+    return () => {
+      customerGenerationRef.current += 1;
+      listGenerationRef.current += 1;
+    };
   }, [customerId, loadPage, replaceData]);
 
-  const reload = useCallback(async () => {
-    await loadPage(1, false);
+  const reload = useCallback(async (customerGeneration = customerGenerationRef.current) => {
+    return loadPage(1, false, customerGeneration);
   }, [loadPage]);
+
+  const beginMutation = useCallback(() => {
+    const customerGeneration = customerGenerationRef.current;
+    listGenerationRef.current += 1;
+    moreBusyRef.current = false;
+    setLoadingMore(false);
+    return customerGeneration;
+  }, []);
+
+  const isCurrentCustomer = useCallback((customerGeneration: number) => (
+    customerGeneration === customerGenerationRef.current
+  ), []);
 
   const saveNew = useCallback(async () => {
     if (createBusyRef.current) return;
@@ -176,11 +201,13 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
       return;
     }
 
+    const customerGeneration = beginMutation();
     createBusyRef.current = true;
     setCreating(true);
     setCreateError(null);
     try {
       const created = await createCustomerMemo(customerId, body);
+      if (!isCurrentCustomer(customerGeneration)) return;
       const current = dataRef.current;
       if (!current) return;
       const next = {
@@ -193,12 +220,15 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
       setDraft("");
       setMode("list");
     } catch (error) {
+      if (!isCurrentCustomer(customerGeneration)) return;
       setCreateError(messageFrom(error, "메모를 저장하지 못했어요. 다시 저장해 주세요."));
     } finally {
-      createBusyRef.current = false;
-      setCreating(false);
+      if (isCurrentCustomer(customerGeneration)) {
+        createBusyRef.current = false;
+        setCreating(false);
+      }
     }
-  }, [customerId, draft, emitCount, replaceData]);
+  }, [beginMutation, customerId, draft, emitCount, isCurrentCustomer, replaceData]);
 
   const saveEdit = useCallback(async (memo: CustomerMemo, body: string): Promise<EditResult> => {
     const normalized = body.trim();
@@ -208,8 +238,10 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
     }
     if (normalized === memo.body) return { kind: "noop" };
 
+    const customerGeneration = beginMutation();
     try {
       const changed = await updateCustomerMemo(customerId, memo, normalized);
+      if (!isCurrentCustomer(customerGeneration)) return { kind: "stale" };
       const current = dataRef.current;
       if (current) {
         replaceData({
@@ -219,8 +251,16 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
       }
       return { kind: "saved" };
     } catch (error) {
+      if (!isCurrentCustomer(customerGeneration)) return { kind: "stale" };
       if (error instanceof ApiError && error.code === "MEMO_EDIT_CONFLICT") {
-        await reload();
+        const reloaded = await reload(customerGeneration);
+        if (!isCurrentCustomer(customerGeneration)) return { kind: "stale" };
+        if (!reloaded) {
+          return {
+            kind: "refresh_needed",
+            message: "최신 내용을 다시 불러오면 작성한 내용을 이어서 저장할 수 있어요.",
+          };
+        }
         return {
           kind: "reconciled",
           message: "내가 작성한 내용은 그대로 남아 있어요. 최신 내용을 확인한 뒤 다시 저장해 주세요.",
@@ -228,11 +268,13 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
       }
       return { kind: "error", message: messageFrom(error, "메모를 저장하지 못했어요. 다시 저장해 주세요.") };
     }
-  }, [customerId, reload, replaceData]);
+  }, [beginMutation, customerId, isCurrentCustomer, reload, replaceData]);
 
   const removeMemo = useCallback(async (memoId: number): Promise<string | null> => {
+    const customerGeneration = beginMutation();
     try {
       await deleteCustomerMemo(customerId, memoId);
+      if (!isCurrentCustomer(customerGeneration)) return null;
       const current = dataRef.current;
       if (!current) return null;
       const next = {
@@ -242,17 +284,20 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
       };
       replaceData(next);
       emitCount(next.count);
+      setFocusRestoreVersion((current) => current + 1);
       return null;
     } catch (error) {
+      if (!isCurrentCustomer(customerGeneration)) return null;
       return messageFrom(error, "메모를 삭제하지 못했어요. 다시 시도해 주세요.");
     }
-  }, [customerId, emitCount, replaceData]);
+  }, [beginMutation, customerId, emitCount, isCurrentCustomer, replaceData]);
 
   const loadMore = useCallback(async () => {
     const current = dataRef.current;
     if (!current?.next || moreBusyRef.current) return;
+    const customerGeneration = customerGenerationRef.current;
     moreBusyRef.current = true;
-    await loadPage(pageFromNext(current.next, pageRef.current + 1), true);
+    await loadPage(pageFromNext(current.next, pageRef.current + 1), true, customerGeneration);
   }, [loadPage]);
 
   return (
@@ -268,6 +313,7 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
       onDraftChange={setDraft}
       onCreate={saveNew}
       onEdit={saveEdit}
+      onRefreshLatest={() => reload()}
       onDelete={removeMemo}
       onReload={reload}
       onLoadMore={loadMore}
@@ -275,6 +321,8 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
         setMode(nextMode);
         setCreateError(null);
       }}
+      customerId={customerId}
+      focusRestoreVersion={focusRestoreVersion}
     />
   );
 }
@@ -291,18 +339,42 @@ function MemoListView({
   onDraftChange,
   onCreate,
   onEdit,
+  onRefreshLatest,
   onDelete,
   onReload,
   onLoadMore,
   onModeChange,
+  customerId,
+  focusRestoreVersion,
 }: MemoListViewProps) {
   const normalizedDraft = draft.trim();
   const draftTooLong = normalizedDraft.length > MAX_BODY_LENGTH;
   const createButtonRef = useRef<HTMLButtonElement>(null);
+  const createTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const previousModeRef = useRef(mode);
+
+  useEffect(() => {
+    const previousMode = previousModeRef.current;
+    previousModeRef.current = mode;
+    const frame = requestAnimationFrame(() => {
+      if (mode === "create") createTextareaRef.current?.focus();
+      else if (previousMode === "create") createButtonRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [mode]);
+
+  useEffect(() => {
+    if (focusRestoreVersion === 0) return;
+    const frame = requestAnimationFrame(() => {
+      if (createButtonRef.current?.isConnected) createButtonRef.current.focus();
+      else listRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRestoreVersion]);
 
   function closeCreate() {
     onModeChange("list");
-    requestAnimationFrame(() => createButtonRef.current?.focus());
   }
 
   if (loading && !data) {
@@ -358,10 +430,14 @@ function MemoListView({
           <label htmlFor="customer-memo-create" className="text-[14px] font-bold text-ink">새 메모</label>
           <textarea
             id="customer-memo-create"
+            ref={createTextareaRef}
             aria-describedby="customer-memo-create-count"
             aria-invalid={Boolean(createError) || draftTooLong}
+            aria-readonly={creating}
+            readOnly={creating}
             value={draft}
             onChange={(event) => onDraftChange(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Escape" && !creating) closeCreate(); }}
             rows={5}
             placeholder="상담에서 확인한 내용과 다음 약속을 적어보세요."
             className="mt-2 min-h-32 w-full resize-y rounded-xl border border-line bg-surface px-3 py-3 text-[14px] leading-6 text-ink placeholder:text-muted outline-none focus:border-brand focus-visible:ring-2 focus-visible:ring-brand"
@@ -385,9 +461,9 @@ function MemoListView({
           <p className="mt-2 text-[13px] leading-5 text-ink2">다음 만남에서 이어갈 내용을 한 줄부터 적을 수 있어요.</p>
         </div>
       ) : (
-        <div className="mt-5 space-y-3" aria-label="상담 메모 목록">
-          {data.results.map((memo) => <MemoCard key={memo.id} memo={memo} onEdit={onEdit} onDelete={onDelete} />)}
-        </div>
+        <ul ref={listRef} tabIndex={-1} className="mt-5 space-y-3" aria-label="상담 메모 목록">
+          {data.results.map((memo) => <li key={`${customerId}-${memo.id}`}><MemoCard memo={memo} onEdit={onEdit} onRefreshLatest={onRefreshLatest} onDelete={onDelete} /></li>)}
+        </ul>
       )}
 
       {data.next && (
@@ -399,9 +475,10 @@ function MemoListView({
   );
 }
 
-function MemoCard({ memo, onEdit, onDelete }: {
+function MemoCard({ memo, onEdit, onRefreshLatest, onDelete }: {
   memo: CustomerMemo;
   onEdit: (memo: CustomerMemo, body: string) => Promise<EditResult>;
+  onRefreshLatest: () => Promise<boolean>;
   onDelete: (memoId: number) => Promise<string | null>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -409,10 +486,15 @@ function MemoCard({ memo, onEdit, onDelete }: {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [reconciled, setReconciled] = useState(false);
+  const [refreshNeeded, setRefreshNeeded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const editButtonRef = useRef<HTMLButtonElement>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const editBusyRef = useRef(false);
+  const deleteBusyRef = useRef(false);
   const normalizedDraft = draft.trim();
   const draftTooLong = normalizedDraft.length > MAX_BODY_LENGTH;
 
@@ -420,33 +502,63 @@ function MemoCard({ memo, onEdit, onDelete }: {
     if (!editing) setDraft(memo.body);
   }, [editing, memo.body]);
 
+  useEffect(() => {
+    if (!editing) return;
+    const frame = requestAnimationFrame(() => editTextareaRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [editing]);
+
   async function save() {
-    if (saving || draftTooLong) return;
+    if (editBusyRef.current || draftTooLong || refreshNeeded) return;
+    editBusyRef.current = true;
     setSaving(true);
     setError(null);
     const result = await onEdit(memo, draft);
+    editBusyRef.current = false;
     setSaving(false);
     if (result.kind === "saved" || result.kind === "noop") {
       setReconciled(false);
+      setRefreshNeeded(false);
       setEditing(false);
+      requestAnimationFrame(() => editButtonRef.current?.focus());
       return;
     }
+    if (result.kind === "stale") return;
     setReconciled(result.kind === "reconciled");
+    setRefreshNeeded(result.kind === "refresh_needed");
     setError(result.message ?? "메모를 저장하지 못했어요. 다시 저장해 주세요.");
+  }
+
+  async function refreshLatest() {
+    if (refreshing) return;
+    setRefreshing(true);
+    setError(null);
+    const refreshed = await onRefreshLatest();
+    setRefreshing(false);
+    if (!refreshed) {
+      setError("최신 내용을 다시 불러오면 작성한 내용을 이어서 저장할 수 있어요.");
+      return;
+    }
+    setRefreshNeeded(false);
+    setReconciled(true);
+    setError("내가 작성한 내용은 그대로 남아 있어요. 최신 내용을 확인한 뒤 다시 저장해 주세요.");
   }
 
   function cancelEdit() {
     setDraft(memo.body);
     setError(null);
     setReconciled(false);
+    setRefreshNeeded(false);
     setEditing(false);
     requestAnimationFrame(() => editButtonRef.current?.focus());
   }
 
   async function confirmDelete() {
-    if (deleting) return;
+    if (deleteBusyRef.current) return;
+    deleteBusyRef.current = true;
     setDeleting(true);
     const result = await onDelete(memo.id);
+    deleteBusyRef.current = false;
     setDeleting(false);
     if (!result) {
       setDeleteOpen(false);
@@ -466,7 +578,7 @@ function MemoCard({ memo, onEdit, onDelete }: {
         </div>
         {!editing && (
           <div className="flex shrink-0 gap-2">
-            <button ref={editButtonRef} type="button" onClick={() => { setEditing(true); setError(null); setReconciled(false); }} className="min-h-11 rounded-xl px-3 text-[13px] font-bold text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2" aria-label={`메모 수정: ${memo.body}`}>수정</button>
+            <button ref={editButtonRef} type="button" onClick={() => { setEditing(true); setError(null); setReconciled(false); setRefreshNeeded(false); }} className="min-h-11 rounded-xl px-3 text-[13px] font-bold text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2" aria-label={`메모 수정: ${memo.body}`}>수정</button>
             <button type="button" onClick={() => { setDeleteOpen(true); setDeleteError(null); }} className="min-h-11 rounded-xl px-3 text-[13px] font-bold text-danger-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2" aria-label={`메모 삭제: ${memo.body}`}>삭제</button>
           </div>
         )}
@@ -475,14 +587,18 @@ function MemoCard({ memo, onEdit, onDelete }: {
       {editing ? (
         <div className="mt-4">
           <label htmlFor={`customer-memo-${memo.id}`} className="sr-only">메모 수정</label>
-          <textarea id={`customer-memo-${memo.id}`} aria-describedby={`customer-memo-${memo.id}-count`} aria-invalid={Boolean(error) || draftTooLong} value={draft} onChange={(event) => setDraft(event.target.value)} rows={5} className="min-h-32 w-full resize-y rounded-xl border border-line bg-surface px-3 py-3 text-[14px] leading-6 text-ink outline-none focus:border-brand focus-visible:ring-2 focus-visible:ring-brand" />
+          <textarea ref={editTextareaRef} id={`customer-memo-${memo.id}`} aria-describedby={`customer-memo-${memo.id}-count`} aria-invalid={Boolean(error) || draftTooLong} aria-readonly={saving} readOnly={saving} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape" && !saving && !refreshing) cancelEdit(); }} rows={5} className="min-h-32 w-full resize-y rounded-xl border border-line bg-surface px-3 py-3 text-[14px] leading-6 text-ink outline-none focus:border-brand focus-visible:ring-2 focus-visible:ring-brand" />
           <p id={`customer-memo-${memo.id}-count`} className={`mt-2 text-[12px] ${draftTooLong ? "font-semibold text-danger-ink" : "text-ink3"}`}>{normalizedDraft.length.toLocaleString("ko-KR")} / 10,000자</p>
           {reconciled && <p className="mt-3 rounded-xl bg-surface2 px-3 py-2 text-[13px] leading-5 text-ink2">최신 메모: {memo.body || "-"}</p>}
           {error && <p role="alert" className="mt-3 rounded-xl bg-danger-tint px-3 py-2 text-[13px] leading-5 text-danger-ink">{error}</p>}
           {saving && <p role="status" aria-live="polite" className="mt-3 text-[13px] font-semibold text-ink2">메모를 저장하고 있어요</p>}
           <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" disabled={saving} onClick={cancelEdit} className="min-h-11 rounded-xl border border-line bg-surface px-4 text-[14px] font-semibold text-ink2 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">취소</button>
-            <button type="button" disabled={saving || draftTooLong} onClick={() => void save()} className="min-h-11 rounded-xl bg-brand px-4 text-[14px] font-bold text-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">수정 저장</button>
+            <button type="button" disabled={saving || refreshing} onClick={cancelEdit} className="min-h-11 rounded-xl border border-line bg-surface px-4 text-[14px] font-semibold text-ink2 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">취소</button>
+            {refreshNeeded ? (
+              <button type="button" disabled={refreshing} onClick={() => void refreshLatest()} className="min-h-11 rounded-xl bg-brand px-4 text-[14px] font-bold text-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">{refreshing ? "최신 내용을 불러오는 중" : "최신 내용 다시 불러오기"}</button>
+            ) : (
+              <button type="button" disabled={saving || draftTooLong} onClick={() => void save()} className="min-h-11 rounded-xl bg-brand px-4 text-[14px] font-bold text-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">수정 저장</button>
+            )}
           </div>
         </div>
       ) : (
