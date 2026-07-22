@@ -288,6 +288,55 @@ class CustomerMemoMigrationTests(TransactionTestCase):
         self.assertEqual(CustomerMemo.objects.filter(customer_id=padded.pk).count(), 1)
 
 
+class CustomerMemoMirrorMarkerMigrationTests(TransactionTestCase):
+    migrate_from = [('customers', '0016_customermemo')]
+    migrate_to = [('customers', '0017_customermemo_is_legacy_mirror')]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        executor = MigrationExecutor(connection)
+        executor.migrate(cls.migrate_from)
+        cls.old_apps = executor.loader.project_state(cls.migrate_from).apps
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            executor = MigrationExecutor(connection)
+            executor.migrate(executor.loader.graph.leaf_nodes())
+        finally:
+            super().tearDownClass()
+
+    def test_migration_marks_only_legacy_rows_and_enforces_one_mirror_per_customer(self):
+        User = self.old_apps.get_model('accounts', 'User')
+        Customer = self.old_apps.get_model('customers', 'Customer')
+        CustomerMemo = self.old_apps.get_model('customers', 'CustomerMemo')
+        owner = User.objects.create(email='marker-migration@example.com')
+        legacy_customer = Customer.objects.create(
+            owner_id=owner.pk, name='기존 고객', memo='기존 메모')
+        manual_customer = Customer.objects.create(
+            owner_id=owner.pk, name='직접 고객', memo='직접 메모')
+        CustomerMemo.objects.create(
+            owner_id=owner.pk, customer_id=legacy_customer.pk,
+            source='legacy_migrated', body='기존 메모')
+        CustomerMemo.objects.create(
+            owner_id=owner.pk, customer_id=manual_customer.pk,
+            source='manual', body='직접 메모')
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_to)
+        new_apps = executor.loader.project_state(self.migrate_to).apps
+        MigratedMemo = new_apps.get_model('customers', 'CustomerMemo')
+
+        self.assertTrue(MigratedMemo.objects.get(customer_id=legacy_customer.pk).is_legacy_mirror)
+        self.assertFalse(MigratedMemo.objects.get(customer_id=manual_customer.pk).is_legacy_mirror)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                MigratedMemo.objects.create(
+                    owner_id=owner.pk, customer_id=legacy_customer.pk,
+                    source='manual', body='중복 호환 메모', is_legacy_mirror=True)
+
+
 class OwnerIsolationTests(TestCase):
     """★ 멀티테넌시 격리 — 설계사 A는 B의 데이터에 절대 접근 불가."""
 
@@ -1632,6 +1681,7 @@ class CustomerMemoApiTests(TestCase):
             response = self.client.post(self._url(), {
                 'body': '  첫 상담 메모  ',
                 'source': CustomerMemo.SOURCE_AI_SUMMARY,
+                'is_legacy_mirror': True,
                 'occurred_at': '2000-01-01T00:00:00Z',
             }, format='json')
 
@@ -1639,8 +1689,10 @@ class CustomerMemoApiTests(TestCase):
         self.assertEqual(response.data['body'], '첫 상담 메모')
         self.assertEqual(response.data['source'], CustomerMemo.SOURCE_MANUAL)
         self.assertEqual(response.data['revision'], 1)
-        self.assertGreaterEqual(
-            CustomerMemo.objects.get(pk=response.data['id']).occurred_at, before)
+        memo = CustomerMemo.objects.get(pk=response.data['id'])
+        self.assertGreaterEqual(memo.occurred_at, before)
+        self.assertFalse(memo.is_legacy_mirror)
+        self.assertNotIn('is_legacy_mirror', response.data)
         retrieved = self.client.get(self._detail_url(response.data['id']))
         self.assertEqual(retrieved.status_code, 200, retrieved.data)
         self.assertEqual(retrieved.data['body'], '첫 상담 메모')
@@ -1704,6 +1756,71 @@ class CustomerMemoApiTests(TestCase):
         self.assertEqual(deleted.status_code, 204)
         self.customer.refresh_from_db()
         self.assertEqual(self.customer.last_contacted_at, contacted_at)
+
+    def test_edit_and_delete_legacy_mirror_keep_customer_field_in_sync(self):
+        self.customer.memo = '이전 내용'
+        self.customer.save(update_fields=['memo'])
+        mirror = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_LEGACY, body='이전 내용',
+            is_legacy_mirror=True)
+
+        changed = self.client.patch(
+            self._detail_url(mirror.id),
+            {'body': '새 내용', 'revision': 1}, format='json')
+
+        self.assertEqual(changed.status_code, 200, changed.data)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.memo, '새 내용')
+
+        deleted = self.client.delete(self._detail_url(mirror.id))
+
+        self.assertEqual(deleted.status_code, 204)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.memo, '')
+
+    def test_legacy_mirror_noop_edit_repairs_drift_without_revision_change(self):
+        self.customer.memo = '오래된 내용'
+        self.customer.save(update_fields=['memo'])
+        mirror = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_LEGACY, body='최신 내용',
+            is_legacy_mirror=True)
+
+        response = self.client.patch(
+            self._detail_url(mirror.id),
+            {'body': '최신 내용', 'revision': 1}, format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.customer.refresh_from_db()
+        mirror.refresh_from_db()
+        self.assertEqual(self.customer.memo, '최신 내용')
+        self.assertEqual(mirror.revision, 1)
+        self.assertIsNone(mirror.edited_at)
+
+    def test_edit_and_delete_ordinary_memo_never_change_customer_field(self):
+        self.customer.memo = '호환 기준'
+        self.customer.save(update_fields=['memo'])
+        CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_LEGACY, body='호환 기준',
+            is_legacy_mirror=True)
+        ordinary = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='일반 메모',
+            occurred_at=timezone.now())
+
+        changed = self.client.patch(
+            self._detail_url(ordinary.id),
+            {'body': '일반 메모 수정', 'revision': 1}, format='json')
+        self.assertEqual(changed.status_code, 200, changed.data)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.memo, '호환 기준')
+
+        deleted = self.client.delete(self._detail_url(ordinary.id))
+        self.assertEqual(deleted.status_code, 204)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.memo, '호환 기준')
 
     def test_list_uses_tie_breakers_across_pagination_boundary(self):
         base = timezone.now()
@@ -1936,7 +2053,7 @@ class CustomerMemoCompatibilityTests(TestCase):
         self.customer.save(update_fields=['memo'])
         legacy = CustomerMemo.objects.create(
             owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_LEGACY,
-            body='처음')
+            body='처음', is_legacy_mirror=True)
         original_contacted_at = self.customer.last_contacted_at
 
         changed = self.client.patch(self._url(), {'memo': '바뀐 메모'}, format='json')
@@ -1967,7 +2084,7 @@ class CustomerMemoCompatibilityTests(TestCase):
         self.customer.save(update_fields=['memo'])
         legacy = CustomerMemo.objects.create(
             owner=self.user, customer=self.customer, source=CustomerMemo.SOURCE_LEGACY,
-            body='  이관된 메모  ')
+            body='  이관된 메모  ', is_legacy_mirror=True)
 
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.patch(self._url(), {'memo': '이관된 메모'}, format='json')
@@ -1994,6 +2111,7 @@ class CustomerMemoCompatibilityTests(TestCase):
         memo = customer.memos.get()
         self.assertEqual(memo.source, CustomerMemo.SOURCE_MANUAL)
         self.assertEqual(memo.body, '단건 메모')
+        self.assertTrue(getattr(memo, 'is_legacy_mirror', False))
         self.assertIsNotNone(memo.occurred_at)
         self.assertIsNotNone(customer.last_contacted_at)
         self.assertEqual(len(callbacks), 1)
@@ -2003,6 +2121,19 @@ class CustomerMemoCompatibilityTests(TestCase):
             customer=customer,
             event_type=NorthStarEvent.CONSULTATION_MEMO_CREATED,
             payload={'source': CustomerMemo.SOURCE_MANUAL}).count(), 1)
+
+        changed = self.client.patch(
+            f'/api/v1/customers/{customer.id}/memos/{memo.id}/',
+            {'body': '단건 수정', 'revision': 1}, format='json')
+        self.assertEqual(changed.status_code, 200, changed.data)
+        customer.refresh_from_db()
+        self.assertEqual(customer.memo, '단건 수정')
+
+        deleted = self.client.delete(
+            f'/api/v1/customers/{customer.id}/memos/{memo.id}/')
+        self.assertEqual(deleted.status_code, 204)
+        customer.refresh_from_db()
+        self.assertEqual(customer.memo, '')
 
     def test_bulk_customer_memo_creates_manual_mirror_and_skips_blank(self):
         from inpa.analytics.models import NorthStarEvent
@@ -2019,6 +2150,7 @@ class CustomerMemoCompatibilityTests(TestCase):
         self.assertEqual(mirrored.memo, '일괄 메모')
         self.assertEqual(mirrored.memos.get().source, CustomerMemo.SOURCE_MANUAL)
         self.assertEqual(mirrored.memos.get().body, '일괄 메모')
+        self.assertTrue(getattr(mirrored.memos.get(), 'is_legacy_mirror', False))
         self.assertIsNotNone(mirrored.last_contacted_at)
         self.assertEqual(blank.memo, '')
         self.assertFalse(blank.memos.exists())
@@ -2030,6 +2162,60 @@ class CustomerMemoCompatibilityTests(TestCase):
             customer=mirrored,
             event_type=NorthStarEvent.CONSULTATION_MEMO_CREATED,
             payload={'source': CustomerMemo.SOURCE_MANUAL}).count(), 1)
+
+        memo = mirrored.memos.get()
+        changed = self.client.patch(
+            f'/api/v1/customers/{mirrored.id}/memos/{memo.id}/',
+            {'body': '일괄 수정', 'revision': 1}, format='json')
+        self.assertEqual(changed.status_code, 200, changed.data)
+        mirrored.refresh_from_db()
+        self.assertEqual(mirrored.memo, '일괄 수정')
+
+        deleted = self.client.delete(
+            f'/api/v1/customers/{mirrored.id}/memos/{memo.id}/')
+        self.assertEqual(deleted.status_code, 204)
+        mirrored.refresh_from_db()
+        self.assertEqual(mirrored.memo, '')
+
+    def test_legacy_memo_length_validation_is_400_for_single_bulk_and_patch(self):
+        too_long = '가' * 10_001
+
+        single = self.client.post(
+            '/api/v1/customers/', {'name': '긴 단건', 'memo': too_long}, format='json')
+        self.assertEqual(single.status_code, 400, single.data)
+        self.assertFalse(Customer.objects.filter(owner=self.user, name='긴 단건').exists())
+
+        bulk = self.client.post('/api/v1/customers/bulk/', {'customers': [
+            {'name': '긴 일괄', 'memo': too_long},
+        ]}, format='json')
+        self.assertEqual(bulk.status_code, 400, bulk.data)
+        self.assertFalse(Customer.objects.filter(owner=self.user, name='긴 일괄').exists())
+
+        patched = self.client.patch(self._url(), {'memo': too_long}, format='json')
+        self.assertEqual(patched.status_code, 400, patched.data)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.memo, '')
+        self.assertFalse(self.customer.memos.exists())
+
+    def test_preexisting_over_limit_memo_normalized_noop_preserves_exact_source(self):
+        raw = f"  {'가' * 10_001}  "
+        self.customer.memo = raw
+        self.customer.save(update_fields=['memo'])
+        mirror = CustomerMemo.objects.create(
+            owner=self.user, customer=self.customer,
+            source=CustomerMemo.SOURCE_LEGACY, body=raw,
+            is_legacy_mirror=True)
+
+        response = self.client.patch(
+            self._url(), {'memo': raw.strip()}, format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.customer.refresh_from_db()
+        mirror.refresh_from_db()
+        self.assertEqual(self.customer.memo, raw)
+        self.assertEqual(mirror.body, raw)
+        self.assertEqual(mirror.revision, 1)
+        self.assertIsNone(mirror.edited_at)
 
     def test_bulk_analytics_integrity_error_does_not_rollback_primary_writes(self):
         from inpa.analytics.models import NorthStarEvent
@@ -2151,11 +2337,11 @@ class CustomerMemoAuditCommandTests(TestCase):
         legacy = Customer.objects.create(owner=self.user, name='이관 고객', memo='  기존 메모  ')
         CustomerMemo.objects.create(
             owner=self.user, customer=legacy, source=CustomerMemo.SOURCE_LEGACY,
-            body='기존 메모')
+            body='기존 메모', is_legacy_mirror=True)
         post_release = Customer.objects.create(owner=self.user, name='신규 고객', memo='새 메모')
         CustomerMemo.objects.create(
             owner=self.user, customer=post_release, source=CustomerMemo.SOURCE_MANUAL,
-            body='새 메모', occurred_at=timezone.now())
+            body='새 메모', occurred_at=timezone.now(), is_legacy_mirror=True)
         Customer.objects.create(owner=self.user, name='공백 고객', memo=' \n\t ')
 
         result = self._audit()
@@ -2170,16 +2356,36 @@ class CustomerMemoAuditCommandTests(TestCase):
         self.assertEqual(result['sources'], [
             CustomerMemo.SOURCE_LEGACY, CustomerMemo.SOURCE_MANUAL])
 
-    def test_audit_fails_for_missing_mismatched_and_duplicate_candidates_without_content(self):
+    def test_audit_ignores_additional_ordinary_manual_memos(self):
+        customer = Customer.objects.create(
+            owner=self.user, name='여러 메모 고객', memo='호환 메모')
+        CustomerMemo.objects.create(
+            owner=self.user, customer=customer,
+            source=CustomerMemo.SOURCE_LEGACY, body='호환 메모',
+            is_legacy_mirror=True)
+        CustomerMemo.objects.create(
+            owner=self.user, customer=customer,
+            source=CustomerMemo.SOURCE_MANUAL, body='추가 일반 메모',
+            occurred_at=timezone.now())
+
+        result = self._audit()
+
+        self.assertEqual(result['old_count'], 1)
+        self.assertEqual(result['mirror_count'], 1)
+        self.assertEqual(result['mismatched_count'], 0)
+        self.assertEqual(result['duplicate_count'], 0)
+        self.assertEqual(result['old_hash'], result['mirror_hash'])
+
+    def test_audit_fails_for_missing_and_mismatched_mirrors_without_content(self):
         missing = Customer.objects.create(owner=self.user, name='누락 고객', memo='누락 메모')
         mismatch = Customer.objects.create(owner=self.user, name='불일치 고객', memo='기준 메모')
         CustomerMemo.objects.create(
             owner=self.user, customer=mismatch, source=CustomerMemo.SOURCE_LEGACY,
-            body='다른 내용')
+            body='다른 내용', is_legacy_mirror=True)
         duplicate = Customer.objects.create(owner=self.user, name='중복 고객', memo='같은 내용')
         CustomerMemo.objects.create(
             owner=self.user, customer=duplicate, source=CustomerMemo.SOURCE_LEGACY,
-            body='같은 내용')
+            body='같은 내용', is_legacy_mirror=True)
         CustomerMemo.objects.create(
             owner=self.user, customer=duplicate, source=CustomerMemo.SOURCE_MANUAL,
             body='같은 내용', occurred_at=timezone.now())
@@ -2191,7 +2397,7 @@ class CustomerMemoAuditCommandTests(TestCase):
         result = json.loads(output.getvalue())
         self.assertEqual(result['missing_count'], 1)
         self.assertEqual(result['mismatched_count'], 1)
-        self.assertEqual(result['duplicate_count'], 1)
+        self.assertEqual(result['duplicate_count'], 0)
         rendered = output.getvalue()
         for body in ('누락 메모', '기준 메모', '다른 내용', '같은 내용'):
             self.assertNotIn(body, rendered)
@@ -2201,7 +2407,7 @@ class CustomerMemoAuditCommandTests(TestCase):
         customer = Customer.objects.create(owner=self.user, name='소유자 대조', memo='대조 메모')
         memo = CustomerMemo.objects.create(
             owner=self.user, customer=customer, source=CustomerMemo.SOURCE_LEGACY,
-            body='대조 메모')
+            body='대조 메모', is_legacy_mirror=True)
         CustomerMemo.objects.filter(pk=memo.pk).update(owner=other_owner)
 
         output = StringIO()

@@ -10,7 +10,7 @@ from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
     CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, compute_insurance_age,
 )
-from .memos import sync_legacy_memo
+from .memos import MAX_MEMO_BODY_LENGTH, sync_legacy_memo
 
 
 class JobRiskCodeSerializer(serializers.ModelSerializer):
@@ -220,6 +220,16 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
                 if tag.owner_id != request.user.id:
                     raise serializers.ValidationError('본인 소유 태그만 지정할 수 있습니다.')
         return value
+
+    def validate_memo(self, value):
+        """새 메모는 길이를 제한하되, 기존 초과 원문의 normalized no-op은 보존한다."""
+        clean = (value or '').strip()
+        if len(clean) <= MAX_MEMO_BODY_LENGTH:
+            return value
+        current = (self.instance.memo or '').strip() if self.instance is not None else None
+        if clean == current:
+            return value
+        raise serializers.ValidationError('메모는 10,000자 이하로 입력해 주세요.')
 
     def create(self, validated_data):
         memo = validated_data.pop('memo', serializers.empty)

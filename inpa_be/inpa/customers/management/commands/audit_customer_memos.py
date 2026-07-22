@@ -25,7 +25,7 @@ class Command(BaseCommand):
         old_rows = (Customer.objects.order_by('pk')
                     .values_list('pk', 'owner_id', 'memo').iterator(chunk_size=500))
         mirror_rows = (CustomerMemo.objects
-                       .filter(source__in=(CustomerMemo.SOURCE_LEGACY, CustomerMemo.SOURCE_MANUAL))
+                       .filter(is_legacy_mirror=True)
                        .order_by('customer_id', 'id')
                        .values_list('customer_id', 'owner_id', 'source', 'body')
                        .iterator(chunk_size=500))
@@ -52,7 +52,7 @@ class Command(BaseCommand):
                         matching_count += 1
                     else:
                         wrong_count += 1
-                elif source == CustomerMemo.SOURCE_LEGACY:
+                else:
                     mismatched_count += 1
                     seen_sources.add(source)
                 current_mirror = next(mirror_rows, None)

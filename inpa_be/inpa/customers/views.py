@@ -32,7 +32,10 @@ from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
     CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
 )
-from .memos import create_manual_memo, sync_legacy_memo, update_memo
+from .memos import (
+    MAX_MEMO_BODY_LENGTH, create_manual_memo, delete_memo, sync_legacy_memo,
+    update_memo,
+)
 from .presets import (
     BASELINE_SOURCE_PRESET, PRESET_NOTE, PRESET_ORIGIN_V0, PRESET_V0,
     iter_preset_rows,
@@ -168,7 +171,7 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         to_create = []
         memo_bodies = []
         skipped = 0
-        for row in rows:
+        for row_index, row in enumerate(rows):
             if not isinstance(row, dict):
                 skipped += 1
                 continue
@@ -195,6 +198,12 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             job_id = jid if jid in valid_job_ids else None
 
             memo = (row.get('memo') or '').strip()
+            if len(memo) > MAX_MEMO_BODY_LENGTH:
+                raise ValidationError({
+                    'customers': {
+                        row_index: {'memo': '메모는 10,000자 이하로 입력해 주세요.'},
+                    },
+                })
             to_create.append(Customer(
                 owner=owner,
                 name=name,
@@ -516,6 +525,9 @@ class CustomerMemoViewSet(_CustomerScopedViewSet):
                     status=status.HTTP_409_CONFLICT)
             raise
         return Response(self.get_serializer(memo).data)
+
+    def perform_destroy(self, instance):
+        delete_memo(memo=instance)
 
 
 class ConsentRequestCreateView(APIView):

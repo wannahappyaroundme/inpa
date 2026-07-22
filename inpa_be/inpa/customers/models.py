@@ -196,6 +196,7 @@ class CustomerMemo(models.Model):
         Customer, on_delete=models.CASCADE, related_name='memos')
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
     body = models.TextField(max_length=10_000)
+    is_legacy_mirror = models.BooleanField(default=False, editable=False)
     occurred_at = models.DateTimeField(null=True, blank=True)
     edited_at = models.DateTimeField(null=True, blank=True)
     revision = models.PositiveIntegerField(default=1)
@@ -211,6 +212,9 @@ class CustomerMemo(models.Model):
             models.UniqueConstraint(
                 fields=['customer'], condition=models.Q(source='legacy_migrated'),
                 name='uniq_customer_legacy_memo'),
+            models.UniqueConstraint(
+                fields=['customer'], condition=models.Q(is_legacy_mirror=True),
+                name='uniq_customer_memo_mirror'),
         ]
         indexes = [models.Index(fields=['customer', '-created_at', '-id'])]
 
