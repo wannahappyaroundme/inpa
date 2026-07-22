@@ -7,6 +7,7 @@ import {
   ApiError,
   createCustomerMemo,
   deleteCustomerMemo,
+  getCustomerMemo,
   listCustomerMemos,
   updateCustomerMemo,
   type CustomerMemo,
@@ -30,9 +31,10 @@ interface MemoListViewProps {
   onDraftChange: (value: string) => void;
   onCreate: () => Promise<void>;
   onEdit: (memo: CustomerMemo, body: string) => Promise<EditResult>;
-  onRefreshLatest: () => Promise<boolean>;
+  onRefreshLatest: (memoId: number) => Promise<boolean>;
   onDelete: (memoId: number) => Promise<string | null>;
   onReload: () => Promise<boolean>;
+  onReconcile: () => Promise<boolean>;
   onLoadMore: () => Promise<void>;
   onModeChange: (mode: "list" | "create") => void;
   customerId: number;
@@ -97,6 +99,7 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
   const pageRef = useRef(1);
   const moreBusyRef = useRef(false);
   const createBusyRef = useRef(false);
+  const memoRefreshVersionsRef = useRef(new Map<number, number>());
   const [focusRestoreVersion, setFocusRestoreVersion] = useState(0);
 
   useEffect(() => {
@@ -160,6 +163,7 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
     pageRef.current = 1;
     moreBusyRef.current = false;
     createBusyRef.current = false;
+    memoRefreshVersionsRef.current.clear();
     setCreating(false);
     setLoadingMore(false);
     replaceData(null);
@@ -178,6 +182,86 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
   const reload = useCallback(async (customerGeneration = customerGenerationRef.current) => {
     return loadPage(1, false, customerGeneration);
   }, [loadPage]);
+
+  const reconcileLoadedPages = useCallback(async (
+    customerGeneration = customerGenerationRef.current,
+    failureMessage = "메모 목록을 다시 맞추면 최신 순서로 이어서 볼 수 있어요.",
+  ): Promise<boolean> => {
+    if (moreBusyRef.current) return false;
+    moreBusyRef.current = true;
+    const requestId = ++listGenerationRef.current;
+    const highestLoadedPage = Math.max(1, pageRef.current);
+    const isCurrent = () => (
+      customerGeneration === customerGenerationRef.current
+      && requestId === listGenerationRef.current
+    );
+    setLoadingMore(true);
+    setLoadError(null);
+
+    try {
+      const pages: PaginatedResult<CustomerMemo>[] = [];
+      for (let page = 1; page <= highestLoadedPage; page += 1) {
+        const result = await listCustomerMemos(customerId, page);
+        if (!isCurrent()) return false;
+        pages.push(result);
+        if (!result.next) break;
+      }
+      const first = pages[0];
+      const last = pages.at(-1);
+      if (!first || !last) return false;
+      const knownIds = new Set<number>();
+      const results = pages.flatMap((page) => page.results).filter((memo) => {
+        if (knownIds.has(memo.id)) return false;
+        knownIds.add(memo.id);
+        return true;
+      });
+      const previousCount = dataRef.current?.count;
+      replaceData({
+        count: first.count,
+        next: last.next,
+        previous: null,
+        results,
+      });
+      pageRef.current = pages.length;
+      setLoadError(null);
+      if (previousCount !== first.count) emitCount(first.count);
+      return true;
+    } catch {
+      if (!isCurrent()) return false;
+      setLoadError(failureMessage);
+      return false;
+    } finally {
+      if (isCurrent()) {
+        moreBusyRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [customerId, emitCount, replaceData]);
+
+  const refreshMemo = useCallback(async (
+    memoId: number,
+    customerGeneration = customerGenerationRef.current,
+  ): Promise<boolean> => {
+    const version = (memoRefreshVersionsRef.current.get(memoId) ?? 0) + 1;
+    memoRefreshVersionsRef.current.set(memoId, version);
+    const isCurrent = () => (
+      customerGeneration === customerGenerationRef.current
+      && memoRefreshVersionsRef.current.get(memoId) === version
+    );
+    try {
+      const latest = await getCustomerMemo(customerId, memoId);
+      if (!isCurrent()) return false;
+      const current = dataRef.current;
+      if (!current || !current.results.some((memo) => memo.id === memoId)) return false;
+      replaceData({
+        ...current,
+        results: current.results.map((memo) => memo.id === memoId ? latest : memo),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [customerId, replaceData]);
 
   const beginMutation = useCallback(() => {
     const customerGeneration = customerGenerationRef.current;
@@ -255,7 +339,7 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
     } catch (error) {
       if (!isCurrentCustomer(customerGeneration)) return { kind: "stale" };
       if (error instanceof ApiError && error.code === "MEMO_EDIT_CONFLICT") {
-        const reloaded = await reload(customerGeneration);
+        const reloaded = await refreshMemo(memo.id, customerGeneration);
         if (!isCurrentCustomer(customerGeneration)) return { kind: "stale" };
         if (!reloaded) {
           return {
@@ -270,7 +354,7 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
       }
       return { kind: "error", message: messageFrom(error, "메모를 저장하지 못했어요. 다시 저장해 주세요.") };
     }
-  }, [beginMutation, customerId, isCurrentCustomer, reload, replaceData]);
+  }, [beginMutation, customerId, isCurrentCustomer, refreshMemo, replaceData]);
 
   const removeMemo = useCallback(async (memoId: number): Promise<string | null> => {
     const customerGeneration = beginMutation();
@@ -287,12 +371,16 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
       replaceData(next);
       emitCount(next.count);
       setFocusRestoreVersion((current) => current + 1);
+      await reconcileLoadedPages(
+        customerGeneration,
+        "삭제는 완료했어요. 메모 목록만 다시 맞춰 주세요.",
+      );
       return null;
     } catch (error) {
       if (!isCurrentCustomer(customerGeneration)) return null;
       return messageFrom(error, "메모를 삭제하지 못했어요. 다시 시도해 주세요.");
     }
-  }, [beginMutation, customerId, emitCount, isCurrentCustomer, replaceData]);
+  }, [beginMutation, customerId, emitCount, isCurrentCustomer, reconcileLoadedPages, replaceData]);
 
   const loadMore = useCallback(async () => {
     const current = dataRef.current;
@@ -315,9 +403,10 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
       onDraftChange={setDraft}
       onCreate={saveNew}
       onEdit={saveEdit}
-      onRefreshLatest={() => reload()}
+      onRefreshLatest={refreshMemo}
       onDelete={removeMemo}
       onReload={reload}
+      onReconcile={reconcileLoadedPages}
       onLoadMore={loadMore}
       onModeChange={(nextMode) => {
         setMode(nextMode);
@@ -344,6 +433,7 @@ function MemoListView({
   onRefreshLatest,
   onDelete,
   onReload,
+  onReconcile,
   onLoadMore,
   onModeChange,
   customerId,
@@ -422,9 +512,12 @@ function MemoListView({
       </div>
 
       {loadError && (
-        <p role="alert" className="mt-4 rounded-xl bg-danger-tint px-3 py-2 text-[13px] leading-5 text-danger-ink">
-          {loadError}
-        </p>
+        <div className="mt-4 rounded-xl bg-danger-tint px-3 py-3">
+          <p role="alert" className="text-[13px] leading-5 text-danger-ink">{loadError}</p>
+          <button type="button" disabled={loadingMore} onClick={() => void onReconcile()} className="mt-2 min-h-11 rounded-xl bg-surface px-3 text-[13px] font-bold text-brand disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
+            {loadingMore ? "메모 목록을 맞추는 중" : "메모 목록 다시 맞추기"}
+          </button>
+        </div>
       )}
 
       {mode === "create" && (
@@ -480,7 +573,7 @@ function MemoListView({
 function MemoCard({ memo, onEdit, onRefreshLatest, onDelete }: {
   memo: CustomerMemo;
   onEdit: (memo: CustomerMemo, body: string) => Promise<EditResult>;
-  onRefreshLatest: () => Promise<boolean>;
+  onRefreshLatest: (memoId: number) => Promise<boolean>;
   onDelete: (memoId: number) => Promise<string | null>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -535,7 +628,7 @@ function MemoCard({ memo, onEdit, onRefreshLatest, onDelete }: {
     if (refreshing) return;
     setRefreshing(true);
     setError(null);
-    const refreshed = await onRefreshLatest();
+    const refreshed = await onRefreshLatest(memo.id);
     setRefreshing(false);
     if (!refreshed) {
       setError("최신 내용을 다시 불러오면 작성한 내용을 이어서 저장할 수 있어요.");

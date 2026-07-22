@@ -788,6 +788,11 @@ export function listCustomerMemos(
   );
 }
 
+/** 충돌한 메모 카드만 최신 내용으로 다시 읽는다. */
+export function getCustomerMemo(customerId: number, memoId: number): Promise<CustomerMemo> {
+  return request<CustomerMemo>("GET", `/customers/${customerId}/memos/${memoId}/`, undefined, true);
+}
+
 /** 새 상담 메모는 서버가 작성 시각과 출처를 정한다. */
 export function createCustomerMemo(
   customerId: number,

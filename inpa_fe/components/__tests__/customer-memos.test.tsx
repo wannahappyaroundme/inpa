@@ -94,6 +94,7 @@ vi.mock("@/lib/api", async () => {
     getProfile: vi.fn(),
     listContactLogs: vi.fn(),
     listCustomerMemos: vi.fn(),
+    getCustomerMemo: vi.fn(),
     createCustomerMemo: vi.fn(),
     updateCustomerMemo: vi.fn(),
     deleteCustomerMemo: vi.fn(),
@@ -105,6 +106,7 @@ import {
   createCustomerMemo,
   deleteCustomerMemo,
   getCustomer,
+  getCustomerMemo,
   getCustomerHistory,
   getProfile,
   listContactLogs,
@@ -395,9 +397,8 @@ describe("상담 메모", () => {
     const user = userEvent.setup();
     const oldMemo = memo({ body: "이전 내용", revision: 2 });
     const latestMemo = memo({ body: "다른 화면의 최신 내용", revision: 3 });
-    vi.mocked(listCustomerMemos)
-      .mockResolvedValueOnce(page([oldMemo]))
-      .mockResolvedValueOnce(page([latestMemo]));
+    vi.mocked(listCustomerMemos).mockResolvedValueOnce(page([oldMemo]));
+    vi.mocked(getCustomerMemo).mockResolvedValueOnce(latestMemo);
     vi.mocked(updateCustomerMemo).mockRejectedValue(
       new ApiError(409, "MEMO_EDIT_CONFLICT", "다른 화면에서 수정된 메모예요. 최신 내용을 확인해 주세요."),
     );
@@ -501,6 +502,9 @@ describe("고객 상세 기록 통합", () => {
       "href",
       "/customer/31?tab=history&view=memos",
     );
+    expect(screen.getByRole("link", { name: "메모 2개" })).toHaveClass("min-h-11");
+    expect(screen.getByRole("link", { name: "세부정보 →" })).toHaveClass("min-h-11");
+    expect(screen.getByRole("link", { name: "메모 2개" }).parentElement).toHaveClass("flex", "gap-1");
     expect(screen.getByRole("heading", { name: "상세정보" }).parentElement?.parentElement)
       .toHaveClass("p-4");
   });
@@ -589,7 +593,8 @@ describe("고객 상세 기록 통합", () => {
     await user.click(screen.getByRole("button", { name: "삭제할게요" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "메모 4개" })).toBeTruthy());
     expect(screen.getByRole("link", { name: "메모 4개" })).toBeTruthy();
-    expect(listCustomerMemos).toHaveBeenCalledOnce();
+    expect(listCustomerMemos).toHaveBeenCalledTimes(2);
+    expect(listCustomerMemos).toHaveBeenNthCalledWith(2, 31, 1);
   });
 
   it("활동 이력의 순서와 표시를 유지하고 다른 보기 왕복에도 다시 요청하지 않는다", async () => {
@@ -598,6 +603,7 @@ describe("고객 상세 기록 통합", () => {
     render(<CustomerDetailPage />);
 
     const activityPanel = await screen.findByRole("tabpanel", { name: "활동" });
+    await within(activityPanel).findByRole("heading", { name: "접점 이력 2건" });
     expect(within(activityPanel).getAllByRole("listitem").map((item) => item.textContent))
       .toEqual([expect.stringContaining("고객 등록"), expect.stringContaining("공유 화면 열람")]);
     expect(getCustomerHistory).toHaveBeenCalledOnce();

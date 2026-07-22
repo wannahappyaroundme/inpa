@@ -553,18 +553,20 @@ function CustomerSummary({
           <div className="text-[13px] font-semibold text-ink tnum whitespace-nowrap">
             {dday.date} <span className="text-brand">{dday.dday}</span>
           </div>
-          <Link
-            href={`/customer/${customer.id}?tab=info`}
-            className="mt-1 inline-block text-[12px] font-semibold text-brand"
-          >
-            세부정보 →
-          </Link>
-          <Link
-            href={`/customer/${customer.id}?tab=history&view=memos`}
-            className="ml-2 mt-1 inline-block text-[12px] font-semibold text-brand"
-          >
-            메모 {customer.memo_count}개
-          </Link>
+          <div className="mt-1 flex justify-end gap-1">
+            <Link
+              href={`/customer/${customer.id}?tab=info`}
+              className="inline-flex min-h-11 items-center rounded-lg px-2 text-[12px] font-semibold text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            >
+              세부정보 →
+            </Link>
+            <Link
+              href={`/customer/${customer.id}?tab=history&view=memos`}
+              className="inline-flex min-h-11 items-center rounded-lg px-2 text-[12px] font-semibold text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            >
+              메모 {customer.memo_count}개
+            </Link>
+          </div>
         </div>
       </div>
 

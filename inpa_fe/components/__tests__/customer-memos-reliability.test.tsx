@@ -7,6 +7,7 @@ vi.mock("@/lib/api", async () => {
   return {
     ...actual,
     listCustomerMemos: vi.fn(),
+    getCustomerMemo: vi.fn(),
     createCustomerMemo: vi.fn(),
     updateCustomerMemo: vi.fn(),
     deleteCustomerMemo: vi.fn(),
@@ -17,6 +18,7 @@ import {
   ApiError,
   createCustomerMemo,
   deleteCustomerMemo,
+  getCustomerMemo,
   listCustomerMemos,
   updateCustomerMemo,
   type CustomerMemo,
@@ -218,10 +220,10 @@ describe("상담 메모 신뢰성", () => {
     const user = userEvent.setup();
     const old = memo({ body: "이전 내용", revision: 1 });
     const latest = memo({ body: "새 최신 내용", revision: 2 });
-    vi.mocked(listCustomerMemos)
-      .mockResolvedValueOnce(page([old]))
+    vi.mocked(listCustomerMemos).mockResolvedValueOnce(page([old]));
+    vi.mocked(getCustomerMemo)
       .mockRejectedValueOnce(new ApiError(500, "LOAD_FAILED", "최신 메모를 불러오지 못했어요."))
-      .mockResolvedValueOnce(page([latest]));
+      .mockResolvedValueOnce(latest);
     vi.mocked(updateCustomerMemo).mockRejectedValueOnce(new ApiError(409, "MEMO_EDIT_CONFLICT", "다른 화면에서 수정된 메모예요."));
     render(<CustomerMemos customerId={31} onCountChange={vi.fn()} />);
     await screen.findByText("이전 내용");
@@ -237,6 +239,120 @@ describe("상담 메모 신뢰성", () => {
     expect(await screen.findByText(/새 최신 내용/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "수정 저장" })).not.toBeDisabled();
     expect(updateCustomerMemo).toHaveBeenCalledOnce();
+  });
+
+  it("두 번째 페이지 메모 충돌은 카드와 초안을 지키고 최신 revision으로 다시 저장한다", async () => {
+    const user = userEvent.setup();
+    const firstPage = Array.from({ length: 20 }, (_, index) => memo({
+      id: 21 - index,
+      body: `첫 페이지 메모 ${21 - index}`,
+    }));
+    const pageTwoMemo = memo({ id: 1, body: "두 번째 페이지 이전 내용", revision: 1 });
+    const latest = memo({ id: 1, body: "두 번째 페이지 최신 내용", revision: 2 });
+    vi.mocked(listCustomerMemos)
+      .mockResolvedValueOnce(page(firstPage, { count: 21, next: "https://api.example/memos/?page=2" }))
+      .mockResolvedValueOnce(page([pageTwoMemo], { count: 21, previous: "https://api.example/memos/?page=1" }));
+    vi.mocked(getCustomerMemo).mockResolvedValueOnce(latest);
+    vi.mocked(updateCustomerMemo)
+      .mockRejectedValueOnce(new ApiError(409, "MEMO_EDIT_CONFLICT", "다른 화면에서 수정된 메모예요."))
+      .mockResolvedValueOnce(memo({ id: 1, body: "내가 남긴 두 번째 페이지 초안", revision: 3 }));
+    render(<CustomerMemos customerId={31} onCountChange={vi.fn()} />);
+    await screen.findByText("첫 페이지 메모 21");
+    await user.click(screen.getByRole("button", { name: "이전 메모 더 보기" }));
+    await screen.findByText("두 번째 페이지 이전 내용");
+    await user.click(screen.getByRole("button", { name: "메모 수정: 두 번째 페이지 이전 내용" }));
+    await user.clear(screen.getByLabelText("메모 수정"));
+    await user.type(screen.getByLabelText("메모 수정"), "내가 남긴 두 번째 페이지 초안");
+    await user.click(screen.getByRole("button", { name: "수정 저장" }));
+
+    expect(await screen.findByText(/두 번째 페이지 최신 내용/)).toBeTruthy();
+    expect(screen.getByLabelText("메모 수정")).toHaveValue("내가 남긴 두 번째 페이지 초안");
+    expect(listCustomerMemos).toHaveBeenCalledTimes(2);
+    expect(getCustomerMemo).toHaveBeenCalledWith(31, 1);
+
+    await user.click(screen.getByRole("button", { name: "수정 저장" }));
+    expect(await screen.findByText("내가 남긴 두 번째 페이지 초안")).toBeTruthy();
+    expect(updateCustomerMemo).toHaveBeenNthCalledWith(2, 31, latest, "내가 남긴 두 번째 페이지 초안");
+  });
+
+  it("21개 첫 페이지에서 삭제하면 당겨진 마지막 메모까지 다시 맞춘다", async () => {
+    const user = userEvent.setup();
+    const firstPage = Array.from({ length: 20 }, (_, index) => memo({
+      id: 21 - index,
+      body: `경계 메모 ${21 - index}`,
+    }));
+    const reconciled = Array.from({ length: 20 }, (_, index) => memo({
+      id: 20 - index,
+      body: `경계 메모 ${20 - index}`,
+    }));
+    vi.mocked(listCustomerMemos)
+      .mockResolvedValueOnce(page(firstPage, { count: 21, next: "https://api.example/memos/?page=2" }))
+      .mockResolvedValueOnce(page(reconciled, { count: 20 }));
+    vi.mocked(deleteCustomerMemo).mockResolvedValueOnce(undefined);
+    render(<CustomerMemos customerId={31} onCountChange={vi.fn()} />);
+    await screen.findByText("경계 메모 21");
+
+    await user.click(screen.getByRole("button", { name: "메모 삭제: 경계 메모 21" }));
+    await user.click(screen.getByRole("button", { name: "삭제할게요" }));
+
+    expect(await screen.findByText("경계 메모 1")).toBeTruthy();
+    expect(screen.getAllByRole("article")).toHaveLength(20);
+    expect(screen.queryByRole("button", { name: "이전 메모 더 보기" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(listCustomerMemos).toHaveBeenNthCalledWith(2, 31, 1);
+  });
+
+  it("두 페이지를 다시 맞춰도 같은 메모의 수정 초안을 보존한다", async () => {
+    const user = userEvent.setup();
+    const firstPage = Array.from({ length: 20 }, (_, index) => memo({ id: 41 - index, body: `메모 ${41 - index}` }));
+    const secondPage = Array.from({ length: 20 }, (_, index) => memo({ id: 21 - index, body: `메모 ${21 - index}` }));
+    const reconciledFirst = Array.from({ length: 20 }, (_, index) => memo({ id: 40 - index, body: `메모 ${40 - index}` }));
+    const reconciledSecond = Array.from({ length: 20 }, (_, index) => memo({ id: 20 - index, body: `메모 ${20 - index}` }));
+    vi.mocked(listCustomerMemos)
+      .mockResolvedValueOnce(page(firstPage, { count: 41, next: "https://api.example/memos/?page=2" }))
+      .mockResolvedValueOnce(page(secondPage, { count: 41, next: "https://api.example/memos/?page=3", previous: "https://api.example/memos/?page=1" }))
+      .mockResolvedValueOnce(page(reconciledFirst, { count: 40, next: "https://api.example/memos/?page=2" }))
+      .mockResolvedValueOnce(page(reconciledSecond, { count: 40, previous: "https://api.example/memos/?page=1" }));
+    vi.mocked(deleteCustomerMemo).mockResolvedValueOnce(undefined);
+    render(<CustomerMemos customerId={31} onCountChange={vi.fn()} />);
+    await screen.findByText("메모 41");
+    await user.click(screen.getByRole("button", { name: "이전 메모 더 보기" }));
+    await screen.findByText("메모 2");
+    await user.click(screen.getByRole("button", { name: "메모 수정: 메모 2" }));
+    await user.clear(screen.getByLabelText("메모 수정"));
+    await user.type(screen.getByLabelText("메모 수정"), "보존할 수정 초안");
+
+    await user.click(screen.getByRole("button", { name: "메모 삭제: 메모 41" }));
+    await user.click(screen.getByRole("button", { name: "삭제할게요" }));
+
+    await waitFor(() => expect(listCustomerMemos).toHaveBeenCalledTimes(4));
+    expect(screen.getByLabelText("메모 수정")).toHaveValue("보존할 수정 초안");
+    expect(screen.getAllByRole("article")).toHaveLength(40);
+    expect(screen.getByText("메모 1")).toBeTruthy();
+  });
+
+  it("삭제 뒤 목록 재조정이 실패해도 삭제 재시도를 권하지 않고 목록만 다시 맞춘다", async () => {
+    const user = userEvent.setup();
+    const firstPage = Array.from({ length: 20 }, (_, index) => memo({ id: 21 - index, body: `재조정 메모 ${21 - index}` }));
+    const reconciled = Array.from({ length: 20 }, (_, index) => memo({ id: 20 - index, body: `재조정 메모 ${20 - index}` }));
+    vi.mocked(listCustomerMemos)
+      .mockResolvedValueOnce(page(firstPage, { count: 21, next: "https://api.example/memos/?page=2" }))
+      .mockRejectedValueOnce(new ApiError(500, "LOAD_FAILED", "목록을 불러오지 못했어요."))
+      .mockResolvedValueOnce(page(reconciled, { count: 20 }));
+    vi.mocked(deleteCustomerMemo).mockResolvedValueOnce(undefined);
+    render(<CustomerMemos customerId={31} onCountChange={vi.fn()} />);
+    await screen.findByText("재조정 메모 21");
+
+    await user.click(screen.getByRole("button", { name: "메모 삭제: 재조정 메모 21" }));
+    await user.click(screen.getByRole("button", { name: "삭제할게요" }));
+
+    expect(await screen.findByText("삭제는 완료했어요. 메모 목록만 다시 맞춰 주세요.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "삭제 다시 시도" })).toBeNull();
+    expect(screen.queryByText("재조정 메모 21")).toBeNull();
+    expect(screen.getByRole("heading", { name: "상담 메모 20개" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "메모 목록 다시 맞추기" }));
+    expect(await screen.findByText("재조정 메모 1")).toBeTruthy();
+    expect(screen.getAllByRole("article")).toHaveLength(20);
   });
 
   it("키보드 진입과 Escape 취소, 의미 있는 목록, 삭제 성공 뒤의 안전한 포커스를 제공한다", async () => {

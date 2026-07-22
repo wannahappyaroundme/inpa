@@ -4,6 +4,7 @@ import {
   ApiError,
   createCustomerMemo,
   deleteCustomerMemo,
+  getCustomerMemo,
   listCustomerMemos,
   tokenStore,
   updateCustomerMemo,
@@ -61,5 +62,21 @@ describe("상담 메모 API gateway", () => {
       code: "MEMO_EDIT_CONFLICT",
       message: "최신 내용을 확인해 주세요.",
     });
+  });
+
+  it("충돌한 메모 한 건만 최신 내용으로 다시 읽는다", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(response({ ...memo, revision: 5 }));
+    vi.stubGlobal("fetch", fetch);
+    tokenStore.set("memo-token");
+
+    await getCustomerMemo(31, 71);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/customers/31/memos/71/",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({ Authorization: "Token memo-token" }),
+      }),
+    );
   });
 });
