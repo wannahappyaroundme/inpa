@@ -9,7 +9,9 @@
   CustomerMedicalHistory 생성을 412(PRECONDITION_FAILED)로 물리 차단. UI 숨김은 방어가 아니다.
 """
 from django.conf import settings
+from django.db import models, transaction
 from django.db.models import Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -28,7 +30,11 @@ from inpa.notifications.jobs import _next_birthday, _parse_date
 from .consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
 from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
-    CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
+    CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
+)
+from .memos import (
+    MAX_MEMO_BODY_LENGTH, create_manual_memo, delete_memo, sync_legacy_memo,
+    update_memo,
 )
 from .presets import (
     BASELINE_SOURCE_PRESET, PRESET_NOTE, PRESET_ORIGIN_V0, PRESET_V0,
@@ -36,7 +42,7 @@ from .presets import (
 )
 from .serializers import (
     ConsentLogSerializer, ContactLogSerializer, ContractChecklistItemSerializer, CustomerListSerializer,
-    CustomerSerializer, CustomerMedicalHistorySerializer, CustomerTagSerializer,
+    CustomerMemoSerializer, CustomerSerializer, CustomerMedicalHistorySerializer, CustomerTagSerializer,
     FamilyMemberSerializer, JobRiskCodeSerializer, PlannerBaselineSerializer,
 )
 from .tokens import make_consent_token
@@ -86,7 +92,9 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         return (super().get_queryset()
                 .select_related('job_code')
                 .prefetch_related('tags', 'family_members', 'medical_histories',
-                                  'consent_logs'))
+                                  'consent_logs')
+                .annotate(memo_count=models.Count('memos', distinct=True))
+                .order_by('-created_at'))
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -99,9 +107,12 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         'lead_source', 'is_agree_term', 'sales_stage', 'tag_ids',
     }
 
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
     def perform_update(self, serializer):
         keys = set(self.request.data.keys())
-        if keys & self.SUBSTANTIVE:
+        if (keys & self.SUBSTANTIVE) - {'memo'}:
             serializer.save(last_contacted_at=timezone.now())
         else:
             serializer.save()
@@ -119,10 +130,11 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            check_and_consume(request.user, 'customer')
+            with transaction.atomic():
+                check_and_consume(request.user, 'customer')
+                self.perform_create(serializer)
         except LimitExceeded as exc:
             return _credit_exhausted_response(exc, request.user)
-        self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
@@ -157,8 +169,9 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
 
         seen = set()
         to_create = []
+        memo_bodies = []
         skipped = 0
-        for row in rows:
+        for row_index, row in enumerate(rows):
             if not isinstance(row, dict):
                 skipped += 1
                 continue
@@ -184,28 +197,46 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             jid = _to_int(row.get('job_code'))
             job_id = jid if jid in valid_job_ids else None
 
+            memo = (row.get('memo') or '').strip()
+            if len(memo) > MAX_MEMO_BODY_LENGTH:
+                raise ValidationError({
+                    'customers': {
+                        row_index: {'memo': '메모는 10,000자 이하로 입력해 주세요.'},
+                    },
+                })
             to_create.append(Customer(
                 owner=owner,
                 name=name,
                 mobile_phone_number=phone,
                 gender=gender,
                 birth_day=(row.get('birth_day') or '').strip()[:10],
-                memo=(row.get('memo') or '').strip(),
+                memo=memo,
                 color=(row.get('color') or '').strip()[:10],
                 avatar_label=(row.get('avatar_label') or '').strip()[:8],
                 job_code_id=job_id,
                 sales_stage=stage,
                 lead_source=lead,
             ))
+            memo_bodies.append(memo)
         if to_create:
             # ★ 신규 고객 추가 한도(spec 2026-07-09) — 실제로 만들 건수(중복·빈 행 제외한
             #   len(to_create))만큼 잔여 한도를 확인한다. 잔여 < N이면 전량 402(부분 생성 없음)
             #   — bulk_create 자체를 아예 호출하지 않는다. 베타(FREE_TIER_UNLIMITED)는 dormant.
             try:
-                check_and_consume_n(owner, 'customer', len(to_create))
+                with transaction.atomic():
+                    check_and_consume_n(owner, 'customer', len(to_create))
+                    Customer.objects.bulk_create(to_create)
+                    for customer, memo_body in zip(to_create, memo_bodies):
+                        if not memo_body:
+                            continue
+                        sync_legacy_memo(
+                            customer=customer,
+                            owner=owner,
+                            body=memo_body,
+                            source=CustomerMemo.SOURCE_MANUAL,
+                        )
             except LimitExceeded as exc:
                 return _credit_exhausted_response(exc, owner)
-            Customer.objects.bulk_create(to_create)
         return Response({'created': len(to_create), 'skipped': skipped},
                         status=status.HTTP_201_CREATED)
 
@@ -445,6 +476,58 @@ class ContactLogViewSet(_CustomerScopedViewSet):
         # 접촉 기록 = 연락한 사실 → 무접촉 경보 리셋(기존 markContacted와 동일).
         customer.last_contacted_at = timezone.now()
         customer.save(update_fields=['last_contacted_at'])
+
+
+class CustomerMemoViewSet(_CustomerScopedViewSet):
+    """고객 상담 메모 CRUD — 생성만 고객 접촉 시각을 갱신한다."""
+    serializer_class = CustomerMemoSerializer
+    queryset = CustomerMemo.objects.all()
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        return (super().get_queryset()
+                .annotate(display_at=Coalesce('occurred_at', 'created_at'))
+                .order_by('-display_at', '-created_at', '-id'))
+
+    def perform_create(self, serializer):
+        memo = create_manual_memo(
+            customer=self.get_customer(), owner=self.request.user,
+            body=serializer.validated_data['body'])
+        serializer.instance = memo
+
+    def create(self, request, *args, **kwargs):
+        self.get_customer()
+        return super().create(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        memo = self.get_object()
+        serializer = self.get_serializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        revision = request.data.get('revision')
+        if type(revision) is not int:
+            return Response(
+                {'code': 'MEMO_REVISION_REQUIRED',
+                 'detail': '최신 메모를 다시 불러와 주세요.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        if 'body' not in serializer.validated_data:
+            return Response(
+                {'body': ['메모 내용을 입력해 주세요.']},
+                status=status.HTTP_400_BAD_REQUEST)
+        try:
+            memo = update_memo(
+                memo=memo, body=serializer.validated_data['body'],
+                expected_revision=revision)
+        except ValueError as exc:
+            if str(exc) == 'MEMO_EDIT_CONFLICT':
+                return Response(
+                    {'code': 'MEMO_EDIT_CONFLICT',
+                     'detail': '다른 화면에서 수정된 메모예요. 최신 내용을 확인해 주세요.'},
+                    status=status.HTTP_409_CONFLICT)
+            raise
+        return Response(self.get_serializer(memo).data)
+
+    def perform_destroy(self, instance):
+        delete_memo(memo=instance)
 
 
 class ConsentRequestCreateView(APIView):

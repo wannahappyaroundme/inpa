@@ -638,6 +638,7 @@ export interface CustomerListItem {
   avatar_label: string;              // 아바타 글씨(약자·숫자, 빈값=색만/로고)
   tags: CustomerTag[];
   family_count: number;
+  memo_count: number;
   sales_stage: SalesStage;
   status: CustomerStatus;            // 진행 상태(진행중/보류/휴면/종료)
   share_token: string | null;
@@ -756,6 +757,66 @@ export async function listAllCustomers(): Promise<CustomerListItem[]> {
 /** GET /api/v1/customers/{id}/ */
 export async function getCustomer(id: number): Promise<CustomerDetail> {
   return request<CustomerDetail>("GET", `/customers/${id}/`, undefined, true);
+}
+
+// ─── Customer consultation memos ──────────────────────────────────────────
+
+export type CustomerMemoSource = "manual" | "ai_summary" | "legacy_migrated";
+
+export interface CustomerMemo {
+  id: number;
+  source: CustomerMemoSource;
+  source_label: string;
+  body: string;
+  occurred_at: string | null;
+  created_at: string;
+  updated_at: string;
+  edited_at: string | null;
+  revision: number;
+}
+
+/** 고객별 상담 메모 목록. 서버의 정렬·페이지 순서를 그대로 사용한다. */
+export function listCustomerMemos(
+  customerId: number,
+  page = 1,
+): Promise<PaginatedResult<CustomerMemo>> {
+  return request<PaginatedResult<CustomerMemo>>(
+    "GET",
+    `/customers/${customerId}/memos/?page=${page}`,
+    undefined,
+    true,
+  );
+}
+
+/** 충돌한 메모 카드만 최신 내용으로 다시 읽는다. */
+export function getCustomerMemo(customerId: number, memoId: number): Promise<CustomerMemo> {
+  return request<CustomerMemo>("GET", `/customers/${customerId}/memos/${memoId}/`, undefined, true);
+}
+
+/** 새 상담 메모는 서버가 작성 시각과 출처를 정한다. */
+export function createCustomerMemo(
+  customerId: number,
+  body: string,
+): Promise<CustomerMemo> {
+  return request<CustomerMemo>("POST", `/customers/${customerId}/memos/`, { body }, true);
+}
+
+/** 수정에는 서버가 준 revision을 함께 보내 최신 메모 보호를 받는다. */
+export function updateCustomerMemo(
+  customerId: number,
+  memo: CustomerMemo,
+  body: string,
+): Promise<CustomerMemo> {
+  return request<CustomerMemo>(
+    "PATCH",
+    `/customers/${customerId}/memos/${memo.id}/`,
+    { body, revision: memo.revision },
+    true,
+  );
+}
+
+export function deleteCustomerMemo(customerId: number, memoId: number): Promise<void> {
+  return requestVoid("DELETE", `/customers/${customerId}/memos/${memoId}/`, true);
 }
 
 /** POST /api/v1/customers/ */

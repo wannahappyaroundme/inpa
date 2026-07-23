@@ -66,24 +66,32 @@ def is_dedup_view(share_token, viewer_fp, window_hours: int = 24) -> bool:
     ).exists()
 
 
-def log_event(event_type, *, customer=None, sender=None, share_token=None,
-              ref_code=None, viewer_fp=None, channel='', payload=None):
+def log_event(event_type, *, customer=None, sender=None, customer_id=None,
+              sender_id=None, share_token=None, ref_code=None, viewer_fp=None,
+              channel='', payload=None):
     """NorthStarEvent 1건 적재. 적재 실패는 본 기능을 막지 않는다(예외 격리).
 
     반환: 생성된 NorthStarEvent 또는 None(실패 시).
     """
     from .models import NorthStarEvent  # 순환 import 방지
     try:
-        return NorthStarEvent.objects.create(
-            event_type=event_type,
-            customer=customer,
-            sender=sender,
-            share_token=share_token,
-            ref_code=ref_code or None,
-            viewer_fp=viewer_fp,
-            channel=channel or '',
-            payload=payload or {},
-        )
+        values = {
+            'event_type': event_type,
+            'share_token': share_token,
+            'ref_code': ref_code or None,
+            'viewer_fp': viewer_fp,
+            'channel': channel or '',
+            'payload': payload or {},
+        }
+        if customer_id is not None:
+            values['customer_id'] = customer_id
+        else:
+            values['customer'] = customer
+        if sender_id is not None:
+            values['sender_id'] = sender_id
+        else:
+            values['sender'] = sender
+        return NorthStarEvent.objects.create(**values)
     except Exception as exc:  # 계측 실패가 응답을 깨뜨리지 않도록 격리
         logger.warning('[analytics] log_event failed: %s', type(exc).__name__)
         return None

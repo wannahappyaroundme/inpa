@@ -41,6 +41,8 @@ _NORTHSTAR_LABELS = {
     NorthStarEvent.CLIPBOARD_COPY: '공유뷰 복사',
     NorthStarEvent.SHARE_VIEW: '고객 공유뷰 열람',
     NorthStarEvent.REFERRAL_ATTRIBUTED: '인바운드 귀속',
+    NorthStarEvent.CONSULTATION_MEMO_CREATED: '상담 메모 작성',
+    NorthStarEvent.CONSULTATION_MEMO_EDITED: '상담 메모 수정',
 }
 
 # CustomerInsurance.portfolio_type → 라벨(증권/포트폴리오 등록 종류).

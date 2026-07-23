@@ -37,6 +37,7 @@ _medical = _nested(views.CustomerMedicalHistoryViewSet)
 _consent = _nested(views.ConsentLogViewSet)
 _checklist = _nested(views.ContractChecklistViewSet)
 _contactlog = _nested(views.ContactLogViewSet)
+_memo = _nested(views.CustomerMemoViewSet)
 
 urlpatterns = router.urls + [
     path('customers/<int:customer_pk>/family/', _family['list'], name='family-list'),
@@ -54,6 +55,8 @@ urlpatterns = router.urls + [
          views.ContractChecklistViewSet.as_view({'post': 'toggle'}), name='checklist-toggle'),
     # 접촉 결과 로그 (TA 콜 활동 기록, append-only)
     path('customers/<int:customer_pk>/contact-logs/', _contactlog['list'], name='contactlog-list'),
+    path('customers/<int:customer_pk>/memos/', _memo['list'], name='memo-list'),
+    path('customers/<int:customer_pk>/memos/<int:pk>/', _memo['detail'], name='memo-detail'),
     # P3c — 동의 요청 링크 생성(설계사) + 고객 본인 동의(공개)
     path('customers/<int:customer_pk>/consent-requests/',
          views.ConsentRequestCreateView.as_view(), name='consent-request-create'),

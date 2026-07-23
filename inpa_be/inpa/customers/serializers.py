@@ -3,12 +3,14 @@
 owner는 절대 클라이언트 입력으로 받지 않는다 — ViewSet의 perform_create(OwnedQuerySetMixin)가
 request.user를 주입한다. 하위 라우트(태그/가족/병력/동의)도 부모 customer를 URL에서 잡아 격리한다.
 """
+from django.db import transaction
 from rest_framework import serializers
 
 from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
-    CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, compute_insurance_age,
+    CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, compute_insurance_age,
 )
+from .memos import MAX_MEMO_BODY_LENGTH, sync_legacy_memo
 
 
 class JobRiskCodeSerializer(serializers.ModelSerializer):
@@ -44,6 +46,27 @@ class ContactLogSerializer(serializers.ModelSerializer):
         model = ContactLog
         fields = ('id', 'result', 'result_display', 'memo', 'created_at')
         read_only_fields = ('id', 'result_display', 'created_at')
+
+
+class CustomerMemoSerializer(serializers.ModelSerializer):
+    source_label = serializers.CharField(source='get_source_display', read_only=True)
+
+    class Meta:
+        model = CustomerMemo
+        fields = (
+            'id', 'source', 'source_label', 'body', 'occurred_at', 'created_at',
+            'updated_at', 'edited_at', 'revision',
+        )
+        read_only_fields = (
+            'id', 'source', 'source_label', 'occurred_at', 'created_at',
+            'updated_at', 'edited_at', 'revision',
+        )
+
+    def validate_body(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('메모 내용을 입력해 주세요.')
+        return value
 
 
 class CustomerTagSerializer(serializers.ModelSerializer):
@@ -142,6 +165,12 @@ class _CustomerComputedMethods:
     def get_personal_info_consent(self, obj):
         return self._consent_state(obj, ConsentLog.SCOPE_PERSONAL_INFO)['status']
 
+    def get_memo_count(self, obj):
+        annotated_count = getattr(obj, 'memo_count', None)
+        if annotated_count is not None:
+            return max(0, annotated_count)
+        return max(0, obj.memos.count())
+
     def get_consents(self, obj):
         return {
             'marketing': self._consent_state(obj, ConsentLog.SCOPE_MARKETING),
@@ -157,6 +186,7 @@ class CustomerListSerializer(_CustomerComputedMethods, serializers.ModelSerializ
     job_risk_grade = serializers.SerializerMethodField()
     marketing_consent = serializers.SerializerMethodField()
     personal_info_consent = serializers.SerializerMethodField()
+    memo_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
@@ -164,7 +194,8 @@ class CustomerListSerializer(_CustomerComputedMethods, serializers.ModelSerializ
                   'consent_overseas_at', 'color', 'avatar_label', 'tags', 'family_count',
                   'sales_stage', 'status', 'share_token', 'created_at', 'lead_source',
                   'last_contacted_at', 'is_favorite', 'is_pinned',
-                  'insurance_age', 'job_risk_grade', 'marketing_consent', 'personal_info_consent')
+                  'insurance_age', 'job_risk_grade', 'marketing_consent', 'personal_info_consent',
+                  'memo_count')
 
 
 class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
@@ -185,6 +216,7 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
     marketing_consent = serializers.SerializerMethodField()
     personal_info_consent = serializers.SerializerMethodField()
     consents = serializers.SerializerMethodField()
+    memo_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
@@ -194,8 +226,9 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
                   'tags', 'tag_ids', 'family_members', 'medical_histories',
                   'last_contacted_at', 'is_favorite', 'is_pinned', 'business_card',
                   'insurance_age', 'job_risk_grade', 'job_name', 'marketing_consent', 'personal_info_consent', 'consents',
-                  'created_at', 'updated_at')
-        read_only_fields = ('id', 'share_token', 'consent_overseas_at', 'share_sent_at', 'share_expires_at',
+                  'memo_count', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'share_token', 'consent_overseas_at', 'share_sent_at',
+                            'share_expires_at',
                             'user_view_at', 'created_at', 'updated_at')
 
     def validate_tag_ids(self, value):
@@ -206,3 +239,42 @@ class CustomerSerializer(_CustomerComputedMethods, serializers.ModelSerializer):
                 if tag.owner_id != request.user.id:
                     raise serializers.ValidationError('본인 소유 태그만 지정할 수 있습니다.')
         return value
+
+    def validate_memo(self, value):
+        """새 메모는 길이를 제한하되, 기존 초과 원문의 normalized no-op은 보존한다."""
+        clean = (value or '').strip()
+        if len(clean) <= MAX_MEMO_BODY_LENGTH:
+            return value
+        current = (self.instance.memo or '').strip() if self.instance is not None else None
+        if clean == current:
+            return value
+        raise serializers.ValidationError('메모는 10,000자 이하로 입력해 주세요.')
+
+    def create(self, validated_data):
+        memo = validated_data.pop('memo', serializers.empty)
+        with transaction.atomic():
+            customer = super().create(validated_data)
+            if memo is not serializers.empty and (memo or '').strip():
+                sync_legacy_memo(
+                    customer=customer,
+                    owner=customer.owner,
+                    body=memo,
+                    source=CustomerMemo.SOURCE_MANUAL,
+                )
+                customer.refresh_from_db()
+            return customer
+
+    def update(self, instance, validated_data):
+        memo = validated_data.pop('memo', serializers.empty)
+        with transaction.atomic():
+            if memo is not serializers.empty:
+                sync_legacy_memo(
+                    customer=instance,
+                    owner=instance.owner,
+                    body=memo,
+                    source=CustomerMemo.SOURCE_LEGACY,
+                )
+                instance.refresh_from_db()
+                if hasattr(instance, 'memo_count'):
+                    delattr(instance, 'memo_count')
+            return super().update(instance, validated_data)
