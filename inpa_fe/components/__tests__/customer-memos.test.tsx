@@ -279,6 +279,40 @@ describe("상담 메모", () => {
     expect(screen.queryByText(/수정됨/)).toBeNull();
   });
 
+  it("실행 환경이 AM/PM으로 돌려줘도 한국어 오전·오후로 표시한다", async () => {
+    const originalFormat = Object.getOwnPropertyDescriptor(Intl.DateTimeFormat.prototype, "format");
+    Object.defineProperty(Intl.DateTimeFormat.prototype, "format", {
+      configurable: true,
+      get: () => (value?: Date | number) => (
+        value instanceof Date && value.toISOString().startsWith("2026-07-24")
+          ? "2026. 7. 24. PM 10:30"
+          : "2026. 7. 23. AM 10:30"
+      ),
+    });
+
+    try {
+      vi.mocked(listCustomerMemos).mockResolvedValue(page([
+        memo({ id: 71, edited_at: null }),
+        memo({
+          id: 72,
+          body: "오후 상담",
+          occurred_at: "2026-07-24T13:30:00Z",
+          created_at: "2026-07-24T13:30:00Z",
+          updated_at: "2026-07-24T13:30:00Z",
+          edited_at: null,
+        }),
+      ]));
+      render(<CustomerMemos customerId={customerId} onCountChange={vi.fn()} />);
+
+      expect(await screen.findByText("작성 시각 2026. 7. 23. 오전 10:30")).toBeTruthy();
+      expect(screen.getByText("작성 시각 2026. 7. 24. 오후 10:30")).toBeTruthy();
+    } finally {
+      if (originalFormat) {
+        Object.defineProperty(Intl.DateTimeFormat.prototype, "format", originalFormat);
+      }
+    }
+  });
+
   it("처음 불러오기에 실패하면 목록 대신 재시도 행동을 보여준다", async () => {
     const user = userEvent.setup();
     vi.mocked(listCustomerMemos)

@@ -56,12 +56,14 @@ describe("상담 메모 API gateway", () => {
   it("서버 오류는 gateway의 ApiError 형태로 유지한다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ code: "MEMO_EDIT_CONFLICT", detail: "최신 내용을 확인해 주세요." }, 409)));
 
-    await expect(updateCustomerMemo(31, memo, "다른 내용")).rejects.toMatchObject<ApiError>({
+    const expectedError = {
       name: "ApiError",
       status: 409,
       code: "MEMO_EDIT_CONFLICT",
       message: "최신 내용을 확인해 주세요.",
-    });
+    } satisfies Partial<ApiError>;
+
+    await expect(updateCustomerMemo(31, memo, "다른 내용")).rejects.toMatchObject(expectedError);
   });
 
   it("충돌한 메모 한 건만 최신 내용으로 다시 읽는다", async () => {

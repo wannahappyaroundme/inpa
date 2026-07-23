@@ -60,7 +60,11 @@ function messageFrom(error: unknown, fallback: string): string {
 function formatMemoDate(value: string | null | undefined): string {
   if (!value) return "-";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "-" : dateFormatter.format(date);
+  if (Number.isNaN(date.getTime())) return "-";
+  return dateFormatter
+    .format(date)
+    .replace(/\bAM\b/g, "오전")
+    .replace(/\bPM\b/g, "오후");
 }
 
 function sourceTimeLabel(memo: CustomerMemo): string {
