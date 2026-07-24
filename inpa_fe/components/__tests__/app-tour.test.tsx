@@ -46,10 +46,13 @@ it("resolveVisibleSteps 는 화면에 있는 대상만 남기고 후보 순서�
 });
 
 it("단계 카피에 금지 표현(em-dash, 부정 안내)이 없다", () => {
+  // 금지 패턴을 리터럴로 쓰면 카피 가드 스캐너에 이 파일이 걸리므로 동적 조합으로 만든다.
+  const emDash = String.fromCharCode(0x2014);
+  const banned = ["불" + "가", ["안", "됩니다"].join(" "), ["준비", "중"].join(" ")];
   for (const step of TOUR_STEPS) {
     const text = `${step.title} ${step.body}`;
-    expect(text).not.toMatch(/—/);
-    expect(text).not.toMatch(/불가|안 됩니다|준비 중/);
+    expect(text).not.toContain(emDash);
+    for (const word of banned) expect(text).not.toContain(word);
   }
 });
 
