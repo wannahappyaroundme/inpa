@@ -417,6 +417,17 @@ export default function AccountSettingsPage() {
           </p>
         </Card>
 
+        {/* 처음 안내 다시 보기 — 첫 로그인 때 본 화면 안내(투어) 재실행 */}
+        <Card className="px-5 py-4">
+          <button
+            onClick={() => router.push("/home?tour=1")}
+            className="w-full rounded-xl border border-line text-[14px] font-semibold text-ink2 py-3 hover:bg-surface2 transition"
+          >
+            처음 안내 다시 보기
+          </button>
+          <p className="mt-2 text-[12px] text-ink3">화면마다 무엇을 하는 곳인지 다시 안내해 드려요.</p>
+        </Card>
+
         {/* 비밀번호 변경 + 회원 탈퇴 */}
         {p && <AccountSecurity hasPassword={p.has_usable_password} email={p.email} />}
 

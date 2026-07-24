@@ -4,8 +4,16 @@ import type { CovStatus } from "@/lib/mock";
 import { InpaMark } from "./inpa-logo";
 import { InfoDot } from "./info-dot";
 
-export function Card({ className = "", children }: { className?: string; children: React.ReactNode }) {
-  return <div className={`rounded-2xl bg-surface border border-line shadow-card ${className}`}>{children}</div>;
+export function Card({
+  className = "",
+  children,
+  ...rest
+}: { className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div className={`rounded-2xl bg-surface border border-line shadow-card ${className}`} {...rest}>
+      {children}
+    </div>
+  );
 }
 
 /** 섹션 제목 — 좌측 굵은 제목 + 우측 액션(예: '칸반 보기 →'). 카드 안 머리줄 공용. */

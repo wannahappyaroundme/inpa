@@ -57,6 +57,7 @@ function SideItem({
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
+      data-tour={`nav-${item.key}`}
       className={`relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] font-semibold transition ${
         active ? "bg-brand-soft text-brand" : "text-ink2 hover:bg-surface2 hover:text-ink"
       }`}

@@ -130,9 +130,11 @@ class ProfileSerializer(serializers.ModelSerializer):
                   'booking_msg_template', 'booking_location', 'booking_default_duration',
                   'booking_buffer_min', 'title', 'intro_text', 'profile_image',
                   'google_calendar_connected', 'google_calendar_mask_name',
-                  'onboarding_completed_at', 'marketing_agreed_at', 'ref_code',
+                  'onboarding_completed_at', 'tour_completed_at', 'marketing_agreed_at',
+                  'ref_code',
                   'email_verified_at', 'is_admin', 'is_dormant', 'has_usable_password')
-        read_only_fields = ('email', 'onboarding_completed_at', 'ref_code', 'email_verified_at',
+        read_only_fields = ('email', 'onboarding_completed_at', 'tour_completed_at',
+                            'ref_code', 'email_verified_at',
                             'is_admin', 'is_dormant', 'manager_email', 'managed_agents_count',
                             'is_manager', 'manager_promoted_at', 'manager_promotion_seen_at',
                             'recruiting_enabled',

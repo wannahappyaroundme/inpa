@@ -345,6 +345,7 @@ export interface ProfileResponse {
   google_calendar_mask_name: boolean;
   has_usable_password: boolean;   // false=구글 전용 가입(비번 없음) → 비번변경 숨김·탈퇴는 이메일 확인
   onboarding_completed_at: string | null;
+  tour_completed_at: string | null; // 첫 로그인 화면 안내(투어) 완료 시각 — null=아직 안 봄
   marketing_agreed_at: string | null;
   ref_code: string | null;
   email_verified_at: string | null;
@@ -378,6 +379,11 @@ export interface ProfileUpdatePayload {
 }
 export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
   return request<ProfileResponse>("PATCH", "/auth/profile/", payload, true);
+}
+
+/** POST /api/v1/auth/tour/complete/ — 첫 로그인 화면 안내(투어) 완료 기록(멱등) */
+export async function completeTour(): Promise<{ tour_completed_at: string }> {
+  return request<{ tour_completed_at: string }>("POST", "/auth/tour/complete/", undefined, true);
 }
 
 /** POST /api/v1/auth/manager-promotion/ack/ — 첫 관리자 승격 안내 확인 */

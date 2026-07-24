@@ -543,3 +543,19 @@ class OnboardingAttestView(APIView):
                 raise
             return Response(SELF_MANAGEMENT_BODY, status=status.HTTP_400_BAD_REQUEST)
         return Response(ProfileSerializer(profile).data)
+
+
+class TourCompleteView(APIView):
+    """첫 로그인 화면 안내(스포트라이트 투어) 완료 기록 — 멱등.
+
+    최초 완료 시각만 저장한다(다시 보기로 재실행해도 갱신하지 않음 →
+    '처음 본 시점'이 활성화 지표로 남는다).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        profile, _ = Profile.objects.get_or_create(user=request.user)
+        if profile.tour_completed_at is None:
+            profile.tour_completed_at = timezone.now()
+            profile.save(update_fields=['tour_completed_at'])
+        return Response({'tour_completed_at': profile.tour_completed_at})

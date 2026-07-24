@@ -136,7 +136,7 @@ export function BottomNav({
           {TABS.map((t) => {
             const badge = t.key === "customers" ? custUnread : t.key === "schedule" ? schedUnread : 0;
             return (
-              <Link key={t.key} href={t.href} className={`relative ${tabCls(active === t.key)}`}>
+              <Link key={t.key} href={t.href} data-tour={`tab-${t.key}`} className={`relative ${tabCls(active === t.key)}`}>
                 {badge > 0 && (
                   <span className="absolute top-1 right-[22%] min-w-[16px] h-[16px] px-1 rounded-full bg-danger text-white text-[9px] font-bold flex items-center justify-center tnum">
                     {badge > 99 ? "99+" : badge}
