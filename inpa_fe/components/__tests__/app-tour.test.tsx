@@ -30,6 +30,20 @@ function mountTargets(keys: string[]) {
   }
 }
 
+it("모든 사이드바 메뉴와 홈 카드가 투어 단계로 소개된다", () => {
+  const keys = TOUR_STEPS.map((s) => s.key);
+  // 사이드바 전 메뉴(PM 2026-07-24: 매 탭 다 소개) + 홈 카드 7종 + 모바일 더보기 + 첫 행동 유도
+  const required = [
+    "home", "customers", "sales", "call-list", "schedule", "analysis",
+    "scripts", "settings", "board", "promotion", "notifications", "manager",
+    "home-goal", "home-stats", "home-funnel", "home-trend", "home-today",
+    "home-calendar", "home-retention", "more", "self-diagnosis",
+  ];
+  for (const k of required) expect(keys).toContain(k);
+  // 마지막 단계는 첫 행동 유도(보장점검 링크)로 끝난다
+  expect(keys[keys.length - 1]).toBe("self-diagnosis");
+});
+
 it("clampStepIndex 는 범위를 벗어나지 않는다", () => {
   expect(clampStepIndex(-1, 6)).toBe(0);
   expect(clampStepIndex(9, 6)).toBe(5);

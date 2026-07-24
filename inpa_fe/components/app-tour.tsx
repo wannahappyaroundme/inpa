@@ -22,14 +22,58 @@ export type TourStep = {
   body: string;
 };
 
-/* 단계 정의 — 사이드바 순서(핵심 5개)+ 첫 행동 유도 1개, 총 6단계.
+/* 단계 정의 — 홈 카드 소개(7) + 전 메뉴 소개 + 첫 행동 유도(마지막).
+ * PM 2026-07-24 지시: 모든 메뉴를 한 번씩 다 소개하고 대시보드 소개를 풍부하게.
+ * 화면에 없는 대상(권한·모바일 숨은 메뉴)은 자동 건너뜀 → 실제 표시 단계 수는 사용자마다 다르다.
  * 렌더 카피 규칙: 쉬운 말, 긍정 안내, em-dash 금지. */
 export const TOUR_STEPS: readonly TourStep[] = [
   {
     key: "home",
     targets: ['[data-tour="nav-home"]', '[data-tour="tab-home"]'],
     title: "대시보드",
-    body: "이번 달 목표와 오늘 할 일이 한눈에 모여요. 매일 아침 여기서 시작해 보세요.",
+    body: "인파의 시작 화면이에요. 지금부터 화면을 하나씩 소개해 드릴게요.",
+  },
+  {
+    key: "home-goal",
+    targets: ['[data-tour="home-goal"]'],
+    title: "이번 달 목표",
+    body: "만날 고객 수와 가입 보험료 목표를 정하면 달성률을 자동으로 계산해 드려요. 목표 수정을 눌러 언제든 바꿀 수 있어요.",
+  },
+  {
+    key: "home-stats",
+    targets: ['[data-tour="home-stats"]'],
+    title: "이번 달 활동",
+    body: "내 고객, 신규, 미팅, 보험료가 지난달과 비교해 얼마나 늘었는지 보여드려요.",
+  },
+  {
+    key: "home-funnel",
+    targets: ['[data-tour="home-funnel"]'],
+    title: "영업 단계별 고객",
+    body: "DB, TA, FA, 청약 단계에 고객이 몇 명씩 있는지 한눈에 보여요. 단계를 누르면 그 단계 고객으로 바로 이동해요.",
+  },
+  {
+    key: "home-trend",
+    targets: ['[data-tour="home-trend"]'],
+    title: "월별 보험료 추이",
+    body: "최근 실적 흐름을 막대로 보여드려요. 목표선과 평균선으로 이번 달 위치를 잡을 수 있어요.",
+  },
+  {
+    key: "home-today",
+    targets: ['[data-tour="home-today"]'],
+    title: "오늘의 일정 · 할 일",
+    body: "오늘 잡힌 미팅과 할 일만 모아 보여드려요.",
+  },
+  {
+    key: "home-calendar",
+    targets: ['[data-tour="home-calendar"]'],
+    title: "달력",
+    body: "미팅, 생일, 만기, 업무 일정이 색깔 점으로 표시돼요. 날짜를 누르면 그날 일정이 열려요.",
+  },
+  {
+    key: "home-retention",
+    targets: ['[data-tour="home-retention"]'],
+    title: "보유계약 유지현황",
+    body: "고객 계약이 몇 회차까지 유지되는지 모아 보여드려요. 13회차, 25회차가 가까운 계약을 미리 챙길 수 있어요.",
   },
   {
     key: "customers",
@@ -38,10 +82,16 @@ export const TOUR_STEPS: readonly TourStep[] = [
     body: "고객을 등록하면 DB, TA, FA, 청약 단계로 나눠 관리할 수 있어요. 연락할 때가 된 고객도 알려드려요.",
   },
   {
-    key: "analysis",
-    targets: ['[data-tour="nav-analysis"]', '[data-tour="tab-analysis"]'],
-    title: "분석",
-    body: "고객 증권을 올리면 보장을 같은 기준으로 자동 정리해 드려요. 부족한 보장은 색으로 바로 보여요.",
+    key: "sales",
+    targets: ['[data-tour="nav-sales"]'],
+    title: "영업",
+    body: "고객 영업과 설계사 영업을 여기서 시작해요. 오늘 전화할 고객도 골라드려요.",
+  },
+  {
+    key: "call-list",
+    targets: ['[data-tour="nav-call-list"]'],
+    title: "오늘 전화",
+    body: "생일, 만기, 오래 연락하지 못한 고객 순서로 오늘 전화할 고객을 골라드려요.",
   },
   {
     key: "schedule",
@@ -50,10 +100,52 @@ export const TOUR_STEPS: readonly TourStep[] = [
     body: "상담 예약 요청과 개인 일정을 달력 하나로 관리해요. 고객이 예약하면 여기로 알려드려요.",
   },
   {
-    key: "sales",
-    targets: ['[data-tour="nav-sales"]'],
-    title: "영업",
-    body: "고객 영업과 설계사 영업을 여기서 시작해요. 오늘 전화할 고객도 골라드려요.",
+    key: "analysis",
+    targets: ['[data-tour="nav-analysis"]', '[data-tour="tab-analysis"]'],
+    title: "분석",
+    body: "고객 증권을 올리면 보장을 같은 기준으로 자동 정리해 드려요. 부족한 보장은 색으로 바로 보여요.",
+  },
+  {
+    key: "scripts",
+    targets: ['[data-tour="nav-scripts"]'],
+    title: "화법",
+    body: "상황별 상담 화법을 모아뒀어요. 그대로 복사해서 바로 쓸 수 있어요.",
+  },
+  {
+    key: "settings",
+    targets: ['[data-tour="nav-settings"]'],
+    title: "기준",
+    body: "넉넉, 적정, 부족 표시에 쓰는 보장 기준을 설계사님이 직접 정하는 곳이에요.",
+  },
+  {
+    key: "board",
+    targets: ['[data-tour="nav-board"]'],
+    title: "게시판",
+    body: "공지사항과 자주 묻는 질문을 보고, 궁금한 점은 1:1 문의로 보낼 수 있어요.",
+  },
+  {
+    key: "promotion",
+    targets: ['[data-tour="nav-promotion"]'],
+    title: "판촉물",
+    body: "명함, 달력 같은 판촉물을 신청하면 제작해서 보내드려요.",
+  },
+  {
+    key: "notifications",
+    targets: ['[data-tour="nav-notifications"]'],
+    title: "알림",
+    body: "생일, 만기, 예약 요청 같은 소식이 오면 여기에 모여요.",
+  },
+  {
+    key: "manager",
+    targets: ['[data-tour="nav-manager"]'],
+    title: "관리직 KPI",
+    body: "팀원이 공유에 동의한 활동 흐름을 모아 볼 수 있어요.",
+  },
+  {
+    key: "more",
+    targets: ['[data-tour="tab-more"]'],
+    title: "더보기",
+    body: "영업, 화법, 기준, 게시판, 판촉물 같은 나머지 메뉴는 여기에 모여 있어요.",
   },
   {
     key: "self-diagnosis",
@@ -129,7 +221,7 @@ export function AppTour({ onDone }: { onDone: () => void }) {
       const r = el.getBoundingClientRect();
       setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
     };
-    el.scrollIntoView({ block: "nearest" });
+    el.scrollIntoView({ block: "center" });
     measure();
     window.addEventListener("resize", measure);
     window.addEventListener("scroll", measure, true);
