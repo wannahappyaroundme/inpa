@@ -260,7 +260,9 @@ class CustomerHeatmapView(APIView):
                 })
             tree.append({
                 'category_id': cat.id,
-                'name': cat.name,
+                # [표준] 은 seed_normalization 의 멱등 마커(내부 키) — 화면 노출 금지.
+                # /s 공유 payload(insurances/views.py)와 동일한 removeprefix 규칙.
+                'name': cat.name.removeprefix('[표준]'),
                 # 표시용 라벨(공통/생명보험/손해보험) — 원시 정수 코드가 아닌 사람이 읽는 분류명.
                 'insurance_type': cat.get_insurance_type_display(),
                 'sub_categories': sub_nodes,

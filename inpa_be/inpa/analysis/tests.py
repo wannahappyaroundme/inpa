@@ -290,6 +290,22 @@ class HeatmapNeutralGateTests(TestCase):
         held = body['tree'][0]['sub_categories'][0]['details'][0]['held_amount']
         self.assertEqual(held, 50000000)
 
+    def test_heatmap_strips_std_marker_from_category_name(self):
+        """[표준] 시드 마커는 내부 멱등 키 — 화면(트리 payload)에는 노출 금지.
+
+        /s 공유 payload(insurances/views.py)는 이미 removeprefix 하고 있으므로
+        heatmap 트리도 같은 규칙을 따른다(마커가 사용자 화면에 그대로 보이던 회귀).
+        """
+        cat = AnalysisCategory.objects.create(
+            insurance_type=2, name='[표준]진단-암', order=2)
+        AnalysisSubCategory.objects.create(
+            insurance_type=2, category=cat, name='일반암', order=1)
+        r = self._get()
+        names = [c['name'] for c in r.json()['tree']]
+        self.assertIn('진단-암', names)
+        for name in names:
+            self.assertFalse(name.startswith('[표준]'), name)
+
     @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
     def test_heatmap_skips_legacy_confirmed_policy_with_unknown_assurance(self):
         self.ci.review_status = 'confirmed'
