@@ -166,7 +166,13 @@ export default function HomePage() {
 
   // 첫 로그인 화면 안내(투어): 프로필에 완료 기록이 없으면 자동 시작.
   // /home?tour=1 로 들어오면 다시 보기(설정 > 계정에서 재실행).
+  // ★ 대시보드 카드가 로딩 중일 때 열면 그 단계들이 건너뛰어지므로,
+  //   자격만 기록해 두고 카드 데이터(dash·insights)가 준비된 뒤에 연다.
+  const [tourEligible, setTourEligible] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+  useEffect(() => {
+    if (tourEligible && ((dash && insights) || loadFailed)) setTourOpen(true);
+  }, [tourEligible, dash, insights, loadFailed]);
 
   useEffect(() => {
     if (!ready) return;
@@ -176,7 +182,7 @@ export default function HomePage() {
         setProfile(p);
         const forced = typeof window !== "undefined" &&
           new URLSearchParams(window.location.search).get("tour") === "1";
-        if (forced || !p.tour_completed_at) setTourOpen(true);
+        if (forced || !p.tour_completed_at) setTourEligible(true);
       })
       .catch(() => setLoadFailed(true)); // 401(토큰 만료)은 api.ts가 로그인으로 이동 → 배너는 그 외 실패용
     listCustomers({ page: 1 })
@@ -338,7 +344,7 @@ export default function HomePage() {
         {/* ── 1행: 이번 달 목표(8) + 오늘의 일정(4) — 같은 높이(items-stretch) ── */}
         <div className="mt-4 grid grid-cols-12 gap-4 items-stretch">
           {/* 이번 달 목표 + 달성률 게이지 */}
-          <Card className="col-span-12 lg:col-span-8 p-4 sm:p-5 flex flex-col">
+          <Card data-tour="home-goal" className="col-span-12 lg:col-span-8 p-4 sm:p-5 flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <div className="text-[15px] font-bold text-ink">이번 달 목표</div>
               {editGoal ? (
@@ -419,7 +425,7 @@ export default function HomePage() {
           </Card>
 
           {/* 오늘의 일정 · 할 일 — 항상 '금일'만(캘린더 선택과 무관). 목표와 같은 높이 */}
-          <Card className="col-span-12 lg:col-span-4 p-4 sm:p-5 flex flex-col">
+          <Card data-tour="home-today" className="col-span-12 lg:col-span-4 p-4 sm:p-5 flex flex-col">
             <div className="text-[15px] font-bold text-ink mb-3">오늘의 일정 · 할 일</div>
             {todayItems.length > 0 ? (
               <div className="space-y-3.5">
@@ -453,7 +459,7 @@ export default function HomePage() {
           {/* ───── 왼쪽 8칸 ───── */}
           <div className="col-span-12 lg:col-span-8 space-y-4">
             {/* 통계 카드 4개 */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div data-tour="home-stats" className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <StatCard icon={Users} tone="brand" label="내 고객" value={customerCount !== null ? String(customerCount) : "-"} unit="명" />
               <StatCard icon={UserPlus} tone="brand" label="이번 달 신규" value={dash ? String(dash.actual_new_customers) : "-"} unit="명" delta={momDelta("new_customers")} />
               <StatCard icon={CalendarCheck} tone="brand" label="이번 달 미팅" value={dash ? String(dash.actual_meetings) : "-"} unit="건" delta={momDelta("meetings")} />
@@ -462,7 +468,7 @@ export default function HomePage() {
 
             {/* 영업 4단계 파이프라인 */}
             {insights && (
-              <Card className="p-4 sm:p-5">
+              <Card data-tour="home-funnel" className="p-4 sm:p-5">
                 <SectionTitle
                   title="영업 단계별 고객"
                   action={
@@ -518,7 +524,7 @@ export default function HomePage() {
 
           {/* 우 4: 월별 보험료 추이 — 좌측(통계+단계) 높이만큼 채움 */}
           {insights && (
-            <Card className="col-span-12 lg:col-span-4 p-4 sm:p-5 flex flex-col min-h-[260px] lg:min-h-0">
+            <Card data-tour="home-trend" className="col-span-12 lg:col-span-4 p-4 sm:p-5 flex flex-col min-h-[260px] lg:min-h-0">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-[15px] font-bold text-ink">월별 보험료 추이</div>
                 <div className="flex gap-1">
@@ -545,7 +551,7 @@ export default function HomePage() {
           {/* 좌 8: 캘린더 + 무료 보장점검(셀프진단) 링크 */}
           <div className="col-span-12 lg:col-span-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* 캘린더(실제 월·미팅·일정) */}
-            <Card className="p-4 sm:p-5">
+            <Card data-tour="home-calendar" className="p-4 sm:p-5">
                 <div className="flex items-center justify-between mb-3">
                   <button onClick={() => shiftMonth(-1)} className="w-8 h-8 rounded-lg hover:bg-surface2 text-ink2 text-[18px]">‹</button>
                   <div className="text-[16px] font-bold text-ink">{viewY}년 {viewM}월</div>
@@ -608,7 +614,7 @@ export default function HomePage() {
             {/* 보유계약 유지현황(도넛) → 클릭 시 유지 회차 타이머. flex-1로 레일 잔여 높이 흡수(캘린더 높이 맞춤) */}
             {insights && (
               <button onClick={() => router.push("/churn-radar")} className="block w-full text-left flex-1">
-                <Card className="p-4 sm:p-5 hover:shadow-cardhover transition h-full flex flex-col">
+                <Card data-tour="home-retention" className="p-4 sm:p-5 hover:shadow-cardhover transition h-full flex flex-col">
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-[15px] font-bold text-ink">보유계약 유지현황</div>
                     <span className="text-[12px] font-semibold text-brand">회차 타이머 →</span>
@@ -733,7 +739,7 @@ export default function HomePage() {
       )}
 
       {/* 첫 로그인 화면 안내(스포트라이트 투어) — 완료 기록 없거나 ?tour=1 재실행 */}
-      {tourOpen && profile && <AppTour onDone={() => setTourOpen(false)} />}
+      {tourOpen && profile && <AppTour onDone={() => { setTourOpen(false); setTourEligible(false); }} />}
     </div>
   );
 }

@@ -147,7 +147,7 @@ export function BottomNav({
               </Link>
             );
           })}
-          <button type="button" onClick={() => setMoreOpen(true)} className={`relative ${tabCls(moreActive)}`}>
+          <button type="button" data-tour="tab-more" onClick={() => setMoreOpen(true)} className={`relative ${tabCls(moreActive)}`}>
             {moreBadge > 0 && (
               <span className="absolute top-1 right-[22%] min-w-[16px] h-[16px] px-1 rounded-full bg-danger text-white text-[9px] font-bold flex items-center justify-center tnum">
                 {moreBadge > 99 ? "99+" : moreBadge}
