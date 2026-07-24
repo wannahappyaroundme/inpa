@@ -11,6 +11,7 @@ import { AppNav } from "@/components/app-nav";
 import { Card, StatCard, SectionTitle } from "@/components/ui";
 import { BarChart, DonutChart } from "@/components/charts";
 import { SelfDiagnosisShare } from "@/components/self-diagnosis-share";
+import { AppTour } from "@/components/app-tour";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listCustomers, getProfile, listMeetings,
@@ -163,12 +164,19 @@ export default function HomePage() {
     setReloadKey((k) => k + 1);
   }
 
+  // 첫 로그인 화면 안내(투어): 프로필에 완료 기록이 없으면 자동 시작.
+  // /home?tour=1 로 들어오면 다시 보기(설정 > 계정에서 재실행).
+  const [tourOpen, setTourOpen] = useState(false);
+
   useEffect(() => {
     if (!ready) return;
     getProfile()
       .then((p) => {
         if (!p.onboarding_completed_at) { router.replace("/onboarding"); return; }
         setProfile(p);
+        const forced = typeof window !== "undefined" &&
+          new URLSearchParams(window.location.search).get("tour") === "1";
+        if (forced || !p.tour_completed_at) setTourOpen(true);
       })
       .catch(() => setLoadFailed(true)); // 401(토큰 만료)은 api.ts가 로그인으로 이동 → 배너는 그 외 실패용
     listCustomers({ page: 1 })
@@ -723,6 +731,9 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      {/* 첫 로그인 화면 안내(스포트라이트 투어) — 완료 기록 없거나 ?tour=1 재실행 */}
+      {tourOpen && profile && <AppTour onDone={() => setTourOpen(false)} />}
     </div>
   );
 }

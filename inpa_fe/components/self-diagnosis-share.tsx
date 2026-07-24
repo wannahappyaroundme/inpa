@@ -55,6 +55,7 @@ export function SelfDiagnosisShare({
 
   return (
     <Card
+      data-tour="self-diagnosis-card"
       className={`${compact ? "p-3.5" : "px-4 py-5"}${fill ? " h-full flex flex-col" : ""}`}
     >
       <div className="text-[15px] font-bold text-ink">

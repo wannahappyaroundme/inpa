@@ -19,6 +19,7 @@ urlpatterns = [
          name='manager-promotion-ack'),
     path('withdraw/', views.WithdrawView.as_view(), name='withdraw'),
     path('onboarding/attest/', views.OnboardingAttestView.as_view(), name='onboarding-attest'),
+    path('tour/complete/', views.TourCompleteView.as_view(), name='tour-complete'),
     # ── 구글 연동 ──
     path('google/', views.GoogleLoginView.as_view(), name='google-login'),
     path('google/calendar/connect/', views.GoogleCalendarConnectView.as_view(), name='google-calendar-connect'),

@@ -69,6 +69,8 @@ class Profile(models.Model):
     license_no = models.CharField(max_length=50, null=True, blank=True)
     career_years = models.IntegerField(null=True, blank=True)
     onboarding_completed_at = models.DateTimeField(null=True, blank=True)
+    # 첫 로그인 화면 안내(스포트라이트 투어) 완료 시각 — null = 아직 안 봄
+    tour_completed_at = models.DateTimeField(null=True, blank=True)
 
     # ── 계정 상태 (휴면) ────────────────────────────────────
     is_admin = models.BooleanField(default=False)     # 관리자 bypass 게이트

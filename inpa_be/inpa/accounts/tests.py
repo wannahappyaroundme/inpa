@@ -982,3 +982,38 @@ class IntroCardDailyCapTests(TestCase):
         self.assertEqual(r.status_code, 201, r.content)
         self.assertTrue(self.Customer.objects.filter(
             owner=self.planner, lead_source=self.Customer.LEAD_INTRODUCTION).exists())
+
+
+class TourCompleteTests(TestCase):
+    """첫 로그인 화면 안내(투어) 완료 기록 — 멱등 + 프로필 노출."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(email='tour@test.com', password='pw12345!')
+        self.user.is_active = True
+        self.user.save(update_fields=['is_active'])
+        Profile.objects.create(user=self.user, email_verified_at=timezone.now())
+        self.c = APIClient()
+        self.c.force_authenticate(user=self.user)
+
+    def test_requires_auth(self):
+        anon = APIClient()
+        r = anon.post('/api/v1/auth/tour/complete/')
+        self.assertIn(r.status_code, (401, 403))
+
+    def test_marks_completion_once_and_is_idempotent(self):
+        r1 = self.c.post('/api/v1/auth/tour/complete/')
+        self.assertEqual(r1.status_code, 200, r1.content)
+        first = r1.json()['tour_completed_at']
+        self.assertIsNotNone(first)
+        # 재호출해도 최초 시각 유지(다시 보기 재실행이 지표를 덮어쓰지 않는다)
+        r2 = self.c.post('/api/v1/auth/tour/complete/')
+        self.assertEqual(r2.json()['tour_completed_at'], first)
+
+    def test_profile_exposes_flag_and_it_is_read_only(self):
+        r = self.c.get('/api/v1/auth/profile/')
+        self.assertIsNone(r.json()['tour_completed_at'])
+        # PATCH 로는 못 바꾼다(read-only)
+        self.c.patch('/api/v1/auth/profile/',
+                     {'tour_completed_at': '2026-01-01T00:00:00Z'}, format='json')
+        r = self.c.get('/api/v1/auth/profile/')
+        self.assertIsNone(r.json()['tour_completed_at'])
