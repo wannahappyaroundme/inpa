@@ -38,11 +38,11 @@ test("증권 비교 화면은 여러 증권의 중립 시각 비교로 설명한
 
 test("각 제품 화면은 원본 이미지 비율을 제공한다", () => {
   const expectedDimensions = [
-    [1200, 570],
-    [1200, 525],
-    [1440, 1089],
-    [1440, 442],
-    [1440, 590],
+    [2880, 1800],
+    [2880, 1800],
+    [2880, 1800],
+    [2880, 1800],
+    [2880, 1800],
   ];
 
   assert.deepEqual(
@@ -84,10 +84,10 @@ test("제품 탭과 확대 제목은 화면별 고유 ID를 가진다", () => {
   });
 });
 
-test("고객관리 화면은 개인정보 보호 처리 안내를 포함한다", () => {
+test("고객관리 화면은 가상 인물 데이터라 보호 처리 안내가 필요 없다", () => {
   const customers = PRODUCT_SCREENS.find(({ id }) => id === "customers");
 
-  assert.equal(customers?.privacyNote, "일부 개인정보 보호 처리");
+  assert.equal(customers?.privacyNote, undefined);
 });
 
 test("핵심 사실과 사용 흐름 수를 고정한다", () => {
