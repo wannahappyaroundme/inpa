@@ -79,7 +79,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     key: "customers",
     targets: ['[data-tour="nav-customers"]', '[data-tour="tab-customers"]'],
     title: "고객",
-    body: "고객을 등록하면 DB, TA, FA, 청약 단계로 나눠 관리할 수 있어요. 연락할 때가 된 고객도 알려드려요.",
+    body: "고객을 등록하면 DB, TA, FA, 청약 단계로 나눠 관리할 수 있어요. 상담 내용은 고객마다 메모 여러 개로 남기고, 연락할 때가 된 고객도 알려드려요.",
   },
   {
     key: "sales",
