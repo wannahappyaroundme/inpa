@@ -196,6 +196,7 @@ function customer(overrides: Partial<CustomerDetail> = {}): CustomerDetail {
 
 function profile(): ProfileResponse {
   return {
+    tour_completed_at: "2026-07-01T00:00:00Z",
     email: "planner@inpa.test",
     name: "인파 설계사",
     phone: "010-0000-0000",
