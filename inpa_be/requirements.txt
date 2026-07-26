@@ -16,6 +16,7 @@ numpy==1.24.4
 numpy-financial==1.0.0
 python-dateutil==2.9.0.post0
 Pillow==12.3.0
+av==18.0.0             # 상담 녹음 컨테이너·재생시간 서버 검증
 
 # 운영
 celery[redis]==5.6.3       # 보험증권 검토 작업 큐(JSON 메시지만 허용)
