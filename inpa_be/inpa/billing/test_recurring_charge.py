@@ -204,10 +204,14 @@ class RecurringChargeTests(TestCase):
         )
 
         before = timezone.now()
-        with self.captureOnCommitCallbacks(execute=True):
-            result = charge_order(order.id, client=provider)
+        with mock.patch(
+            'inpa.billing.recurring._schedule_unknown_reconciliation',
+        ) as schedule_reconciliation:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = charge_order(order.id, client=provider)
 
         self.assertEqual(result.status, 'unknown')
+        schedule_reconciliation.assert_called_once_with(order.id)
         self.assertGreaterEqual(
             result.temporary_access_until,
             before + timedelta(hours=23, minutes=59),
