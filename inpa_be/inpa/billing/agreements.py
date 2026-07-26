@@ -14,6 +14,9 @@ from django.core import signing
 from django.db import transaction
 from django.utils import timezone
 
+from inpa.analytics.events import log_billing_event
+from inpa.analytics.models import NorthStarEvent
+
 from .calendar import new_anchor, period_for
 from .coupons import CouponError, redeem_held_coupon
 from .kicc import (
@@ -232,7 +235,7 @@ def confirm_first_charge(
             **reconfirmation_snapshot(agreement),
             'card_label': token.display_label,
         }
-        consent, _ = RecurringPaymentConsent.objects.get_or_create(
+        consent, created = RecurringPaymentConsent.objects.get_or_create(
             agreement=agreement,
             kind='first_charge',
             charge_date=agreement.next_charge_date,
@@ -249,6 +252,19 @@ def confirm_first_charge(
                 'user_agent_hash': user_agent_hash,
             },
         )
+        if created:
+            days_before = max(
+                (agreement.next_charge_date - timezone.localdate()).days,
+                0,
+            )
+            transaction.on_commit(
+                lambda user=agreement.user, days=days_before:
+                    log_billing_event(
+                        NorthStarEvent.BILLING_RECONFIRMATION_ACCEPTED,
+                        sender=user,
+                        payload={'days_before': days},
+                    )
+            )
         return consent, snapshot
 
 
@@ -365,6 +381,12 @@ def start_card_registration(
         order_id=order_id,
         return_url=return_url,
         device_type=device_type,
+    )
+    log_billing_event(
+        NorthStarEvent.BILLING_CARD_REGISTRATION_STARTED,
+        sender=user,
+        payload={'plan_code': agreement.plan.code},
+        dedupe_hours=1,
     )
     return {
         'already_complete': False,

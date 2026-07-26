@@ -286,6 +286,7 @@ export default function AdminBillingPage() {
           <CountCard label="미확정 결제" value={overview.status.unknown_order_count} note="재결제 없이 조회만 진행하는 건" />
           <CountCard label="결제키 폐기 대기" value={overview.status.revocation_pending_token_count} note="공급자 확인을 기다리는 건" />
           <CountCard label="쿠폰 점유 중" value={overview.status.held_coupon_claim_count} note="카드 등록을 진행하는 15분 점유" />
+          <CountCard label="계측 확인 필요" value={overview.status.terminal_event_gap_count} note="승인 시도 후 10분 넘게 종결 신호가 없는 건" />
         </div>
       </section>
 

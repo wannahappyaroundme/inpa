@@ -33,6 +33,7 @@ function overview() {
       unknown_order_count: 1,
       revocation_pending_token_count: 1,
       held_coupon_claim_count: 2,
+      terminal_event_gap_count: 0,
     },
     environment: {
       card_registration_env: false,

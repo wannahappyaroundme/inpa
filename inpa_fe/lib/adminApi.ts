@@ -143,6 +143,7 @@ export interface AdminBillingOverview {
     unknown_order_count: number;
     revocation_pending_token_count: number;
     held_coupon_claim_count: number;
+    terminal_event_gap_count: number;
   };
   environment: AdminBillingEnvironment;
   settings: AdminBillingSettings;

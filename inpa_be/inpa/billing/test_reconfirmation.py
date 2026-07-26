@@ -8,6 +8,8 @@ from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
+from inpa.analytics.models import NorthStarEvent
+
 from .agreements import (
     confirm_first_charge,
     has_current_reconfirmation,
@@ -142,20 +144,21 @@ class ReconfirmationTests(APITestCase):
             'first_charge_consent_version':
                 FIRST_CHARGE_CONSENT_VERSION,
         }
-        with mock.patch(
-            'inpa.billing.agreements.timezone.now',
-            return_value=now,
-        ):
-            first = self.client.post(
-                '/api/v1/billing/reconfirm/',
-                payload,
-                format='json',
-            )
-            second = self.client.post(
-                '/api/v1/billing/reconfirm/',
-                payload,
-                format='json',
-            )
+        with self.captureOnCommitCallbacks(execute=True):
+            with mock.patch(
+                'inpa.billing.agreements.timezone.now',
+                return_value=now,
+            ):
+                first = self.client.post(
+                    '/api/v1/billing/reconfirm/',
+                    payload,
+                    format='json',
+                )
+                second = self.client.post(
+                    '/api/v1/billing/reconfirm/',
+                    payload,
+                    format='json',
+                )
         self.assertEqual(first.status_code, 200, first.data)
         self.assertEqual(second.status_code, 200, second.data)
         self.assertEqual(first.data['consent_id'], second.data['consent_id'])
@@ -166,6 +169,11 @@ class ReconfirmationTests(APITestCase):
             ).count(),
             1,
         )
+        event = NorthStarEvent.objects.get(
+            sender=self.user,
+            event_type=NorthStarEvent.BILLING_RECONFIRMATION_ACCEPTED,
+        )
+        self.assertEqual(event.payload, {'days_before': 2})
 
         self.client.force_authenticate(self.other)
         response = self.client.post(
@@ -189,3 +197,25 @@ class ReconfirmationTests(APITestCase):
         )
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.data['code'], 'reconfirmation_not_open')
+
+    def test_status_records_reconfirmation_view_once_per_day(self):
+        agreement = self._agreement(
+            charge_date=timezone.localdate() + timedelta(days=3))
+        self.client.force_authenticate(self.user)
+
+        first = self.client.get('/api/v1/billing/status/')
+        second = self.client.get('/api/v1/billing/status/')
+
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(first.data['reconfirmation_required'])
+        self.assertEqual(second.status_code, 200)
+        events = NorthStarEvent.objects.filter(
+            sender=self.user,
+            event_type=NorthStarEvent.BILLING_RECONFIRMATION_VIEWED,
+        )
+        self.assertEqual(events.count(), 1)
+        self.assertEqual(events.get().payload, {'days_before': 3})
+        self.assertEqual(
+            events.get().sender.billing_agreement.pk,
+            agreement.pk,
+        )

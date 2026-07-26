@@ -16,6 +16,7 @@
 """
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from datetime import date
 import hashlib
 import hmac
 from django.shortcuts import get_object_or_404
@@ -26,6 +27,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import redirect
 
+from inpa.analytics.events import log_billing_event
+from inpa.analytics.models import NorthStarEvent
 from inpa.core.permissions import IsAdmin
 
 from .coupons import CouponError, redeem_coupon
@@ -50,7 +53,7 @@ from .notices import (
     notice_payload,
 )
 from .credit import LimitExceeded  # noqa: F401 — 뷰 사용 예시용 (실제 뷰에서 직접 catch)
-from .models import Plan, Subscription, UsageMeter
+from .models import BillingAgreement, Plan, Subscription, UsageMeter
 from .serializers import (
     AdminSubscriptionPatchSerializer,
     CardRegistrationCompleteSerializer,
@@ -241,6 +244,18 @@ def _registration_gate_response():
     )
 
 
+def _log_trial_started(agreement):
+    return log_billing_event(
+        NorthStarEvent.BILLING_TRIAL_STARTED,
+        sender=agreement.user,
+        payload={
+            'duration_months': agreement.trial_duration_months,
+            'plan_code': agreement.plan.code,
+        },
+        dedupe_hours=1,
+    )
+
+
 class RecurringCouponPreflightView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -262,6 +277,24 @@ class RecurringCouponPreflightView(APIView):
             coupon.duration_months,
             anchor_day=new_anchor(today),
         )
+        log_billing_event(
+            NorthStarEvent.BILLING_COUPON_PREFLIGHTED,
+            sender=request.user,
+            payload={
+                'duration_months': coupon.duration_months,
+                'plan_code': coupon.plan.code,
+            },
+        )
+        if BillingAgreement.objects.filter(
+            user=request.user,
+            status='free',
+        ).exists():
+            log_billing_event(
+                NorthStarEvent.BILLING_RESTART_STARTED,
+                sender=request.user,
+                payload={'source': 'settings'},
+                dedupe_hours=24,
+            )
         return Response({
             'claim_id': str(claim.id),
             'claim_expires_at': claim.expires_at.isoformat(),
@@ -320,7 +353,7 @@ class CardRegistrationCompleteView(APIView):
             data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            complete_card_registration(
+            agreement = complete_card_registration(
                 user=request.user,
                 raw_state=serializer.validated_data['state'],
                 authorization_id=serializer.validated_data[
@@ -330,6 +363,7 @@ class CardRegistrationCompleteView(APIView):
             )
         except (BillingFlowError, CouponError) as exc:
             return _billing_error_response(exc)
+        _log_trial_started(agreement)
         return Response(billing_status(request.user))
 
 
@@ -340,12 +374,13 @@ class CardRegistrationProviderReturnView(APIView):
     def post(self, request):
         raw_state = request.query_params.get('state', '')
         try:
-            complete_card_registration(
+            agreement = complete_card_registration(
                 raw_state=raw_state,
                 authorization_id=request.data.get(
                     'authorizationId', ''),
                 shop_order_no=request.data.get('shopOrderNo', ''),
             )
+            _log_trial_started(agreement)
             outcome = 'success'
         except Exception:
             outcome = 'check'
@@ -359,7 +394,20 @@ class BillingStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response(billing_status(request.user))
+        response = billing_status(request.user)
+        if response.get('reconfirmation_required'):
+            charge_date = response.get('next_charge_date')
+            days_before = (
+                date.fromisoformat(charge_date)
+                - timezone.localdate()
+            ).days
+            log_billing_event(
+                NorthStarEvent.BILLING_RECONFIRMATION_VIEWED,
+                sender=request.user,
+                payload={'days_before': max(days_before, 0)},
+                dedupe_hours=24,
+            )
+        return Response(response)
 
 
 def _request_fingerprint(request, header_name):

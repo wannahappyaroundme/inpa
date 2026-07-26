@@ -7,6 +7,8 @@ from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
+from inpa.analytics.models import NorthStarEvent
+
 from .kicc import IssueKeyResult, RegistrationResult
 from .legal_texts import INITIAL_BILLING_CONSENT_VERSION
 from .models import (
@@ -88,6 +90,14 @@ class CardRegistrationApiTests(APITestCase):
         claim = CouponClaim.objects.get(pk=data['claim_id'])
         self.assertEqual(claim.user, self.user)
         self.assertEqual(claim.status, 'held')
+        event = NorthStarEvent.objects.get(
+            sender=self.user,
+            event_type=NorthStarEvent.BILLING_COUPON_PREFLIGHTED,
+        )
+        self.assertEqual(event.payload, {
+            'duration_months': 1,
+            'plan_code': 'plus',
+        })
 
     @mock.patch('inpa.billing.agreements.KiccBillingClient')
     def test_card_registration_requires_users_own_live_claim(
@@ -126,21 +136,28 @@ class CardRegistrationApiTests(APITestCase):
             },
             format='json',
         ).data
+        self.assertTrue(NorthStarEvent.objects.filter(
+            sender=self.user,
+            event_type=(
+                NorthStarEvent.BILLING_CARD_REGISTRATION_STARTED),
+            payload={'plan_code': 'plus'},
+        ).exists())
         kicc.issue_key.return_value = IssueKeyResult(
             billing_key='plain-provider-billing-key',
             card_brand='신한카드',
             card_last4='7890',
         )
 
-        response = self.client.post(
-            '/api/v1/billing/card-registration/complete/',
-            {
-                'state': start['state'],
-                'authorization_id': 'AUTH-1',
-                'shop_order_no': start['shop_order_no'],
-            },
-            format='json',
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                '/api/v1/billing/card-registration/complete/',
+                {
+                    'state': start['state'],
+                    'authorization_id': 'AUTH-1',
+                    'shop_order_no': start['shop_order_no'],
+                },
+                format='json',
+            )
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['state'], 'trial')
         self.assertEqual(response.data['amount_krw'], 21890)
@@ -152,6 +169,14 @@ class CardRegistrationApiTests(APITestCase):
             coupon=self.coupon, user=self.user).exists())
         self.assertEqual(
             CouponClaim.objects.get(pk=claim_id).status, 'redeemed')
+        trial_event = NorthStarEvent.objects.get(
+            sender=self.user,
+            event_type=NorthStarEvent.BILLING_TRIAL_STARTED,
+        )
+        self.assertEqual(trial_event.payload, {
+            'duration_months': 1,
+            'plan_code': 'plus',
+        })
 
         repeated = self.client.post(
             '/api/v1/billing/card-registration/complete/',

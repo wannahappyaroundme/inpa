@@ -7,6 +7,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from inpa.analytics.models import NorthStarEvent
+
 from .agreements import confirm_first_charge
 from .kicc import ChargeResult
 from .legal_texts import FIRST_CHARGE_CONSENT_VERSION
@@ -108,7 +110,11 @@ class RecurringChargeTests(TestCase):
         order = create_due_order(self.agreement.id, self.due_date)
         provider = mock.Mock()
 
-        result = charge_order(order.id, client=provider)
+        with mock.patch(
+            'inpa.billing.recurring.enqueue_token_revocation',
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                result = charge_order(order.id, client=provider)
 
         self.assertEqual(result.status, 'declined')
         self.assertEqual(
@@ -134,7 +140,8 @@ class RecurringChargeTests(TestCase):
             amount_krw=21890,
         )
 
-        result = charge_order(order.id, client=provider)
+        with self.captureOnCommitCallbacks(execute=True):
+            result = charge_order(order.id, client=provider)
 
         self.assertEqual(result.status, 'approved')
         self.agreement.refresh_from_db()
@@ -159,6 +166,14 @@ class RecurringChargeTests(TestCase):
             subscription.expires_at,
             kst_midnight(date(2026, 8, 8)),
         )
+        event = NorthStarEvent.objects.get(
+            sender=self.user,
+            event_type=NorthStarEvent.BILLING_CHARGE_SUCCEEDED,
+        )
+        self.assertEqual(event.payload, {
+            'cycle_sequence': 1,
+            'plan_code': 'plus',
+        })
 
     def test_repeated_charge_call_uses_the_same_attempt(self):
         self._reconfirm()
@@ -189,7 +204,8 @@ class RecurringChargeTests(TestCase):
         )
 
         before = timezone.now()
-        result = charge_order(order.id, client=provider)
+        with self.captureOnCommitCallbacks(execute=True):
+            result = charge_order(order.id, client=provider)
 
         self.assertEqual(result.status, 'unknown')
         self.assertGreaterEqual(
@@ -203,6 +219,11 @@ class RecurringChargeTests(TestCase):
         self.agreement.refresh_from_db()
         self.assertEqual(
             self.agreement.status, 'past_due_unknown')
+        self.assertTrue(NorthStarEvent.objects.filter(
+            sender=self.user,
+            event_type=NorthStarEvent.BILLING_CHARGE_UNKNOWN,
+            payload={'age_bucket': 'under_5m'},
+        ).exists())
         charge_order(order.id, client=provider)
         self.assertEqual(provider.charge.call_count, 1)
 
@@ -215,7 +236,11 @@ class RecurringChargeTests(TestCase):
             code='CARD_DECLINED',
         )
 
-        result = charge_order(order.id, client=provider)
+        with mock.patch(
+            'inpa.billing.recurring.enqueue_token_revocation',
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                result = charge_order(order.id, client=provider)
 
         self.assertEqual(result.status, 'declined')
         self.assertEqual(result.failure_code, 'CARD_DECLINED')
@@ -230,3 +255,16 @@ class RecurringChargeTests(TestCase):
                 agreement=self.agreement).status,
             'revocation_pending',
         )
+        event = NorthStarEvent.objects.get(
+            sender=self.user,
+            event_type=NorthStarEvent.BILLING_CHARGE_DECLINED,
+        )
+        self.assertEqual(event.payload, {
+            'cycle_sequence': 1,
+            'provider_code_enum': 'CARD_DECLINED',
+        })
+        self.assertTrue(NorthStarEvent.objects.filter(
+            sender=self.user,
+            event_type=NorthStarEvent.BILLING_FREE_TRANSITIONED,
+            payload={'reason': 'payment_declined'},
+        ).exists())

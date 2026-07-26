@@ -7,6 +7,9 @@ from zoneinfo import ZoneInfo
 from django.db import transaction
 from django.utils import timezone
 
+from inpa.analytics.events import log_billing_event
+from inpa.analytics.models import NorthStarEvent
+
 from .agreements import (
     BillingFlowError,
     enqueue_token_revocation,
@@ -117,6 +120,7 @@ def project_free_entitlement(
     reason,
     event_key,
 ):
+    was_free = agreement.status == 'free'
     free = Plan.objects.get(code='free')
     subscription, _ = Subscription.objects.select_for_update().get_or_create(
         user=agreement.user,
@@ -141,6 +145,15 @@ def project_free_entitlement(
     agreement.save(update_fields=[
         'status', 'next_charge_date', 'updated_at'])
     _notice(agreement.user, reason=reason, event_key=event_key)
+    if not was_free:
+        transaction.on_commit(
+            lambda user=agreement.user, transition_reason=reason:
+                log_billing_event(
+                    NorthStarEvent.BILLING_FREE_TRANSITIONED,
+                    sender=user,
+                    payload={'reason': transition_reason},
+                )
+        )
     return subscription
 
 
@@ -231,6 +244,19 @@ def _decline_without_provider(order_id, failure_code, reason):
             agreement,
             reason=reason,
             event_key=f'payment:{order.pk}:{failure_code}',
+        )
+        transaction.on_commit(
+            lambda user=agreement.user,
+            code=failure_code,
+            sequence=order.cycle_sequence:
+                log_billing_event(
+                    NorthStarEvent.BILLING_CHARGE_DECLINED,
+                    sender=user,
+                    payload={
+                        'provider_code_enum': code,
+                        'cycle_sequence': sequence,
+                    },
+                )
         )
         _queue_token_revocation(token)
         return order
@@ -347,6 +373,19 @@ def charge_order(order_id, *, client=None):
             order.save(update_fields=[
                 'status', 'failure_code', 'updated_at'])
             project_subscription(agreement)
+            transaction.on_commit(
+                lambda user=agreement.user,
+                plan_code=agreement.plan.code,
+                sequence=order.cycle_sequence:
+                    log_billing_event(
+                        NorthStarEvent.BILLING_CHARGE_SUCCEEDED,
+                        sender=user,
+                        payload={
+                            'plan_code': plan_code,
+                            'cycle_sequence': sequence,
+                        },
+                    )
+            )
             return order
 
         if result.kind == 'declined':
@@ -365,6 +404,19 @@ def charge_order(order_id, *, client=None):
                 agreement,
                 reason='payment_declined',
                 event_key=f'payment:{order.pk}:declined',
+            )
+            transaction.on_commit(
+                lambda user=agreement.user,
+                code=result.code,
+                sequence=order.cycle_sequence:
+                    log_billing_event(
+                        NorthStarEvent.BILLING_CHARGE_DECLINED,
+                        sender=user,
+                        payload={
+                            'provider_code_enum': code,
+                            'cycle_sequence': sequence,
+                        },
+                    )
             )
             _queue_token_revocation(token)
             return order
@@ -389,6 +441,14 @@ def charge_order(order_id, *, client=None):
         ])
         _project_temporary_access(
             agreement, order.temporary_access_until)
+        transaction.on_commit(
+            lambda user=agreement.user:
+                log_billing_event(
+                    NorthStarEvent.BILLING_CHARGE_UNKNOWN,
+                    sender=user,
+                    payload={'age_bucket': 'under_5m'},
+                )
+        )
         transaction.on_commit(
             lambda order_id=order.pk:
                 _schedule_unknown_reconciliation(order_id)

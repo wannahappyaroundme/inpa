@@ -52,6 +52,18 @@ class NorthStarEvent(models.Model):
     CTA_CLICK = 'cta_click'
     CONSULTATION_MEMO_CREATED = 'consultation_memo_created'
     CONSULTATION_MEMO_EDITED = 'consultation_memo_edited'
+    # 결제 운영 이벤트. payload는 analytics.events의 필드 허용 목록을 반드시 거친다.
+    # choices에는 넣지 않아 표시용 AlterField 마이그레이션을 만들지 않는다.
+    BILLING_COUPON_PREFLIGHTED = 'billing_coupon_preflighted'
+    BILLING_CARD_REGISTRATION_STARTED = 'billing_card_registration_started'
+    BILLING_TRIAL_STARTED = 'billing_trial_started'
+    BILLING_RECONFIRMATION_VIEWED = 'billing_reconfirmation_viewed'
+    BILLING_RECONFIRMATION_ACCEPTED = 'billing_reconfirmation_accepted'
+    BILLING_CHARGE_SUCCEEDED = 'billing_charge_succeeded'
+    BILLING_CHARGE_DECLINED = 'billing_charge_declined'
+    BILLING_CHARGE_UNKNOWN = 'billing_charge_unknown'
+    BILLING_FREE_TRANSITIONED = 'billing_free_transitioned'
+    BILLING_RESTART_STARTED = 'billing_restart_started'
 
     EVENT_TYPE_CHOICES = (
         (OCR_UPLOAD, '증권 OCR 업로드'),

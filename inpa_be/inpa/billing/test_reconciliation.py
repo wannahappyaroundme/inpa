@@ -6,6 +6,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from inpa.analytics.models import NorthStarEvent
+
 from .kicc import ChargeResult, OperationResult
 from .models import (
     BillingAgreement,
@@ -87,8 +89,9 @@ class ReconciliationTests(TestCase):
         provider.query.return_value = ChargeResult(
             kind='unknown', code='VTIM')
 
-        result = reconcile_unknown_order(
-            self.order.pk, client=provider)
+        with self.captureOnCommitCallbacks(execute=True):
+            result = reconcile_unknown_order(
+                self.order.pk, client=provider)
 
         self.assertEqual(result.status, 'unknown')
         provider.query.assert_called_once()
@@ -103,14 +106,23 @@ class ReconciliationTests(TestCase):
             amount_krw=21890,
         )
 
-        result = reconcile_unknown_order(
-            self.order.pk, client=provider)
+        with self.captureOnCommitCallbacks(execute=True):
+            result = reconcile_unknown_order(
+                self.order.pk, client=provider)
 
         self.assertEqual(result.status, 'approved')
         provider.cancel.assert_not_called()
         self.agreement.refresh_from_db()
         self.assertEqual(self.agreement.status, 'active')
         self.assertEqual(self.agreement.cycle_sequence, 1)
+        event = NorthStarEvent.objects.get(
+            sender=self.user,
+            event_type=NorthStarEvent.BILLING_CHARGE_SUCCEEDED,
+        )
+        self.assertEqual(event.payload, {
+            'cycle_sequence': 1,
+            'plan_code': 'plus',
+        })
 
     def test_approval_found_after_twenty_four_hours_is_canceled(self):
         PaymentOrder.objects.filter(pk=self.order.pk).update(
@@ -128,8 +140,12 @@ class ReconciliationTests(TestCase):
             code='0000',
         )
 
-        result = reconcile_unknown_order(
-            self.order.pk, client=provider)
+        with mock.patch(
+            'inpa.billing.recurring.enqueue_token_revocation',
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                result = reconcile_unknown_order(
+                    self.order.pk, client=provider)
 
         self.assertEqual(result.status, 'canceled')
         provider.cancel.assert_called_once()
@@ -145,8 +161,12 @@ class ReconciliationTests(TestCase):
         provider.query.return_value = ChargeResult(
             kind='unknown', code='VTIM')
 
-        result = reconcile_unknown_order(
-            self.order.pk, client=provider)
+        with mock.patch(
+            'inpa.billing.recurring.enqueue_token_revocation',
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                result = reconcile_unknown_order(
+                    self.order.pk, client=provider)
 
         self.assertEqual(result.status, 'unknown')
         self.assertEqual(
@@ -155,6 +175,11 @@ class ReconciliationTests(TestCase):
             Subscription.objects.get(user=self.user).plan,
             self.free,
         )
+        self.assertTrue(NorthStarEvent.objects.filter(
+            sender=self.user,
+            event_type=NorthStarEvent.BILLING_CHARGE_UNKNOWN,
+            payload={'age_bucket': 'over_24h'},
+        ).exists())
 
     def test_revoke_clears_ciphertext_only_after_provider_approval(self):
         provider = mock.Mock()

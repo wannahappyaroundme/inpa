@@ -49,6 +49,10 @@ class AdminBillingApiTests(APITestCase):
         ):
             self.assertNotIn(forbidden, encoded)
         self.assertIn('unknown_order_count', response.data['status'])
+        self.assertEqual(
+            response.data['status']['terminal_event_gap_count'],
+            0,
+        )
         self.assertIn('environment', response.data)
 
     def test_admin_can_create_one_to_three_month_coupon(self):

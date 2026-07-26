@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+import hashlib
 import uuid
 
 from cryptography.fernet import Fernet
@@ -86,6 +87,21 @@ class CancellationAndNoticeApiTests(APITestCase):
         self.client.force_authenticate(self.user)
 
     def test_cancel_stops_future_charge_and_keeps_data_and_period(self):
+        customer_hash_before = hashlib.sha256(
+            (
+                f'{self.customer.pk}|{self.customer.name}|'
+                f'{self.customer.mobile_phone_number}'
+            ).encode(),
+        ).hexdigest()
+        memo_hash_before = hashlib.sha256(
+            '|'.join(
+                CustomerMemo.objects.filter(
+                    customer=self.customer,
+                    owner=self.user,
+                ).order_by('pk').values_list('body', flat=True)
+            ).encode(),
+        ).hexdigest()
+
         response = self.client.post('/api/v1/billing/cancel/')
 
         self.assertEqual(response.status_code, 200, response.data)
@@ -111,6 +127,23 @@ class CancellationAndNoticeApiTests(APITestCase):
             ).count(),
             2,
         )
+        self.customer.refresh_from_db()
+        customer_hash_after = hashlib.sha256(
+            (
+                f'{self.customer.pk}|{self.customer.name}|'
+                f'{self.customer.mobile_phone_number}'
+            ).encode(),
+        ).hexdigest()
+        memo_hash_after = hashlib.sha256(
+            '|'.join(
+                CustomerMemo.objects.filter(
+                    customer=self.customer,
+                    owner=self.user,
+                ).order_by('pk').values_list('body', flat=True)
+            ).encode(),
+        ).hexdigest()
+        self.assertEqual(customer_hash_after, customer_hash_before)
+        self.assertEqual(memo_hash_after, memo_hash_before)
         status_response = self.client.get('/api/v1/billing/status/')
         self.assertEqual(status_response.status_code, 200)
         self.assertEqual(status_response.data['state'], 'canceled')

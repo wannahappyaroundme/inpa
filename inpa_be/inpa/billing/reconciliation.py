@@ -7,6 +7,9 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from inpa.analytics.events import log_billing_event
+from inpa.analytics.models import NorthStarEvent
+
 from .kicc import (
     ChargeResult,
     KiccBillingClient,
@@ -43,6 +46,16 @@ def _response_hash(result):
             f'{result.provider_transaction_id}|{result.amount_krw}'
         ).encode(),
     ).hexdigest()
+
+
+def _age_bucket(age):
+    if age < timedelta(minutes=5):
+        return 'under_5m'
+    if age < timedelta(minutes=30):
+        return '5m_to_30m'
+    if age < timedelta(hours=24):
+        return '30m_to_24h'
+    return 'over_24h'
 
 
 def _query_snapshot(order_id):
@@ -145,6 +158,19 @@ def reconcile_unknown_order(order_id, *, client=None):
             order.save(update_fields=[
                 'status', 'failure_code', 'updated_at'])
             project_subscription(agreement)
+            transaction.on_commit(
+                lambda user=agreement.user,
+                plan_code=agreement.plan.code,
+                sequence=order.cycle_sequence:
+                    log_billing_event(
+                        NorthStarEvent.BILLING_CHARGE_SUCCEEDED,
+                        sender=user,
+                        payload={
+                            'plan_code': plan_code,
+                            'cycle_sequence': sequence,
+                        },
+                    )
+            )
             return order
 
         if valid_approval and cancel_result.kind == 'approved':
@@ -168,6 +194,19 @@ def reconcile_unknown_order(order_id, *, client=None):
                 agreement,
                 reason='late_approval_canceled',
                 event_key=f'payment:{order.pk}:late-canceled',
+            )
+            transaction.on_commit(
+                lambda user=agreement.user,
+                sequence=order.cycle_sequence:
+                    log_billing_event(
+                        NorthStarEvent.BILLING_CHARGE_DECLINED,
+                        sender=user,
+                        payload={
+                            'provider_code_enum':
+                                'LATE_APPROVAL_CANCELED',
+                            'cycle_sequence': sequence,
+                        },
+                    )
             )
             _queue_token_revocation(token)
             return order
@@ -193,6 +232,19 @@ def reconcile_unknown_order(order_id, *, client=None):
                 reason='payment_declined',
                 event_key=f'payment:{order.pk}:declined',
             )
+            transaction.on_commit(
+                lambda user=agreement.user,
+                code=result.code,
+                sequence=order.cycle_sequence:
+                    log_billing_event(
+                        NorthStarEvent.BILLING_CHARGE_DECLINED,
+                        sender=user,
+                        payload={
+                            'provider_code_enum': code,
+                            'cycle_sequence': sequence,
+                        },
+                    )
+            )
             _queue_token_revocation(token)
             return order
 
@@ -207,6 +259,16 @@ def reconcile_unknown_order(order_id, *, client=None):
             order.failure_code = result.code or 'PAYMENT_UNKNOWN'
             order.save(update_fields=[
                 'failure_code', 'updated_at'])
+        transaction.on_commit(
+            lambda user=agreement.user,
+            bucket=_age_bucket(age):
+                log_billing_event(
+                    NorthStarEvent.BILLING_CHARGE_UNKNOWN,
+                    sender=user,
+                    payload={'age_bucket': bucket},
+                    dedupe_hours=4,
+                )
+        )
         return order
 
 

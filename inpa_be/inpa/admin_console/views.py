@@ -27,6 +27,7 @@ from inpa.analysis.golden_eval import (
     evaluate_golden_set, find_golden_expected,
 )
 from inpa.analysis.models import AnalysisDetail, CoverageFlag, NormalizationDict, UnmatchedLog
+from inpa.analytics.events import billing_terminal_event_gap
 from inpa.billing.gates import (
     card_registration_enabled,
     reconciliation_enabled,
@@ -256,6 +257,8 @@ class AdminBillingOverviewView(APIView):
                         status='revocation_pending').count(),
                 'held_coupon_claim_count':
                     CouponClaim.objects.filter(status='held').count(),
+                'terminal_event_gap_count':
+                    billing_terminal_event_gap(),
             },
             'environment': _billing_environment(),
             'settings': _billing_settings(RuntimeConfig.solo()),
