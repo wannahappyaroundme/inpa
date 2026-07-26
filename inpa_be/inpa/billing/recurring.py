@@ -206,6 +206,11 @@ def _project_temporary_access(agreement, until):
     ])
 
 
+def _schedule_unknown_reconciliation(order_id):
+    from .tasks import schedule_unknown_reconciliation
+    schedule_unknown_reconciliation(order_id)
+
+
 def _decline_without_provider(order_id, failure_code, reason):
     with transaction.atomic():
         order = (
@@ -384,6 +389,10 @@ def charge_order(order_id, *, client=None):
         ])
         _project_temporary_access(
             agreement, order.temporary_access_until)
+        transaction.on_commit(
+            lambda order_id=order.pk:
+                _schedule_unknown_reconciliation(order_id)
+        )
         return order
 
 

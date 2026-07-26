@@ -66,6 +66,22 @@ services:
         value: "False"               # 전용 R2·동의·운영 점검 뒤 파일럿 계정부터 공개
       - key: CONSULTATION_AI_SUMMARY_ENABLED
         value: "False"               # 음성 전사·요약 공급자 설정과 검증 전까지 닫힘
+      - key: BILLING_CARD_REGISTRATION_ENABLED
+        value: "False"               # KICC 계약·실거래 검증과 PM 승인 전까지 카드 등록 닫힘
+      - key: BILLING_RECURRING_CHARGE_ENABLED
+        value: "False"               # 첫 결제 E2E·대사 검증 전까지 자동 승인 닫힘
+      - key: BILLING_WEBHOOK_RECONCILIATION_ENABLED
+        value: "False"               # KICC 조회·취소 운영 검증 전까지 정기결제 공개 닫힘
+      - key: KICC_MALL_ID
+        sync: false
+      - key: KICC_CLIENT_SECRET
+        sync: false
+      - key: KICC_API_BASE_URL
+        sync: false
+      - key: PAYMENT_TOKEN_ENCRYPTION_KEY
+        sync: false                  # Fernet 키. 분실 시 기존 결제키를 복호화할 수 없음
+      - key: PAYMENT_TOKEN_KEY_VERSION
+        value: "v1"
       - key: CONSULTATION_SUMMARY_ACTIVE_LIMIT
         value: "1"                   # 여러 서버·워커에서도 DB 잠금으로 동시에 한 건만 처리
       - key: CONSULTATION_SUMMARY_MODEL
@@ -151,6 +167,46 @@ services:
           type: web
           name: inpa-be
           envVarKey: CONSULTATION_AI_SUMMARY_ENABLED
+      - key: BILLING_CARD_REGISTRATION_ENABLED
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: BILLING_CARD_REGISTRATION_ENABLED
+      - key: BILLING_RECURRING_CHARGE_ENABLED
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: BILLING_RECURRING_CHARGE_ENABLED
+      - key: BILLING_WEBHOOK_RECONCILIATION_ENABLED
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: BILLING_WEBHOOK_RECONCILIATION_ENABLED
+      - key: KICC_MALL_ID
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: KICC_MALL_ID
+      - key: KICC_CLIENT_SECRET
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: KICC_CLIENT_SECRET
+      - key: KICC_API_BASE_URL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: KICC_API_BASE_URL
+      - key: PAYMENT_TOKEN_ENCRYPTION_KEY
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: PAYMENT_TOKEN_ENCRYPTION_KEY
+      - key: PAYMENT_TOKEN_KEY_VERSION
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: PAYMENT_TOKEN_KEY_VERSION
       - key: CONSULTATION_SUMMARY_ACTIVE_LIMIT
         fromService:
           type: web
@@ -322,7 +378,9 @@ services:
     rootDir: inpa_be
     schedule: "*/15 * * * *"
     buildCommand: pip install -r requirements.txt
-    startCommand: python manage.py cleanup_consultation_recordings
+    startCommand: >-
+      python manage.py cleanup_consultation_recordings &&
+      python manage.py run_billing_reconciliation
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings.prod
@@ -363,3 +421,43 @@ services:
           type: web
           name: inpa-be
           envVarKey: CONSULTATION_STORAGE_SECRET_ACCESS_KEY
+      - key: BILLING_CARD_REGISTRATION_ENABLED
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: BILLING_CARD_REGISTRATION_ENABLED
+      - key: BILLING_RECURRING_CHARGE_ENABLED
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: BILLING_RECURRING_CHARGE_ENABLED
+      - key: BILLING_WEBHOOK_RECONCILIATION_ENABLED
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: BILLING_WEBHOOK_RECONCILIATION_ENABLED
+      - key: KICC_MALL_ID
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: KICC_MALL_ID
+      - key: KICC_CLIENT_SECRET
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: KICC_CLIENT_SECRET
+      - key: KICC_API_BASE_URL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: KICC_API_BASE_URL
+      - key: PAYMENT_TOKEN_ENCRYPTION_KEY
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: PAYMENT_TOKEN_ENCRYPTION_KEY
+      - key: PAYMENT_TOKEN_KEY_VERSION
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: PAYMENT_TOKEN_KEY_VERSION
