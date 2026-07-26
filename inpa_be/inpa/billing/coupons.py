@@ -10,12 +10,23 @@
   - 같은 플랜 잔여 기간이 있으면 이어붙여(stack) 만료 시각을 연장.
   - select_for_update로 동시 사용 레이스 차단.
 """
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.utils import timezone
 
-from .models import Coupon, CouponRedemption, Subscription
+from .models import (
+    BillingAgreement,
+    Coupon,
+    CouponClaim,
+    CouponRedemption,
+    PaymentMethodToken,
+    RecurringPaymentConsent,
+    Subscription,
+)
 
 
 class CouponError(Exception):
@@ -33,7 +44,239 @@ _MESSAGES = {
     'exhausted': '이미 모두 사용된 쿠폰이에요.',
     'already': '이미 사용한 쿠폰이에요.',
     'active_plan': '이미 이용 중인 요금제가 있어요. 기간이 끝난 뒤에 사용해 주세요.',
+    'wrong_kind': '카드 등록형 무료 이용 쿠폰을 확인해 주세요.',
+    'card_required': 'CARD_REQUIRED',
+    'consent_required': 'CONSENT_REQUIRED',
+    'claim_expired': '쿠폰 사용 시간이 지났어요. 쿠폰을 다시 확인해 주세요.',
 }
+
+_KST = ZoneInfo('Asia/Seoul')
+
+
+@dataclass(frozen=True)
+class CouponPreview:
+    code: str
+    plan_code: str
+    plan_display_name: str
+    duration_months: int
+    redeem_by: datetime
+
+
+def normalize_code(raw_code):
+    return (raw_code or '').strip().upper()
+
+
+def _get_recurring_coupon(raw_code):
+    code = normalize_code(raw_code)
+    if not code:
+        raise CouponError('not_found', _MESSAGES['not_found'])
+    try:
+        coupon = Coupon.objects.select_related('plan').get(code=code)
+    except Coupon.DoesNotExist:
+        raise CouponError('not_found', _MESSAGES['not_found'])
+    if coupon.coupon_kind != 'recurring_trial':
+        raise CouponError('wrong_kind', _MESSAGES['wrong_kind'])
+    reason = coupon.redeemable_reason()
+    if reason:
+        raise CouponError(reason, _MESSAGES.get(reason, _MESSAGES['inactive']))
+    return coupon
+
+
+def _validate_user_can_claim(coupon, user):
+    if CouponRedemption.objects.filter(coupon=coupon, user=user).exists():
+        raise CouponError('already', _MESSAGES['already'])
+    sub = (
+        Subscription.objects.select_related('plan')
+        .filter(user=user)
+        .first()
+    )
+    if (
+        sub
+        and sub.plan.code != 'free'
+        and sub.status in ('active', 'trial')
+        and (sub.expires_at is None or sub.expires_at > timezone.now())
+    ):
+        raise CouponError('active_plan', _MESSAGES['active_plan'])
+
+
+def preflight_recurring_coupon(user, raw_code):
+    coupon = _get_recurring_coupon(raw_code)
+    _validate_user_can_claim(coupon, user)
+    return CouponPreview(
+        code=coupon.code,
+        plan_code=coupon.plan.code,
+        plan_display_name=coupon.plan.display_name,
+        duration_months=coupon.duration_months,
+        redeem_by=coupon.redeem_by,
+    )
+
+
+def release_expired_claims(coupon, now=None):
+    now = now or timezone.now()
+    return CouponClaim.objects.filter(
+        coupon=coupon,
+        status='held',
+        expires_at__lte=now,
+    ).update(status='expired')
+
+
+def hold_recurring_coupon(user, raw_code):
+    code = normalize_code(raw_code)
+    if not code:
+        raise CouponError('not_found', _MESSAGES['not_found'])
+    now = timezone.now()
+    with transaction.atomic():
+        try:
+            coupon = (
+                Coupon.objects.select_for_update()
+                .select_related('plan')
+                .get(code=code)
+            )
+        except Coupon.DoesNotExist:
+            raise CouponError('not_found', _MESSAGES['not_found'])
+        if coupon.coupon_kind != 'recurring_trial':
+            raise CouponError('wrong_kind', _MESSAGES['wrong_kind'])
+        release_expired_claims(coupon, now)
+        reason = coupon.redeemable_reason(now)
+        if reason:
+            raise CouponError(
+                reason, _MESSAGES.get(reason, _MESSAGES['inactive']))
+        _validate_user_can_claim(coupon, user)
+        existing = CouponClaim.objects.filter(
+            coupon=coupon,
+            user=user,
+            status__in=('held', 'redeemed'),
+        ).first()
+        if existing:
+            return existing
+        active_claims = CouponClaim.objects.filter(
+            coupon=coupon,
+            status__in=('held', 'redeemed'),
+        ).count()
+        if active_claims >= coupon.max_redemptions:
+            raise CouponError('exhausted', _MESSAGES['exhausted'])
+        try:
+            return CouponClaim.objects.create(
+                coupon=coupon,
+                user=user,
+                status='held',
+                expires_at=now + timedelta(minutes=15),
+                policy_snapshot={
+                    'coupon_code': coupon.code,
+                    'plan_code': coupon.plan.code,
+                    'duration_months': coupon.duration_months,
+                    'redeem_by': coupon.redeem_by.isoformat(),
+                },
+            )
+        except IntegrityError:
+            existing = CouponClaim.objects.filter(
+                coupon=coupon,
+                user=user,
+                status__in=('held', 'redeemed'),
+            ).first()
+            if existing:
+                return existing
+            raise
+
+
+def _exclusive_kst_midnight(local_date):
+    return timezone.make_aware(
+        datetime.combine(local_date, time.min),
+        timezone=_KST,
+    )
+
+
+def redeem_held_coupon(claim, agreement):
+    claim_id = getattr(claim, 'pk', claim)
+    agreement_id = getattr(agreement, 'pk', agreement)
+    now = timezone.now()
+    with transaction.atomic():
+        locked_claim = (
+            CouponClaim.objects.select_for_update()
+            .select_related('coupon__plan', 'user')
+            .get(pk=claim_id)
+        )
+        locked_agreement = (
+            BillingAgreement.objects.select_for_update()
+            .select_related('plan', 'user')
+            .get(pk=agreement_id)
+        )
+        if locked_claim.user_id != locked_agreement.user_id:
+            raise CouponError('not_found', _MESSAGES['not_found'])
+        if (
+            locked_claim.status != 'held'
+            or locked_claim.expires_at <= now
+        ):
+            if locked_claim.status == 'held':
+                locked_claim.status = 'expired'
+                locked_claim.save(update_fields=['status'])
+            raise CouponError('claim_expired', _MESSAGES['claim_expired'])
+
+        coupon = locked_claim.coupon
+        reason = coupon.redeemable_reason(now)
+        if reason:
+            raise CouponError(
+                reason, _MESSAGES.get(reason, _MESSAGES['inactive']))
+        if not PaymentMethodToken.objects.filter(
+                agreement=locked_agreement, status='active').exists():
+            raise CouponError(
+                'card_required', _MESSAGES['card_required'])
+        if not RecurringPaymentConsent.objects.filter(
+                agreement=locked_agreement,
+                kind='trial_start').exists():
+            raise CouponError(
+                'consent_required', _MESSAGES['consent_required'])
+        if (
+            locked_agreement.plan_id != coupon.plan_id
+            or locked_agreement.trial_duration_months
+            != coupon.duration_months
+        ):
+            raise CouponError('policy_changed', 'POLICY_CHANGED')
+        if CouponRedemption.objects.filter(
+                coupon=coupon, user=locked_claim.user).exists():
+            raise CouponError('already', _MESSAGES['already'])
+
+        expires_at = _exclusive_kst_midnight(
+            locked_agreement.next_charge_date)
+        subscription, _ = Subscription.objects.select_for_update().get_or_create(
+            user=locked_claim.user,
+            defaults={
+                'plan': coupon.plan,
+                'status': 'trial',
+                'expires_at': expires_at,
+            },
+        )
+        subscription.plan = coupon.plan
+        subscription.status = 'trial'
+        subscription.expires_at = expires_at
+        subscription.cancelled_at = None
+        subscription.auto_renew = True
+        subscription.next_billing_at = expires_at
+        subscription.save(update_fields=[
+            'plan',
+            'status',
+            'expires_at',
+            'cancelled_at',
+            'auto_renew',
+            'next_billing_at',
+        ])
+        CouponRedemption.objects.create(
+            coupon=coupon,
+            user=locked_claim.user,
+            granted_until=expires_at,
+        )
+        Coupon.objects.filter(pk=coupon.pk).update(
+            redeemed_count=F('redeemed_count') + 1)
+        locked_claim.status = 'redeemed'
+        locked_claim.redeemed_at = now
+        locked_claim.save(update_fields=['status', 'redeemed_at'])
+
+    return {
+        'plan_code': coupon.plan.code,
+        'plan_display_name': coupon.plan.display_name,
+        'expires_at': expires_at.isoformat(),
+        'duration_months': coupon.duration_months,
+    }
 
 
 def redeem_coupon(user, raw_code):
@@ -42,7 +285,7 @@ def redeem_coupon(user, raw_code):
     반환: {plan_code, plan_display_name, expires_at(iso), duration_days}
     실패: CouponError(code) — not_found/inactive/expired/exhausted/already.
     """
-    code = (raw_code or '').strip().upper()
+    code = normalize_code(raw_code)
     if not code:
         raise CouponError('not_found', _MESSAGES['not_found'])
 
@@ -52,6 +295,9 @@ def redeem_coupon(user, raw_code):
             coupon = Coupon.objects.select_for_update().select_related('plan').get(code=code)
         except Coupon.DoesNotExist:
             raise CouponError('not_found', _MESSAGES['not_found'])
+
+        if coupon.coupon_kind != 'legacy_grant':
+            raise CouponError('wrong_kind', _MESSAGES['wrong_kind'])
 
         reason = coupon.redeemable_reason(now)
         if reason:
