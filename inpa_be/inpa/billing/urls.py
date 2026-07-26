@@ -21,6 +21,7 @@ from .views import (
     CardRegistrationProviderReturnView,
     CardRegistrationStartView,
     CouponRedeemView,
+    FirstChargeReconfirmationView,
     PlanListView,
     RecurringCouponPreflightView,
 )
@@ -54,6 +55,11 @@ urlpatterns = [
         name='card-registration-provider-return',
     ),
     path('billing/status/', BillingStatusView.as_view(), name='billing-status'),
+    path(
+        'billing/reconfirm/',
+        FirstChargeReconfirmationView.as_view(),
+        name='billing-reconfirm',
+    ),
 
     # 관리자 전용
     path('admin/billing/mode/', AdminBillingModeView.as_view(), name='admin-billing-mode'),

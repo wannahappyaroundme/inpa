@@ -12,3 +12,11 @@ INITIAL_BILLING_CONSENT = {
 }
 
 FIRST_CHARGE_CONSENT_VERSION = 'v1-2026-07-26'
+FIRST_CHARGE_CONSENT = {
+    'title': '첫 결제 내용 확인',
+    'items': [
+        '표시된 날짜에 표시된 금액을 등록한 카드로 결제합니다.',
+        '결제가 완료되면 한 달 이용 기간이 이어집니다.',
+        '설정의 결제 메뉴에서 언제든 다음 결제를 멈출 수 있습니다.',
+    ],
+}

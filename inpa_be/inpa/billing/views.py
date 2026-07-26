@@ -16,6 +16,8 @@
 """
 from django.conf import settings
 from django.contrib.auth import get_user_model
+import hashlib
+import hmac
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -32,6 +34,7 @@ from .agreements import (
     BillingFlowError,
     billing_status,
     complete_card_registration,
+    confirm_first_charge,
     start_card_registration,
 )
 from .gates import card_registration_enabled
@@ -42,6 +45,7 @@ from .serializers import (
     CardRegistrationCompleteSerializer,
     CardRegistrationStartSerializer,
     CouponRedeemSerializer,
+    FirstChargeReconfirmationSerializer,
     PlanSerializer,
     RecurringCouponPreflightSerializer,
 )
@@ -332,6 +336,40 @@ class BillingStatusView(APIView):
 
     def get(self, request):
         return Response(billing_status(request.user))
+
+
+def _request_fingerprint(request, header_name):
+    value = request.META.get(header_name, '')
+    return hmac.new(
+        settings.SECRET_KEY.encode(),
+        value.encode(),
+        hashlib.sha256,
+    ).hexdigest() if value else ''
+
+
+class FirstChargeReconfirmationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = FirstChargeReconfirmationSerializer(
+            data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            consent, snapshot = confirm_first_charge(
+                user=request.user,
+                consent_version=serializer.validated_data[
+                    'first_charge_consent_version'],
+                network_hmac=_request_fingerprint(
+                    request, 'REMOTE_ADDR'),
+                user_agent_hash=_request_fingerprint(
+                    request, 'HTTP_USER_AGENT'),
+            )
+        except BillingFlowError as exc:
+            return _billing_error_response(exc)
+        return Response({
+            'consent_id': consent.pk,
+            **snapshot,
+        })
 
 
 # ─── 관리자 전용 ──────────────────────────────────────────────────

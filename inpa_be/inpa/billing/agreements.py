@@ -1,7 +1,7 @@
 """카드 등록, 무료 시작 동의, 약정 상태 전이."""
 
-from dataclasses import asdict
-from datetime import datetime, time
+from dataclasses import dataclass
+from datetime import datetime, time, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 import hashlib
 import json
@@ -22,6 +22,8 @@ from .kicc import (
     KiccProviderDeclined,
 )
 from .legal_texts import (
+    FIRST_CHARGE_CONSENT,
+    FIRST_CHARGE_CONSENT_VERSION,
     INITIAL_BILLING_CONSENT,
     INITIAL_BILLING_CONSENT_VERSION,
 )
@@ -45,6 +47,12 @@ class BillingFlowError(RuntimeError):
         self.detail = detail
         self.status_code = status_code
         super().__init__(detail)
+
+
+@dataclass(frozen=True)
+class DateTimeRange:
+    opens_at: datetime
+    closes_at: datetime
 
 
 def vat_inclusive_amount(base_amount):
@@ -95,6 +103,153 @@ def _local_midnight(local_date):
         datetime.combine(local_date, time.min),
         timezone=_KST,
     )
+
+
+def reconfirmation_window(agreement):
+    if not agreement.next_charge_date:
+        raise BillingFlowError(
+            'charge_date_missing',
+            '결제 날짜를 다시 확인해 주세요.',
+            status_code=409,
+        )
+    lead_days = 7 if agreement.trial_duration_months == 1 else 30
+    return DateTimeRange(
+        opens_at=_local_midnight(
+            agreement.next_charge_date - timedelta(days=lead_days)),
+        closes_at=_local_midnight(agreement.next_charge_date),
+    )
+
+
+def _active_token(agreement, *, lock=False):
+    queryset = PaymentMethodToken.objects.filter(
+        agreement=agreement,
+        status='active',
+    )
+    if lock:
+        queryset = queryset.select_for_update()
+    token = queryset.first()
+    if not token:
+        raise BillingFlowError(
+            'card_required',
+            '카드를 등록하면 첫 결제 내용을 확인할 수 있어요.',
+            status_code=409,
+        )
+    return token
+
+
+def reconfirmation_snapshot(agreement, *, amount_krw=None):
+    token = _active_token(agreement)
+    return {
+        'consent_version': FIRST_CHARGE_CONSENT_VERSION,
+        'title': FIRST_CHARGE_CONSENT['title'],
+        'items': FIRST_CHARGE_CONSENT['items'],
+        'plan_code': agreement.plan.code,
+        'amount_krw': (
+            vat_inclusive_amount(agreement.plan.price_krw)
+            if amount_krw is None else int(amount_krw)
+        ),
+        'charge_date': agreement.next_charge_date.isoformat(),
+        'card_label': token.display_label,
+        'cancel_path': '/settings/billing',
+        'cancel_effect': agreement.current_period_ends_on.isoformat(),
+    }
+
+
+def has_current_reconfirmation(
+    agreement,
+    charge_date,
+    amount_krw,
+):
+    if not charge_date or agreement.next_charge_date != charge_date:
+        return False
+    try:
+        snapshot = reconfirmation_snapshot(
+            agreement, amount_krw=amount_krw)
+    except BillingFlowError:
+        return False
+    return RecurringPaymentConsent.objects.filter(
+        agreement=agreement,
+        kind='first_charge',
+        consent_version=FIRST_CHARGE_CONSENT_VERSION,
+        plan_code=snapshot['plan_code'],
+        amount_krw=snapshot['amount_krw'],
+        charge_date=charge_date,
+        card_label=snapshot['card_label'],
+        cancel_path=snapshot['cancel_path'],
+        cancel_effect=agreement.current_period_ends_on,
+        display_snapshot_hash=_snapshot_hash(snapshot),
+    ).exists()
+
+
+def confirm_first_charge(
+    *,
+    user,
+    consent_version,
+    network_hmac='',
+    user_agent_hash='',
+):
+    if consent_version != FIRST_CHARGE_CONSENT_VERSION:
+        raise BillingFlowError(
+            'consent_version_changed',
+            '최신 결제 내용을 확인해 주세요.',
+            status_code=409,
+        )
+    with transaction.atomic():
+        agreement = (
+            BillingAgreement.objects.select_for_update()
+            .select_related('plan')
+            .filter(user=user)
+            .first()
+        )
+        if not agreement:
+            raise BillingFlowError(
+                'agreement_not_found',
+                '결제 정보를 다시 확인해 주세요.',
+                status_code=404,
+            )
+        if agreement.status != 'trialing':
+            raise BillingFlowError(
+                'reconfirmation_not_required',
+                '현재 이용 중인 결제 정보를 확인해 주세요.',
+                status_code=409,
+            )
+        token = _active_token(agreement, lock=True)
+        window = reconfirmation_window(agreement)
+        now = timezone.now()
+        if now < window.opens_at:
+            raise BillingFlowError(
+                'reconfirmation_not_open',
+                '확인 시작일이 되면 결제 내용을 확인할 수 있어요.',
+                status_code=409,
+            )
+        if now >= window.closes_at:
+            raise BillingFlowError(
+                'reconfirmation_closed',
+                '현재 이용 상태를 확인한 뒤 결제를 다시 설정해 주세요.',
+                status_code=410,
+            )
+        snapshot = {
+            **reconfirmation_snapshot(agreement),
+            'card_label': token.display_label,
+        }
+        consent, _ = RecurringPaymentConsent.objects.get_or_create(
+            agreement=agreement,
+            kind='first_charge',
+            charge_date=agreement.next_charge_date,
+            display_snapshot_hash=_snapshot_hash(snapshot),
+            defaults={
+                'consent_version': FIRST_CHARGE_CONSENT_VERSION,
+                'plan_code': snapshot['plan_code'],
+                'amount_krw': snapshot['amount_krw'],
+                'card_label': snapshot['card_label'],
+                'cancel_path': snapshot['cancel_path'],
+                'cancel_effect': agreement.current_period_ends_on,
+                'accepted_at': now,
+                'network_hmac': network_hmac,
+                'user_agent_hash': user_agent_hash,
+            },
+        )
+        return consent, snapshot
 
 
 def _state_payload(agreement, claim, order_id, consent_version):
