@@ -13,6 +13,7 @@ import {
   submitConsent,
   ApiError,
   type ConsentDisclosure,
+  type ConsentScope,
 } from "@/lib/api";
 
 function ConsentSkeleton() {
@@ -41,13 +42,17 @@ function ConsentSkeleton() {
 }
 
 // 철회 확인 문구 — 사실 + 다음 행동만 (고객 대면 §6: 쉬운 말·긍정 톤).
-const REVOKE_NOTES: Record<string, string> = {
+const REVOKE_NOTES: Partial<Record<ConsentScope, string>> = {
   overseas_medical:
     "철회하면 새 증권 분석부터 적용돼요. 이미 정리된 자료는 그대로 볼 수 있어요.",
   marketing: "철회하면 상품·이벤트 안내 연락이 더 이상 가지 않아요.",
   third_party: "철회하면 이후 새 자료 만들기부터 적용돼요.",
   personal_info:
     "철회하면 상담을 위한 정보 이용이 멈춰요. 상담을 이어가려면 다시 동의하면 돼요.",
+  consultation_recording:
+    "철회하면 새 상담 녹음부터 적용돼요. 이미 정리된 메모는 그대로 볼 수 있어요.",
+  consultation_sensitive:
+    "철회하면 새 상담 녹음부터 적용돼요. 필요할 때 다시 동의하면 바로 이어갈 수 있어요.",
 };
 const REVOKE_NOTE_DEFAULT = "철회 후에도 언제든 다시 동의할 수 있어요.";
 
@@ -63,7 +68,7 @@ export default function CustomerConsentPage() {
   const [done, setDone] = useState(false);
   const [alreadyDoneAtLoad, setAlreadyDoneAtLoad] = useState(false);
   // 철회 흐름
-  const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<ConsentScope | null>(null);
   const [revoking, setRevoking] = useState(false);
   const [revokedMsg, setRevokedMsg] = useState<string | null>(null);
 
@@ -113,7 +118,7 @@ export default function CustomerConsentPage() {
     }
   }, [token, disclosure, checked]);
 
-  const revoke = useCallback(async (scope: string) => {
+  const revoke = useCallback(async (scope: ConsentScope) => {
     setRevoking(true);
     setSubmitError(null);
     try {

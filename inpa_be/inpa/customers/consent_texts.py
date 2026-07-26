@@ -16,6 +16,30 @@ from .models import ConsentLog
 # 문구가 실질적으로 바뀔 때마다 올린다(YYYY-MM-DD). ConsentLog.doc_version(max_length=30)에 스탬프.
 CONSENT_TEXTS_VERSION = 'v2-2026-07-04'
 
+CONSULTATION_CONSENT_VERSIONS = {
+    ConsentLog.SCOPE_CONSULTATION_RECORDING: 'v1-2026-07-22',
+    ConsentLog.SCOPE_CONSULTATION_SENSITIVE: 'v1-2026-07-22',
+}
+
+CONSULTATION_CONSENT_TEXTS = {
+    ConsentLog.SCOPE_CONSULTATION_RECORDING: {
+        'title': '상담 녹음과 원본 보관',
+        'body': [
+            '상담 내용을 메모로 정리하기 위해 녹음합니다. '
+            '원본 녹음은 인파에서 최대 7일 보관한 뒤 자동 삭제됩니다.',
+        ],
+        'retention': '보유 기간: 원본 녹음은 최대 7일',
+    },
+    ConsentLog.SCOPE_CONSULTATION_SENSITIVE: {
+        'title': '상담 중 민감정보 처리',
+        'body': [
+            '상담 중 건강 등 민감한 내용이 포함될 수 있으며, '
+            '상담 메모 작성 목적으로 처리됩니다.',
+        ],
+        'retention': '처리 목적: 상담 내용을 핵심 메모로 정리',
+    },
+}
+
 # scope → {title, body[], retention}. body/retention 모두 고객이 그대로 읽는 문구(쉬운 말·긍정 톤).
 CONSENT_TEXTS = {
     ConsentLog.SCOPE_PERSONAL_INFO: {
@@ -50,6 +74,7 @@ CONSENT_TEXTS = {
         ],
         'retention': '보유 기간: 동의를 철회하실 때까지',
     },
+    **CONSULTATION_CONSENT_TEXTS,
 }
 
 
@@ -77,3 +102,24 @@ def has_current_overseas_consent(customer):
         revoked_at__isnull=True,
         doc_version=CONSENT_TEXTS_VERSION,
     ).exists()
+
+
+def consent_version_for_scope(scope):
+    """scope별 현재 고지문 버전. 기존 동의는 공통 v2 버전을 유지한다."""
+    return CONSULTATION_CONSENT_VERSIONS.get(scope, CONSENT_TEXTS_VERSION)
+
+
+def has_current_consultation_recording_consent(customer):
+    """고객 본인의 최신 상담 녹음·민감정보 동의가 모두 살아있는가."""
+    if customer is None or customer.pk is None:
+        return False
+    for scope, version in CONSULTATION_CONSENT_VERSIONS.items():
+        if not ConsentLog.objects.filter(
+            customer=customer,
+            scope=scope,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+            revoked_at__isnull=True,
+            doc_version=version,
+        ).exists():
+            return False
+    return True

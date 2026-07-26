@@ -2618,11 +2618,20 @@ export interface ConsentRequestResponse {
   already_consented: boolean;
 }
 
+export type ConsentScope =
+  | "personal_info"
+  | "marketing"
+  | "overseas_medical"
+  | "third_party"
+  | "consultation_recording"
+  | "consultation_sensitive"
+  | "consultation_overseas_summary";
+
 /** POST /api/v1/customers/<id>/consent-requests/ — 설계사가 동의 요청 링크 생성(인증).
  *  scopes 미지정 시 BE 기본=국외이전(OCR 동선 호환). */
 export async function createConsentRequest(
   customerId: number,
-  scopes?: string[]
+  scopes?: ConsentScope[]
 ): Promise<ConsentRequestResponse> {
   return request<ConsentRequestResponse>(
     "POST",
@@ -2633,7 +2642,7 @@ export async function createConsentRequest(
 }
 
 export interface ConsentItem {
-  scope: string;
+  scope: ConsentScope;
   title: string;
   required: boolean;
   already: boolean;
@@ -2664,8 +2673,8 @@ export async function getConsentDisclosure(token: string): Promise<ConsentDisclo
 /** POST /api/v1/c/<token>/ — 동의 scope 배열 제출 + 철회 scope 배열(공개, 비인증) */
 export async function submitConsent(
   token: string,
-  agreed: string[],
-  revoked: string[] = []
+  agreed: ConsentScope[],
+  revoked: ConsentScope[] = []
 ): Promise<{ results: { scope: string; consented: boolean }[]; all_required_done: boolean }> {
   const res = await fetch(`${API_BASE}/c/${encodeURIComponent(token)}/`, {
     method: "POST",

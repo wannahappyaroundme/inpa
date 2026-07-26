@@ -370,12 +370,16 @@ class ConsentLog(models.Model):
     SCOPE_MARKETING = 'marketing'
     SCOPE_PERSONAL_INFO = 'personal_info'          # ✦ 개인정보 수집·이용(DB 보유 근거)
     SCOPE_THIRD_PARTY = 'third_party'              # ✦ 제3자 제공·플랫폼(인파) 활용 — 법상 '선택' 동의(강제 금지)
+    SCOPE_CONSULTATION_RECORDING = 'consultation_recording'
+    SCOPE_CONSULTATION_SENSITIVE = 'consultation_sensitive'
     SCOPE_CHOICES = (
         (SCOPE_OVERSEAS_MEDICAL, '병력 국외이전 (Claude API, 미국)'),
         (SCOPE_MEDICAL_SENSITIVE, '민감정보(병력) 처리'),
         (SCOPE_MARKETING, '마케팅 수신'),
         (SCOPE_PERSONAL_INFO, '개인정보 수집·이용'),
         (SCOPE_THIRD_PARTY, '제3자 제공·플랫폼 활용'),
+        (SCOPE_CONSULTATION_RECORDING, '상담 녹음과 원본 보관'),
+        (SCOPE_CONSULTATION_SENSITIVE, '상담 중 민감정보 처리'),
     )
 
     # ★ 동의 주체(council P3c): 누가 동의했나 = 감사 핵심.

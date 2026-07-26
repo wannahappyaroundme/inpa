@@ -26,7 +26,12 @@ from inpa.accounts.models import Profile, User
 from inpa.billing.models import Plan, Subscription, UsageMeter
 from inpa.insurances.models import CustomerInsurance
 
-from .consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
+from .consent_texts import (
+    CONSENT_TEXTS_VERSION,
+    CONSULTATION_CONSENT_VERSIONS,
+    has_current_consultation_recording_consent,
+    has_current_overseas_consent,
+)
 from .models import (
     ConsentLog, Customer, CustomerMedicalHistory, CustomerMemo, CustomerTag, JobRiskCode,
     PlannerBaseline,
@@ -1181,6 +1186,95 @@ class PublicConsentMultiScopeTests(TestCase):
         scopes = set(ConsentLog.objects.filter(customer=self.customer)
                      .values_list('scope', flat=True))
         self.assertEqual(scopes, {'overseas_medical'})  # 토큰 밖 personal_info는 무시됨
+
+
+class ConsultationRecordingConsentTests(TestCase):
+    """상담 녹음은 고객 본인의 최신 필수 동의 2종이 모두 있어야 한다."""
+
+    def setUp(self):
+        cache.clear()
+        self.user, self.client = _make_planner('recording-consent@test.com')
+        self.customer = Customer.objects.create(owner=self.user, name='김보장')
+        self.anon = APIClient()
+        self.scopes = [
+            ConsentLog.SCOPE_CONSULTATION_RECORDING,
+            ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
+        ]
+
+    def test_public_disclosure_marks_both_required_and_explains_seven_day_retention(self):
+        token = make_consent_token(self.customer, scopes=self.scopes)
+
+        response = self.anon.get(f'/api/v1/c/{token}/')
+
+        self.assertEqual(response.status_code, 200)
+        items = response.json()['items']
+        self.assertEqual([item['scope'] for item in items], self.scopes)
+        self.assertTrue(all(item['required'] for item in items))
+        recording = items[0]
+        self.assertIn('최대 7일', ' '.join(recording['lines']))
+
+    def test_customer_self_consent_to_both_scopes_opens_gate_with_current_version(self):
+        token = make_consent_token(self.customer, scopes=self.scopes)
+
+        response = self.anon.post(
+            f'/api/v1/c/{token}/',
+            {'agreed': self.scopes},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(has_current_consultation_recording_consent(self.customer))
+        versions = set(
+            ConsentLog.objects.filter(customer=self.customer, scope__in=self.scopes)
+            .values_list('doc_version', flat=True)
+        )
+        self.assertEqual(versions, set(CONSULTATION_CONSENT_VERSIONS.values()))
+
+    def test_planner_attestation_or_one_scope_cannot_open_gate(self):
+        ConsentLog.objects.create(
+            customer=self.customer,
+            scope=ConsentLog.SCOPE_CONSULTATION_RECORDING,
+            subject=ConsentLog.SUBJECT_PLANNER_ATTESTED,
+            doc_version=CONSULTATION_CONSENT_VERSIONS[
+                ConsentLog.SCOPE_CONSULTATION_RECORDING
+            ],
+        )
+        ConsentLog.objects.create(
+            customer=self.customer,
+            scope=ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+            doc_version=CONSULTATION_CONSENT_VERSIONS[
+                ConsentLog.SCOPE_CONSULTATION_SENSITIVE
+            ],
+        )
+
+        self.assertFalse(has_current_consultation_recording_consent(self.customer))
+
+    def test_revoking_either_scope_closes_gate(self):
+        for scope in self.scopes:
+            ConsentLog.objects.create(
+                customer=self.customer,
+                scope=scope,
+                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                doc_version=CONSULTATION_CONSENT_VERSIONS[scope],
+            )
+        self.assertTrue(has_current_consultation_recording_consent(self.customer))
+        ConsentLog.objects.filter(
+            customer=self.customer,
+            scope=ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
+        ).update(revoked_at=timezone.now())
+
+        self.assertFalse(has_current_consultation_recording_consent(self.customer))
+
+    def test_planner_can_create_request_for_both_recording_scopes(self):
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/consent-requests/',
+            {'scopes': self.scopes},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(read_consent_token(response.json()['token'])['scopes'], self.scopes)
 
 
 class ConsentRequestScopeTests(TestCase):
