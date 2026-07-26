@@ -30,6 +30,13 @@ class BillingAgreement(models.Model):
     plan = models.ForeignKey(
         'billing.Plan', on_delete=models.PROTECT,
         related_name='billing_agreements')
+    coupon_claim = models.OneToOneField(
+        'billing.CouponClaim',
+        on_delete=models.PROTECT,
+        related_name='agreement',
+        null=True,
+        blank=True,
+    )
     status = models.CharField(
         max_length=24, choices=STATUS_CHOICES, default='trialing')
     billing_anchor_day = models.PositiveSmallIntegerField()

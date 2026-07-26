@@ -15,9 +15,14 @@ from .views import (
     AdminBillingUsageView,
     AdminSubscriptionPatchView,
     BillingEventView,
+    BillingStatusView,
     BillingUsageView,
+    CardRegistrationCompleteView,
+    CardRegistrationProviderReturnView,
+    CardRegistrationStartView,
     CouponRedeemView,
     PlanListView,
+    RecurringCouponPreflightView,
 )
 
 app_name = 'billing'
@@ -28,6 +33,27 @@ urlpatterns = [
     path('billing/event/', BillingEventView.as_view(), name='billing-event'),
     path('billing/usage/', BillingUsageView.as_view(), name='billing-usage'),
     path('billing/coupons/redeem/', CouponRedeemView.as_view(), name='coupon-redeem'),
+    path(
+        'billing/coupons/preflight/',
+        RecurringCouponPreflightView.as_view(),
+        name='recurring-coupon-preflight',
+    ),
+    path(
+        'billing/card-registration/start/',
+        CardRegistrationStartView.as_view(),
+        name='card-registration-start',
+    ),
+    path(
+        'billing/card-registration/complete/',
+        CardRegistrationCompleteView.as_view(),
+        name='card-registration-complete',
+    ),
+    path(
+        'billing/card-registration/provider-return/',
+        CardRegistrationProviderReturnView.as_view(),
+        name='card-registration-provider-return',
+    ),
+    path('billing/status/', BillingStatusView.as_view(), name='billing-status'),
 
     # 관리자 전용
     path('admin/billing/mode/', AdminBillingModeView.as_view(), name='admin-billing-mode'),

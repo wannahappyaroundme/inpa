@@ -77,6 +77,23 @@ class CouponRedeemSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=32, trim_whitespace=True)
 
 
+class RecurringCouponPreflightSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=32, trim_whitespace=True)
+
+
+class CardRegistrationStartSerializer(serializers.Serializer):
+    claim_id = serializers.UUIDField()
+    initial_consent_version = serializers.CharField(max_length=40)
+    device_type = serializers.ChoiceField(
+        choices=['pc', 'mobile'], default='mobile')
+
+
+class CardRegistrationCompleteSerializer(serializers.Serializer):
+    state = serializers.CharField(max_length=2000)
+    authorization_id = serializers.CharField(max_length=60)
+    shop_order_no = serializers.CharField(max_length=40)
+
+
 class AdminSubscriptionPatchSerializer(serializers.Serializer):
     """PATCH /api/v1/admin/billing/subscription/<user_id>/ 요청 검증 (dev/23 §4.3).
 
