@@ -48,7 +48,11 @@ describe("상담 녹음 분할 업로드", () => {
       .mockResolvedValue({ part_number: 3, etag: '"ok"', byte_size: 12 });
     const delays: number[] = [];
 
-    const result = await withUploadRetry(operation, async (delayMs) => {
+    const result = await withUploadRetry<{
+      part_number: number;
+      etag: string;
+      byte_size: number;
+    }>(operation, async (delayMs) => {
       delays.push(delayMs);
     });
 
