@@ -27,4 +27,3 @@ class Command(BaseCommand):
             limit=options['limit'],
         )
         self.stdout.write(json.dumps(result, sort_keys=True))
-

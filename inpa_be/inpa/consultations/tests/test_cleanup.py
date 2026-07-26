@@ -156,4 +156,3 @@ class ConsultationRecordingCleanupTests(TestCase):
         self.assertEqual(result['deleted'], 1)
         self.assertNotIn(self.customer.name, output.getvalue())
         self.assertNotIn(self.user.email, output.getvalue())
-

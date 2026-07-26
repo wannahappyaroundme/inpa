@@ -63,4 +63,3 @@ class Command(BaseCommand):
             'failed': failed,
         }
         self.stdout.write(json.dumps(result, sort_keys=True))
-

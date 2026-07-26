@@ -21,4 +21,3 @@ def delete_consultation_sources_with_customer(sender, instance, **kwargs):
                 reason='customer_deleted',
             ),
         )
-
