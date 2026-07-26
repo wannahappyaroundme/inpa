@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ConfirmationDialog } from "@/components/recruiting/confirmation-dialog";
 import {
+  ConsultationRecorder,
+  ConsultationRecordingList,
+} from "@/components/consultation-recorder/consultation-recorder";
+import {
   ApiError,
   createCustomerMemo,
   deleteCustomerMemo,
@@ -508,12 +512,17 @@ function MemoListView({
           <h2 className="text-[17px] font-extrabold text-ink">{countLabel(data.count)}</h2>
           <p className="mt-1 text-[13px] text-ink3">상담 뒤 기억할 내용을 차분히 남겨보세요.</p>
         </div>
-        {mode === "list" && (
-          <button ref={createButtonRef} type="button" onClick={() => onModeChange("create")} className="min-h-11 rounded-xl bg-brand px-4 text-[14px] font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
-            메모 작성
-          </button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          <ConsultationRecorder customerId={customerId} />
+          {mode === "list" && (
+            <button ref={createButtonRef} type="button" onClick={() => onModeChange("create")} className="min-h-11 rounded-xl border border-line bg-surface px-4 text-[14px] font-bold text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
+              메모 작성
+            </button>
+          )}
+        </div>
       </div>
+
+      <ConsultationRecordingList customerId={customerId} />
 
       {loadError && (
         <div className="mt-4 rounded-xl bg-danger-tint px-3 py-3">

@@ -25,6 +25,7 @@ from .storage import (
 
 ALLOWED_RECORDING_MIME_TYPES = {
     'audio/mp4',
+    'audio/mp4;codecs=mp4a.40.2',
     'audio/ogg',
     'audio/ogg;codecs=opus',
     'audio/webm',
@@ -118,7 +119,14 @@ def inspect_audio(chunks):
         )
 
 
-def create_upload_session(*, owner, customer, mime_type, started_at):
+def create_upload_session(
+    *,
+    owner,
+    customer,
+    client_session_id,
+    mime_type,
+    started_at,
+):
     storage = get_recording_storage()
     session = None
     try:
@@ -128,6 +136,18 @@ def create_upload_session(*, owner, customer, mime_type, started_at):
                 pk=customer.pk,
                 owner=customer.owner,
             )
+            existing = ConsultationRecording.objects.filter(
+                owner=owner,
+                client_session_id=client_session_id,
+            ).first()
+            if existing is not None:
+                if existing.customer_id != locked_customer.pk:
+                    raise ConsultationServiceError(
+                        'SESSION_CUSTOMER_MISMATCH',
+                        '이 고객의 녹음 화면에서 새로 시작해 주세요.',
+                        409,
+                    )
+                return existing, False
             if ConsultationRecording.objects.filter(
                 owner=owner,
                 customer=locked_customer,
@@ -149,6 +169,7 @@ def create_upload_session(*, owner, customer, mime_type, started_at):
             recording = ConsultationRecording.objects.create(
                 owner=owner,
                 customer=locked_customer,
+                client_session_id=client_session_id,
                 mime_type=mime_type,
                 started_at=started_at or timezone.now(),
                 expires_at=timezone.now() + timedelta(hours=24),
@@ -161,7 +182,7 @@ def create_upload_session(*, owner, customer, mime_type, started_at):
                 'multipart_upload_id',
                 'updated_at',
             ])
-            return recording
+            return recording, True
     except IntegrityError as exc:
         if session is not None:
             try:

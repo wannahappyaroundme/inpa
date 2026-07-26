@@ -37,6 +37,7 @@ class ConsultationRecording(models.Model):
         on_delete=models.CASCADE,
         related_name='consultation_recordings',
     )
+    client_session_id = models.UUIDField(null=True, blank=True)
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
@@ -81,6 +82,11 @@ class ConsultationRecording(models.Model):
                 fields=['owner', 'customer'],
                 condition=models.Q(status='uploading'),
                 name='uniq_active_consultation_upload',
+            ),
+            models.UniqueConstraint(
+                fields=['owner', 'client_session_id'],
+                condition=models.Q(client_session_id__isnull=False),
+                name='uniq_consultation_client_session',
             ),
         ]
 

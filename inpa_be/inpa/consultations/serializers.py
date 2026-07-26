@@ -48,6 +48,7 @@ class ConsultationRecordingSerializer(serializers.ModelSerializer):
 
 
 class UploadSessionRequestSerializer(serializers.Serializer):
+    client_session_id = serializers.UUIDField()
     mime_type = serializers.ChoiceField(choices=sorted(ALLOWED_RECORDING_MIME_TYPES))
     started_at = serializers.DateTimeField(required=False)
 

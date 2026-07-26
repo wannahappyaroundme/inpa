@@ -6,6 +6,7 @@ import "./globals.css";
 import { PwaRegister } from "@/components/pwa-register";
 import { GlobalContentGuard } from "@/components/content-guard";
 import { UtmCapture } from "@/components/utm-capture";
+import { RecorderProvider } from "@/components/consultation-recorder/recorder-provider";
 
 // 구글 소셜 로그인(GIS) — 클라이언트 ID가 설정된 경우에만 로드(미설정=미로드).
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
@@ -89,7 +90,7 @@ export default function RootLayout({
         {GOOGLE_CLIENT_ID && (
           <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
         )}
-        {children}
+        <RecorderProvider>{children}</RecorderProvider>
         {/* Vercel 방문자 통계 + 웹 성능(Web Vitals). 실제 수집은 Vercel 대시보드에서 켠 뒤 배포부터 */}
         <Analytics />
         <SpeedInsights />

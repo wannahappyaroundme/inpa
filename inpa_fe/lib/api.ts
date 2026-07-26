@@ -4385,3 +4385,155 @@ export async function acceptRecruitingJoin(
     true,
   );
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// 상담 녹음: 고객별 비공개 원본, 분할 업로드, 최대 7일 보관
+// ════════════════════════════════════════════════════════════════════════════
+
+export type ConsultationRecordingStatus =
+  | "uploading"
+  | "ready"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "ambiguous"
+  | "deleting"
+  | "deleted";
+
+export interface ConsultationRecording {
+  id: string;
+  status: ConsultationRecordingStatus;
+  mime_type: string;
+  codec: string;
+  byte_size: number;
+  duration_ms: number;
+  started_at: string | null;
+  ended_at: string | null;
+  uploaded_at: string | null;
+  expires_at: string | null;
+  deleted_at: string | null;
+  delete_reason: string;
+  source_available: boolean;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecordingCapability {
+  recording_enabled: boolean;
+  consent_ready: boolean;
+  retention_days: number;
+  max_duration_seconds: number;
+  max_bytes: number;
+  part_bytes: number;
+  max_part_number: number;
+}
+
+export interface RecordingUploadSession extends ConsultationRecording {
+  part_bytes: number;
+  max_part_number: number;
+}
+
+export interface CompletedRecordingPart {
+  part_number: number;
+  etag: string;
+  byte_size: number;
+}
+
+export interface RecordingPartUrl {
+  url: string;
+  part_number: number;
+  expires_in_seconds: number;
+}
+
+export async function getRecordingCapability(
+  customerId: number,
+): Promise<RecordingCapability> {
+  return request<RecordingCapability>(
+    "GET",
+    `/customers/${customerId}/recordings/capability/`,
+    undefined,
+    true,
+  );
+}
+
+export async function createRecordingUpload(
+  customerId: number,
+  clientSessionId: string,
+  mimeType: string,
+  startedAt: string,
+): Promise<RecordingUploadSession> {
+  return request<RecordingUploadSession>(
+    "POST",
+    `/customers/${customerId}/recordings/upload-sessions/`,
+    {
+      client_session_id: clientSessionId,
+      mime_type: mimeType,
+      started_at: startedAt,
+    },
+    true,
+  );
+}
+
+export async function getRecordingPartUrl(
+  customerId: number,
+  recordingId: string,
+  partNumber: number,
+): Promise<RecordingPartUrl> {
+  return request<RecordingPartUrl>(
+    "POST",
+    `/customers/${customerId}/recordings/${recordingId}/parts/${partNumber}/`,
+    {},
+    true,
+  );
+}
+
+export async function completeRecordingUpload(
+  customerId: number,
+  recordingId: string,
+  parts: CompletedRecordingPart[],
+  endedAt: string,
+): Promise<ConsultationRecording> {
+  return request<ConsultationRecording>(
+    "POST",
+    `/customers/${customerId}/recordings/${recordingId}/complete-upload/`,
+    { parts, ended_at: endedAt },
+    true,
+  );
+}
+
+export async function listConsultationRecordings(
+  customerId: number,
+  page = 1,
+): Promise<PaginatedResult<ConsultationRecording>> {
+  return request<PaginatedResult<ConsultationRecording>>(
+    "GET",
+    `/customers/${customerId}/recordings/?page=${page}`,
+    undefined,
+    true,
+  );
+}
+
+export async function getRecordingPlayUrl(
+  customerId: number,
+  recordingId: string,
+): Promise<{ url: string; expires_in_seconds: number }> {
+  return request<{ url: string; expires_in_seconds: number }>(
+    "POST",
+    `/customers/${customerId}/recordings/${recordingId}/play-url/`,
+    {},
+    true,
+  );
+}
+
+export async function deleteRecordingSource(
+  customerId: number,
+  recordingId: string,
+): Promise<ConsultationRecording> {
+  return request<ConsultationRecording>(
+    "DELETE",
+    `/customers/${customerId}/recordings/${recordingId}/source/`,
+    undefined,
+    true,
+  );
+}

@@ -113,9 +113,10 @@ class UploadSessionView(CustomerRecordingMixin, APIView):
         serializer = UploadSessionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            recording = create_upload_session(
+            recording, created = create_upload_session(
                 owner=customer.owner,
                 customer=customer,
+                client_session_id=serializer.validated_data['client_session_id'],
                 mime_type=serializer.validated_data['mime_type'],
                 started_at=serializer.validated_data.get('started_at'),
             )
@@ -126,7 +127,14 @@ class UploadSessionView(CustomerRecordingMixin, APIView):
             'part_bytes': settings.CONSULTATION_UPLOAD_PART_BYTES,
             'max_part_number': max_part_number(),
         })
-        return Response(data, status=status.HTTP_201_CREATED)
+        return Response(
+            data,
+            status=(
+                status.HTTP_201_CREATED
+                if created
+                else status.HTTP_200_OK
+            ),
+        )
 
 
 class RecordingDetailView(CustomerRecordingMixin, APIView):
@@ -211,4 +219,3 @@ class RecordingSourceDeleteView(CustomerRecordingMixin, APIView):
         except ConsultationServiceError as exc:
             return _service_error_response(exc)
         return Response(ConsultationRecordingSerializer(recording).data)
-

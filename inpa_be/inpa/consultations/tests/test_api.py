@@ -91,6 +91,7 @@ class ConsultationRecordingApiTests(TestCase):
         return self.client.post(
             f'/api/v1/customers/{self.customer.id}/recordings/upload-sessions/',
             {
+                'client_session_id': str(uuid.uuid4()),
                 'mime_type': 'audio/webm;codecs=opus',
                 'started_at': timezone.now().isoformat(),
             },
@@ -133,6 +134,32 @@ class ConsultationRecordingApiTests(TestCase):
         self.assertEqual(response.data['max_part_number'], 13)
         self.assertNotIn('storage_key', response.data)
         self.assertNotIn('multipart_upload_id', response.data)
+
+    def test_lost_response_retry_returns_same_session_across_server_requests(self):
+        self._grant_recording_consents()
+        client_session_id = str(uuid.uuid4())
+        payload = {
+            'client_session_id': client_session_id,
+            'mime_type': 'audio/webm',
+            'started_at': timezone.now().isoformat(),
+        }
+
+        first = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/recordings/upload-sessions/',
+            payload,
+            format='json',
+        )
+        second = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/recordings/upload-sessions/',
+            payload,
+            format='json',
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.data['id'], first.data['id'])
+        self.assertEqual(ConsultationRecording.objects.count(), 1)
+        self.assertEqual(self.storage.create.call_count, 1)
 
     def test_part_url_rejects_number_above_server_limit(self):
         response = self._create_upload()
@@ -222,6 +249,40 @@ class ConsultationRecordingApiTests(TestCase):
 
         self.assertEqual(play.status_code, 404)
         self.assertEqual(delete.status_code, 404)
+
+    def test_same_owner_cannot_cross_wire_recording_to_another_customer(self):
+        other_customer = Customer.objects.create(
+            owner=self.user,
+            name='이고객',
+        )
+        recording = ConsultationRecording.objects.create(
+            owner=self.user,
+            customer=self.customer,
+            status=ConsultationRecording.STATUS_UPLOADING,
+            storage_key=f'consultation-recordings/{uuid.uuid4()}/source',
+            multipart_upload_id='upload-1',
+            mime_type='audio/webm',
+        )
+
+        part = self.client.post(
+            f'/api/v1/customers/{other_customer.id}/recordings/'
+            f'{recording.id}/parts/1/',
+        )
+        complete = self.client.post(
+            f'/api/v1/customers/{other_customer.id}/recordings/'
+            f'{recording.id}/complete-upload/',
+            {
+                'parts': [
+                    {'part_number': 1, 'etag': '"one"', 'byte_size': 1024},
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(part.status_code, 404)
+        self.assertEqual(complete.status_code, 404)
+        self.storage.presign_part.assert_not_called()
+        self.storage.complete.assert_not_called()
 
     def test_list_restores_ready_and_deleted_metadata_without_private_fields(self):
         ConsultationRecording.objects.create(
