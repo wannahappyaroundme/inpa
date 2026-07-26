@@ -30,6 +30,7 @@ from inpa.core.permissions import IsAdmin
 
 from .coupons import CouponError, redeem_coupon
 from .coupons import hold_recurring_coupon
+from .cancellation import cancel_billing
 from .agreements import (
     BillingFlowError,
     billing_status,
@@ -38,12 +39,20 @@ from .agreements import (
     start_card_registration,
 )
 from .gates import card_registration_enabled
+from .notices import (
+    NoticeError,
+    dismiss_notice,
+    lease_notice,
+    mark_notice_rendered,
+    notice_payload,
+)
 from .credit import LimitExceeded  # noqa: F401 — 뷰 사용 예시용 (실제 뷰에서 직접 catch)
 from .models import Plan, Subscription, UsageMeter
 from .serializers import (
     AdminSubscriptionPatchSerializer,
     CardRegistrationCompleteSerializer,
     CardRegistrationStartSerializer,
+    BillingNoticeDeviceSerializer,
     CouponRedeemSerializer,
     FirstChargeReconfirmationSerializer,
     PlanSerializer,
@@ -370,6 +379,67 @@ class FirstChargeReconfirmationView(APIView):
             'consent_id': consent.pk,
             **snapshot,
         })
+
+
+class BillingCancellationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            return Response(cancel_billing(request.user))
+        except BillingFlowError as exc:
+            return _billing_error_response(exc)
+
+
+class BillingNoticeLeaseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = BillingNoticeDeviceSerializer(
+            data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notice = lease_notice(
+            request.user,
+            serializer.validated_data['device_id'],
+        )
+        return Response({
+            'notice': notice_payload(notice) if notice else None,
+        })
+
+
+class BillingNoticeRenderedView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, notice_id):
+        serializer = BillingNoticeDeviceSerializer(
+            data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            notice = mark_notice_rendered(
+                request.user,
+                notice_id,
+                serializer.validated_data['device_id'],
+            )
+        except NoticeError:
+            return Response(
+                {'detail': '표시할 안내를 다시 확인해 주세요.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({'notice_id': notice.pk, 'rendered': True})
+
+
+class BillingNoticeDismissView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, notice_id):
+        try:
+            notice = dismiss_notice(request.user, notice_id)
+        except NoticeError:
+            return Response(
+                {'detail': '표시된 안내를 다시 확인해 주세요.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({'notice_id': notice.pk, 'dismissed': True})
 
 
 # ─── 관리자 전용 ──────────────────────────────────────────────────

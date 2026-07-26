@@ -553,9 +553,15 @@ def billing_status(user):
             'state': 'free',
             'existing_data_available': True,
         }
-    token = PaymentMethodToken.objects.filter(
-        agreement=agreement, status='active').first()
-    if agreement.status == 'free' or not token:
+    token = (
+        PaymentMethodToken.objects.filter(
+            agreement=agreement,
+            status__in=('active', 'revocation_pending'),
+        )
+        .order_by('status', '-created_at')
+        .first()
+    )
+    if agreement.status == 'free':
         return {
             'state': 'free',
             'existing_data_available': True,
@@ -567,7 +573,7 @@ def billing_status(user):
         'past_due_unknown': 'past_due_unknown',
         'canceled': 'canceled',
     }
-    return {
+    response = {
         'state': state_map.get(agreement.status, 'free'),
         'plan_code': agreement.plan.code,
         'plan_display_name': agreement.plan.display_name,
@@ -579,8 +585,22 @@ def billing_status(user):
         ),
         'amount_krw': vat_inclusive_amount(
             agreement.plan.price_krw),
-        'card_label': token.display_label,
-        'reconfirmation_required':
-            agreement.status == 'trialing',
+        'card_label': token.display_label if token else None,
+        'reconfirmation_required': False,
         'existing_data_available': True,
     }
+    if agreement.status == 'trialing' and token:
+        window = reconfirmation_window(agreement)
+        amount_krw = response['amount_krw']
+        now = timezone.now()
+        response['reconfirmation_opens_on'] = (
+            timezone.localdate(window.opens_at).isoformat())
+        response['reconfirmation_required'] = (
+            window.opens_at <= now < window.closes_at
+            and not has_current_reconfirmation(
+                agreement,
+                agreement.next_charge_date,
+                amount_krw,
+            )
+        )
+    return response

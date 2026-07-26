@@ -98,6 +98,10 @@ class FirstChargeReconfirmationSerializer(serializers.Serializer):
     first_charge_consent_version = serializers.CharField(max_length=40)
 
 
+class BillingNoticeDeviceSerializer(serializers.Serializer):
+    device_id = serializers.UUIDField()
+
+
 class AdminSubscriptionPatchSerializer(serializers.Serializer):
     """PATCH /api/v1/admin/billing/subscription/<user_id>/ 요청 검증 (dev/23 §4.3).
 

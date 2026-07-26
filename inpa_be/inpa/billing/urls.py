@@ -15,6 +15,10 @@ from .views import (
     AdminBillingUsageView,
     AdminSubscriptionPatchView,
     BillingEventView,
+    BillingCancellationView,
+    BillingNoticeDismissView,
+    BillingNoticeLeaseView,
+    BillingNoticeRenderedView,
     BillingStatusView,
     BillingUsageView,
     CardRegistrationCompleteView,
@@ -59,6 +63,26 @@ urlpatterns = [
         'billing/reconfirm/',
         FirstChargeReconfirmationView.as_view(),
         name='billing-reconfirm',
+    ),
+    path(
+        'billing/cancel/',
+        BillingCancellationView.as_view(),
+        name='billing-cancel',
+    ),
+    path(
+        'billing/notices/lease/',
+        BillingNoticeLeaseView.as_view(),
+        name='billing-notice-lease',
+    ),
+    path(
+        'billing/notices/<int:notice_id>/rendered/',
+        BillingNoticeRenderedView.as_view(),
+        name='billing-notice-rendered',
+    ),
+    path(
+        'billing/notices/<int:notice_id>/dismiss/',
+        BillingNoticeDismissView.as_view(),
+        name='billing-notice-dismiss',
     ),
 
     # 관리자 전용

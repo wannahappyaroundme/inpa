@@ -4,6 +4,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from inpa.billing.gates import recurring_charge_enabled
+from inpa.billing.cancellation import finalize_canceled_agreement
 from inpa.billing.models import (
     BillingAgreement,
     PaymentMethodToken,
@@ -21,9 +22,22 @@ class Command(BaseCommand):
     help = '도래 결제, 미확정 거래, 결제키 폐기 작업을 안전하게 재등록합니다.'
 
     def handle(self, *args, **options):
-        counts = {'due': 0, 'unknown': 0, 'revocation': 0}
+        counts = {
+            'due': 0,
+            'unknown': 0,
+            'revocation': 0,
+            'expired_cancellation': 0,
+        }
+        today = timezone.localdate()
+        expired_cancellations = BillingAgreement.objects.filter(
+            status='canceled',
+            current_period_ends_on__lt=today,
+        ).values_list('pk', flat=True)
+        for agreement_id in expired_cancellations.iterator():
+            finalize_canceled_agreement(agreement_id)
+            counts['expired_cancellation'] += 1
+
         if recurring_charge_enabled():
-            today = timezone.localdate()
             due_agreements = BillingAgreement.objects.filter(
                 status__in=('trialing', 'active'),
                 next_charge_date__lte=today,
@@ -49,6 +63,8 @@ class Command(BaseCommand):
                 'billing reconciliation queued '
                 f"due={counts['due']} "
                 f"unknown={counts['unknown']} "
-                f"revocation={counts['revocation']}"
+                f"revocation={counts['revocation']} "
+                'expired_cancellation='
+                f"{counts['expired_cancellation']}"
             )
         )

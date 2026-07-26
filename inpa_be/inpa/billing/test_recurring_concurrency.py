@@ -14,6 +14,7 @@ from .kicc import ChargeResult
 from .legal_texts import FIRST_CHARGE_CONSENT_VERSION
 from .models import (
     BillingAgreement,
+    BillingNoticeEvent,
     PaymentAttempt,
     PaymentMethodToken,
     PaymentOrder,
@@ -21,6 +22,7 @@ from .models import (
     RuntimeConfig,
 )
 from .payment_tokens import encrypt_billing_token
+from .notices import lease_notice
 from .recurring import create_and_charge_due_agreement
 
 User = get_user_model()
@@ -133,3 +135,31 @@ class RecurringChargePostgresConcurrencyTests(TransactionTestCase):
         self.assertEqual(PaymentOrder.objects.count(), 1)
         self.assertEqual(PaymentAttempt.objects.count(), 1)
         self.assertEqual(provider.calls, 1)
+
+    def test_two_devices_receive_one_notice_lease(self):
+        BillingNoticeEvent.objects.create(
+            user=self.agreement.user,
+            event_key='payment:concurrent:declined',
+            notice_type='free_transition',
+            reason='payment_declined',
+        )
+        barrier = threading.Barrier(2)
+
+        def lease(device_id):
+            barrier.wait(timeout=5)
+            notice = lease_notice(
+                self.agreement.user,
+                device_id,
+            )
+            return notice.pk if notice else None
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(
+                _thread_call,
+                (
+                    lambda: lease('00000000-0000-0000-0000-000000000001'),
+                    lambda: lease('00000000-0000-0000-0000-000000000002'),
+                ),
+            ))
+
+        self.assertEqual(sum(result is not None for result in results), 1)
