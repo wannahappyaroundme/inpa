@@ -41,6 +41,7 @@ interface MemoListViewProps {
   onReconcile: () => Promise<boolean>;
   onLoadMore: () => Promise<void>;
   onModeChange: (mode: "list" | "create") => void;
+  onSummaryReady: () => void;
   customerId: number;
   focusRestoreVersion: number;
 }
@@ -420,6 +421,9 @@ export function CustomerMemos({ customerId, onCountChange }: CustomerMemosProps)
         setMode(nextMode);
         setCreateError(null);
       }}
+      onSummaryReady={() => {
+        void reload();
+      }}
       customerId={customerId}
       focusRestoreVersion={focusRestoreVersion}
     />
@@ -444,6 +448,7 @@ function MemoListView({
   onReconcile,
   onLoadMore,
   onModeChange,
+  onSummaryReady,
   customerId,
   focusRestoreVersion,
 }: MemoListViewProps) {
@@ -522,7 +527,10 @@ function MemoListView({
         </div>
       </div>
 
-      <ConsultationRecordingList customerId={customerId} />
+      <ConsultationRecordingList
+        customerId={customerId}
+        onSummaryReady={onSummaryReady}
+      />
 
       {loadError && (
         <div className="mt-4 rounded-xl bg-danger-tint px-3 py-3">

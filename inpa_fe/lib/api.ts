@@ -4400,6 +4400,23 @@ export type ConsultationRecordingStatus =
   | "deleting"
   | "deleted";
 
+export type ConsultationSummaryStatus =
+  | "queued"
+  | "transcribing"
+  | "summarizing"
+  | "succeeded"
+  | "failed"
+  | "ambiguous"
+  | "cancelled";
+
+export interface ConsultationSummaryRun {
+  id: string;
+  status: ConsultationSummaryStatus;
+  memo_id: number | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
 export interface ConsultationRecording {
   id: string;
   status: ConsultationRecordingStatus;
@@ -4414,6 +4431,7 @@ export interface ConsultationRecording {
   deleted_at: string | null;
   delete_reason: string;
   source_available: boolean;
+  summary: ConsultationSummaryRun | null;
   version: number;
   created_at: string;
   updated_at: string;
@@ -4422,6 +4440,14 @@ export interface ConsultationRecording {
 export interface RecordingCapability {
   recording_enabled: boolean;
   consent_ready: boolean;
+  summary_enabled: boolean;
+  summary_consent_ready: boolean;
+  summary_usage: {
+    year_month: string;
+    monthly_success_used: number;
+    monthly_success_limit: number | null;
+  } | null;
+  customer_free_summary_used: boolean;
   retention_days: number;
   max_duration_seconds: number;
   max_bytes: number;
@@ -4535,5 +4561,31 @@ export async function deleteRecordingSource(
     `/customers/${customerId}/recordings/${recordingId}/source/`,
     undefined,
     true,
+  );
+}
+
+export async function getConsultationRecording(
+  customerId: number,
+  recordingId: string,
+): Promise<ConsultationRecording> {
+  return request<ConsultationRecording>(
+    "GET",
+    `/customers/${customerId}/recordings/${recordingId}/`,
+    undefined,
+    true,
+  );
+}
+
+export async function summarizeConsultationRecording(
+  customerId: number,
+  recordingId: string,
+  idempotencyKey: string,
+): Promise<ConsultationSummaryRun> {
+  return request<ConsultationSummaryRun>(
+    "POST",
+    `/customers/${customerId}/recordings/${recordingId}/summarize/`,
+    {},
+    true,
+    { "Idempotency-Key": idempotencyKey },
   );
 }

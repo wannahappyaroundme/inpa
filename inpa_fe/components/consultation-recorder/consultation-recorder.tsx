@@ -276,13 +276,22 @@ export function ConsultationRecorder({ customerId }: { customerId: number }) {
   );
 }
 
-export function ConsultationRecordingList({ customerId }: { customerId: number }) {
+export function ConsultationRecordingList({
+  customerId,
+  onSummaryReady = () => undefined,
+}: {
+  customerId: number;
+  onSummaryReady?: () => void;
+}) {
   const session = useOptionalRecorderContext();
   const hasSession = Boolean(session);
   const [data, setData] = useState<PaginatedResult<ConsultationRecording> | null>(null);
+  const [capability, setCapability] = useState<RecordingCapability | null>(null);
   const [loading, setLoading] = useState(hasSession);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [summaryConsentBusy, setSummaryConsentBusy] = useState(false);
+  const [summaryConsentMessage, setSummaryConsentMessage] = useState<string | null>(null);
   const generationRef = useRef(0);
 
   const load = useCallback(async (page: number, append = false) => {
@@ -325,6 +334,19 @@ export function ConsultationRecordingList({ customerId }: { customerId: number }
     };
   }, [load]);
 
+  const loadSummaryCapability = useCallback(async () => {
+    if (!hasSession) return;
+    try {
+      setCapability(await getRecordingCapability(customerId));
+    } catch {
+      setCapability(null);
+    }
+  }, [customerId, hasSession]);
+
+  useEffect(() => {
+    void loadSummaryCapability();
+  }, [loadSummaryCapability]);
+
   useEffect(() => {
     if (
       session?.customerId === customerId
@@ -364,6 +386,28 @@ export function ConsultationRecordingList({ customerId }: { customerId: number }
   }
   if (!data || data.count === 0) return null;
 
+  async function copySummaryConsentLink() {
+    if (summaryConsentBusy) return;
+    setSummaryConsentBusy(true);
+    setSummaryConsentMessage(null);
+    try {
+      const result = await createConsentRequest(customerId, [
+        "consultation_recording",
+        "consultation_sensitive",
+        "consultation_overseas_summary",
+      ]);
+      await navigator.clipboard.writeText(result.consent_url);
+      setSummaryConsentMessage("요약 동의 링크를 복사했어요. 고객에게 전달해 주세요.");
+    } catch (copyError) {
+      setSummaryConsentMessage(messageFrom(
+        copyError,
+        "동의 링크를 다시 만들면 바로 전달할 수 있어요.",
+      ));
+    } finally {
+      setSummaryConsentBusy(false);
+    }
+  }
+
   return (
     <section className="mt-5 border-t border-line pt-5" aria-label="상담 녹음 목록">
       <div className="flex items-center justify-between gap-3">
@@ -372,6 +416,36 @@ export function ConsultationRecordingList({ customerId }: { customerId: number }
         </h3>
         <span className="text-[12px] text-ink3">원본은 최대 7일 보관</span>
       </div>
+      {capability?.summary_enabled && !capability.summary_consent_ready && (
+        <div className="mt-3 rounded-2xl bg-brand-soft p-4">
+          <p className="text-[13px] font-bold text-ink">요약 동의를 받으면 핵심 메모를 만들 수 있어요.</p>
+          <p className="mt-1 text-[12px] leading-5 text-ink2">
+            고객이 링크에서 녹음과 AI 요약 항목을 직접 확인하고 동의합니다.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void copySummaryConsentLink()}
+              disabled={summaryConsentBusy}
+              className="min-h-11 rounded-xl bg-brand px-3 text-[13px] font-bold text-white disabled:opacity-60"
+            >
+              {summaryConsentBusy ? "동의 링크 만드는 중" : "요약 동의 링크 복사"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadSummaryCapability()}
+              className="min-h-11 rounded-xl border border-line bg-surface px-3 text-[13px] font-bold text-brand"
+            >
+              동의 완료 다시 확인
+            </button>
+          </div>
+          {summaryConsentMessage && (
+            <p aria-live="polite" className="mt-2 text-[12px] text-ink2">
+              {summaryConsentMessage}
+            </p>
+          )}
+        </div>
+      )}
       {error && <p role="alert" className="mt-3 text-[12px] text-danger-ink">{error}</p>}
       <div className="mt-3 space-y-3">
         {data.results.map((recording) => (
@@ -379,6 +453,9 @@ export function ConsultationRecordingList({ customerId }: { customerId: number }
             key={recording.id}
             customerId={customerId}
             recording={recording}
+            summaryEnabled={Boolean(capability?.summary_enabled)}
+            summaryConsentReady={Boolean(capability?.summary_consent_ready)}
+            onSummaryReady={onSummaryReady}
             onChanged={(changed) => setData((current) => current ? {
               ...current,
               results: current.results.map((row) => (

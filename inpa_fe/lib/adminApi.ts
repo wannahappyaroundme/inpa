@@ -567,6 +567,8 @@ export interface AdminPlan {
   limit_analysis: number | null;
   limit_promotion: number | null;
   limit_customer: number | null;
+  limit_consultation_summary: number | null;
+  limit_consultation_minute: number | null;
   is_active: boolean;
 }
 
@@ -1180,6 +1182,8 @@ export interface AdminConsultationSettings {
   max_duration_seconds: number;
   max_bytes: number;
   global_active_limit: number;
+  daily_ai_cost_limit_krw: number;
+  monthly_ai_cost_limit_krw: number;
   updated_at: string;
 }
 
@@ -1192,6 +1196,28 @@ export interface AdminConsultationStatus {
   storage_audit_available: boolean;
   orphan_object_count: number | null;
   missing_object_count: number | null;
+  summary_queued_count: number;
+  summary_processing_count: number;
+  summary_success_count: number;
+  summary_failed_count: number;
+  summary_ambiguous_count: number;
+  summary_cancelled_count: number;
+  summary_processing_minutes: number;
+  summary_estimated_cost_krw: number;
+  summary_p50_seconds: number | null;
+  summary_p95_seconds: number | null;
+  recent_summary_runs: Array<{
+    id: string;
+    status: string;
+    processing_minutes_reserved: number;
+    input_tokens: number;
+    output_tokens: number;
+    estimated_cost_krw: number;
+    outcome: string;
+    error_code: string;
+    created_at: string;
+    completed_at: string | null;
+  }>;
 }
 
 export interface AdminConsultationPilot {
@@ -1204,6 +1230,7 @@ export interface AdminConsultationPilot {
 
 export interface AdminConsultationResponse {
   environment_gate_open: boolean;
+  ai_environment_gate_open: boolean;
   settings: AdminConsultationSettings;
   status: AdminConsultationStatus;
   pilot_users: AdminConsultationPilot[];
@@ -1221,6 +1248,8 @@ export async function adminUpdateConsultationSettings(
     | "max_duration_seconds"
     | "max_bytes"
     | "global_active_limit"
+    | "daily_ai_cost_limit_krw"
+    | "monthly_ai_cost_limit_krw"
   >>,
 ): Promise<AdminConsultationResponse> {
   return req<AdminConsultationResponse>("PATCH", "/admin/consultations/", payload);

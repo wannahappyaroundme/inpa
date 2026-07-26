@@ -34,6 +34,7 @@ function recording(overrides: Record<string, unknown> = {}) {
     deleted_at: null,
     delete_reason: "",
     source_available: false,
+    summary: null,
     version: 1,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),

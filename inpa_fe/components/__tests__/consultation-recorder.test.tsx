@@ -5,9 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({
   createConsentRequest: vi.fn(),
   deleteRecordingSource: vi.fn(),
+  getConsultationRecording: vi.fn(),
   getRecordingCapability: vi.fn(),
   getRecordingPlayUrl: vi.fn(),
   listConsultationRecordings: vi.fn(),
+  summarizeConsultationRecording: vi.fn(),
 }));
 
 const recorder = vi.hoisted(() => ({
@@ -48,6 +50,14 @@ function capability(consentReady: boolean) {
   return {
     recording_enabled: true,
     consent_ready: consentReady,
+    summary_enabled: true,
+    summary_consent_ready: true,
+    summary_usage: {
+      year_month: "2026-07",
+      monthly_success_used: 0,
+      monthly_success_limit: 5,
+    },
+    customer_free_summary_used: false,
     retention_days: 7,
     max_duration_seconds: 3600,
     max_bytes: 100 * 1024 * 1024,
@@ -68,6 +78,9 @@ function recordings(results: Array<Record<string, unknown>> = []) {
 describe("고객 상담 녹음", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "00000000-0000-4000-8000-000000000777",
+    });
     api.getRecordingCapability.mockResolvedValue(capability(true));
     api.listConsultationRecordings.mockResolvedValue(recordings());
   });
@@ -123,6 +136,7 @@ describe("고객 상담 녹음", () => {
       deleted_at: "2026-07-27T01:00:00Z",
       delete_reason: "user_requested",
       source_available: false,
+      summary: null,
       version: 3,
       created_at: "2026-07-26T01:00:00Z",
       updated_at: "2026-07-27T01:00:00Z",
@@ -130,7 +144,52 @@ describe("고객 상담 녹음", () => {
 
     render(<ConsultationRecordingList customerId={31} />);
 
-    expect(await screen.findByText("원본 녹음은 보관을 마치고 삭제됐어요.")).toBeTruthy();
-    expect(screen.getByText("요약 메모는 그대로 남아요.")).toBeTruthy();
+    expect(await screen.findByText("원본 녹음 보관을 마쳤어요.")).toBeTruthy();
+    expect(screen.getByText(/메모 작성에서 기억할 내용을 직접/)).toBeTruthy();
+  });
+
+  it("확인 뒤 녹음별 AI 요약을 정확히 한 번 요청한다", async () => {
+    api.listConsultationRecordings.mockResolvedValue(recordings([{
+      id: "00000000-0000-4000-8000-000000000032",
+      status: "ready",
+      mime_type: "audio/webm",
+      codec: "opus",
+      byte_size: 1024,
+      duration_ms: 60_000,
+      started_at: "2026-07-26T01:00:00Z",
+      ended_at: "2026-07-26T01:01:00Z",
+      uploaded_at: "2026-07-26T01:01:00Z",
+      expires_at: "2026-08-02T00:46:00Z",
+      deleted_at: null,
+      delete_reason: "",
+      source_available: true,
+      summary: null,
+      version: 2,
+      created_at: "2026-07-26T01:00:00Z",
+      updated_at: "2026-07-26T01:01:00Z",
+    }]));
+    api.summarizeConsultationRecording.mockResolvedValue({
+      id: "00000000-0000-4000-8000-000000000888",
+      status: "queued",
+      memo_id: null,
+      created_at: "2026-07-26T01:02:00Z",
+      completed_at: null,
+    });
+
+    render(<ConsultationRecordingList customerId={31} />);
+    await userEvent.click(await screen.findByRole("button", {
+      name: "AI로 핵심 메모 만들기",
+    }));
+    expect(screen.getByText(/한 번만 만들 수 있어요/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "한 번 요약하기" }));
+
+    expect(api.summarizeConsultationRecording).toHaveBeenCalledOnce();
+    expect(api.summarizeConsultationRecording).toHaveBeenCalledWith(
+      31,
+      "00000000-0000-4000-8000-000000000032",
+      "00000000-0000-4000-8000-000000000777",
+    );
+    expect(await screen.findByText("상담 핵심을 정리하고 있어요.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "AI로 핵심 메모 만들기" })).toBeNull();
   });
 });

@@ -19,12 +19,15 @@ vi.mock("@/lib/adminApi", () => adminApi);
 
 const response = {
   environment_gate_open: true,
+  ai_environment_gate_open: true,
   settings: {
     recording_enabled: false,
     ai_summary_enabled: false,
     max_duration_seconds: 3600,
     max_bytes: 104857600,
     global_active_limit: 20,
+    daily_ai_cost_limit_krw: 50000,
+    monthly_ai_cost_limit_krw: 500000,
     updated_at: "2026-07-26T12:00:00Z",
   },
   status: {
@@ -36,6 +39,17 @@ const response = {
     storage_audit_available: true,
     orphan_object_count: 0,
     missing_object_count: 0,
+    summary_queued_count: 1,
+    summary_processing_count: 2,
+    summary_success_count: 3,
+    summary_failed_count: 0,
+    summary_ambiguous_count: 0,
+    summary_cancelled_count: 0,
+    summary_processing_minutes: 42,
+    summary_estimated_cost_krw: 1200,
+    summary_p50_seconds: 18,
+    summary_p95_seconds: 55,
+    recent_summary_runs: [],
   },
   pilot_users: [],
 };
@@ -56,7 +70,7 @@ describe("상담 녹음 관리자 화면", () => {
     expect(await screen.findByText("상담 녹음 운영")).toBeInTheDocument();
     expect(screen.getByText("진행 중 업로드")).toBeInTheDocument();
     expect(screen.getByText("만료 시각 지난 원본")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getAllByText("1").length).toBeGreaterThan(0);
     expect(screen.queryByText(/재생/)).not.toBeInTheDocument();
     expect(screen.queryByText(/고객명/)).not.toBeInTheDocument();
   });
@@ -73,5 +87,24 @@ describe("상담 녹음 관리자 화면", () => {
       });
     });
     expect(await screen.findByText("녹음 기능을 켰어요.")).toBeInTheDocument();
+  });
+
+  it("AI 요약 스위치와 내용 없는 처리 지표를 관리한다", async () => {
+    adminApi.adminUpdateConsultationSettings.mockResolvedValue({
+      ...response,
+      settings: { ...response.settings, ai_summary_enabled: true },
+    });
+    render(<AdminConsultationsPage />);
+    await screen.findByText("상담 녹음 운영");
+
+    expect(screen.getByText("AI 요약 처리 상태")).toBeInTheDocument();
+    expect(screen.getByText("메모 생성 완료")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "AI 요약 기능 켜기" }));
+
+    await waitFor(() => {
+      expect(adminApi.adminUpdateConsultationSettings).toHaveBeenCalledWith({
+        ai_summary_enabled: true,
+      });
+    });
   });
 });
