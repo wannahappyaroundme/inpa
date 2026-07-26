@@ -43,6 +43,7 @@ LOCAL_APPS = [
     'inpa.dashboard',      # 대시보드 월별 목표 (수동 설정 + 실적 계산, owner 전용)
     'inpa.schedule',       # 개인 일정/할일/고정 차단 (캘린더, owner 전용 — 예약과 별도)
     'inpa.recruiting',     # 설계사 영입 페이지·지원자·정착 관리 (고객 도메인과 완전 분리)
+    'inpa.consultations',  # 상담 녹음 원본·7일 보관·AI 요약 (기본 닫힘)
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -248,6 +249,24 @@ CELERY_WORKER_MAX_TASKS_PER_CHILD = env.int(
 CELERY_WORKER_MAX_MEMORY_PER_CHILD = env.int(
     'CELERY_WORKER_MAX_MEMORY_PER_CHILD', default=180_000)
 CELERY_BROKER_TRANSPORT_OPTIONS = {'visibility_timeout': 600}
+
+# ── 상담 녹음·AI 요약(기본 닫힘) ─────────────────────────────────
+CONSULTATION_RECORDING_ENABLED = env.bool(
+    'CONSULTATION_RECORDING_ENABLED', default=False)
+CONSULTATION_AI_SUMMARY_ENABLED = env.bool(
+    'CONSULTATION_AI_SUMMARY_ENABLED', default=False)
+CONSULTATION_RETENTION_HOURS = env.int(
+    'CONSULTATION_RETENTION_HOURS', default=168)
+CONSULTATION_RETENTION_SAFETY_MINUTES = env.int(
+    'CONSULTATION_RETENTION_SAFETY_MINUTES', default=15)
+CONSULTATION_MAX_DURATION_SECONDS = env.int(
+    'CONSULTATION_MAX_DURATION_SECONDS', default=3600)
+CONSULTATION_MAX_BYTES = env.int(
+    'CONSULTATION_MAX_BYTES', default=100 * 1024 * 1024)
+CONSULTATION_UPLOAD_PART_BYTES = env.int(
+    'CONSULTATION_UPLOAD_PART_BYTES', default=8 * 1024 * 1024)
+CONSULTATION_PRESIGN_TTL_SECONDS = env.int(
+    'CONSULTATION_PRESIGN_TTL_SECONDS', default=600)
 
 # ── Claude 비용 추정 환율 (프리런치 #17, billing/pricing.py) ────────────
 # 원/달러 환율 추정치 — 어드민 관측용 cost_krw 계산에만 쓰인다(정밀 청구서 아님, §6 정직성).
