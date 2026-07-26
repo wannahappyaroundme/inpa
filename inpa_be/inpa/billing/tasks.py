@@ -1,5 +1,7 @@
 """정기결제 비동기 작업."""
 
+from datetime import date
+
 from celery import shared_task
 from django.db import transaction
 from django.utils import timezone
@@ -7,6 +9,7 @@ from django.utils import timezone
 from .kicc import KiccBillingClient
 from .models import PaymentMethodToken
 from .payment_tokens import decrypt_billing_token
+from .recurring import create_and_charge_due_agreement
 
 
 @shared_task(
@@ -57,3 +60,13 @@ def revoke_payment_token_task(self, token_id):
     countdowns = (60, 300, 1800, 21600)
     attempt_index = min(self.request.retries, len(countdowns) - 1)
     raise self.retry(countdown=countdowns[attempt_index])
+
+
+@shared_task
+def charge_due_agreement_task(agreement_id, due_date):
+    return {
+        'order_id': create_and_charge_due_agreement(
+            agreement_id,
+            date.fromisoformat(due_date),
+        ).pk,
+    }
