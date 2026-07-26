@@ -1992,6 +1992,155 @@ export async function redeemCoupon(code: string): Promise<CouponRedeemResult> {
   return request<CouponRedeemResult>("POST", "/billing/coupons/redeem/", { code }, true);
 }
 
+export const INITIAL_BILLING_CONSENT_VERSION = "v1-2026-07-26";
+export const FIRST_CHARGE_CONSENT_VERSION = "v1-2026-07-26";
+
+export type BillingState =
+  | "free"
+  | "trial"
+  | "active"
+  | "renewal_processing"
+  | "past_due_unknown"
+  | "canceled";
+
+export interface BillingStatus {
+  state: BillingState;
+  plan_code?: string;
+  plan_display_name?: string;
+  access_through?: string;
+  next_charge_date?: string | null;
+  amount_krw?: number;
+  card_label?: string | null;
+  reconfirmation_required?: boolean;
+  reconfirmation_opens_on?: string;
+  existing_data_available: true;
+}
+
+export interface RecurringCouponPreflight {
+  claim_id: string;
+  claim_expires_at: string;
+  plan_code: string;
+  plan_display_name: string;
+  duration_months: 1 | 2 | 3;
+  redeem_by: string;
+  access_through: string;
+  next_charge_date: string;
+  amount_krw: number;
+  initial_consent_version: string;
+}
+
+export interface CardRegistrationStart {
+  auth_page_url: string;
+  state: string;
+  shop_order_no: string;
+  claim_expires_at: string;
+  access_through: string;
+  next_charge_date: string;
+  amount_krw: number;
+}
+
+export interface BillingCancellation {
+  state: "canceled";
+  access_through: string;
+  next_charge_date: null;
+  existing_data_available: true;
+}
+
+export interface BillingNotice {
+  id: number;
+  type: "free_transition";
+  title: string;
+  body: string;
+  action_label: string;
+  action_path: string;
+  existing_data_available: true;
+}
+
+export async function getBillingStatus(): Promise<BillingStatus> {
+  return request<BillingStatus>("GET", "/billing/status/", undefined, true);
+}
+
+export async function preflightRecurringCoupon(
+  code: string,
+): Promise<RecurringCouponPreflight> {
+  return request<RecurringCouponPreflight>(
+    "POST",
+    "/billing/coupons/preflight/",
+    { code },
+    true,
+  );
+}
+
+export async function startCardRegistration(
+  claimId: string,
+  deviceType: "pc" | "mobile",
+): Promise<CardRegistrationStart> {
+  return request<CardRegistrationStart>(
+    "POST",
+    "/billing/card-registration/start/",
+    {
+      claim_id: claimId,
+      initial_consent_version: INITIAL_BILLING_CONSENT_VERSION,
+      device_type: deviceType,
+    },
+    true,
+  );
+}
+
+export async function reconfirmFirstCharge(): Promise<{
+  consent_id: number;
+}> {
+  return request(
+    "POST",
+    "/billing/reconfirm/",
+    { first_charge_consent_version: FIRST_CHARGE_CONSENT_VERSION },
+    true,
+  );
+}
+
+export async function cancelBilling(): Promise<BillingCancellation> {
+  return request<BillingCancellation>(
+    "POST",
+    "/billing/cancel/",
+    undefined,
+    true,
+  );
+}
+
+export async function leaseBillingNotice(
+  deviceId: string,
+): Promise<{ notice: BillingNotice | null }> {
+  return request(
+    "POST",
+    "/billing/notices/lease/",
+    { device_id: deviceId },
+    true,
+  );
+}
+
+export async function markBillingNoticeRendered(
+  noticeId: number,
+  deviceId: string,
+): Promise<{ notice_id: number; rendered: true }> {
+  return request(
+    "POST",
+    `/billing/notices/${noticeId}/rendered/`,
+    { device_id: deviceId },
+    true,
+  );
+}
+
+export async function dismissBillingNotice(
+  noticeId: number,
+): Promise<{ notice_id: number; dismissed: true }> {
+  return request(
+    "POST",
+    `/billing/notices/${noticeId}/dismiss/`,
+    undefined,
+    true,
+  );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // 관리자 콘솔 (admin)  — base: /admin/   (is_admin 권한 필요)
 // ════════════════════════════════════════════════════════════════════════════

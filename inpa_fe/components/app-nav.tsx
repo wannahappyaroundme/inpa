@@ -6,6 +6,7 @@ import {
   LayoutDashboard, Users, Phone, Calendar, BarChart3, MessageSquareText,
   SlidersHorizontal, ClipboardList, Gift, LineChart, Shield, Bell,
   BriefcaseBusiness, ChevronRight, type LucideIcon,
+  CreditCard,
 } from "lucide-react";
 import { getProfile, getUnreadCount, tokenStore } from "@/lib/api";
 import { ManagerPromotionModal } from "./recruiting/manager-promotion-modal";
@@ -164,6 +165,13 @@ export function AppNav({ active }: { active?: NavKey }) {
           {isAdmin && <SideItem item={adminItem} active={active === "admin"} badge={adminUnread} />}
           <SideItem item={notiItem} active={active === "notifications"} badge={unread} />
         </nav>
+        <Link
+          href="/settings/billing"
+          className="mx-3 mb-1 flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13px] font-semibold text-ink2 transition hover:bg-surface2 hover:text-ink"
+        >
+          <CreditCard className="h-[17px] w-[17px]" strokeWidth={2} />
+          <span>결제·쿠폰</span>
+        </Link>
         <Link
           href="/settings/account"
           className="m-3 mt-auto flex items-center gap-2.5 rounded-xl border border-line p-2.5 hover:bg-surface2 transition"

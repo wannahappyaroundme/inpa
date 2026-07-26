@@ -31,13 +31,16 @@ from inpa.core.permissions import IsAdmin
 from .coupons import CouponError, redeem_coupon
 from .coupons import hold_recurring_coupon
 from .cancellation import cancel_billing
+from .calendar import new_anchor, period_for
 from .agreements import (
     BillingFlowError,
     billing_status,
     complete_card_registration,
     confirm_first_charge,
     start_card_registration,
+    vat_inclusive_amount,
 )
+from .legal_texts import INITIAL_BILLING_CONSENT_VERSION
 from .gates import card_registration_enabled
 from .notices import (
     NoticeError,
@@ -253,6 +256,12 @@ class RecurringCouponPreflightView(APIView):
         except CouponError as exc:
             return _billing_error_response(exc)
         coupon = claim.coupon
+        today = timezone.localdate()
+        period = period_for(
+            today,
+            coupon.duration_months,
+            anchor_day=new_anchor(today),
+        )
         return Response({
             'claim_id': str(claim.id),
             'claim_expires_at': claim.expires_at.isoformat(),
@@ -260,6 +269,12 @@ class RecurringCouponPreflightView(APIView):
             'plan_display_name': coupon.plan.display_name,
             'duration_months': coupon.duration_months,
             'redeem_by': coupon.redeem_by.isoformat(),
+            'access_through': period.access_through.isoformat(),
+            'next_charge_date': period.next_charge_date.isoformat(),
+            'amount_krw':
+                vat_inclusive_amount(coupon.plan.price_krw),
+            'initial_consent_version':
+                INITIAL_BILLING_CONSENT_VERSION,
         })
 
 
