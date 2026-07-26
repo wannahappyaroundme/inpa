@@ -401,6 +401,24 @@ FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
 # (FREE_TIER_UNLIMITED 관례와 동일).
 FIRST_PAID_BONUS_ENABLED = env.bool('FIRST_PAID_BONUS_ENABLED', default=False)
 
+# ── 카드 등록형 쿠폰·정기결제 (기본 닫힘) ───────────────────────────
+# 환경과 관리자 런타임 스위치가 모두 열리고 베타 무제한이 끝나야 승인된다.
+BILLING_CARD_REGISTRATION_ENABLED = env.bool(
+    'BILLING_CARD_REGISTRATION_ENABLED', default=False)
+BILLING_RECURRING_CHARGE_ENABLED = env.bool(
+    'BILLING_RECURRING_CHARGE_ENABLED', default=False)
+BILLING_WEBHOOK_RECONCILIATION_ENABLED = env.bool(
+    'BILLING_WEBHOOK_RECONCILIATION_ENABLED', default=False)
+KICC_MALL_ID = env('KICC_MALL_ID', default='')
+KICC_CLIENT_SECRET = env('KICC_CLIENT_SECRET', default='')
+KICC_API_BASE_URL = env('KICC_API_BASE_URL', default='')
+PAYMENT_TOKEN_ENCRYPTION_KEY = env(
+    'PAYMENT_TOKEN_ENCRYPTION_KEY', default='')
+PAYMENT_TOKEN_KEY_VERSION = env(
+    'PAYMENT_TOKEN_KEY_VERSION', default='v1')
+BILLING_NOTICE_DEVICE_HMAC_KEY = env(
+    'BILLING_NOTICE_DEVICE_HMAC_KEY', default='')
+
 # ── 팀 기능 capability 게이트 (Plus + legacy Manager/Super) ──────────────────
 # ★ 기본 False(dormant) — 유료 전환 전에 켜면 capability 없는 구독자의 팀 기능이 잠긴다.
 #   COMPARE_AI_ENABLED와 동일 관례: ship dormant, 유료 전환 시점에 env로만 flip(재배포 무관).

@@ -423,6 +423,15 @@ class RuntimeConfig(models.Model):
     first_paid_bonus_enabled = models.BooleanField(
         '첫 유료 결제 보너스 이벤트', default=False,
         help_text='True=첫 유료 구독 부여 시 +1개월 보너스(사용자당 1회). 기본 OFF.')
+    billing_card_registration_enabled = models.BooleanField(
+        '카드 등록형 쿠폰', default=False,
+        help_text='환경 게이트와 함께 열려야 카드 등록을 시작합니다.')
+    billing_recurring_charge_enabled = models.BooleanField(
+        '월 정기 승인', default=False,
+        help_text='대사 기능과 베타 한도 종료까지 충족해야 승인합니다.')
+    billing_reconciliation_enabled = models.BooleanField(
+        '결제 대사', default=False,
+        help_text='미확정 거래 조회와 늦은 승인 취소를 운영합니다.')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -441,6 +450,9 @@ class RuntimeConfig(models.Model):
             defaults={
                 'free_tier_unlimited': bool(getattr(settings, 'FREE_TIER_UNLIMITED', True)),
                 'first_paid_bonus_enabled': bool(getattr(settings, 'FIRST_PAID_BONUS_ENABLED', False)),
+                'billing_card_registration_enabled': False,
+                'billing_recurring_charge_enabled': False,
+                'billing_reconciliation_enabled': False,
             },
         )
         return obj
@@ -463,3 +475,15 @@ class CouponRedemption(models.Model):
 
     def __str__(self):
         return f'{self.user.email} / {self.coupon.code} / ~{self.granted_until:%Y-%m-%d}'
+
+
+from .payment_models import (  # noqa: E402,F401
+    BillingAgreement,
+    BillingNoticeEvent,
+    CouponClaim,
+    PaymentAttempt,
+    PaymentMethodToken,
+    PaymentOrder,
+    RecurringPaymentConsent,
+    WebhookInbox,
+)
