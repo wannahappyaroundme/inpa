@@ -11,6 +11,8 @@ base path: /api/v1/admin/
   - 알림 대상: 설계사 본인만 (고객 자동발송 경로 물리 부재).
 """
 from django.contrib.auth import get_user_model
+from django.conf import settings as django_settings
+from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -38,12 +40,23 @@ from inpa.boards.models import (
 from inpa.core.copyguard import scan_blog_content
 from inpa.core.permissions import IsAdmin
 from inpa.customers.models import ConsentLog, Customer
+from inpa.consultations.cleanup import SOURCE_PRESENT_STATUSES
+from inpa.consultations.models import (
+    ConsultationPilotAccess,
+    ConsultationRecording,
+    ConsultationRuntimeConfig,
+)
+from inpa.consultations.services import get_recording_storage
 from inpa.notifications.models import Notification, NotifType
 from inpa.promotion.models import PromotionOrder
 
 from .models import PolicyVersion
 from .serializers import (
     AdminBlogPostSerializer,
+    AdminConsultationConfigSerializer,
+    AdminConsultationPilotCreateSerializer,
+    AdminConsultationPilotSerializer,
+    AdminConsultationPilotUpdateSerializer,
     AdminConsentLogSerializer,
     AdminCoverageFlagSerializer,
     AdminCustomerListSerializer,
@@ -76,6 +89,53 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+
+def consultation_status_snapshot():
+    now = timezone.now()
+    source_rows = ConsultationRecording.objects.filter(
+        storage_key__isnull=False,
+        status__in=SOURCE_PRESENT_STATUSES,
+    )
+    audit_key = 'admin:consultation-storage-audit:v1'
+    storage_audit = cache.get(audit_key)
+    if storage_audit is None:
+        storage_audit = {
+            'storage_audit_available': False,
+            'orphan_object_count': None,
+            'missing_object_count': None,
+        }
+        if django_settings.CONSULTATION_RECORDING_ENABLED:
+            try:
+                db_keys = set(source_rows.values_list('storage_key', flat=True))
+                object_keys = set(get_recording_storage().iter_keys())
+                storage_audit = {
+                    'storage_audit_available': True,
+                    'orphan_object_count': len(object_keys - db_keys),
+                    'missing_object_count': len(db_keys - object_keys),
+                }
+            except Exception:
+                pass
+        cache.set(audit_key, storage_audit, 300)
+    return {
+        'active_upload_count': ConsultationRecording.objects.filter(
+            status=ConsultationRecording.STATUS_UPLOADING,
+        ).count(),
+        'ready_source_count': source_rows.exclude(
+            status=ConsultationRecording.STATUS_UPLOADING,
+        ).count(),
+        'deleted_count': ConsultationRecording.objects.filter(
+            status=ConsultationRecording.STATUS_DELETED,
+        ).count(),
+        'overdue_source_count': source_rows.filter(
+            expires_at__isnull=False,
+            expires_at__lte=now,
+        ).count(),
+        'delete_failure_count': ConsultationRecording.objects.filter(
+            delete_result='retry_required',
+        ).count(),
+        **storage_audit,
+    }
 
 
 # ─── 알림 생성 헬퍼 (설계사 본인 대상 — 고객 자동발송 금지) ─────────────
@@ -2056,6 +2116,123 @@ class AdminActivationFunnelView(APIView):
             'utm_sources': utm_sources,
             'avg_days_to_activation': avg_days_to_activation,
         })
+
+
+class AdminConsultationSettingsView(APIView):
+    permission_classes = [IsAdmin]
+
+    @staticmethod
+    def _response(config):
+        pilots = ConsultationPilotAccess.objects.select_related('user').order_by(
+            'user__email',
+        )
+        return {
+            'environment_gate_open': bool(
+                django_settings.CONSULTATION_RECORDING_ENABLED
+            ),
+            'settings': AdminConsultationConfigSerializer(config).data,
+            'status': consultation_status_snapshot(),
+            'pilot_users': AdminConsultationPilotSerializer(
+                pilots,
+                many=True,
+            ).data,
+        }
+
+    def get(self, request):
+        return Response(self._response(ConsultationRuntimeConfig.solo()))
+
+    def patch(self, request):
+        if (
+            request.data.get('recording_enabled') is True
+            and not django_settings.CONSULTATION_RECORDING_ENABLED
+        ):
+            return Response(
+                {
+                    'code': 'CONSULTATION_ENV_GATE_CLOSED',
+                    'detail': (
+                        '환경 설정 검토를 마친 뒤 운영 스위치를 켤 수 있어요.'
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if (
+            request.data.get('ai_summary_enabled') is True
+            and not django_settings.CONSULTATION_AI_SUMMARY_ENABLED
+        ):
+            return Response(
+                {
+                    'code': 'CONSULTATION_AI_ENV_GATE_CLOSED',
+                    'detail': (
+                        'AI 설정 검토를 마친 뒤 요약 스위치를 켤 수 있어요.'
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        with transaction.atomic():
+            config = ConsultationRuntimeConfig.objects.select_for_update().get(
+                pk=ConsultationRuntimeConfig.solo().pk,
+            )
+            serializer = AdminConsultationConfigSerializer(
+                config,
+                data=request.data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        return Response(self._response(config))
+
+
+class AdminConsultationPilotListView(APIView):
+    permission_classes = [IsAdmin]
+
+    def post(self, request):
+        serializer = AdminConsultationPilotCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = get_object_or_404(
+            User,
+            email__iexact=serializer.validated_data['email'],
+        )
+        pilot, _ = ConsultationPilotAccess.objects.update_or_create(
+            user=user,
+            defaults={
+                'recording_allowed': serializer.validated_data[
+                    'recording_allowed'
+                ],
+                'summary_allowed': serializer.validated_data[
+                    'summary_allowed'
+                ],
+            },
+        )
+        return Response(
+            AdminConsultationPilotSerializer(pilot).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminConsultationPilotDetailView(APIView):
+    permission_classes = [IsAdmin]
+
+    def _pilot(self, user_id):
+        return get_object_or_404(
+            ConsultationPilotAccess.objects.select_related('user'),
+            user_id=user_id,
+        )
+
+    def patch(self, request, user_id):
+        pilot = self._pilot(user_id)
+        serializer = AdminConsultationPilotUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        for field, value in serializer.validated_data.items():
+            setattr(pilot, field, value)
+        pilot.save(update_fields=[
+            *serializer.validated_data.keys(),
+            'updated_at',
+        ])
+        return Response(AdminConsultationPilotSerializer(pilot).data)
+
+    def delete(self, request, user_id):
+        self._pilot(user_id).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class AdminLogoutView(APIView):

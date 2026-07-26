@@ -21,6 +21,10 @@ from inpa.boards.models import (
     Report,
 )
 from inpa.customers.models import ConsentLog, Customer
+from inpa.consultations.models import (
+    ConsultationPilotAccess,
+    ConsultationRuntimeConfig,
+)
 from inpa.promotion.models import PromotionOrder, PromotionOrderStatusLog
 
 from .models import PolicyVersion
@@ -706,3 +710,72 @@ class FeatureFlagsSerializer(serializers.Serializer):
     OCR_VERIFY_ENABLED = serializers.BooleanField(read_only=True)
     REQUIRE_CUSTOMER_SELF_CONSENT = serializers.BooleanField(read_only=True)
     GOOGLE_OAUTH_ENABLED = serializers.BooleanField(read_only=True)
+
+
+class AdminConsultationConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ConsultationRuntimeConfig
+        fields = [
+            'recording_enabled',
+            'ai_summary_enabled',
+            'max_duration_seconds',
+            'max_bytes',
+            'global_active_limit',
+            'updated_at',
+        ]
+        read_only_fields = ['updated_at']
+
+    def validate_max_duration_seconds(self, value):
+        if not 60 <= value <= 3600:
+            raise serializers.ValidationError(
+                '녹음 시간은 1분부터 60분 사이로 설정해 주세요.',
+            )
+        return value
+
+    def validate_max_bytes(self, value):
+        if not 1024 * 1024 <= value <= 100 * 1024 * 1024:
+            raise serializers.ValidationError(
+                '녹음 크기는 1MB부터 100MB 사이로 설정해 주세요.',
+            )
+        return value
+
+    def validate_global_active_limit(self, value):
+        if not 1 <= value <= 100:
+            raise serializers.ValidationError(
+                '전체 동시 녹음 수는 1부터 100 사이로 설정해 주세요.',
+            )
+        return value
+
+
+class AdminConsultationPilotSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = ConsultationPilotAccess
+        fields = [
+            'user_id',
+            'email',
+            'recording_allowed',
+            'summary_allowed',
+            'updated_at',
+        ]
+        read_only_fields = fields
+
+
+class AdminConsultationPilotCreateSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    recording_allowed = serializers.BooleanField(default=True)
+    summary_allowed = serializers.BooleanField(default=False)
+
+
+class AdminConsultationPilotUpdateSerializer(serializers.Serializer):
+    recording_allowed = serializers.BooleanField(required=False)
+    summary_allowed = serializers.BooleanField(required=False)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError(
+                '바꿀 파일럿 설정을 하나 이상 선택해 주세요.',
+            )
+        return attrs

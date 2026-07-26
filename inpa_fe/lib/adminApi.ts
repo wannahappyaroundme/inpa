@@ -1171,3 +1171,87 @@ export async function adminListRecruitingAudit(
     `/admin/recruiting/audit/?${adminRecruitingPageQuery(page)}`,
   );
 }
+
+// ─── Consultation recording operations (content-free admin status) ──────────
+
+export interface AdminConsultationSettings {
+  recording_enabled: boolean;
+  ai_summary_enabled: boolean;
+  max_duration_seconds: number;
+  max_bytes: number;
+  global_active_limit: number;
+  updated_at: string;
+}
+
+export interface AdminConsultationStatus {
+  active_upload_count: number;
+  ready_source_count: number;
+  deleted_count: number;
+  overdue_source_count: number;
+  delete_failure_count: number;
+  storage_audit_available: boolean;
+  orphan_object_count: number | null;
+  missing_object_count: number | null;
+}
+
+export interface AdminConsultationPilot {
+  user_id: number;
+  email: string;
+  recording_allowed: boolean;
+  summary_allowed: boolean;
+  updated_at: string;
+}
+
+export interface AdminConsultationResponse {
+  environment_gate_open: boolean;
+  settings: AdminConsultationSettings;
+  status: AdminConsultationStatus;
+  pilot_users: AdminConsultationPilot[];
+}
+
+export async function adminGetConsultationSettings(): Promise<AdminConsultationResponse> {
+  return req<AdminConsultationResponse>("GET", "/admin/consultations/");
+}
+
+export async function adminUpdateConsultationSettings(
+  payload: Partial<Pick<
+    AdminConsultationSettings,
+    | "recording_enabled"
+    | "ai_summary_enabled"
+    | "max_duration_seconds"
+    | "max_bytes"
+    | "global_active_limit"
+  >>,
+): Promise<AdminConsultationResponse> {
+  return req<AdminConsultationResponse>("PATCH", "/admin/consultations/", payload);
+}
+
+export async function adminAddConsultationPilot(payload: {
+  email: string;
+  recording_allowed: boolean;
+  summary_allowed: boolean;
+}): Promise<AdminConsultationPilot> {
+  return req<AdminConsultationPilot>(
+    "POST",
+    "/admin/consultations/pilot-users/",
+    payload,
+  );
+}
+
+export async function adminUpdateConsultationPilot(
+  userId: number,
+  payload: Partial<Pick<
+    AdminConsultationPilot,
+    "recording_allowed" | "summary_allowed"
+  >>,
+): Promise<AdminConsultationPilot> {
+  return req<AdminConsultationPilot>(
+    "PATCH",
+    `/admin/consultations/pilot-users/${userId}/`,
+    payload,
+  );
+}
+
+export async function adminRemoveConsultationPilot(userId: number): Promise<void> {
+  return reqVoid("DELETE", `/admin/consultations/pilot-users/${userId}/`);
+}
