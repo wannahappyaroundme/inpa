@@ -151,6 +151,7 @@ def create_upload_session(*, owner, customer, mime_type, started_at):
                 customer=locked_customer,
                 mime_type=mime_type,
                 started_at=started_at or timezone.now(),
+                expires_at=timezone.now() + timedelta(hours=24),
             )
             session = storage.create(recording.id, mime_type)
             recording.storage_key = session.key
@@ -376,6 +377,7 @@ def delete_source(*, recording_id, owner, customer, reason):
         recording.status = ConsultationRecording.STATUS_DELETED
         recording.storage_key = None
         recording.multipart_upload_id = ''
+        recording.checksum = ''
         recording.deleted_at = timezone.now()
         recording.delete_result = 'verified'
         recording.version += 1
@@ -383,6 +385,7 @@ def delete_source(*, recording_id, owner, customer, reason):
             'status',
             'storage_key',
             'multipart_upload_id',
+            'checksum',
             'deleted_at',
             'delete_result',
             'version',

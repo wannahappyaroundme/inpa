@@ -148,6 +148,18 @@ class R2RecordingStorageTests(SimpleTestCase):
             Key=key,
         )
 
+    def test_abort_treats_already_missing_multipart_upload_as_success(self):
+        key = f'consultation-recordings/{uuid.uuid4()}/source'
+        self.client.abort_multipart_upload.side_effect = ClientError(
+            {
+                'Error': {'Code': 'NoSuchUpload', 'Message': 'Missing'},
+                'ResponseMetadata': {'HTTPStatusCode': 404},
+            },
+            'AbortMultipartUpload',
+        )
+
+        self.storage.abort(key, 'upload-1')
+
     def test_delete_raises_when_object_still_exists(self):
         key = f'consultation-recordings/{uuid.uuid4()}/source'
         self.client.head_object.return_value = {'ContentLength': 10}

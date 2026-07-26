@@ -128,6 +128,7 @@ class PublicConsentView(_NoIndexMixin, APIView):
         """
         now = timezone.now()
         results = []
+        delete_consultation_sources = False
         for sc in scopes_to_revoke:
             updated = ConsentLog.objects.filter(
                 customer=customer, scope=sc, revoked_at__isnull=True,
@@ -141,7 +142,20 @@ class PublicConsentView(_NoIndexMixin, APIView):
                 # gate OFF 전환 기간의 Customer 토큰 fallback도 즉시 닫는다.
                 customer.share_expires_at = now
                 customer.save(update_fields=['share_expires_at'])
+            if sc in {
+                ConsentLog.SCOPE_CONSULTATION_RECORDING,
+                ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
+            }:
+                delete_consultation_sources = True
             results.append({'scope': sc, 'revoked': True, 'updated_logs': updated})
+        if delete_consultation_sources:
+            from inpa.consultations.tasks import delete_customer_sources
+            transaction.on_commit(
+                lambda customer_id=customer.id: delete_customer_sources.delay(
+                    customer_id,
+                    reason='consent_revoked',
+                ),
+            )
         return results
 
     def get(self, request, token):

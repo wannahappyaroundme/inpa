@@ -37,6 +37,19 @@ class UploadedPart:
     byte_size: int
 
 
+def recording_id_from_key(key):
+    prefix = 'consultation-recordings/'
+    suffix = '/source'
+    if not isinstance(key, str) or not key.startswith(prefix) or not key.endswith(suffix):
+        return None
+    raw = key[len(prefix):-len(suffix)]
+    try:
+        parsed = uuid.UUID(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed if str(parsed) == raw else None
+
+
 def validate_parts(parts, *, part_bytes, max_bytes):
     """Return ordered parts only when the client manifest is structurally safe."""
     if part_bytes <= 0 or max_bytes <= 0:
@@ -105,6 +118,17 @@ class R2RecordingStorage:
             raise ValueError('INVALID_RECORDING_STORAGE_KEY')
         return key
 
+    def iter_keys(self):
+        paginator = self.client.get_paginator('list_objects_v2')
+        for page in paginator.paginate(
+            Bucket=self.bucket,
+            Prefix=f'{self.prefix}/',
+        ):
+            for item in page.get('Contents', []):
+                key = item.get('Key')
+                if recording_id_from_key(key) is not None:
+                    yield key
+
     @staticmethod
     def _validate_upload_id(upload_id):
         if not upload_id or len(upload_id) > 512 or '\r' in upload_id or '\n' in upload_id:
@@ -162,11 +186,18 @@ class R2RecordingStorage:
     def abort(self, key, upload_id):
         self._validate_key(key)
         self._validate_upload_id(upload_id)
-        return self.client.abort_multipart_upload(
-            Bucket=self.bucket,
-            Key=key,
-            UploadId=upload_id,
-        )
+        try:
+            return self.client.abort_multipart_upload(
+                Bucket=self.bucket,
+                Key=key,
+                UploadId=upload_id,
+            )
+        except ClientError as exc:
+            status_code = exc.response.get('ResponseMetadata', {}).get('HTTPStatusCode')
+            error_code = exc.response.get('Error', {}).get('Code')
+            if status_code == 404 or error_code in {'404', 'NoSuchUpload', 'NotFound'}:
+                return None
+            raise
 
     def head(self, key):
         self._validate_key(key)
