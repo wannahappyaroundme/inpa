@@ -107,6 +107,13 @@ INSURANCE_IMPORT_THROTTLE_RATES = {
     'insurance_import_source': '120/hour',
 }
 
+CONSULTATION_THROTTLE_RATES = {
+    'consultation_upload': env(
+        'CONSULTATION_UPLOAD_RATE', default='30/hour'),
+    'consultation_play': env(
+        'CONSULTATION_PLAY_RATE', default='120/hour'),
+}
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
@@ -137,6 +144,7 @@ REST_FRAMEWORK = {
         'recruiting_apply': '10/hour',
         'recruiting_apply_campaign': '30/day',
         'recruiting_join': '20/hour',
+        **CONSULTATION_THROTTLE_RATES,
     },
 }
 

@@ -73,8 +73,23 @@ class ConsultationRecording(models.Model):
             models.Index(fields=['owner', 'customer', '-created_at']),
             models.Index(fields=['status', 'expires_at']),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['owner', 'customer'],
+                condition=models.Q(status='uploading'),
+                name='uniq_active_consultation_upload',
+            ),
+        ]
 
-    def mark_ready(self, *, ended_at, byte_size, duration_ms, checksum):
+    def mark_ready(
+        self,
+        *,
+        ended_at,
+        byte_size,
+        duration_ms,
+        checksum,
+        codec='',
+    ):
         if self.status != self.STATUS_UPLOADING:
             raise ValueError('INVALID_RECORDING_TRANSITION')
         retention = timedelta(
@@ -90,6 +105,7 @@ class ConsultationRecording(models.Model):
         self.expires_at = ended_at + retention - safety
         self.byte_size = byte_size
         self.duration_ms = duration_ms
+        self.codec = codec
         self.checksum = checksum
         self.multipart_upload_id = ''
         self.version += 1
@@ -100,6 +116,7 @@ class ConsultationRecording(models.Model):
             'expires_at',
             'byte_size',
             'duration_ms',
+            'codec',
             'checksum',
             'multipart_upload_id',
             'version',
