@@ -66,6 +66,16 @@ services:
         value: "False"               # 전용 R2·동의·운영 점검 뒤 파일럿 계정부터 공개
       - key: CONSULTATION_AI_SUMMARY_ENABLED
         value: "False"               # 음성 전사·요약 공급자 설정과 검증 전까지 닫힘
+      - key: CONSULTATION_SUMMARY_ACTIVE_LIMIT
+        value: "1"                   # 여러 서버·워커에서도 DB 잠금으로 동시에 한 건만 처리
+      - key: CONSULTATION_SUMMARY_MODEL
+        sync: false                  # 요약 모델 ID는 운영 환경에서만 주입
+      - key: CLOVA_SPEECH_INVOKE_URL
+        sync: false
+      - key: CLOVA_SPEECH_SECRET_KEY
+        sync: false
+      - key: BACKEND_BASE_URL
+        sync: false                  # 예: https://inpa-be.onrender.com
       - key: REDIS_URL
         fromService:
           type: keyvalue
@@ -127,7 +137,7 @@ services:
     region: oregon
     rootDir: inpa_be
     buildCommand: pip install -r requirements.txt
-    startCommand: celery -A config worker -l INFO -Q insurance_imports --concurrency 4
+    startCommand: celery -A config worker -l INFO -Q insurance_imports,consultation_summaries --concurrency 4
     maxShutdownDelaySeconds: 300
     envVars:
       - key: DJANGO_SETTINGS_MODULE
@@ -136,6 +146,16 @@ services:
         value: "3.11.9"
       - key: INSURANCE_REVIEW_GATE_ENABLED
         value: "False"
+      - key: CONSULTATION_AI_SUMMARY_ENABLED
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_AI_SUMMARY_ENABLED
+      - key: CONSULTATION_SUMMARY_ACTIVE_LIMIT
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_SUMMARY_ACTIVE_LIMIT
       - key: REDIS_URL
         fromService:
           type: keyvalue
@@ -166,6 +186,51 @@ services:
           type: web
           name: inpa-be
           envVarKey: CLAUDE_MODEL_BULK
+      - key: CONSULTATION_SUMMARY_MODEL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_SUMMARY_MODEL
+      - key: CLOVA_SPEECH_INVOKE_URL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CLOVA_SPEECH_INVOKE_URL
+      - key: CLOVA_SPEECH_SECRET_KEY
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CLOVA_SPEECH_SECRET_KEY
+      - key: BACKEND_BASE_URL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: BACKEND_BASE_URL
+      - key: CONSULTATION_STORAGE_BUCKET
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_STORAGE_BUCKET
+      - key: CONSULTATION_STORAGE_ENDPOINT
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_STORAGE_ENDPOINT
+      - key: CONSULTATION_STORAGE_REGION
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_STORAGE_REGION
+      - key: CONSULTATION_STORAGE_ACCESS_KEY_ID
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_STORAGE_ACCESS_KEY_ID
+      - key: CONSULTATION_STORAGE_SECRET_ACCESS_KEY
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_STORAGE_SECRET_ACCESS_KEY
       - key: AWS_STORAGE_BUCKET_NAME
         fromService:
           type: web

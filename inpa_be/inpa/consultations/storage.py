@@ -5,7 +5,10 @@ and other identifying text must never enter object keys or metadata.
 """
 
 import re
+import tempfile
 import uuid
+from contextlib import contextmanager
+from pathlib import Path
 from dataclasses import dataclass
 
 import boto3
@@ -216,6 +219,21 @@ class R2RecordingStorage:
                 yield chunk
         finally:
             body.close()
+
+    @contextmanager
+    def open_temp(self, key, chunk_size=DEFAULT_STREAM_CHUNK_BYTES):
+        """Download one exact recording into an ephemeral, private temp file."""
+        self._validate_key(key)
+        if chunk_size <= 0:
+            raise ValueError('INVALID_CHUNK_SIZE')
+        with tempfile.TemporaryDirectory(
+            prefix='inpa-consultation-source-',
+        ) as temp_dir:
+            path = Path(temp_dir) / 'source'
+            with path.open('xb') as target:
+                for chunk in self.iter_object(key, chunk_size=chunk_size):
+                    target.write(chunk)
+            yield path
 
     def presign_get(self, key):
         self._validate_key(key)

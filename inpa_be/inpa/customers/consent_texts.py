@@ -20,6 +20,7 @@ CONSULTATION_CONSENT_VERSIONS = {
     ConsentLog.SCOPE_CONSULTATION_RECORDING: 'v1-2026-07-22',
     ConsentLog.SCOPE_CONSULTATION_SENSITIVE: 'v1-2026-07-22',
 }
+CONSULTATION_SUMMARY_CONSENT_VERSION = 'v1-2026-07-22'
 
 CONSULTATION_CONSENT_TEXTS = {
     ConsentLog.SCOPE_CONSULTATION_RECORDING: {
@@ -37,6 +38,17 @@ CONSULTATION_CONSENT_TEXTS = {
             '상담 메모 작성 목적으로 처리됩니다.',
         ],
         'retention': '처리 목적: 상담 내용을 핵심 메모로 정리',
+    },
+    ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY: {
+        'title': '상담 요약을 위한 국외 처리',
+        'body': [
+            '요약을 위해 이름과 연락처를 가린 상담 내용이 '
+            '미국 Anthropic으로 전달될 수 있습니다.',
+        ],
+        'retention': (
+            '보유 기간: 전달된 내용은 해당 업체 기준에 따라 '
+            '최대 30일 보관될 수 있습니다.'
+        ),
     },
 }
 
@@ -106,6 +118,8 @@ def has_current_overseas_consent(customer):
 
 def consent_version_for_scope(scope):
     """scope별 현재 고지문 버전. 기존 동의는 공통 v2 버전을 유지한다."""
+    if scope == ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY:
+        return CONSULTATION_SUMMARY_CONSENT_VERSION
     return CONSULTATION_CONSENT_VERSIONS.get(scope, CONSENT_TEXTS_VERSION)
 
 
@@ -123,3 +137,15 @@ def has_current_consultation_recording_consent(customer):
         ).exists():
             return False
     return True
+
+
+def has_current_consultation_summary_consents(customer):
+    if not has_current_consultation_recording_consent(customer):
+        return False
+    return ConsentLog.objects.filter(
+        customer=customer,
+        scope=ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY,
+        subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+        revoked_at__isnull=True,
+        doc_version=CONSULTATION_SUMMARY_CONSENT_VERSION,
+    ).exists()

@@ -71,6 +71,20 @@ class Plan(models.Model):
         help_text='null=무제한. Free 기본 5명(월). 설계사가 능동으로 추가하는 고객만 집계'
                    '(셀프진단·소개 카드 인바운드 리드는 미집계).'
     )
+    limit_consultation_summary = models.PositiveIntegerField(
+        '상담 요약 한도(월)',
+        null=True,
+        blank=True,
+        default=5,
+        help_text='녹음 파일별 최초 AI 요약 성공 건수. null=무제한.',
+    )
+    limit_consultation_minute = models.PositiveIntegerField(
+        '상담 음성 처리 분(월)',
+        null=True,
+        blank=True,
+        default=150,
+        help_text='외부 음성 처리가 시작된 올림 분수. null=무제한.',
+    )
     # share_link / customer_add(레거시 명칭, 이 필드와 무관) = 절대 차단 금지 → 필드 없음 (dev/23 §1.2)
 
     # ★ capability 필드(월 액션 한도와 별개) — 활성·미만료 구독의 플랜이 True일 때 팀 기능 허용.
@@ -185,6 +199,8 @@ class UsageMeter(models.Model):
         ('analysis', 'AI 분析·메시지'),
         ('promotion', '판촉물 주문'),
         ('customer', '고객 추가'),
+        ('consultation_summary', '상담 요약'),
+        ('consultation_minute', '상담 음성 처리 분'),
     )
 
     # action label 한글 매핑 (GET /billing/usage/ 응답용)
@@ -194,6 +210,8 @@ class UsageMeter(models.Model):
         'analysis': 'AI 분析·메시지',
         'promotion': '판촉물 주문',
         'customer': '고객 추가',
+        'consultation_summary': '상담 요약',
+        'consultation_minute': '상담 음성 처리 분',
     }
 
     user = models.ForeignKey(

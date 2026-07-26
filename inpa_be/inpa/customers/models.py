@@ -201,6 +201,13 @@ class CustomerMemo(models.Model):
     occurred_at = models.DateTimeField(null=True, blank=True)
     edited_at = models.DateTimeField(null=True, blank=True)
     revision = models.PositiveIntegerField(default=1)
+    summary_run = models.OneToOneField(
+        'consultations.ConsultationSummaryRun',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='memo',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -372,6 +379,7 @@ class ConsentLog(models.Model):
     SCOPE_THIRD_PARTY = 'third_party'              # ✦ 제3자 제공·플랫폼(인파) 활용 — 법상 '선택' 동의(강제 금지)
     SCOPE_CONSULTATION_RECORDING = 'consultation_recording'
     SCOPE_CONSULTATION_SENSITIVE = 'consultation_sensitive'
+    SCOPE_CONSULTATION_OVERSEAS_SUMMARY = 'consultation_overseas_summary'
     SCOPE_CHOICES = (
         (SCOPE_OVERSEAS_MEDICAL, '병력 국외이전 (Claude API, 미국)'),
         (SCOPE_MEDICAL_SENSITIVE, '민감정보(병력) 처리'),
@@ -380,6 +388,10 @@ class ConsentLog(models.Model):
         (SCOPE_THIRD_PARTY, '제3자 제공·플랫폼 활용'),
         (SCOPE_CONSULTATION_RECORDING, '상담 녹음과 원본 보관'),
         (SCOPE_CONSULTATION_SENSITIVE, '상담 중 민감정보 처리'),
+        (
+            SCOPE_CONSULTATION_OVERSEAS_SUMMARY,
+            '상담 요약을 위한 국외 처리',
+        ),
     )
 
     # ★ 동의 주체(council P3c): 누가 동의했나 = 감사 핵심.

@@ -3,6 +3,46 @@ from celery import shared_task
 from .cleanup import delete_recording_source
 from .models import ConsultationRecording
 from .services import get_recording_storage
+from .summary_worker import cancel_summary_run, run_summary_step
+
+
+@shared_task(
+    bind=True,
+    name='inpa.consultations.process_summary',
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def process_consultation_summary(self, run_id):
+    result = run_summary_step(run_id)
+    if result.retry_after > 0:
+        self.apply_async(
+            args=[str(run_id)],
+            countdown=result.retry_after,
+            queue='consultation_summaries',
+        )
+    return {
+        'outcome': result.outcome,
+        'retry_after': result.retry_after,
+    }
+
+
+@shared_task(name='inpa.consultations.cancel_customer_summaries')
+def cancel_customer_summaries(customer_id, *, reason):
+    run_ids = list(
+        ConsultationRecording.objects.filter(
+            customer_id=customer_id,
+            summary_run__status__in=(
+                'queued',
+                'transcribing',
+                'summarizing',
+            ),
+        ).values_list('summary_run__id', flat=True)
+    )
+    cancelled = 0
+    for run_id in run_ids:
+        if cancel_summary_run(run_id, reason=reason) is not None:
+            cancelled += 1
+    return {'cancelled': cancelled, 'reason': reason}
 
 
 @shared_task(name='inpa.consultations.delete_exact_sources')
@@ -45,4 +85,3 @@ def delete_customer_sources(customer_id, *, reason):
         else:
             failed += 1
     return {'deleted': deleted, 'failed': failed, 'reason': reason}
-

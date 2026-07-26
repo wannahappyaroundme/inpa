@@ -103,6 +103,11 @@ def delete_recording_source(recording_id, *, reason, storage=None, now=None):
         )
         if recording.status == ConsultationRecording.STATUS_DELETED:
             return 'deleted'
+        from .summary_worker import cancel_recording_summary
+        cancel_recording_summary(
+            recording.id,
+            reason='RECORDING_SOURCE_DELETED',
+        )
         exact_key = recording.storage_key
         upload_id = recording.multipart_upload_id
         if not exact_key:
@@ -177,4 +182,3 @@ def cleanup_expired_recordings(*, now=None, limit=200, storage=None):
         )
         result[outcome] += 1
     return result
-

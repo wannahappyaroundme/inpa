@@ -362,6 +362,11 @@ def delete_source(*, recording_id, owner, customer, reason):
         )
         if recording.status == ConsultationRecording.STATUS_DELETED:
             return recording
+        from .summary_worker import cancel_recording_summary
+        cancel_recording_summary(
+            recording.id,
+            reason='RECORDING_SOURCE_DELETED',
+        )
         key = recording.storage_key
         upload_id = recording.multipart_upload_id
         was_uploading = recording.status == ConsultationRecording.STATUS_UPLOADING

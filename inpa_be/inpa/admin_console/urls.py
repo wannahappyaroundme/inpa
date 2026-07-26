@@ -12,6 +12,7 @@ from .views import (
     AdminConsultationPilotDetailView,
     AdminConsultationPilotListView,
     AdminConsultationSettingsView,
+    AdminConsultationSummaryCompensateView,
     AdminConsentLogListView,
     AdminCoverageFlagListView,
     AdminCoverageFlagResolveView,
@@ -69,6 +70,9 @@ urlpatterns = [
     path('admin/consultations/pilot-users/<int:user_id>/',
          AdminConsultationPilotDetailView.as_view(),
          name='admin-consultation-pilot-detail'),
+    path('admin/consultations/runs/<uuid:run_id>/compensate/',
+         AdminConsultationSummaryCompensateView.as_view(),
+         name='admin-consultation-summary-compensate'),
 
     # ── 설계사 관리 ───────────────────────────────────────────────────
     path('admin/users/', AdminUserListView.as_view(), name='admin-user-list'),

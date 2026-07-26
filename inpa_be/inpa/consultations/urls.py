@@ -2,18 +2,25 @@ from django.urls import path
 
 from .views import (
     CompleteUploadView,
+    ClovaCallbackView,
     RecordingCapabilityView,
     RecordingDetailView,
     RecordingListView,
     RecordingPartURLView,
     RecordingPlayURLView,
     RecordingSourceDeleteView,
+    RecordingSummarizeView,
     UploadSessionView,
 )
 
 app_name = 'consultations'
 
 urlpatterns = [
+    path(
+        'consultations/clova-callback/<str:token>/',
+        ClovaCallbackView.as_view(),
+        name='clova-callback',
+    ),
     path(
         'customers/<int:customer_pk>/recordings/',
         RecordingListView.as_view(),
@@ -33,6 +40,11 @@ urlpatterns = [
         'customers/<int:customer_pk>/recordings/<uuid:recording_id>/',
         RecordingDetailView.as_view(),
         name='recording-detail',
+    ),
+    path(
+        'customers/<int:customer_pk>/recordings/<uuid:recording_id>/summarize/',
+        RecordingSummarizeView.as_view(),
+        name='recording-summarize',
     ),
     path(
         'customers/<int:customer_pk>/recordings/<uuid:recording_id>/'
@@ -57,4 +69,3 @@ urlpatterns = [
         name='recording-source-delete',
     ),
 ]
-

@@ -53,13 +53,14 @@ from inpa.accounts.models import Profile, User
 from inpa.admin_console.models import PolicyVersion
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory, UnmatchedLog
 from inpa.billing.credit import add_months
-from inpa.billing.models import Plan, Subscription
+from inpa.billing.models import Plan, Subscription, UsageMeter
 from inpa.boards.models import Inquiry, InquiryReply, Notice, Post, Report
 from inpa.customers.models import ConsentLog, Customer
 from inpa.consultations.models import (
     ConsultationPilotAccess,
     ConsultationRecording,
     ConsultationRuntimeConfig,
+    ConsultationSummaryRun,
 )
 from inpa.insurances.models import CustomerInsurance
 from inpa.notifications.models import Notification
@@ -966,12 +967,18 @@ class AdminPlanTest(TestCase):
         """P1: PATCH /admin/settings/plans/:code/ → limit_ocr 변경."""
         res = self.client_admin.patch(
             f'/api/v1/admin/settings/plans/{self.plan.code}/',
-            {'limit_ocr': 50},
+            {
+                'limit_ocr': 50,
+                'limit_consultation_summary': 30,
+                'limit_consultation_minute': 900,
+            },
             format='json',
         )
         self.assertEqual(res.status_code, 200)
         self.plan.refresh_from_db()
         self.assertEqual(self.plan.limit_ocr, 50)
+        self.assertEqual(self.plan.limit_consultation_summary, 30)
+        self.assertEqual(self.plan.limit_consultation_minute, 900)
 
 
 # ─── PV: 약관 버전 ──────────────────────────────────────────────────
@@ -2097,7 +2104,7 @@ class AdminConsultationSettingsTest(TestCase):
             user=self.planner,
             recording_allowed=True,
         )
-        ConsultationRecording.objects.create(
+        recording = ConsultationRecording.objects.create(
             owner=self.planner,
             customer=self.customer,
             status=ConsultationRecording.STATUS_READY,
@@ -2107,6 +2114,21 @@ class AdminConsultationSettingsTest(TestCase):
             ),
             mime_type='audio/webm',
             expires_at=timezone.now() - timedelta(minutes=1),
+        )
+        ConsultationSummaryRun.objects.create(
+            recording=recording,
+            status=ConsultationSummaryRun.STATUS_SUCCEEDED,
+            idempotency_key='admin-content-free',
+            prompt_version='prompt-v1',
+            recording_consent_version='recording-v1',
+            sensitive_consent_version='sensitive-v1',
+            overseas_consent_version='overseas-v1',
+            processing_minutes_reserved=3,
+            input_tokens=100,
+            output_tokens=30,
+            estimated_cost_krw=12,
+            processing_seconds=20,
+            outcome='succeeded',
         )
 
         response = self.client_admin.get('/api/v1/admin/consultations/')
@@ -2119,6 +2141,18 @@ class AdminConsultationSettingsTest(TestCase):
         self.assertIn('overdue_source_count', response.data['status'])
         self.assertEqual(response.data['status']['ready_source_count'], 1)
         self.assertEqual(response.data['status']['overdue_source_count'], 1)
+        self.assertEqual(
+            response.data['status']['summary_success_count'],
+            1,
+        )
+        self.assertEqual(
+            response.data['status']['summary_processing_minutes'],
+            3,
+        )
+        self.assertEqual(
+            response.data['status']['recent_summary_runs'][0]['input_tokens'],
+            100,
+        )
 
     @override_settings(CONSULTATION_RECORDING_ENABLED=False)
     def test_runtime_switch_cannot_open_while_environment_gate_is_closed(self):
@@ -2164,4 +2198,66 @@ class AdminConsultationSettingsTest(TestCase):
         self.assertEqual(removed.status_code, 204)
         self.assertFalse(
             ConsultationPilotAccess.objects.filter(user=self.planner).exists()
+        )
+
+    def test_usage_compensation_is_idempotent_and_keeps_single_run(self):
+        recording = ConsultationRecording.objects.create(
+            owner=self.planner,
+            customer=self.customer,
+            status=ConsultationRecording.STATUS_COMPLETED,
+            mime_type='audio/webm',
+        )
+        year_month = UsageMeter.current_month()
+        run = ConsultationSummaryRun.objects.create(
+            recording=recording,
+            status=ConsultationSummaryRun.STATUS_SUCCEEDED,
+            idempotency_key='compensate-once',
+            prompt_version='prompt-v1',
+            recording_consent_version='recording-v1',
+            sensitive_consent_version='sensitive-v1',
+            overseas_consent_version='overseas-v1',
+            usage_year_month=year_month,
+            provider_reserved_at=timezone.now(),
+            processing_minutes_reserved=4,
+        )
+        UsageMeter.objects.create(
+            user=self.planner,
+            action='consultation_summary',
+            year_month=year_month,
+            count=1,
+        )
+        UsageMeter.objects.create(
+            user=self.planner,
+            action='consultation_minute',
+            year_month=year_month,
+            count=4,
+        )
+
+        url = f'/api/v1/admin/consultations/runs/{run.id}/compensate/'
+        first = self.client_admin.post(url)
+        second = self.client_admin.post(url)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(
+            UsageMeter.objects.get(
+                user=self.planner,
+                action='consultation_summary',
+                year_month=year_month,
+            ).count,
+            0,
+        )
+        self.assertEqual(
+            UsageMeter.objects.get(
+                user=self.planner,
+                action='consultation_minute',
+                year_month=year_month,
+            ).count,
+            0,
+        )
+        self.assertEqual(
+            ConsultationSummaryRun.objects.filter(
+                recording=recording,
+            ).count(),
+            1,
         )

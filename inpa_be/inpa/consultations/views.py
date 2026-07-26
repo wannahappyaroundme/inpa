@@ -4,22 +4,31 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from inpa.core.permissions import IsEmailVerified
+from inpa.billing.credit import LimitExceeded
 from inpa.customers.consent_texts import (
     has_current_consultation_recording_consent,
+    has_current_consultation_summary_consents,
 )
 from inpa.customers.models import Customer
 
-from .gates import recording_feature_enabled
-from .models import ConsultationRecording
+from .callbacks import read_clova_callback_token
+from .gates import recording_feature_enabled, summary_feature_enabled
+from .models import (
+    ConsultationCustomerBenefit,
+    ConsultationRecording,
+    ConsultationSummaryRun,
+)
+from .quota import usage_snapshot
 from .serializers import (
     CompleteUploadRequestSerializer,
     ConsultationRecordingSerializer,
+    ConsultationSummaryRunSerializer,
     UploadSessionRequestSerializer,
 )
 from .services import (
@@ -31,6 +40,8 @@ from .services import (
     delete_source,
     max_part_number,
 )
+from .tasks import process_consultation_summary
+from .summary_service import SummaryPrecondition, request_summary
 
 
 def _service_error_response(exc):
@@ -64,7 +75,7 @@ class RecordingListView(CustomerRecordingMixin, APIView):
         queryset = ConsultationRecording.objects.filter(
             customer=customer,
             owner=customer.owner,
-        ).order_by('-created_at')
+        ).select_related('summary_run__memo').order_by('-created_at')
         paginator = PageNumberPagination()
         page = paginator.paginate_queryset(queryset, request, view=self)
         serializer = ConsultationRecordingSerializer(page, many=True)
@@ -74,9 +85,21 @@ class RecordingListView(CustomerRecordingMixin, APIView):
 class RecordingCapabilityView(CustomerRecordingMixin, APIView):
     def get(self, request, customer_pk):
         customer = self.get_customer(customer_pk)
+        summary_enabled = summary_feature_enabled(request.user)
+        summary_usage = usage_snapshot(user=request.user) if summary_enabled else None
         return Response({
             'recording_enabled': recording_feature_enabled(request.user),
             'consent_ready': has_current_consultation_recording_consent(customer),
+            'summary_enabled': summary_enabled,
+            'summary_consent_ready':
+                has_current_consultation_summary_consents(customer),
+            'summary_usage': summary_usage,
+            'customer_free_summary_used':
+                ConsultationCustomerBenefit.objects.filter(
+                    owner=request.user,
+                    customer=customer,
+                    status=ConsultationCustomerBenefit.STATUS_CONSUMED,
+                ).exists(),
             'retention_days': 7,
             'max_duration_seconds': min(
                 settings.CONSULTATION_MAX_DURATION_SECONDS,
@@ -142,6 +165,49 @@ class RecordingDetailView(CustomerRecordingMixin, APIView):
         customer = self.get_customer(customer_pk)
         recording = self.get_recording(customer, recording_id)
         return Response(ConsultationRecordingSerializer(recording).data)
+
+
+class RecordingSummarizeView(CustomerRecordingMixin, APIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'consultation_summary'
+
+    def post(self, request, customer_pk, recording_id):
+        customer = self.get_customer(customer_pk)
+        recording = self.get_recording(customer, recording_id)
+        try:
+            run, created = request_summary(
+                recording=recording,
+                user=request.user,
+                idempotency_key=request.headers.get('Idempotency-Key', ''),
+            )
+        except SummaryPrecondition as exc:
+            return Response(
+                {'code': exc.code, 'detail': exc.detail},
+                status=exc.status_code,
+            )
+        except LimitExceeded as exc:
+            unit = '분' if exc.action == 'consultation_minute' else '회'
+            return Response(
+                {
+                    'code': 'credit_exhausted',
+                    'action': exc.action,
+                    'current': exc.current,
+                    'limit': exc.limit,
+                    'detail': (
+                        f'이번 달 상담 요약 한도 {exc.limit}{unit}를 사용했어요. '
+                        '요금제를 확인하면 계속 정리할 수 있어요.'
+                    ),
+                },
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
+        return Response(
+            ConsultationSummaryRunSerializer(run).data,
+            status=(
+                status.HTTP_202_ACCEPTED
+                if created
+                else status.HTTP_200_OK
+            ),
+        )
 
 
 class RecordingPartURLView(CustomerRecordingMixin, APIView):
@@ -219,3 +285,27 @@ class RecordingSourceDeleteView(CustomerRecordingMixin, APIView):
         except ConsultationServiceError as exc:
             return _service_error_response(exc)
         return Response(ConsultationRecordingSerializer(recording).data)
+
+
+class ClovaCallbackView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'consultation_callback'
+
+    def post(self, request, token):
+        try:
+            run_id, attempt_uuid = read_clova_callback_token(token)
+        except Exception:
+            raise NotFound('요청 정보를 찾을 수 없어요.')
+        exists = ConsultationSummaryRun.objects.filter(
+            pk=run_id,
+            attempt_uuid=attempt_uuid,
+        ).exists()
+        if not exists:
+            raise NotFound('요청 정보를 찾을 수 없어요.')
+        process_consultation_summary.apply_async(
+            args=[str(run_id)],
+            queue='consultation_summaries',
+        )
+        return Response({'accepted': True}, status=status.HTTP_202_ACCEPTED)

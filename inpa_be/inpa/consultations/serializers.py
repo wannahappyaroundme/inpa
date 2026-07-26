@@ -4,12 +4,15 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import ConsultationRecording
+from inpa.customers.models import CustomerMemo
+
+from .models import ConsultationRecording, ConsultationSummaryRun
 from .services import ALLOWED_RECORDING_MIME_TYPES
 
 
 class ConsultationRecordingSerializer(serializers.ModelSerializer):
     source_available = serializers.SerializerMethodField()
+    summary = serializers.SerializerMethodField()
 
     class Meta:
         model = ConsultationRecording
@@ -27,6 +30,7 @@ class ConsultationRecordingSerializer(serializers.ModelSerializer):
             'deleted_at',
             'delete_reason',
             'source_available',
+            'summary',
             'version',
             'created_at',
             'updated_at',
@@ -45,6 +49,34 @@ class ConsultationRecordingSerializer(serializers.ModelSerializer):
         if not obj.storage_key:
             return False
         return obj.expires_at is None or obj.expires_at > timezone.now()
+
+    def get_summary(self, obj):
+        try:
+            run = obj.summary_run
+        except ConsultationSummaryRun.DoesNotExist:
+            return None
+        return ConsultationSummaryRunSerializer(run).data
+
+
+class ConsultationSummaryRunSerializer(serializers.ModelSerializer):
+    memo_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ConsultationSummaryRun
+        fields = (
+            'id',
+            'status',
+            'memo_id',
+            'created_at',
+            'completed_at',
+        )
+        read_only_fields = fields
+
+    def get_memo_id(self, obj):
+        try:
+            return obj.memo.id
+        except CustomerMemo.DoesNotExist:
+            return None
 
 
 class UploadSessionRequestSerializer(serializers.Serializer):

@@ -14,6 +14,7 @@ from django.contrib.auth import get_user_model
 from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -27,6 +28,7 @@ from inpa.analysis.golden_eval import (
 )
 from inpa.analysis.models import AnalysisDetail, CoverageFlag, NormalizationDict, UnmatchedLog
 from inpa.billing.models import Plan, Subscription, UsageMeter
+from inpa.consultations.quota import release_meter
 from inpa.boards.models import (
     BlogPost,
     Comment,
@@ -45,6 +47,7 @@ from inpa.consultations.models import (
     ConsultationPilotAccess,
     ConsultationRecording,
     ConsultationRuntimeConfig,
+    ConsultationSummaryRun,
 )
 from inpa.consultations.services import get_recording_storage
 from inpa.notifications.models import Notification, NotifType
@@ -117,6 +120,29 @@ def consultation_status_snapshot():
             except Exception:
                 pass
         cache.set(audit_key, storage_audit, 300)
+    summary_rows = ConsultationSummaryRun.objects.all()
+    succeeded_seconds = list(
+        summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_SUCCEEDED,
+        ).order_by('processing_seconds').values_list(
+            'processing_seconds',
+            flat=True,
+        )
+    )
+
+    def percentile(values, percent):
+        if not values:
+            return None
+        index = min(
+            len(values) - 1,
+            max(0, int(round((len(values) - 1) * percent))),
+        )
+        return values[index]
+
+    summary_totals = summary_rows.aggregate(
+        processing_minutes=Sum('processing_minutes_reserved'),
+        estimated_cost_krw=Sum('estimated_cost_krw'),
+    )
     return {
         'active_upload_count': ConsultationRecording.objects.filter(
             status=ConsultationRecording.STATUS_UPLOADING,
@@ -134,6 +160,47 @@ def consultation_status_snapshot():
         'delete_failure_count': ConsultationRecording.objects.filter(
             delete_result='retry_required',
         ).count(),
+        'summary_queued_count': summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_QUEUED,
+        ).count(),
+        'summary_processing_count': summary_rows.filter(
+            status__in=(
+                ConsultationSummaryRun.STATUS_TRANSCRIBING,
+                ConsultationSummaryRun.STATUS_SUMMARIZING,
+            ),
+        ).count(),
+        'summary_success_count': summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_SUCCEEDED,
+        ).count(),
+        'summary_failed_count': summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_FAILED,
+        ).count(),
+        'summary_ambiguous_count': summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_AMBIGUOUS,
+        ).count(),
+        'summary_cancelled_count': summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_CANCELLED,
+        ).count(),
+        'summary_processing_minutes':
+            summary_totals['processing_minutes'] or 0,
+        'summary_estimated_cost_krw':
+            summary_totals['estimated_cost_krw'] or 0,
+        'summary_p50_seconds': percentile(succeeded_seconds, 0.50),
+        'summary_p95_seconds': percentile(succeeded_seconds, 0.95),
+        'recent_summary_runs': list(
+            summary_rows.order_by('-created_at').values(
+                'id',
+                'status',
+                'processing_minutes_reserved',
+                'input_tokens',
+                'output_tokens',
+                'estimated_cost_krw',
+                'outcome',
+                'error_code',
+                'created_at',
+                'completed_at',
+            )[:20]
+        ),
         **storage_audit,
     }
 
@@ -2130,6 +2197,9 @@ class AdminConsultationSettingsView(APIView):
             'environment_gate_open': bool(
                 django_settings.CONSULTATION_RECORDING_ENABLED
             ),
+            'ai_environment_gate_open': bool(
+                django_settings.CONSULTATION_AI_SUMMARY_ENABLED
+            ),
             'settings': AdminConsultationConfigSerializer(config).data,
             'status': consultation_status_snapshot(),
             'pilot_users': AdminConsultationPilotSerializer(
@@ -2180,6 +2250,50 @@ class AdminConsultationSettingsView(APIView):
             serializer.is_valid(raise_exception=True)
             serializer.save()
         return Response(self._response(config))
+
+
+class AdminConsultationSummaryCompensateView(APIView):
+    permission_classes = [IsAdmin]
+
+    def post(self, request, run_id):
+        with transaction.atomic():
+            run = get_object_or_404(
+                ConsultationSummaryRun.objects.select_for_update()
+                .select_related('recording__owner'),
+                pk=run_id,
+            )
+            if run.admin_compensated_at is None:
+                owner = run.recording.owner
+                if run.status == ConsultationSummaryRun.STATUS_SUCCEEDED:
+                    release_meter(
+                        user=owner,
+                        action='consultation_summary',
+                        amount=1,
+                        year_month=run.usage_year_month,
+                    )
+                if (
+                    run.provider_reserved_at is not None
+                    and run.processing_minutes_reserved > 0
+                    and run.minute_reservation_released_at is None
+                ):
+                    release_meter(
+                        user=owner,
+                        action='consultation_minute',
+                        amount=run.processing_minutes_reserved,
+                        year_month=run.usage_year_month,
+                    )
+                    run.minute_reservation_released_at = timezone.now()
+                run.admin_compensated_at = timezone.now()
+                run.save(update_fields=[
+                    'minute_reservation_released_at',
+                    'admin_compensated_at',
+                    'updated_at',
+                ])
+        return Response({
+            'id': run.id,
+            'status': run.status,
+            'admin_compensated_at': run.admin_compensated_at,
+        })
 
 
 class AdminConsultationPilotListView(APIView):

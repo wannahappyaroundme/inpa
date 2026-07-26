@@ -546,6 +546,7 @@ class ConsentRequestCreateView(APIView):
         ConsentLog.SCOPE_OVERSEAS_MEDICAL,
         ConsentLog.SCOPE_CONSULTATION_RECORDING,
         ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
+        ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY,
     }
 
     def _is_admin(self):

@@ -654,7 +654,8 @@ class AdminPlanSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'code', 'display_name', 'price_krw', 'price_annual_krw', 'description',
             'limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
-            'limit_customer',
+            'limit_customer', 'limit_consultation_summary',
+            'limit_consultation_minute',
             'is_active', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'code', 'created_at']
@@ -667,7 +668,8 @@ class AdminPlanUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'display_name', 'price_krw', 'price_annual_krw', 'description',
             'limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
-            'limit_customer',
+            'limit_customer', 'limit_consultation_summary',
+            'limit_consultation_minute',
             'is_active',
         ]
 
@@ -721,6 +723,8 @@ class AdminConsultationConfigSerializer(serializers.ModelSerializer):
             'max_duration_seconds',
             'max_bytes',
             'global_active_limit',
+            'daily_ai_cost_limit_krw',
+            'monthly_ai_cost_limit_krw',
             'updated_at',
         ]
         read_only_fields = ['updated_at']
@@ -745,6 +749,36 @@ class AdminConsultationConfigSerializer(serializers.ModelSerializer):
                 '전체 동시 녹음 수는 1부터 100 사이로 설정해 주세요.',
             )
         return value
+
+    def validate_daily_ai_cost_limit_krw(self, value):
+        if not 1_000 <= value <= 100_000_000:
+            raise serializers.ValidationError(
+                '하루 AI 비용 상한은 1,000원부터 1억원 사이로 설정해 주세요.',
+            )
+        return value
+
+    def validate_monthly_ai_cost_limit_krw(self, value):
+        if not 10_000 <= value <= 1_000_000_000:
+            raise serializers.ValidationError(
+                '한 달 AI 비용 상한은 1만원부터 10억원 사이로 설정해 주세요.',
+            )
+        return value
+
+    def validate(self, attrs):
+        daily = attrs.get(
+            'daily_ai_cost_limit_krw',
+            getattr(self.instance, 'daily_ai_cost_limit_krw', 50_000),
+        )
+        monthly = attrs.get(
+            'monthly_ai_cost_limit_krw',
+            getattr(self.instance, 'monthly_ai_cost_limit_krw', 500_000),
+        )
+        if monthly < daily:
+            raise serializers.ValidationError({
+                'monthly_ai_cost_limit_krw':
+                    '한 달 상한은 하루 상한보다 크게 설정해 주세요.',
+            })
+        return attrs
 
 
 class AdminConsultationPilotSerializer(serializers.ModelSerializer):

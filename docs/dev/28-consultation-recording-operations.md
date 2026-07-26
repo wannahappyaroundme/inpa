@@ -47,7 +47,7 @@ service that touches recordings:
 ```text
 CONSULTATION_RECORDING_ENABLED=false
 CONSULTATION_AI_SUMMARY_ENABLED=false
-CONSULTATION_STORAGE_ENDPOINT_URL=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+CONSULTATION_STORAGE_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 CONSULTATION_STORAGE_ACCESS_KEY_ID=<R2_ACCESS_KEY_ID>
 CONSULTATION_STORAGE_SECRET_ACCESS_KEY=<R2_SECRET_ACCESS_KEY>
 CONSULTATION_STORAGE_BUCKET=inpa-consultation-recordings
@@ -57,6 +57,11 @@ CONSULTATION_RETENTION_SAFETY_MINUTES=30
 CONSULTATION_MAX_DURATION_SECONDS=3600
 CONSULTATION_MAX_BYTES=104857600
 CONSULTATION_UPLOAD_PART_BYTES=8388608
+CONSULTATION_SUMMARY_ACTIVE_LIMIT=1
+CONSULTATION_SUMMARY_MODEL=<ANTHROPIC_MODEL_ID>
+CLOVA_SPEECH_INVOKE_URL=<CLOVA_DOMAIN_INVOKE_URL>
+CLOVA_SPEECH_SECRET_KEY=<CLOVA_SECRET_KEY>
+BACKEND_BASE_URL=https://inpa-be.onrender.com
 ```
 
 Secrets belong in Render secret environment values. Never place them in Git,
@@ -83,6 +88,41 @@ Vercel public variables, browser code, logs, or support tickets.
 8. Open the environment gate for a preview/pilot environment only.
 9. Add individual pilot planner accounts in `/admin/consultations`.
 10. Open the runtime recording switch.
+
+## AI summary pilot
+
+The summary worker uses the shared PostgreSQL database as its coordination
+authority. Every run is one-to-one with a recording, and every recording is
+already bound to one owner and one customer. A database lease plus
+`CONSULTATION_SUMMARY_ACTIVE_LIMIT=1` prevents two Render processes from
+submitting different provider jobs for the same source. Provider job tokens are
+stored before polling, and a delivered callback only wakes that exact run. The
+callback body is never treated as a transcript.
+
+Before enabling summaries:
+
+1. Keep `CONSULTATION_AI_SUMMARY_ENABLED=false`.
+2. Set CLOVA Speech, Anthropic model, private R2, and HTTPS
+   `BACKEND_BASE_URL` variables on both web and worker.
+3. Confirm the worker consumes `consultation_summaries`.
+4. Confirm one Chrome WebM recording is converted to mono 16 kHz WAV and CLOVA
+   reaches `COMPLETED`.
+5. Confirm the saved memo contains only the four bullet sections and remains
+   editable.
+6. Confirm the database contains token counts and status only, not transcript
+   or masked transcript fields.
+7. Revoke each of the three current customer consents during processing and
+   confirm no memo is created.
+8. Delete a source during processing and confirm late provider results are
+   discarded.
+9. Retry a callback and worker delivery and confirm the provider submit and
+   memo counts both remain one.
+10. Enable only one planner's `summary_allowed` pilot access, then open the
+    runtime summary switch.
+
+An unknown provider receipt becomes `ambiguous` and is never submitted again.
+The planner can write or edit a direct memo, but that recording cannot request
+a second AI summary.
 
 ## Deletion checks
 

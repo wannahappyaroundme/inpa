@@ -74,6 +74,8 @@ class Command(BaseCommand):
                 'description': '베타 무료 플랜. OCR 5/AI비교 1/AI분석 5/고객추가 5/판촉 5 월 한도.',
                 'limit_ocr': 5, 'limit_ai_compare': 1,
                 'limit_analysis': 5, 'limit_promotion': 5, 'limit_customer': 5,
+                'limit_consultation_summary': 5,
+                'limit_consultation_minute': 150,
             },
         )
         plus, plus_created = Plan.objects.get_or_create(
@@ -85,6 +87,8 @@ class Command(BaseCommand):
                 'description': PLUS_DESCRIPTION,
                 'limit_ocr': 100, 'limit_ai_compare': 50,
                 'limit_analysis': 50, 'limit_promotion': 100, 'limit_customer': 30,
+                'limit_consultation_summary': 30,
+                'limit_consultation_minute': 900,
                 'can_use_team': True,
             },
         )
@@ -97,6 +101,8 @@ class Command(BaseCommand):
                 'description': MANAGER_DESCRIPTION,
                 'limit_ocr': 100, 'limit_ai_compare': 50,
                 'limit_analysis': 50, 'limit_promotion': 100, 'limit_customer': 30,
+                'limit_consultation_summary': 30,
+                'limit_consultation_minute': 900,
                 'can_use_team': True,  # legacy Manager 호환 capability
             },
         )
@@ -117,6 +123,8 @@ class Command(BaseCommand):
                 # null = 무제한 sentinel (models.Plan.get_limit)
                 'limit_ocr': None, 'limit_ai_compare': None,
                 'limit_analysis': None, 'limit_promotion': None, 'limit_customer': None,
+                'limit_consultation_summary': 100,
+                'limit_consultation_minute': 3000,
                 'can_use_team': True,
             },
         )

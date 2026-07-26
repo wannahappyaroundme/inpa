@@ -139,6 +139,8 @@ class ConsultationRuntimeConfig(models.Model):
     max_duration_seconds = models.PositiveIntegerField(default=3600)
     max_bytes = models.PositiveBigIntegerField(default=100 * 1024 * 1024)
     global_active_limit = models.PositiveSmallIntegerField(default=20)
+    daily_ai_cost_limit_krw = models.PositiveIntegerField(default=50_000)
+    monthly_ai_cost_limit_krw = models.PositiveIntegerField(default=500_000)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -169,3 +171,113 @@ class ConsultationPilotAccess(models.Model):
     class Meta:
         db_table = 'consultation_pilot_access'
         verbose_name = '상담 녹음 파일럿 계정'
+
+
+class ConsultationSummaryRun(models.Model):
+    STATUS_QUEUED = 'queued'
+    STATUS_TRANSCRIBING = 'transcribing'
+    STATUS_SUMMARIZING = 'summarizing'
+    STATUS_SUCCEEDED = 'succeeded'
+    STATUS_FAILED = 'failed'
+    STATUS_AMBIGUOUS = 'ambiguous'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = tuple((value, value) for value in (
+        STATUS_QUEUED,
+        STATUS_TRANSCRIBING,
+        STATUS_SUMMARIZING,
+        STATUS_SUCCEEDED,
+        STATUS_FAILED,
+        STATUS_AMBIGUOUS,
+        STATUS_CANCELLED,
+    ))
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    recording = models.OneToOneField(
+        ConsultationRecording,
+        on_delete=models.CASCADE,
+        related_name='summary_run',
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_QUEUED,
+        db_index=True,
+    )
+    idempotency_key = models.CharField(max_length=80)
+    attempt_uuid = models.UUIDField(default=uuid.uuid4)
+    lease_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    stt_provider = models.CharField(max_length=40, blank=True, default='')
+    stt_job_id = models.CharField(max_length=200, blank=True, default='')
+    summary_provider = models.CharField(max_length=40, blank=True, default='')
+    summary_model = models.CharField(max_length=100, blank=True, default='')
+    summary_reserved_at = models.DateTimeField(null=True, blank=True)
+    prompt_version = models.CharField(max_length=40)
+    recording_consent_version = models.CharField(max_length=40)
+    sensitive_consent_version = models.CharField(max_length=40)
+    overseas_consent_version = models.CharField(max_length=40)
+    provider_reserved_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    processing_seconds = models.PositiveIntegerField(default=0)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    estimated_cost_krw = models.PositiveIntegerField(default=0)
+    usage_year_month = models.CharField(max_length=7, blank=True, default='')
+    success_count_reserved = models.PositiveSmallIntegerField(default=0)
+    processing_minutes_reserved = models.PositiveIntegerField(default=0)
+    success_reservation_released_at = models.DateTimeField(null=True, blank=True)
+    minute_reservation_released_at = models.DateTimeField(null=True, blank=True)
+    admin_compensated_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.CharField(max_length=40, blank=True, default='')
+    error_code = models.CharField(max_length=80, blank=True, default='')
+    error_type = models.CharField(max_length=80, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'consultation_summary_run'
+        indexes = [models.Index(fields=['status', 'lease_expires_at'])]
+
+
+class ConsultationCustomerBenefit(models.Model):
+    STATUS_RESERVED = 'reserved'
+    STATUS_CONSUMED = 'consumed'
+    STATUS_CHOICES = (
+        (STATUS_RESERVED, STATUS_RESERVED),
+        (STATUS_CONSUMED, STATUS_CONSUMED),
+    )
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='consultation_customer_benefits',
+    )
+    customer = models.ForeignKey(
+        'customers.Customer',
+        on_delete=models.CASCADE,
+        related_name='consultation_summary_benefits',
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_RESERVED,
+    )
+    reserved_run = models.OneToOneField(
+        ConsultationSummaryRun,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='customer_benefit',
+    )
+    reserved_at = models.DateTimeField(null=True, blank=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'consultation_customer_benefit'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['owner', 'customer'],
+                name='uniq_consultation_customer_benefit',
+            ),
+        ]

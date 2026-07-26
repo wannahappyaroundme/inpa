@@ -23,6 +23,7 @@ from .consent_texts import (
     CONSENT_TEXTS,
     CONSENT_TEXTS_VERSION,
     CONSULTATION_CONSENT_VERSIONS,
+    CONSULTATION_SUMMARY_CONSENT_VERSION,
     consent_version_for_scope,
     consent_lines,
     has_current_overseas_consent,
@@ -59,6 +60,11 @@ _SCOPE_META = {
         'required': True,
         'purpose': '상담 중 민감정보 처리 동의(고객 본인)',
         'notice': '건강 등 민감한 내용은 상담 메모 작성 목적으로 처리됩니다.',
+    },
+    ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY: {
+        'required': True,
+        'purpose': '상담 요약을 위한 국외 처리 동의(고객 본인)',
+        'notice': '이름과 연락처를 가린 상담 내용을 요약하는 데 사용됩니다.',
     },
 }
 
@@ -103,6 +109,14 @@ class PublicConsentView(_NoIndexMixin, APIView):
                 revoked_at__isnull=True,
                 doc_version=CONSULTATION_CONSENT_VERSIONS[scope],
             ).exists()
+        if scope == ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY:
+            return ConsentLog.objects.filter(
+                customer=customer,
+                scope=scope,
+                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                revoked_at__isnull=True,
+                doc_version=CONSULTATION_SUMMARY_CONSENT_VERSION,
+            ).exists()
         return ConsentLog.objects.filter(
             customer=customer, scope=scope, revoked_at__isnull=True).exists()
 
@@ -129,6 +143,7 @@ class PublicConsentView(_NoIndexMixin, APIView):
         now = timezone.now()
         results = []
         delete_consultation_sources = False
+        cancel_consultation_summaries = False
         for sc in scopes_to_revoke:
             updated = ConsentLog.objects.filter(
                 customer=customer, scope=sc, revoked_at__isnull=True,
@@ -147,7 +162,21 @@ class PublicConsentView(_NoIndexMixin, APIView):
                 ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
             }:
                 delete_consultation_sources = True
+            if sc in {
+                ConsentLog.SCOPE_CONSULTATION_RECORDING,
+                ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
+                ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY,
+            }:
+                cancel_consultation_summaries = True
             results.append({'scope': sc, 'revoked': True, 'updated_logs': updated})
+        if cancel_consultation_summaries:
+            from inpa.consultations.tasks import cancel_customer_summaries
+            transaction.on_commit(
+                lambda customer_id=customer.id: cancel_customer_summaries.delay(
+                    customer_id,
+                    reason='CONSENT_REVOKED',
+                ),
+            )
         if delete_consultation_sources:
             from inpa.consultations.tasks import delete_customer_sources
             transaction.on_commit(

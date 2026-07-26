@@ -112,6 +112,10 @@ CONSULTATION_THROTTLE_RATES = {
         'CONSULTATION_UPLOAD_RATE', default='30/hour'),
     'consultation_play': env(
         'CONSULTATION_PLAY_RATE', default='120/hour'),
+    'consultation_summary': env(
+        'CONSULTATION_SUMMARY_RATE', default='30/hour'),
+    'consultation_callback': env(
+        'CONSULTATION_CALLBACK_RATE', default='120/hour'),
 }
 
 REST_FRAMEWORK = {
@@ -250,6 +254,12 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_SOFT_TIME_LIMIT = 420
 CELERY_TASK_TIME_LIMIT = 480
+CELERY_TASK_ROUTES = {
+    'inpa.insurances.*': {'queue': 'insurance_imports'},
+    'inpa.consultations.process_summary': {
+        'queue': 'consultation_summaries',
+    },
+}
 # Child recycling is defense-in-depth for cumulative worker growth. The
 # disposable PDF subprocess limits above are the hard per-document boundary.
 CELERY_WORKER_MAX_TASKS_PER_CHILD = env.int(
@@ -285,6 +295,25 @@ CONSULTATION_STORAGE_ACCESS_KEY_ID = env(
     'CONSULTATION_STORAGE_ACCESS_KEY_ID', default='')
 CONSULTATION_STORAGE_SECRET_ACCESS_KEY = env(
     'CONSULTATION_STORAGE_SECRET_ACCESS_KEY', default='')
+CONSULTATION_STT_PROVIDER = env(
+    'CONSULTATION_STT_PROVIDER', default='clova')
+CLOVA_SPEECH_INVOKE_URL = env(
+    'CLOVA_SPEECH_INVOKE_URL', default='')
+CLOVA_SPEECH_SECRET_KEY = env(
+    'CLOVA_SPEECH_SECRET_KEY', default='')
+CONSULTATION_SUMMARY_MODEL = env(
+    'CONSULTATION_SUMMARY_MODEL', default='')
+CONSULTATION_SUMMARY_PROMPT_VERSION = env(
+    'CONSULTATION_SUMMARY_PROMPT_VERSION', default='v1-2026-07-22')
+CONSULTATION_SUMMARY_ACTIVE_LIMIT = env.int(
+    'CONSULTATION_SUMMARY_ACTIVE_LIMIT', default=1)
+CONSULTATION_SUMMARY_LEASE_SECONDS = env.int(
+    'CONSULTATION_SUMMARY_LEASE_SECONDS', default=300)
+CONSULTATION_SUMMARY_POLL_SECONDS = env.int(
+    'CONSULTATION_SUMMARY_POLL_SECONDS', default=15)
+CONSULTATION_CALLBACK_TTL_SECONDS = env.int(
+    'CONSULTATION_CALLBACK_TTL_SECONDS', default=7200)
+BACKEND_BASE_URL = env('BACKEND_BASE_URL', default='')
 
 # ── Claude 비용 추정 환율 (프리런치 #17, billing/pricing.py) ────────────
 # 원/달러 환율 추정치 — 어드민 관측용 cost_krw 계산에만 쓰인다(정밀 청구서 아님, §6 정직성).
