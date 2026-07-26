@@ -12,7 +12,7 @@ from rest_framework import serializers
 
 from inpa.accounts.models import Profile
 from inpa.analysis.models import AnalysisDetail, CoverageFlag, NormalizationDict, UnmatchedLog
-from inpa.billing.models import Plan, Subscription, UsageMeter
+from inpa.billing.models import Coupon, Plan, Subscription, UsageMeter
 from inpa.boards.models import (
     Faq,
     Inquiry,
@@ -21,11 +21,73 @@ from inpa.boards.models import (
     Report,
 )
 from inpa.customers.models import ConsentLog, Customer
+from inpa.consultations.models import (
+    ConsultationPilotAccess,
+    ConsultationRuntimeConfig,
+)
 from inpa.promotion.models import PromotionOrder, PromotionOrderStatusLog
 
 from .models import PolicyVersion
 
 User = get_user_model()
+
+
+class AdminBillingCouponSerializer(serializers.ModelSerializer):
+    plan_code = serializers.CharField(source='plan.code', read_only=True)
+    plan_display_name = serializers.CharField(
+        source='plan.display_name', read_only=True)
+
+    class Meta:
+        model = Coupon
+        fields = [
+            'id',
+            'code',
+            'plan_code',
+            'plan_display_name',
+            'duration_months',
+            'redeem_by',
+            'max_redemptions',
+            'redeemed_count',
+            'is_active',
+            'note',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class AdminBillingCouponCreateSerializer(serializers.Serializer):
+    plan_code = serializers.CharField(max_length=20)
+    duration_months = serializers.ChoiceField(choices=(1, 2, 3))
+    redeem_by = serializers.DateTimeField()
+    max_redemptions = serializers.IntegerField(
+        min_value=1, max_value=100_000)
+    note = serializers.CharField(
+        max_length=200, required=False, allow_blank=True)
+
+    def validate_redeem_by(self, value):
+        if value <= timezone.now():
+            raise serializers.ValidationError(
+                '현재 이후의 사용 기한을 입력해 주세요.')
+        return value
+
+
+class AdminBillingCouponUpdateSerializer(serializers.Serializer):
+    redeem_by = serializers.DateTimeField(required=False)
+    max_redemptions = serializers.IntegerField(
+        min_value=1, max_value=100_000, required=False)
+    is_active = serializers.BooleanField(required=False)
+    note = serializers.CharField(
+        max_length=200, required=False, allow_blank=True)
+
+
+class AdminBillingSettingsSerializer(serializers.Serializer):
+    free_tier_unlimited = serializers.BooleanField(required=False)
+    billing_card_registration_enabled = serializers.BooleanField(
+        required=False)
+    billing_recurring_charge_enabled = serializers.BooleanField(
+        required=False)
+    billing_reconciliation_enabled = serializers.BooleanField(
+        required=False)
 
 
 # ─── 설계사 관리 ─────────────────────────────────────────────────────
@@ -650,7 +712,8 @@ class AdminPlanSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'code', 'display_name', 'price_krw', 'price_annual_krw', 'description',
             'limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
-            'limit_customer',
+            'limit_customer', 'limit_consultation_summary',
+            'limit_consultation_minute',
             'is_active', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'code', 'created_at']
@@ -663,7 +726,8 @@ class AdminPlanUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'display_name', 'price_krw', 'price_annual_krw', 'description',
             'limit_ocr', 'limit_ai_compare', 'limit_analysis', 'limit_promotion',
-            'limit_customer',
+            'limit_customer', 'limit_consultation_summary',
+            'limit_consultation_minute',
             'is_active',
         ]
 
@@ -706,3 +770,104 @@ class FeatureFlagsSerializer(serializers.Serializer):
     OCR_VERIFY_ENABLED = serializers.BooleanField(read_only=True)
     REQUIRE_CUSTOMER_SELF_CONSENT = serializers.BooleanField(read_only=True)
     GOOGLE_OAUTH_ENABLED = serializers.BooleanField(read_only=True)
+
+
+class AdminConsultationConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ConsultationRuntimeConfig
+        fields = [
+            'recording_enabled',
+            'ai_summary_enabled',
+            'max_duration_seconds',
+            'max_bytes',
+            'global_active_limit',
+            'daily_ai_cost_limit_krw',
+            'monthly_ai_cost_limit_krw',
+            'updated_at',
+        ]
+        read_only_fields = ['updated_at']
+
+    def validate_max_duration_seconds(self, value):
+        if not 60 <= value <= 3600:
+            raise serializers.ValidationError(
+                '녹음 시간은 1분부터 60분 사이로 설정해 주세요.',
+            )
+        return value
+
+    def validate_max_bytes(self, value):
+        if not 1024 * 1024 <= value <= 100 * 1024 * 1024:
+            raise serializers.ValidationError(
+                '녹음 크기는 1MB부터 100MB 사이로 설정해 주세요.',
+            )
+        return value
+
+    def validate_global_active_limit(self, value):
+        if not 1 <= value <= 100:
+            raise serializers.ValidationError(
+                '전체 동시 녹음 수는 1부터 100 사이로 설정해 주세요.',
+            )
+        return value
+
+    def validate_daily_ai_cost_limit_krw(self, value):
+        if not 1_000 <= value <= 100_000_000:
+            raise serializers.ValidationError(
+                '하루 AI 비용 상한은 1,000원부터 1억원 사이로 설정해 주세요.',
+            )
+        return value
+
+    def validate_monthly_ai_cost_limit_krw(self, value):
+        if not 10_000 <= value <= 1_000_000_000:
+            raise serializers.ValidationError(
+                '한 달 AI 비용 상한은 1만원부터 10억원 사이로 설정해 주세요.',
+            )
+        return value
+
+    def validate(self, attrs):
+        daily = attrs.get(
+            'daily_ai_cost_limit_krw',
+            getattr(self.instance, 'daily_ai_cost_limit_krw', 50_000),
+        )
+        monthly = attrs.get(
+            'monthly_ai_cost_limit_krw',
+            getattr(self.instance, 'monthly_ai_cost_limit_krw', 500_000),
+        )
+        if monthly < daily:
+            raise serializers.ValidationError({
+                'monthly_ai_cost_limit_krw':
+                    '한 달 상한은 하루 상한보다 크게 설정해 주세요.',
+            })
+        return attrs
+
+
+class AdminConsultationPilotSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = ConsultationPilotAccess
+        fields = [
+            'user_id',
+            'email',
+            'recording_allowed',
+            'summary_allowed',
+            'updated_at',
+        ]
+        read_only_fields = fields
+
+
+class AdminConsultationPilotCreateSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    recording_allowed = serializers.BooleanField(default=True)
+    summary_allowed = serializers.BooleanField(default=False)
+
+
+class AdminConsultationPilotUpdateSerializer(serializers.Serializer):
+    recording_allowed = serializers.BooleanField(required=False)
+    summary_allowed = serializers.BooleanField(required=False)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError(
+                '바꿀 파일럿 설정을 하나 이상 선택해 주세요.',
+            )
+        return attrs

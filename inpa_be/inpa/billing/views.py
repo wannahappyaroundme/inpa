@@ -14,23 +14,55 @@
   {detail, code, kind, membership, limit, used, upgrade_url}  HTTP 402
   → credit.py의 LimitExceeded를 뷰에서 잡아 변환. 이 파일에 예시 포함.
 """
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from datetime import date
+import hashlib
+import hmac
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.shortcuts import redirect
 
+from inpa.analytics.events import log_billing_event
+from inpa.analytics.models import NorthStarEvent
 from inpa.core.permissions import IsAdmin
 
 from .coupons import CouponError, redeem_coupon
+from .coupons import hold_recurring_coupon
+from .cancellation import cancel_billing
+from .calendar import new_anchor, period_for
+from .agreements import (
+    BillingFlowError,
+    billing_status,
+    complete_card_registration,
+    confirm_first_charge,
+    start_card_registration,
+    vat_inclusive_amount,
+)
+from .legal_texts import INITIAL_BILLING_CONSENT_VERSION
+from .gates import card_registration_enabled
+from .notices import (
+    NoticeError,
+    dismiss_notice,
+    lease_notice,
+    mark_notice_rendered,
+    notice_payload,
+)
 from .credit import LimitExceeded  # noqa: F401 — 뷰 사용 예시용 (실제 뷰에서 직접 catch)
-from .models import Plan, Subscription, UsageMeter
+from .models import BillingAgreement, Plan, Subscription, UsageMeter
 from .serializers import (
     AdminSubscriptionPatchSerializer,
+    CardRegistrationCompleteSerializer,
+    CardRegistrationStartSerializer,
+    BillingNoticeDeviceSerializer,
     CouponRedeemSerializer,
+    FirstChargeReconfirmationSerializer,
     PlanSerializer,
+    RecurringCouponPreflightSerializer,
 )
 
 User = get_user_model()
@@ -183,6 +215,294 @@ class CouponRedeemView(APIView):
             code = status_map.get(exc.code, status.HTTP_410_GONE)
             return Response({'code': exc.code, 'detail': str(exc)}, status=code)
         return Response(result, status=status.HTTP_200_OK)
+
+
+def _billing_error_response(exc):
+    if isinstance(exc, BillingFlowError):
+        return Response(
+            {'code': exc.code, 'detail': exc.detail},
+            status=exc.status_code,
+        )
+    status_map = {
+        'not_found': status.HTTP_404_NOT_FOUND,
+        'already': status.HTTP_409_CONFLICT,
+        'active_plan': status.HTTP_409_CONFLICT,
+    }
+    return Response(
+        {'code': exc.code, 'detail': str(exc)},
+        status=status_map.get(exc.code, status.HTTP_410_GONE),
+    )
+
+
+def _registration_gate_response():
+    return Response(
+        {
+            'code': 'billing_setup_required',
+            'detail': '결제 설정을 마치면 카드 등록을 시작할 수 있어요.',
+        },
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+
+
+def _log_trial_started(agreement):
+    return log_billing_event(
+        NorthStarEvent.BILLING_TRIAL_STARTED,
+        sender=agreement.user,
+        payload={
+            'duration_months': agreement.trial_duration_months,
+            'plan_code': agreement.plan.code,
+        },
+        dedupe_hours=1,
+    )
+
+
+class RecurringCouponPreflightView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not card_registration_enabled():
+            return _registration_gate_response()
+        serializer = RecurringCouponPreflightSerializer(
+            data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            claim = hold_recurring_coupon(
+                request.user, serializer.validated_data['code'])
+        except CouponError as exc:
+            return _billing_error_response(exc)
+        coupon = claim.coupon
+        today = timezone.localdate()
+        period = period_for(
+            today,
+            coupon.duration_months,
+            anchor_day=new_anchor(today),
+        )
+        log_billing_event(
+            NorthStarEvent.BILLING_COUPON_PREFLIGHTED,
+            sender=request.user,
+            payload={
+                'duration_months': coupon.duration_months,
+                'plan_code': coupon.plan.code,
+            },
+        )
+        if BillingAgreement.objects.filter(
+            user=request.user,
+            status='free',
+        ).exists():
+            log_billing_event(
+                NorthStarEvent.BILLING_RESTART_STARTED,
+                sender=request.user,
+                payload={'source': 'settings'},
+                dedupe_hours=24,
+            )
+        return Response({
+            'claim_id': str(claim.id),
+            'claim_expires_at': claim.expires_at.isoformat(),
+            'plan_code': coupon.plan.code,
+            'plan_display_name': coupon.plan.display_name,
+            'duration_months': coupon.duration_months,
+            'redeem_by': coupon.redeem_by.isoformat(),
+            'access_through': period.access_through.isoformat(),
+            'next_charge_date': period.next_charge_date.isoformat(),
+            'amount_krw':
+                vat_inclusive_amount(coupon.plan.price_krw),
+            'initial_consent_version':
+                INITIAL_BILLING_CONSENT_VERSION,
+        })
+
+
+class CardRegistrationStartView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not card_registration_enabled():
+            return _registration_gate_response()
+        serializer = CardRegistrationStartSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = start_card_registration(
+                user=request.user,
+                claim_id=serializer.validated_data['claim_id'],
+                consent_version=serializer.validated_data[
+                    'initial_consent_version'],
+                device_type=serializer.validated_data['device_type'],
+            )
+        except (BillingFlowError, CouponError) as exc:
+            return _billing_error_response(exc)
+        if result.get('already_complete'):
+            return Response(billing_status(request.user))
+        return Response({
+            'auth_page_url': result['auth_page_url'],
+            'state': result['state'],
+            'shop_order_no': result['shop_order_no'],
+            'claim_expires_at':
+                result['claim_expires_at'].isoformat(),
+            'access_through':
+                result['access_through'].isoformat(),
+            'next_charge_date':
+                result['next_charge_date'].isoformat(),
+            'amount_krw': result['amount_krw'],
+        })
+
+
+class CardRegistrationCompleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = CardRegistrationCompleteSerializer(
+            data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            agreement = complete_card_registration(
+                user=request.user,
+                raw_state=serializer.validated_data['state'],
+                authorization_id=serializer.validated_data[
+                    'authorization_id'],
+                shop_order_no=serializer.validated_data[
+                    'shop_order_no'],
+            )
+        except (BillingFlowError, CouponError) as exc:
+            return _billing_error_response(exc)
+        _log_trial_started(agreement)
+        return Response(billing_status(request.user))
+
+
+class CardRegistrationProviderReturnView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        raw_state = request.query_params.get('state', '')
+        try:
+            agreement = complete_card_registration(
+                raw_state=raw_state,
+                authorization_id=request.data.get(
+                    'authorizationId', ''),
+                shop_order_no=request.data.get('shopOrderNo', ''),
+            )
+            _log_trial_started(agreement)
+            outcome = 'success'
+        except Exception:
+            outcome = 'check'
+        return redirect(
+            f"{settings.FRONTEND_BASE_URL.rstrip('/')}"
+            f'/settings/billing?registration={outcome}'
+        )
+
+
+class BillingStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        response = billing_status(request.user)
+        if response.get('reconfirmation_required'):
+            charge_date = response.get('next_charge_date')
+            days_before = (
+                date.fromisoformat(charge_date)
+                - timezone.localdate()
+            ).days
+            log_billing_event(
+                NorthStarEvent.BILLING_RECONFIRMATION_VIEWED,
+                sender=request.user,
+                payload={'days_before': max(days_before, 0)},
+                dedupe_hours=24,
+            )
+        return Response(response)
+
+
+def _request_fingerprint(request, header_name):
+    value = request.META.get(header_name, '')
+    return hmac.new(
+        settings.SECRET_KEY.encode(),
+        value.encode(),
+        hashlib.sha256,
+    ).hexdigest() if value else ''
+
+
+class FirstChargeReconfirmationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = FirstChargeReconfirmationSerializer(
+            data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            consent, snapshot = confirm_first_charge(
+                user=request.user,
+                consent_version=serializer.validated_data[
+                    'first_charge_consent_version'],
+                network_hmac=_request_fingerprint(
+                    request, 'REMOTE_ADDR'),
+                user_agent_hash=_request_fingerprint(
+                    request, 'HTTP_USER_AGENT'),
+            )
+        except BillingFlowError as exc:
+            return _billing_error_response(exc)
+        return Response({
+            'consent_id': consent.pk,
+            **snapshot,
+        })
+
+
+class BillingCancellationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            return Response(cancel_billing(request.user))
+        except BillingFlowError as exc:
+            return _billing_error_response(exc)
+
+
+class BillingNoticeLeaseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = BillingNoticeDeviceSerializer(
+            data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notice = lease_notice(
+            request.user,
+            serializer.validated_data['device_id'],
+        )
+        return Response({
+            'notice': notice_payload(notice) if notice else None,
+        })
+
+
+class BillingNoticeRenderedView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, notice_id):
+        serializer = BillingNoticeDeviceSerializer(
+            data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            notice = mark_notice_rendered(
+                request.user,
+                notice_id,
+                serializer.validated_data['device_id'],
+            )
+        except NoticeError:
+            return Response(
+                {'detail': '표시할 안내를 다시 확인해 주세요.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({'notice_id': notice.pk, 'rendered': True})
+
+
+class BillingNoticeDismissView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, notice_id):
+        try:
+            notice = dismiss_notice(request.user, notice_id)
+        except NoticeError:
+            return Response(
+                {'detail': '표시된 안내를 다시 확인해 주세요.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({'notice_id': notice.pk, 'dismissed': True})
 
 
 # ─── 관리자 전용 ──────────────────────────────────────────────────

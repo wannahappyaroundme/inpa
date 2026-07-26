@@ -322,7 +322,7 @@ class ClaudeStructuredExtractionTests(SimpleTestCase):
         client = anthropic.Anthropic(api_key='test-only')
         signature = inspect.signature(client.messages.parse)
 
-        self.assertEqual(anthropic.__version__, '0.111.0')
+        self.assertEqual(anthropic.__version__, '0.117.1')
         self.assertTrue({
             'model', 'max_tokens', 'system', 'messages', 'output_format',
         }.issubset(signature.parameters))

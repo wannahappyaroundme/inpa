@@ -7,13 +7,28 @@
 """
 from django.contrib import admin
 
-from .models import ClaudeApiLog, Coupon, CouponRedemption, Plan, RuntimeConfig, Subscription, UsageMeter
+from .models import (
+    BillingAdminAction,
+    ClaudeApiLog,
+    Coupon,
+    CouponRedemption,
+    Plan,
+    RuntimeConfig,
+    Subscription,
+    UsageMeter,
+)
 
 
 @admin.register(RuntimeConfig)
 class RuntimeConfigAdmin(admin.ModelAdmin):
     """유료화 모드 런타임 토글 — 재배포 없이 전환."""
-    list_display = ['free_tier_unlimited', 'updated_at']
+    list_display = [
+        'free_tier_unlimited',
+        'billing_card_registration_enabled',
+        'billing_recurring_charge_enabled',
+        'billing_reconciliation_enabled',
+        'updated_at',
+    ]
     readonly_fields = ['updated_at']
 
     def has_add_permission(self, request):
@@ -82,14 +97,15 @@ class UsageMeterAdmin(admin.ModelAdmin):
 class CouponAdmin(admin.ModelAdmin):
     """무료 쿠폰 발급 — 코드 배포 없이 Admin에서 생성(코드 비우면 자동 생성).
 
-    발급: '추가' → 요금제(Plus)·부여 기간(일)·최대 사용 수·유효기한 지정 → 저장 → 코드 복사해 배포.
+    카드 등록형 신규 쿠폰은 1~3개월과 사용 기한을 지정한다.
+    기존 일수형 발행 내역은 하위 호환을 위해 그대로 보존한다.
     """
     list_display = [
-        'code', 'plan', 'duration_days',
+        'code', 'coupon_kind', 'plan', 'duration_months', 'duration_days',
         'redeemed_count', 'max_redemptions',
-        'is_active', 'expires_at', 'note', 'created_at',
+        'is_active', 'redeem_by', 'expires_at', 'note', 'created_at',
     ]
-    list_filter = ['is_active', 'plan']
+    list_filter = ['coupon_kind', 'is_active', 'plan']
     search_fields = ['code', 'note']
     readonly_fields = ['redeemed_count', 'created_at']
     ordering = ['-created_at']
@@ -104,6 +120,35 @@ class CouponRedemptionAdmin(admin.ModelAdmin):
     ordering = ['-redeemed_at']
 
     def has_add_permission(self, request):
+        return False
+
+
+@admin.register(BillingAdminAction)
+class BillingAdminActionAdmin(admin.ModelAdmin):
+    list_display = [
+        'created_at',
+        'admin',
+        'action',
+        'target_type',
+        'target_id',
+    ]
+    list_filter = ['action', 'target_type']
+    search_fields = ['admin__email', 'target_id', 'request_key']
+    readonly_fields = [
+        'admin',
+        'action',
+        'target_type',
+        'target_id',
+        'request_key',
+        'details',
+        'created_at',
+    ]
+    ordering = ['-created_at']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
         return False
 
 

@@ -22,6 +22,9 @@ from inpa.analytics.views import _NoIndexMixin, _mask_name
 from .consent_texts import (
     CONSENT_TEXTS,
     CONSENT_TEXTS_VERSION,
+    CONSULTATION_CONSENT_VERSIONS,
+    CONSULTATION_SUMMARY_CONSENT_VERSION,
+    consent_version_for_scope,
     consent_lines,
     has_current_overseas_consent,
 )
@@ -47,6 +50,21 @@ _SCOPE_META = {
         'required': True,
         'purpose': '고객 본인 국외이전 동의(Claude API, 미국)',
         'notice': '증권 분석을 위한 국외이전에 한합니다.',
+    },
+    ConsentLog.SCOPE_CONSULTATION_RECORDING: {
+        'required': True,
+        'purpose': '상담 녹음과 원본 보관 동의(고객 본인)',
+        'notice': '녹음 파일은 상담 종료 후 최대 7일 안에 자동 삭제됩니다.',
+    },
+    ConsentLog.SCOPE_CONSULTATION_SENSITIVE: {
+        'required': True,
+        'purpose': '상담 중 민감정보 처리 동의(고객 본인)',
+        'notice': '건강 등 민감한 내용은 상담 메모 작성 목적으로 처리됩니다.',
+    },
+    ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY: {
+        'required': True,
+        'purpose': '상담 요약을 위한 국외 처리 동의(고객 본인)',
+        'notice': '이름과 연락처를 가린 상담 내용을 요약하는 데 사용됩니다.',
     },
 }
 
@@ -83,6 +101,22 @@ class PublicConsentView(_NoIndexMixin, APIView):
         # 국외이전은 '현재 버전 문구로 받은 본인 동의'만 완료로 본다 → 구버전 동의 고객은 재동의(재-agree)가 가능해야 게이트가 열림.
         if scope == ConsentLog.SCOPE_OVERSEAS_MEDICAL:
             return has_current_overseas_consent(customer)
+        if scope in CONSULTATION_CONSENT_VERSIONS:
+            return ConsentLog.objects.filter(
+                customer=customer,
+                scope=scope,
+                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                revoked_at__isnull=True,
+                doc_version=CONSULTATION_CONSENT_VERSIONS[scope],
+            ).exists()
+        if scope == ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY:
+            return ConsentLog.objects.filter(
+                customer=customer,
+                scope=scope,
+                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                revoked_at__isnull=True,
+                doc_version=CONSULTATION_SUMMARY_CONSENT_VERSION,
+            ).exists()
         return ConsentLog.objects.filter(
             customer=customer, scope=scope, revoked_at__isnull=True).exists()
 
@@ -108,6 +142,8 @@ class PublicConsentView(_NoIndexMixin, APIView):
         """
         now = timezone.now()
         results = []
+        delete_consultation_sources = False
+        cancel_consultation_summaries = False
         for sc in scopes_to_revoke:
             updated = ConsentLog.objects.filter(
                 customer=customer, scope=sc, revoked_at__isnull=True,
@@ -121,7 +157,34 @@ class PublicConsentView(_NoIndexMixin, APIView):
                 # gate OFF 전환 기간의 Customer 토큰 fallback도 즉시 닫는다.
                 customer.share_expires_at = now
                 customer.save(update_fields=['share_expires_at'])
+            if sc in {
+                ConsentLog.SCOPE_CONSULTATION_RECORDING,
+                ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
+            }:
+                delete_consultation_sources = True
+            if sc in {
+                ConsentLog.SCOPE_CONSULTATION_RECORDING,
+                ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
+                ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY,
+            }:
+                cancel_consultation_summaries = True
             results.append({'scope': sc, 'revoked': True, 'updated_logs': updated})
+        if cancel_consultation_summaries:
+            from inpa.consultations.tasks import cancel_customer_summaries
+            transaction.on_commit(
+                lambda customer_id=customer.id: cancel_customer_summaries.delay(
+                    customer_id,
+                    reason='CONSENT_REVOKED',
+                ),
+            )
+        if delete_consultation_sources:
+            from inpa.consultations.tasks import delete_customer_sources
+            transaction.on_commit(
+                lambda customer_id=customer.id: delete_customer_sources.delay(
+                    customer_id,
+                    reason='consent_revoked',
+                ),
+            )
         return results
 
     def get(self, request, token):
@@ -191,7 +254,7 @@ class PublicConsentView(_NoIndexMixin, APIView):
                     customer=customer, scope=sc,
                     subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
                     purpose=_SCOPE_META[sc]['purpose'],
-                    doc_version=CONSENT_TEXTS_VERSION, ip=ip)
+                    doc_version=consent_version_for_scope(sc), ip=ip)
                 if (sc == ConsentLog.SCOPE_OVERSEAS_MEDICAL
                         and customer.consent_overseas_at is None):
                     customer.consent_overseas_at = log.agreed_at

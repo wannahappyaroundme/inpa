@@ -43,6 +43,7 @@ LOCAL_APPS = [
     'inpa.dashboard',      # 대시보드 월별 목표 (수동 설정 + 실적 계산, owner 전용)
     'inpa.schedule',       # 개인 일정/할일/고정 차단 (캘린더, owner 전용 — 예약과 별도)
     'inpa.recruiting',     # 설계사 영입 페이지·지원자·정착 관리 (고객 도메인과 완전 분리)
+    'inpa.consultations',  # 상담 녹음 원본·7일 보관·AI 요약 (기본 닫힘)
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -106,6 +107,17 @@ INSURANCE_IMPORT_THROTTLE_RATES = {
     'insurance_import_source': '120/hour',
 }
 
+CONSULTATION_THROTTLE_RATES = {
+    'consultation_upload': env(
+        'CONSULTATION_UPLOAD_RATE', default='30/hour'),
+    'consultation_play': env(
+        'CONSULTATION_PLAY_RATE', default='120/hour'),
+    'consultation_summary': env(
+        'CONSULTATION_SUMMARY_RATE', default='30/hour'),
+    'consultation_callback': env(
+        'CONSULTATION_CALLBACK_RATE', default='120/hour'),
+}
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
@@ -136,6 +148,7 @@ REST_FRAMEWORK = {
         'recruiting_apply': '10/hour',
         'recruiting_apply_campaign': '30/day',
         'recruiting_join': '20/hour',
+        **CONSULTATION_THROTTLE_RATES,
     },
 }
 
@@ -241,6 +254,12 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_SOFT_TIME_LIMIT = 420
 CELERY_TASK_TIME_LIMIT = 480
+CELERY_TASK_ROUTES = {
+    'inpa.insurances.*': {'queue': 'insurance_imports'},
+    'inpa.consultations.process_summary': {
+        'queue': 'consultation_summaries',
+    },
+}
 # Child recycling is defense-in-depth for cumulative worker growth. The
 # disposable PDF subprocess limits above are the hard per-document boundary.
 CELERY_WORKER_MAX_TASKS_PER_CHILD = env.int(
@@ -248,6 +267,53 @@ CELERY_WORKER_MAX_TASKS_PER_CHILD = env.int(
 CELERY_WORKER_MAX_MEMORY_PER_CHILD = env.int(
     'CELERY_WORKER_MAX_MEMORY_PER_CHILD', default=180_000)
 CELERY_BROKER_TRANSPORT_OPTIONS = {'visibility_timeout': 600}
+
+# ── 상담 녹음·AI 요약(기본 닫힘) ─────────────────────────────────
+CONSULTATION_RECORDING_ENABLED = env.bool(
+    'CONSULTATION_RECORDING_ENABLED', default=False)
+CONSULTATION_AI_SUMMARY_ENABLED = env.bool(
+    'CONSULTATION_AI_SUMMARY_ENABLED', default=False)
+CONSULTATION_RETENTION_HOURS = env.int(
+    'CONSULTATION_RETENTION_HOURS', default=168)
+CONSULTATION_RETENTION_SAFETY_MINUTES = env.int(
+    'CONSULTATION_RETENTION_SAFETY_MINUTES', default=15)
+CONSULTATION_MAX_DURATION_SECONDS = env.int(
+    'CONSULTATION_MAX_DURATION_SECONDS', default=3600)
+CONSULTATION_MAX_BYTES = env.int(
+    'CONSULTATION_MAX_BYTES', default=100 * 1024 * 1024)
+CONSULTATION_UPLOAD_PART_BYTES = env.int(
+    'CONSULTATION_UPLOAD_PART_BYTES', default=8 * 1024 * 1024)
+CONSULTATION_PRESIGN_TTL_SECONDS = env.int(
+    'CONSULTATION_PRESIGN_TTL_SECONDS', default=600)
+CONSULTATION_STORAGE_BUCKET = env(
+    'CONSULTATION_STORAGE_BUCKET', default='')
+CONSULTATION_STORAGE_ENDPOINT = env(
+    'CONSULTATION_STORAGE_ENDPOINT', default='')
+CONSULTATION_STORAGE_REGION = env(
+    'CONSULTATION_STORAGE_REGION', default='auto')
+CONSULTATION_STORAGE_ACCESS_KEY_ID = env(
+    'CONSULTATION_STORAGE_ACCESS_KEY_ID', default='')
+CONSULTATION_STORAGE_SECRET_ACCESS_KEY = env(
+    'CONSULTATION_STORAGE_SECRET_ACCESS_KEY', default='')
+CONSULTATION_STT_PROVIDER = env(
+    'CONSULTATION_STT_PROVIDER', default='clova')
+CLOVA_SPEECH_INVOKE_URL = env(
+    'CLOVA_SPEECH_INVOKE_URL', default='')
+CLOVA_SPEECH_SECRET_KEY = env(
+    'CLOVA_SPEECH_SECRET_KEY', default='')
+CONSULTATION_SUMMARY_MODEL = env(
+    'CONSULTATION_SUMMARY_MODEL', default='')
+CONSULTATION_SUMMARY_PROMPT_VERSION = env(
+    'CONSULTATION_SUMMARY_PROMPT_VERSION', default='v1-2026-07-22')
+CONSULTATION_SUMMARY_ACTIVE_LIMIT = env.int(
+    'CONSULTATION_SUMMARY_ACTIVE_LIMIT', default=1)
+CONSULTATION_SUMMARY_LEASE_SECONDS = env.int(
+    'CONSULTATION_SUMMARY_LEASE_SECONDS', default=300)
+CONSULTATION_SUMMARY_POLL_SECONDS = env.int(
+    'CONSULTATION_SUMMARY_POLL_SECONDS', default=15)
+CONSULTATION_CALLBACK_TTL_SECONDS = env.int(
+    'CONSULTATION_CALLBACK_TTL_SECONDS', default=7200)
+BACKEND_BASE_URL = env('BACKEND_BASE_URL', default='')
 
 # ── Claude 비용 추정 환율 (프리런치 #17, billing/pricing.py) ────────────
 # 원/달러 환율 추정치 — 어드민 관측용 cost_krw 계산에만 쓰인다(정밀 청구서 아님, §6 정직성).
@@ -334,6 +400,24 @@ FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
 # 생성 시 이 값을 시드하고, 이후엔 관리자 토글(/admin/billing/mode/)이 DB 값으로 제어한다
 # (FREE_TIER_UNLIMITED 관례와 동일).
 FIRST_PAID_BONUS_ENABLED = env.bool('FIRST_PAID_BONUS_ENABLED', default=False)
+
+# ── 카드 등록형 쿠폰·정기결제 (기본 닫힘) ───────────────────────────
+# 환경과 관리자 런타임 스위치가 모두 열리고 베타 무제한이 끝나야 승인된다.
+BILLING_CARD_REGISTRATION_ENABLED = env.bool(
+    'BILLING_CARD_REGISTRATION_ENABLED', default=False)
+BILLING_RECURRING_CHARGE_ENABLED = env.bool(
+    'BILLING_RECURRING_CHARGE_ENABLED', default=False)
+BILLING_WEBHOOK_RECONCILIATION_ENABLED = env.bool(
+    'BILLING_WEBHOOK_RECONCILIATION_ENABLED', default=False)
+KICC_MALL_ID = env('KICC_MALL_ID', default='')
+KICC_CLIENT_SECRET = env('KICC_CLIENT_SECRET', default='')
+KICC_API_BASE_URL = env('KICC_API_BASE_URL', default='')
+PAYMENT_TOKEN_ENCRYPTION_KEY = env(
+    'PAYMENT_TOKEN_ENCRYPTION_KEY', default='')
+PAYMENT_TOKEN_KEY_VERSION = env(
+    'PAYMENT_TOKEN_KEY_VERSION', default='v1')
+BILLING_NOTICE_DEVICE_HMAC_KEY = env(
+    'BILLING_NOTICE_DEVICE_HMAC_KEY', default='')
 
 # ── 팀 기능 capability 게이트 (Plus + legacy Manager/Super) ──────────────────
 # ★ 기본 False(dormant) — 유료 전환 전에 켜면 capability 없는 구독자의 팀 기능이 잠긴다.

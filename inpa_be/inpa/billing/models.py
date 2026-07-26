@@ -18,7 +18,9 @@ import secrets
 import string
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 
@@ -70,6 +72,20 @@ class Plan(models.Model):
         '신규 고객 추가 한도(월)', null=True, blank=True, default=5,
         help_text='null=무제한. Free 기본 5명(월). 설계사가 능동으로 추가하는 고객만 집계'
                    '(셀프진단·소개 카드 인바운드 리드는 미집계).'
+    )
+    limit_consultation_summary = models.PositiveIntegerField(
+        '상담 요약 한도(월)',
+        null=True,
+        blank=True,
+        default=5,
+        help_text='녹음 파일별 최초 AI 요약 성공 건수. null=무제한.',
+    )
+    limit_consultation_minute = models.PositiveIntegerField(
+        '상담 음성 처리 분(월)',
+        null=True,
+        blank=True,
+        default=150,
+        help_text='외부 음성 처리가 시작된 올림 분수. null=무제한.',
     )
     # share_link / customer_add(레거시 명칭, 이 필드와 무관) = 절대 차단 금지 → 필드 없음 (dev/23 §1.2)
 
@@ -185,6 +201,8 @@ class UsageMeter(models.Model):
         ('analysis', 'AI 분析·메시지'),
         ('promotion', '판촉물 주문'),
         ('customer', '고객 추가'),
+        ('consultation_summary', '상담 요약'),
+        ('consultation_minute', '상담 음성 처리 분'),
     )
 
     # action label 한글 매핑 (GET /billing/usage/ 응답용)
@@ -194,6 +212,8 @@ class UsageMeter(models.Model):
         'analysis': 'AI 분析·메시지',
         'promotion': '판촉물 주문',
         'customer': '고객 추가',
+        'consultation_summary': '상담 요약',
+        'consultation_minute': '상담 음성 처리 분',
     }
 
     user = models.ForeignKey(
@@ -345,17 +365,40 @@ class Coupon(models.Model):
     입력해 사용한다. 유료 결제 전, 인터뷰·LOI 대상 등에 '선별 배포'하는 통제형 방식(§98 부당혜택 회피).
     코드 유효기한(expires_at)·최대 사용 수(max_redemptions)로 남용을 제한한다.
     """
+    COUPON_KIND_CHOICES = (
+        ('legacy_grant', '기존 일수형'),
+        ('recurring_trial', '카드 등록형 무료 이용'),
+    )
+
     code = models.CharField('쿠폰 코드', max_length=32, unique=True, blank=True,
                             help_text='대문자·숫자. 비워두면 자동 생성(INPA-XXXXXXXX).')
     plan = models.ForeignKey(Plan, on_delete=models.PROTECT, verbose_name='부여 요금제',
                              help_text='보통 Plus.')
+    coupon_kind = models.CharField(
+        '쿠폰 종류',
+        max_length=24,
+        choices=COUPON_KIND_CHOICES,
+        default='legacy_grant',
+    )
     duration_days = models.PositiveIntegerField('부여 기간(일)', default=30,
                                                 help_text='기본 30일(1개월).')
+    duration_months = models.PositiveSmallIntegerField(
+        '무료 이용 개월',
+        null=True,
+        blank=True,
+        help_text='카드 등록형 쿠폰은 1~3개월만 선택합니다.',
+    )
     max_redemptions = models.PositiveIntegerField('최대 사용 횟수', default=1,
                                                   help_text='이 코드를 총 몇 명이 쓸 수 있는지. 기본 1(1회용).')
     redeemed_count = models.PositiveIntegerField('사용된 횟수', default=0)
     expires_at = models.DateTimeField('코드 유효기한', null=True, blank=True,
                                       help_text='이 시각 이후 사용 불가. null=무기한.')
+    redeem_by = models.DateTimeField(
+        '쿠폰 사용 기한',
+        null=True,
+        blank=True,
+        help_text='카드 등록형 쿠폰은 이 시각까지 시작할 수 있습니다.',
+    )
     is_active = models.BooleanField('활성', default=True)
     note = models.CharField('메모(관리자)', max_length=200, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -364,9 +407,48 @@ class Coupon(models.Model):
         db_table = 'billing_coupon'
         verbose_name = '쿠폰'
         verbose_name_plural = '쿠폰'
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        coupon_kind='legacy_grant',
+                        duration_days__gte=1,
+                        duration_months__isnull=True,
+                    )
+                    | Q(
+                        coupon_kind='recurring_trial',
+                        duration_months__gte=1,
+                        duration_months__lte=3,
+                        redeem_by__isnull=False,
+                    )
+                ),
+                name='billing_coupon_kind_duration_valid',
+            ),
+        ]
 
     def __str__(self):
-        return f'{self.code} ({self.plan.code}, {self.duration_days}일)'
+        duration = (
+            f'{self.duration_months}개월'
+            if self.coupon_kind == 'recurring_trial'
+            else f'{self.duration_days}일'
+        )
+        return f'{self.code} ({self.plan.code}, {duration})'
+
+    def clean(self):
+        super().clean()
+        if self.coupon_kind == 'recurring_trial':
+            if self.duration_months not in (1, 2, 3):
+                raise ValidationError({
+                    'duration_months': '1개월, 2개월, 3개월 중에서 선택해 주세요.',
+                })
+            if self.redeem_by is None:
+                raise ValidationError({
+                    'redeem_by': '쿠폰 사용 기한을 입력해 주세요.',
+                })
+        elif self.duration_months is not None:
+            raise ValidationError({
+                'duration_months': '기존 쿠폰은 일수 기준을 그대로 사용합니다.',
+            })
 
     def save(self, *args, **kwargs):
         if self.code:
@@ -390,7 +472,12 @@ class Coupon(models.Model):
         now = now or timezone.now()
         if not self.is_active:
             return 'inactive'
-        if self.expires_at is not None and self.expires_at <= now:
+        deadline = (
+            self.redeem_by
+            if self.coupon_kind == 'recurring_trial'
+            else self.expires_at
+        )
+        if deadline is not None and deadline <= now:
             return 'expired'
         if self.redeemed_count >= self.max_redemptions:
             return 'exhausted'
@@ -405,6 +492,15 @@ class RuntimeConfig(models.Model):
     first_paid_bonus_enabled = models.BooleanField(
         '첫 유료 결제 보너스 이벤트', default=False,
         help_text='True=첫 유료 구독 부여 시 +1개월 보너스(사용자당 1회). 기본 OFF.')
+    billing_card_registration_enabled = models.BooleanField(
+        '카드 등록형 쿠폰', default=False,
+        help_text='환경 게이트와 함께 열려야 카드 등록을 시작합니다.')
+    billing_recurring_charge_enabled = models.BooleanField(
+        '월 정기 승인', default=False,
+        help_text='대사 기능과 베타 한도 종료까지 충족해야 승인합니다.')
+    billing_reconciliation_enabled = models.BooleanField(
+        '결제 대사', default=False,
+        help_text='미확정 거래 조회와 늦은 승인 취소를 운영합니다.')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -423,6 +519,9 @@ class RuntimeConfig(models.Model):
             defaults={
                 'free_tier_unlimited': bool(getattr(settings, 'FREE_TIER_UNLIMITED', True)),
                 'first_paid_bonus_enabled': bool(getattr(settings, 'FIRST_PAID_BONUS_ENABLED', False)),
+                'billing_card_registration_enabled': False,
+                'billing_recurring_charge_enabled': False,
+                'billing_reconciliation_enabled': False,
             },
         )
         return obj
@@ -445,3 +544,16 @@ class CouponRedemption(models.Model):
 
     def __str__(self):
         return f'{self.user.email} / {self.coupon.code} / ~{self.granted_until:%Y-%m-%d}'
+
+
+from .payment_models import (  # noqa: E402,F401
+    BillingAdminAction,
+    BillingAgreement,
+    BillingNoticeEvent,
+    CouponClaim,
+    PaymentAttempt,
+    PaymentMethodToken,
+    PaymentOrder,
+    RecurringPaymentConsent,
+    WebhookInbox,
+)

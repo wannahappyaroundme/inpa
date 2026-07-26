@@ -11,7 +11,10 @@ base path: /api/v1/admin/
   - 알림 대상: 설계사 본인만 (고객 자동발송 경로 물리 부재).
 """
 from django.contrib.auth import get_user_model
+from django.conf import settings as django_settings
+from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -24,7 +27,29 @@ from inpa.analysis.golden_eval import (
     evaluate_golden_set, find_golden_expected,
 )
 from inpa.analysis.models import AnalysisDetail, CoverageFlag, NormalizationDict, UnmatchedLog
-from inpa.billing.models import Plan, Subscription, UsageMeter
+from inpa.analytics.events import billing_terminal_event_gap
+from inpa.billing.gates import (
+    card_registration_enabled,
+    reconciliation_enabled,
+    recurring_charge_enabled,
+)
+from inpa.billing.models import (
+    BillingAdminAction,
+    BillingAgreement,
+    Coupon,
+    CouponClaim,
+    PaymentMethodToken,
+    PaymentOrder,
+    Plan,
+    RuntimeConfig,
+    Subscription,
+    UsageMeter,
+)
+from inpa.billing.tasks import (
+    reconcile_unknown_order_task,
+    revoke_payment_token_task,
+)
+from inpa.consultations.quota import release_meter
 from inpa.boards.models import (
     BlogPost,
     Comment,
@@ -38,12 +63,28 @@ from inpa.boards.models import (
 from inpa.core.copyguard import scan_blog_content
 from inpa.core.permissions import IsAdmin
 from inpa.customers.models import ConsentLog, Customer
+from inpa.consultations.cleanup import SOURCE_PRESENT_STATUSES
+from inpa.consultations.models import (
+    ConsultationPilotAccess,
+    ConsultationRecording,
+    ConsultationRuntimeConfig,
+    ConsultationSummaryRun,
+)
+from inpa.consultations.services import get_recording_storage
 from inpa.notifications.models import Notification, NotifType
 from inpa.promotion.models import PromotionOrder
 
 from .models import PolicyVersion
 from .serializers import (
     AdminBlogPostSerializer,
+    AdminBillingCouponCreateSerializer,
+    AdminBillingCouponSerializer,
+    AdminBillingCouponUpdateSerializer,
+    AdminBillingSettingsSerializer,
+    AdminConsultationConfigSerializer,
+    AdminConsultationPilotCreateSerializer,
+    AdminConsultationPilotSerializer,
+    AdminConsultationPilotUpdateSerializer,
     AdminConsentLogSerializer,
     AdminCoverageFlagSerializer,
     AdminCustomerListSerializer,
@@ -76,6 +117,595 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+
+def _billing_environment():
+    credentials_ready = all((
+        django_settings.KICC_MALL_ID,
+        django_settings.KICC_CLIENT_SECRET,
+        django_settings.KICC_API_BASE_URL,
+        django_settings.PAYMENT_TOKEN_ENCRYPTION_KEY,
+    ))
+    return {
+        'card_registration_env':
+            django_settings.BILLING_CARD_REGISTRATION_ENABLED,
+        'recurring_charge_env':
+            django_settings.BILLING_RECURRING_CHARGE_ENABLED,
+        'reconciliation_env':
+            django_settings.BILLING_WEBHOOK_RECONCILIATION_ENABLED,
+        'provider_credentials_ready': credentials_ready,
+        'card_registration_effective': card_registration_enabled(),
+        'recurring_charge_effective': recurring_charge_enabled(),
+        'reconciliation_effective': reconciliation_enabled(),
+    }
+
+
+def _billing_settings(config):
+    return {
+        'free_tier_unlimited': config.free_tier_unlimited,
+        'billing_card_registration_enabled':
+            config.billing_card_registration_enabled,
+        'billing_recurring_charge_enabled':
+            config.billing_recurring_charge_enabled,
+        'billing_reconciliation_enabled':
+            config.billing_reconciliation_enabled,
+    }
+
+
+def _admin_action(
+    request,
+    *,
+    action,
+    target_type,
+    target_id='',
+    details=None,
+):
+    request_key = (
+        request.headers.get('Idempotency-Key', '').strip()[:100]
+    )
+    defaults = {
+        'admin': request.user,
+        'action': action,
+        'target_type': target_type,
+        'target_id': str(target_id),
+        'details': details or {},
+    }
+    if request_key:
+        return BillingAdminAction.objects.get_or_create(
+            request_key=request_key,
+            defaults=defaults,
+        )
+    return (
+        BillingAdminAction.objects.create(
+            request_key='',
+            **defaults,
+        ),
+        True,
+    )
+
+
+def _coupon_payload(coupon):
+    return AdminBillingCouponSerializer(coupon).data
+
+
+def _agreement_row(agreement):
+    token = agreement.payment_tokens.filter(
+        status__in=('active', 'revocation_pending'),
+    ).order_by('status', '-created_at').first()
+    return {
+        'id': str(agreement.pk),
+        'user_email': agreement.user.email,
+        'plan_code': agreement.plan.code,
+        'status': agreement.status,
+        'trial_duration_months': agreement.trial_duration_months,
+        'current_period_starts_on':
+            agreement.current_period_starts_on,
+        'current_period_ends_on':
+            agreement.current_period_ends_on,
+        'next_charge_date': agreement.next_charge_date,
+        'cycle_sequence': agreement.cycle_sequence,
+        'card_label': token.display_label if token else None,
+        'payment_token_id': token.pk if token else None,
+        'payment_token_status': token.status if token else None,
+        'updated_at': agreement.updated_at,
+    }
+
+
+def _order_row(order):
+    return {
+        'id': order.pk,
+        'agreement_id': str(order.agreement_id),
+        'user_email': order.agreement.user.email,
+        'cycle_sequence': order.cycle_sequence,
+        'merchant_order_id': order.merchant_order_id,
+        'amount_krw': order.amount_krw,
+        'due_date': order.due_date,
+        'status': order.status,
+        'failure_code': order.failure_code,
+        'unknown_since': order.unknown_since,
+        'temporary_access_until': order.temporary_access_until,
+        'created_at': order.created_at,
+        'updated_at': order.updated_at,
+    }
+
+
+class AdminBillingOverviewView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        agreements = (
+            BillingAgreement.objects.select_related('user', 'plan')
+            .prefetch_related('payment_tokens')
+            .order_by('-updated_at')
+        )
+        orders = (
+            PaymentOrder.objects.select_related(
+                'agreement__user')
+            .order_by('-created_at')
+        )
+        return Response({
+            'status': {
+                'agreement_count': agreements.count(),
+                'trial_count':
+                    agreements.filter(status='trialing').count(),
+                'active_count':
+                    agreements.filter(status='active').count(),
+                'unknown_order_count':
+                    orders.filter(status='unknown').count(),
+                'revocation_pending_token_count':
+                    PaymentMethodToken.objects.filter(
+                        status='revocation_pending').count(),
+                'held_coupon_claim_count':
+                    CouponClaim.objects.filter(status='held').count(),
+                'terminal_event_gap_count':
+                    billing_terminal_event_gap(),
+            },
+            'environment': _billing_environment(),
+            'settings': _billing_settings(RuntimeConfig.solo()),
+            'recent_agreements': [
+                _agreement_row(item) for item in agreements[:20]
+            ],
+            'recent_orders': [
+                _order_row(item) for item in orders[:20]
+            ],
+        })
+
+
+class AdminBillingCouponListView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        coupons = Coupon.objects.select_related('plan').filter(
+            coupon_kind='recurring_trial',
+        ).order_by('-created_at')[:200]
+        return Response(
+            AdminBillingCouponSerializer(
+                coupons, many=True).data)
+
+    def post(self, request):
+        request_key = request.headers.get(
+            'Idempotency-Key', '').strip()[:100]
+        serializer = AdminBillingCouponCreateSerializer(
+            data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        plan = get_object_or_404(
+            Plan,
+            code=data['plan_code'],
+            is_active=True,
+        )
+        with transaction.atomic():
+            action_record = None
+            if request_key:
+                action_record, reserved = (
+                    BillingAdminAction.objects.get_or_create(
+                        request_key=request_key,
+                        defaults={
+                            'admin': request.user,
+                            'action': 'coupon_create_reserved',
+                            'target_type': 'coupon',
+                        },
+                    )
+                )
+                if not reserved:
+                    if (
+                        action_record.action == 'coupon_created'
+                        and action_record.target_id
+                    ):
+                        coupon = get_object_or_404(
+                            Coupon.objects.select_related('plan'),
+                            pk=action_record.target_id,
+                        )
+                        return Response(_coupon_payload(coupon))
+                    return Response(
+                        {
+                            'detail': (
+                                '같은 요청의 쿠폰 발행 상태를 '
+                                '잠시 뒤 다시 확인해 주세요.'
+                            ),
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+            coupon = Coupon.objects.create(
+                plan=plan,
+                coupon_kind='recurring_trial',
+                duration_days=30,
+                duration_months=data['duration_months'],
+                redeem_by=data['redeem_by'],
+                max_redemptions=data['max_redemptions'],
+                note=data.get('note', ''),
+            )
+            details = {
+                'plan_code': plan.code,
+                'duration_months': coupon.duration_months,
+                'max_redemptions': coupon.max_redemptions,
+            }
+            if action_record:
+                action_record.action = 'coupon_created'
+                action_record.target_id = str(coupon.pk)
+                action_record.details = details
+                action_record.save(update_fields=[
+                    'action', 'target_id', 'details'])
+            else:
+                _admin_action(
+                    request,
+                    action='coupon_created',
+                    target_type='coupon',
+                    target_id=coupon.pk,
+                    details=details,
+                )
+        return Response(
+            _coupon_payload(coupon),
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminBillingCouponDetailView(APIView):
+    permission_classes = [IsAdmin]
+
+    def patch(self, request, coupon_id):
+        request_key = request.headers.get(
+            'Idempotency-Key', '').strip()[:100]
+        if request_key and BillingAdminAction.objects.filter(
+            request_key=request_key,
+            action='coupon_updated',
+            target_id=str(coupon_id),
+        ).exists():
+            coupon = get_object_or_404(
+                Coupon.objects.select_related('plan'),
+                pk=coupon_id,
+            )
+            return Response(_coupon_payload(coupon))
+        serializer = AdminBillingCouponUpdateSerializer(
+            data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            coupon = get_object_or_404(
+                Coupon.objects.select_for_update().select_related('plan'),
+                pk=coupon_id,
+                coupon_kind='recurring_trial',
+            )
+            data = serializer.validated_data
+            if (
+                'max_redemptions' in data
+                and data['max_redemptions'] < coupon.redeemed_count
+            ):
+                return Response(
+                    {
+                        'detail': (
+                            '이미 사용된 수보다 큰 최대 사용 횟수를 '
+                            '입력해 주세요.'
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            update_fields = []
+            for field, value in data.items():
+                setattr(coupon, field, value)
+                update_fields.append(field)
+            if update_fields:
+                coupon.save(update_fields=update_fields)
+            _admin_action(
+                request,
+                action='coupon_updated',
+                target_type='coupon',
+                target_id=coupon.pk,
+                details={'updated_fields': sorted(update_fields)},
+            )
+        return Response(_coupon_payload(coupon))
+
+
+class AdminBillingAgreementListView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        agreements = (
+            BillingAgreement.objects.select_related('user', 'plan')
+            .prefetch_related('payment_tokens')
+            .order_by('-updated_at')[:200]
+        )
+        return Response([_agreement_row(item) for item in agreements])
+
+
+class AdminBillingOrderListView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        orders = (
+            PaymentOrder.objects.select_related(
+                'agreement__user')
+            .order_by('-created_at')[:200]
+        )
+        return Response([_order_row(item) for item in orders])
+
+
+class AdminBillingOrderReconcileView(APIView):
+    permission_classes = [IsAdmin]
+
+    def post(self, request, order_id):
+        order = get_object_or_404(
+            PaymentOrder, pk=order_id, status='unknown')
+        request_key = request.headers.get(
+            'Idempotency-Key', '').strip()[:100]
+        if request_key and BillingAdminAction.objects.filter(
+                request_key=request_key).exists():
+            return Response(
+                {'order_id': order.pk, 'queued': True},
+                status=status.HTTP_202_ACCEPTED,
+            )
+        _, created = _admin_action(
+            request,
+            action='order_reconciliation_queued',
+            target_type='payment_order',
+            target_id=order.pk,
+        )
+        if created:
+            reconcile_unknown_order_task.delay(order.pk)
+        return Response(
+            {'order_id': order.pk, 'queued': True},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class AdminBillingTokenRevokeView(APIView):
+    permission_classes = [IsAdmin]
+
+    def post(self, request, token_id):
+        request_key = request.headers.get(
+            'Idempotency-Key', '').strip()[:100]
+        if request_key and BillingAdminAction.objects.filter(
+                request_key=request_key).exists():
+            return Response(
+                {'token_id': token_id, 'queued': True},
+                status=status.HTTP_202_ACCEPTED,
+            )
+        with transaction.atomic():
+            token = get_object_or_404(
+                PaymentMethodToken.objects.select_for_update(),
+                pk=token_id,
+                status__in=('active', 'revocation_pending'),
+            )
+            if token.status == 'active':
+                token.status = 'revocation_pending'
+                token.save(update_fields=['status', 'updated_at'])
+            _, created = _admin_action(
+                request,
+                action='payment_token_revocation_queued',
+                target_type='payment_token',
+                target_id=token.pk,
+            )
+        if created:
+            revoke_payment_token_task.delay(token.pk)
+        return Response(
+            {'token_id': token.pk, 'queued': True},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class AdminBillingSettingsView(APIView):
+    permission_classes = [IsAdmin]
+
+    @staticmethod
+    def _response(config):
+        return {
+            'environment': _billing_environment(),
+            'settings': _billing_settings(config),
+        }
+
+    def get(self, request):
+        return Response(self._response(RuntimeConfig.solo()))
+
+    def patch(self, request):
+        serializer = AdminBillingSettingsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        with transaction.atomic():
+            config = RuntimeConfig.objects.select_for_update().get(
+                pk=RuntimeConfig.solo().pk)
+            desired = {
+                **_billing_settings(config),
+                **data,
+            }
+            environment = _billing_environment()
+            if (
+                desired['billing_card_registration_enabled']
+                and not (
+                    environment['card_registration_env']
+                    and environment['provider_credentials_ready']
+                )
+            ):
+                return Response(
+                    {
+                        'code': 'BILLING_CARD_ENV_CLOSED',
+                        'detail': (
+                            '카드 등록 환경 확인을 마치면 '
+                            '운영 스위치를 켤 수 있어요.'
+                        ),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if (
+                desired['billing_reconciliation_enabled']
+                and not (
+                    environment['reconciliation_env']
+                    and environment['provider_credentials_ready']
+                )
+            ):
+                return Response(
+                    {
+                        'code': 'BILLING_RECONCILIATION_ENV_CLOSED',
+                        'detail': (
+                            '결제 조회와 취소 환경 확인을 마치면 '
+                            '운영 스위치를 켤 수 있어요.'
+                        ),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if desired['billing_recurring_charge_enabled']:
+                recurring_ready = all((
+                    environment['recurring_charge_env'],
+                    desired['billing_card_registration_enabled'],
+                    desired['billing_reconciliation_enabled'],
+                    not desired['free_tier_unlimited'],
+                    not django_settings.FREE_TIER_UNLIMITED,
+                ))
+                if not recurring_ready:
+                    return Response(
+                        {
+                            'code': 'BILLING_RECURRING_PREREQUISITES',
+                            'detail': (
+                                '카드 등록, 결제 조회, 유료 한도 설정을 '
+                                '마치면 정기결제를 켤 수 있어요.'
+                            ),
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+            for field, value in data.items():
+                setattr(config, field, value)
+            if data:
+                config.save(update_fields=[
+                    *data.keys(),
+                    'updated_at',
+                ])
+                _admin_action(
+                    request,
+                    action='billing_settings_updated',
+                    target_type='runtime_config',
+                    target_id=config.pk,
+                    details={'updated_fields': sorted(data.keys())},
+                )
+        return Response(self._response(config))
+
+
+def consultation_status_snapshot():
+    now = timezone.now()
+    source_rows = ConsultationRecording.objects.filter(
+        storage_key__isnull=False,
+        status__in=SOURCE_PRESENT_STATUSES,
+    )
+    audit_key = 'admin:consultation-storage-audit:v1'
+    storage_audit = cache.get(audit_key)
+    if storage_audit is None:
+        storage_audit = {
+            'storage_audit_available': False,
+            'orphan_object_count': None,
+            'missing_object_count': None,
+        }
+        if django_settings.CONSULTATION_RECORDING_ENABLED:
+            try:
+                db_keys = set(source_rows.values_list('storage_key', flat=True))
+                object_keys = set(get_recording_storage().iter_keys())
+                storage_audit = {
+                    'storage_audit_available': True,
+                    'orphan_object_count': len(object_keys - db_keys),
+                    'missing_object_count': len(db_keys - object_keys),
+                }
+            except Exception:
+                pass
+        cache.set(audit_key, storage_audit, 300)
+    summary_rows = ConsultationSummaryRun.objects.all()
+    succeeded_seconds = list(
+        summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_SUCCEEDED,
+        ).order_by('processing_seconds').values_list(
+            'processing_seconds',
+            flat=True,
+        )
+    )
+
+    def percentile(values, percent):
+        if not values:
+            return None
+        index = min(
+            len(values) - 1,
+            max(0, int(round((len(values) - 1) * percent))),
+        )
+        return values[index]
+
+    summary_totals = summary_rows.aggregate(
+        processing_minutes=Sum('processing_minutes_reserved'),
+        estimated_cost_krw=Sum('estimated_cost_krw'),
+    )
+    return {
+        'active_upload_count': ConsultationRecording.objects.filter(
+            status=ConsultationRecording.STATUS_UPLOADING,
+        ).count(),
+        'ready_source_count': source_rows.exclude(
+            status=ConsultationRecording.STATUS_UPLOADING,
+        ).count(),
+        'deleted_count': ConsultationRecording.objects.filter(
+            status=ConsultationRecording.STATUS_DELETED,
+        ).count(),
+        'overdue_source_count': source_rows.filter(
+            expires_at__isnull=False,
+            expires_at__lte=now,
+        ).count(),
+        'delete_failure_count': ConsultationRecording.objects.filter(
+            delete_result='retry_required',
+        ).count(),
+        'summary_queued_count': summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_QUEUED,
+        ).count(),
+        'summary_processing_count': summary_rows.filter(
+            status__in=(
+                ConsultationSummaryRun.STATUS_TRANSCRIBING,
+                ConsultationSummaryRun.STATUS_SUMMARIZING,
+            ),
+        ).count(),
+        'summary_success_count': summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_SUCCEEDED,
+        ).count(),
+        'summary_failed_count': summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_FAILED,
+        ).count(),
+        'summary_ambiguous_count': summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_AMBIGUOUS,
+        ).count(),
+        'summary_cancelled_count': summary_rows.filter(
+            status=ConsultationSummaryRun.STATUS_CANCELLED,
+        ).count(),
+        'summary_processing_minutes':
+            summary_totals['processing_minutes'] or 0,
+        'summary_estimated_cost_krw':
+            summary_totals['estimated_cost_krw'] or 0,
+        'summary_p50_seconds': percentile(succeeded_seconds, 0.50),
+        'summary_p95_seconds': percentile(succeeded_seconds, 0.95),
+        'recent_summary_runs': list(
+            summary_rows.order_by('-created_at').values(
+                'id',
+                'status',
+                'processing_minutes_reserved',
+                'input_tokens',
+                'output_tokens',
+                'estimated_cost_krw',
+                'outcome',
+                'error_code',
+                'created_at',
+                'completed_at',
+            )[:20]
+        ),
+        **storage_audit,
+    }
 
 
 # ─── 알림 생성 헬퍼 (설계사 본인 대상 — 고객 자동발송 금지) ─────────────
@@ -2056,6 +2686,170 @@ class AdminActivationFunnelView(APIView):
             'utm_sources': utm_sources,
             'avg_days_to_activation': avg_days_to_activation,
         })
+
+
+class AdminConsultationSettingsView(APIView):
+    permission_classes = [IsAdmin]
+
+    @staticmethod
+    def _response(config):
+        pilots = ConsultationPilotAccess.objects.select_related('user').order_by(
+            'user__email',
+        )
+        return {
+            'environment_gate_open': bool(
+                django_settings.CONSULTATION_RECORDING_ENABLED
+            ),
+            'ai_environment_gate_open': bool(
+                django_settings.CONSULTATION_AI_SUMMARY_ENABLED
+            ),
+            'settings': AdminConsultationConfigSerializer(config).data,
+            'status': consultation_status_snapshot(),
+            'pilot_users': AdminConsultationPilotSerializer(
+                pilots,
+                many=True,
+            ).data,
+        }
+
+    def get(self, request):
+        return Response(self._response(ConsultationRuntimeConfig.solo()))
+
+    def patch(self, request):
+        if (
+            request.data.get('recording_enabled') is True
+            and not django_settings.CONSULTATION_RECORDING_ENABLED
+        ):
+            return Response(
+                {
+                    'code': 'CONSULTATION_ENV_GATE_CLOSED',
+                    'detail': (
+                        '환경 설정 검토를 마친 뒤 운영 스위치를 켤 수 있어요.'
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if (
+            request.data.get('ai_summary_enabled') is True
+            and not django_settings.CONSULTATION_AI_SUMMARY_ENABLED
+        ):
+            return Response(
+                {
+                    'code': 'CONSULTATION_AI_ENV_GATE_CLOSED',
+                    'detail': (
+                        'AI 설정 검토를 마친 뒤 요약 스위치를 켤 수 있어요.'
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        with transaction.atomic():
+            config = ConsultationRuntimeConfig.objects.select_for_update().get(
+                pk=ConsultationRuntimeConfig.solo().pk,
+            )
+            serializer = AdminConsultationConfigSerializer(
+                config,
+                data=request.data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        return Response(self._response(config))
+
+
+class AdminConsultationSummaryCompensateView(APIView):
+    permission_classes = [IsAdmin]
+
+    def post(self, request, run_id):
+        with transaction.atomic():
+            run = get_object_or_404(
+                ConsultationSummaryRun.objects.select_for_update()
+                .select_related('recording__owner'),
+                pk=run_id,
+            )
+            if run.admin_compensated_at is None:
+                owner = run.recording.owner
+                if run.status == ConsultationSummaryRun.STATUS_SUCCEEDED:
+                    release_meter(
+                        user=owner,
+                        action='consultation_summary',
+                        amount=1,
+                        year_month=run.usage_year_month,
+                    )
+                if (
+                    run.provider_reserved_at is not None
+                    and run.processing_minutes_reserved > 0
+                    and run.minute_reservation_released_at is None
+                ):
+                    release_meter(
+                        user=owner,
+                        action='consultation_minute',
+                        amount=run.processing_minutes_reserved,
+                        year_month=run.usage_year_month,
+                    )
+                    run.minute_reservation_released_at = timezone.now()
+                run.admin_compensated_at = timezone.now()
+                run.save(update_fields=[
+                    'minute_reservation_released_at',
+                    'admin_compensated_at',
+                    'updated_at',
+                ])
+        return Response({
+            'id': run.id,
+            'status': run.status,
+            'admin_compensated_at': run.admin_compensated_at,
+        })
+
+
+class AdminConsultationPilotListView(APIView):
+    permission_classes = [IsAdmin]
+
+    def post(self, request):
+        serializer = AdminConsultationPilotCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = get_object_or_404(
+            User,
+            email__iexact=serializer.validated_data['email'],
+        )
+        pilot, _ = ConsultationPilotAccess.objects.update_or_create(
+            user=user,
+            defaults={
+                'recording_allowed': serializer.validated_data[
+                    'recording_allowed'
+                ],
+                'summary_allowed': serializer.validated_data[
+                    'summary_allowed'
+                ],
+            },
+        )
+        return Response(
+            AdminConsultationPilotSerializer(pilot).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminConsultationPilotDetailView(APIView):
+    permission_classes = [IsAdmin]
+
+    def _pilot(self, user_id):
+        return get_object_or_404(
+            ConsultationPilotAccess.objects.select_related('user'),
+            user_id=user_id,
+        )
+
+    def patch(self, request, user_id):
+        pilot = self._pilot(user_id)
+        serializer = AdminConsultationPilotUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        for field, value in serializer.validated_data.items():
+            setattr(pilot, field, value)
+        pilot.save(update_fields=[
+            *serializer.validated_data.keys(),
+            'updated_at',
+        ])
+        return Response(AdminConsultationPilotSerializer(pilot).data)
+
+    def delete(self, request, user_id):
+        self._pilot(user_id).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class AdminLogoutView(APIView):

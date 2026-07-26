@@ -10,12 +10,15 @@ django-cors-headers==4.3.1
 psycopg2-binary==2.9.9
 
 # AI / OCR / 계산 (Phase 1.1 foliio vendoring 시 사용)
-anthropic==0.111.0
+anthropic==0.117.1
+httpx==0.28.1
+cryptography==49.0.0
 pdfplumber==0.11.10      # 증권 PDF 텍스트 추출 (claude_parser 선행 — 운영 OCR 필수)
 numpy==1.24.4
 numpy-financial==1.0.0
 python-dateutil==2.9.0.post0
 Pillow==12.3.0
+av==18.0.0             # 상담 녹음 컨테이너·재생시간 서버 검증
 
 # 운영
 celery[redis]==5.6.3       # 보험증권 검토 작업 큐(JSON 메시지만 허용)

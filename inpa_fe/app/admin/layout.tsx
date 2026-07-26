@@ -6,6 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 const NAV = [
   { href: "/admin",              label: "대시보드",       icon: "📊" },
   { href: "/admin/usage",        label: "사용량",         icon: "📈" },
+  { href: "/admin/consultations",label: "상담 녹음",      icon: "🎙️" },
+  { href: "/admin/billing",      label: "결제·쿠폰",      icon: "💳" },
   { href: "/admin/claude-cost",  label: "Claude 비용",     icon: "💳" },
   { href: "/admin/activation-funnel", label: "활성화 퍼널", icon: "🚀" },
   { href: "/admin/users",        label: "설계사 관리",     icon: "👤" },

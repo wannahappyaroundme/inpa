@@ -1992,6 +1992,155 @@ export async function redeemCoupon(code: string): Promise<CouponRedeemResult> {
   return request<CouponRedeemResult>("POST", "/billing/coupons/redeem/", { code }, true);
 }
 
+export const INITIAL_BILLING_CONSENT_VERSION = "v1-2026-07-26";
+export const FIRST_CHARGE_CONSENT_VERSION = "v1-2026-07-26";
+
+export type BillingState =
+  | "free"
+  | "trial"
+  | "active"
+  | "renewal_processing"
+  | "past_due_unknown"
+  | "canceled";
+
+export interface BillingStatus {
+  state: BillingState;
+  plan_code?: string;
+  plan_display_name?: string;
+  access_through?: string;
+  next_charge_date?: string | null;
+  amount_krw?: number;
+  card_label?: string | null;
+  reconfirmation_required?: boolean;
+  reconfirmation_opens_on?: string;
+  existing_data_available: true;
+}
+
+export interface RecurringCouponPreflight {
+  claim_id: string;
+  claim_expires_at: string;
+  plan_code: string;
+  plan_display_name: string;
+  duration_months: 1 | 2 | 3;
+  redeem_by: string;
+  access_through: string;
+  next_charge_date: string;
+  amount_krw: number;
+  initial_consent_version: string;
+}
+
+export interface CardRegistrationStart {
+  auth_page_url: string;
+  state: string;
+  shop_order_no: string;
+  claim_expires_at: string;
+  access_through: string;
+  next_charge_date: string;
+  amount_krw: number;
+}
+
+export interface BillingCancellation {
+  state: "canceled";
+  access_through: string;
+  next_charge_date: null;
+  existing_data_available: true;
+}
+
+export interface BillingNotice {
+  id: number;
+  type: "free_transition";
+  title: string;
+  body: string;
+  action_label: string;
+  action_path: string;
+  existing_data_available: true;
+}
+
+export async function getBillingStatus(): Promise<BillingStatus> {
+  return request<BillingStatus>("GET", "/billing/status/", undefined, true);
+}
+
+export async function preflightRecurringCoupon(
+  code: string,
+): Promise<RecurringCouponPreflight> {
+  return request<RecurringCouponPreflight>(
+    "POST",
+    "/billing/coupons/preflight/",
+    { code },
+    true,
+  );
+}
+
+export async function startCardRegistration(
+  claimId: string,
+  deviceType: "pc" | "mobile",
+): Promise<CardRegistrationStart> {
+  return request<CardRegistrationStart>(
+    "POST",
+    "/billing/card-registration/start/",
+    {
+      claim_id: claimId,
+      initial_consent_version: INITIAL_BILLING_CONSENT_VERSION,
+      device_type: deviceType,
+    },
+    true,
+  );
+}
+
+export async function reconfirmFirstCharge(): Promise<{
+  consent_id: number;
+}> {
+  return request(
+    "POST",
+    "/billing/reconfirm/",
+    { first_charge_consent_version: FIRST_CHARGE_CONSENT_VERSION },
+    true,
+  );
+}
+
+export async function cancelBilling(): Promise<BillingCancellation> {
+  return request<BillingCancellation>(
+    "POST",
+    "/billing/cancel/",
+    undefined,
+    true,
+  );
+}
+
+export async function leaseBillingNotice(
+  deviceId: string,
+): Promise<{ notice: BillingNotice | null }> {
+  return request(
+    "POST",
+    "/billing/notices/lease/",
+    { device_id: deviceId },
+    true,
+  );
+}
+
+export async function markBillingNoticeRendered(
+  noticeId: number,
+  deviceId: string,
+): Promise<{ notice_id: number; rendered: true }> {
+  return request(
+    "POST",
+    `/billing/notices/${noticeId}/rendered/`,
+    { device_id: deviceId },
+    true,
+  );
+}
+
+export async function dismissBillingNotice(
+  noticeId: number,
+): Promise<{ notice_id: number; dismissed: true }> {
+  return request(
+    "POST",
+    `/billing/notices/${noticeId}/dismiss/`,
+    undefined,
+    true,
+  );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // 관리자 콘솔 (admin)  — base: /admin/   (is_admin 권한 필요)
 // ════════════════════════════════════════════════════════════════════════════
@@ -2618,11 +2767,20 @@ export interface ConsentRequestResponse {
   already_consented: boolean;
 }
 
+export type ConsentScope =
+  | "personal_info"
+  | "marketing"
+  | "overseas_medical"
+  | "third_party"
+  | "consultation_recording"
+  | "consultation_sensitive"
+  | "consultation_overseas_summary";
+
 /** POST /api/v1/customers/<id>/consent-requests/ — 설계사가 동의 요청 링크 생성(인증).
  *  scopes 미지정 시 BE 기본=국외이전(OCR 동선 호환). */
 export async function createConsentRequest(
   customerId: number,
-  scopes?: string[]
+  scopes?: ConsentScope[]
 ): Promise<ConsentRequestResponse> {
   return request<ConsentRequestResponse>(
     "POST",
@@ -2633,7 +2791,7 @@ export async function createConsentRequest(
 }
 
 export interface ConsentItem {
-  scope: string;
+  scope: ConsentScope;
   title: string;
   required: boolean;
   already: boolean;
@@ -2664,8 +2822,8 @@ export async function getConsentDisclosure(token: string): Promise<ConsentDisclo
 /** POST /api/v1/c/<token>/ — 동의 scope 배열 제출 + 철회 scope 배열(공개, 비인증) */
 export async function submitConsent(
   token: string,
-  agreed: string[],
-  revoked: string[] = []
+  agreed: ConsentScope[],
+  revoked: ConsentScope[] = []
 ): Promise<{ results: { scope: string; consented: boolean }[]; all_required_done: boolean }> {
   const res = await fetch(`${API_BASE}/c/${encodeURIComponent(token)}/`, {
     method: "POST",
@@ -4374,5 +4532,209 @@ export async function acceptRecruitingJoin(
     `/recruiting/join/${encodeURIComponent(token)}/`,
     { confirm_switch: confirmSwitch, manage_token: manageToken },
     true,
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 상담 녹음: 고객별 비공개 원본, 분할 업로드, 최대 7일 보관
+// ════════════════════════════════════════════════════════════════════════════
+
+export type ConsultationRecordingStatus =
+  | "uploading"
+  | "ready"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "ambiguous"
+  | "deleting"
+  | "deleted";
+
+export type ConsultationSummaryStatus =
+  | "queued"
+  | "transcribing"
+  | "summarizing"
+  | "succeeded"
+  | "failed"
+  | "ambiguous"
+  | "cancelled";
+
+export interface ConsultationSummaryRun {
+  id: string;
+  status: ConsultationSummaryStatus;
+  memo_id: number | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface ConsultationRecording {
+  id: string;
+  status: ConsultationRecordingStatus;
+  mime_type: string;
+  codec: string;
+  byte_size: number;
+  duration_ms: number;
+  started_at: string | null;
+  ended_at: string | null;
+  uploaded_at: string | null;
+  expires_at: string | null;
+  deleted_at: string | null;
+  delete_reason: string;
+  source_available: boolean;
+  summary: ConsultationSummaryRun | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecordingCapability {
+  recording_enabled: boolean;
+  consent_ready: boolean;
+  summary_enabled: boolean;
+  summary_consent_ready: boolean;
+  summary_usage: {
+    year_month: string;
+    monthly_success_used: number;
+    monthly_success_limit: number | null;
+  } | null;
+  customer_free_summary_used: boolean;
+  retention_days: number;
+  max_duration_seconds: number;
+  max_bytes: number;
+  part_bytes: number;
+  max_part_number: number;
+}
+
+export interface RecordingUploadSession extends ConsultationRecording {
+  part_bytes: number;
+  max_part_number: number;
+}
+
+export interface CompletedRecordingPart {
+  part_number: number;
+  etag: string;
+  byte_size: number;
+}
+
+export interface RecordingPartUrl {
+  url: string;
+  part_number: number;
+  expires_in_seconds: number;
+}
+
+export async function getRecordingCapability(
+  customerId: number,
+): Promise<RecordingCapability> {
+  return request<RecordingCapability>(
+    "GET",
+    `/customers/${customerId}/recordings/capability/`,
+    undefined,
+    true,
+  );
+}
+
+export async function createRecordingUpload(
+  customerId: number,
+  clientSessionId: string,
+  mimeType: string,
+  startedAt: string,
+): Promise<RecordingUploadSession> {
+  return request<RecordingUploadSession>(
+    "POST",
+    `/customers/${customerId}/recordings/upload-sessions/`,
+    {
+      client_session_id: clientSessionId,
+      mime_type: mimeType,
+      started_at: startedAt,
+    },
+    true,
+  );
+}
+
+export async function getRecordingPartUrl(
+  customerId: number,
+  recordingId: string,
+  partNumber: number,
+): Promise<RecordingPartUrl> {
+  return request<RecordingPartUrl>(
+    "POST",
+    `/customers/${customerId}/recordings/${recordingId}/parts/${partNumber}/`,
+    {},
+    true,
+  );
+}
+
+export async function completeRecordingUpload(
+  customerId: number,
+  recordingId: string,
+  parts: CompletedRecordingPart[],
+  endedAt: string,
+): Promise<ConsultationRecording> {
+  return request<ConsultationRecording>(
+    "POST",
+    `/customers/${customerId}/recordings/${recordingId}/complete-upload/`,
+    { parts, ended_at: endedAt },
+    true,
+  );
+}
+
+export async function listConsultationRecordings(
+  customerId: number,
+  page = 1,
+): Promise<PaginatedResult<ConsultationRecording>> {
+  return request<PaginatedResult<ConsultationRecording>>(
+    "GET",
+    `/customers/${customerId}/recordings/?page=${page}`,
+    undefined,
+    true,
+  );
+}
+
+export async function getRecordingPlayUrl(
+  customerId: number,
+  recordingId: string,
+): Promise<{ url: string; expires_in_seconds: number }> {
+  return request<{ url: string; expires_in_seconds: number }>(
+    "POST",
+    `/customers/${customerId}/recordings/${recordingId}/play-url/`,
+    {},
+    true,
+  );
+}
+
+export async function deleteRecordingSource(
+  customerId: number,
+  recordingId: string,
+): Promise<ConsultationRecording> {
+  return request<ConsultationRecording>(
+    "DELETE",
+    `/customers/${customerId}/recordings/${recordingId}/source/`,
+    undefined,
+    true,
+  );
+}
+
+export async function getConsultationRecording(
+  customerId: number,
+  recordingId: string,
+): Promise<ConsultationRecording> {
+  return request<ConsultationRecording>(
+    "GET",
+    `/customers/${customerId}/recordings/${recordingId}/`,
+    undefined,
+    true,
+  );
+}
+
+export async function summarizeConsultationRecording(
+  customerId: number,
+  recordingId: string,
+  idempotencyKey: string,
+): Promise<ConsultationSummaryRun> {
+  return request<ConsultationSummaryRun>(
+    "POST",
+    `/customers/${customerId}/recordings/${recordingId}/summarize/`,
+    {},
+    true,
+    { "Idempotency-Key": idempotencyKey },
   );
 }
