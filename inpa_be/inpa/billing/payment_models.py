@@ -272,3 +272,32 @@ class CouponClaim(models.Model):
                 condition=Q(status__in=('held', 'redeemed')),
                 name='uniq_billing_live_coupon_claim'),
         ]
+
+
+class BillingAdminAction(models.Model):
+    admin = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='billing_admin_actions',
+    )
+    action = models.CharField(max_length=40)
+    target_type = models.CharField(max_length=30)
+    target_id = models.CharField(max_length=80, blank=True, default='')
+    request_key = models.CharField(
+        max_length=100, blank=True, default='')
+    details = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'billing_admin_action'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['request_key'],
+                condition=~Q(request_key=''),
+                name='uniq_billing_admin_request_key',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['action', '-created_at']),
+        ]

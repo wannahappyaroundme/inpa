@@ -44,10 +44,12 @@ const API_BASE =
 async function req<T>(
   method: string,
   path: string,
-  body?: unknown
+  body?: unknown,
+  extraHeaders?: Record<string, string>,
 ): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...extraHeaders,
   };
   const tok = tokenStore.get();
   if (tok) headers["Authorization"] = `Token ${tok}`;
@@ -66,6 +68,161 @@ async function req<T>(
     throw new ApiError(res.status, code, detail);
   }
   return data as T;
+}
+
+// ─── Billing operations ─────────────────────────────────────────────────────
+
+export interface AdminBillingEnvironment {
+  card_registration_env: boolean;
+  recurring_charge_env: boolean;
+  reconciliation_env: boolean;
+  provider_credentials_ready: boolean;
+  card_registration_effective: boolean;
+  recurring_charge_effective: boolean;
+  reconciliation_effective: boolean;
+}
+
+export interface AdminBillingSettings {
+  free_tier_unlimited: boolean;
+  billing_card_registration_enabled: boolean;
+  billing_recurring_charge_enabled: boolean;
+  billing_reconciliation_enabled: boolean;
+}
+
+export interface AdminBillingAgreement {
+  id: string;
+  user_email: string;
+  plan_code: string;
+  status: string;
+  trial_duration_months: number;
+  current_period_starts_on: string;
+  current_period_ends_on: string;
+  next_charge_date: string | null;
+  cycle_sequence: number;
+  card_label: string | null;
+  payment_token_id: number | null;
+  payment_token_status: string | null;
+  updated_at: string;
+}
+
+export interface AdminBillingOrder {
+  id: number;
+  agreement_id: string;
+  user_email: string;
+  cycle_sequence: number;
+  merchant_order_id: string;
+  amount_krw: number;
+  due_date: string;
+  status: string;
+  failure_code: string;
+  unknown_since: string | null;
+  temporary_access_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminBillingCoupon {
+  id: number;
+  code: string;
+  plan_code: string;
+  plan_display_name: string;
+  duration_months: 1 | 2 | 3;
+  redeem_by: string;
+  max_redemptions: number;
+  redeemed_count: number;
+  is_active: boolean;
+  note: string;
+  created_at: string;
+}
+
+export interface AdminBillingOverview {
+  status: {
+    agreement_count: number;
+    trial_count: number;
+    active_count: number;
+    unknown_order_count: number;
+    revocation_pending_token_count: number;
+    held_coupon_claim_count: number;
+  };
+  environment: AdminBillingEnvironment;
+  settings: AdminBillingSettings;
+  recent_agreements: AdminBillingAgreement[];
+  recent_orders: AdminBillingOrder[];
+}
+
+export async function adminGetBillingOverview(): Promise<AdminBillingOverview> {
+  return req("GET", "/admin/billing/overview/");
+}
+
+export async function adminListBillingCoupons(): Promise<AdminBillingCoupon[]> {
+  return req("GET", "/admin/billing/coupons/");
+}
+
+export async function adminCreateBillingCoupon(
+  payload: {
+    plan_code: "plus";
+    duration_months: 1 | 2 | 3;
+    redeem_by: string;
+    max_redemptions: number;
+    note?: string;
+  },
+  idempotencyKey: string,
+): Promise<AdminBillingCoupon> {
+  return req(
+    "POST",
+    "/admin/billing/coupons/",
+    payload,
+    { "Idempotency-Key": idempotencyKey },
+  );
+}
+
+export async function adminUpdateBillingCoupon(
+  couponId: number,
+  payload: Partial<Pick<
+    AdminBillingCoupon,
+    "redeem_by" | "max_redemptions" | "is_active" | "note"
+  >>,
+  idempotencyKey: string,
+): Promise<AdminBillingCoupon> {
+  return req(
+    "PATCH",
+    `/admin/billing/coupons/${couponId}/`,
+    payload,
+    { "Idempotency-Key": idempotencyKey },
+  );
+}
+
+export async function adminUpdateBillingSettings(
+  payload: Partial<AdminBillingSettings>,
+): Promise<{
+  environment: AdminBillingEnvironment;
+  settings: AdminBillingSettings;
+}> {
+  return req("PATCH", "/admin/billing/settings/", payload);
+}
+
+export async function adminQueueBillingReconciliation(
+  orderId: number,
+  idempotencyKey: string,
+): Promise<{ order_id: number; queued: true }> {
+  return req(
+    "POST",
+    `/admin/billing/orders/${orderId}/reconcile/`,
+    {},
+    { "Idempotency-Key": idempotencyKey },
+  );
+}
+
+export async function adminQueueBillingTokenRevocation(
+  tokenId: number,
+  idempotencyKey: string,
+): Promise<{ token_id: number; queued: true }> {
+  return req(
+    "POST",
+    `/admin/billing/tokens/${tokenId}/revoke/`,
+    {},
+    { "Idempotency-Key": idempotencyKey },
+  );
 }
 
 async function reqVoid(method: string, path: string, body?: unknown): Promise<void> {

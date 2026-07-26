@@ -7,7 +7,16 @@
 """
 from django.contrib import admin
 
-from .models import ClaudeApiLog, Coupon, CouponRedemption, Plan, RuntimeConfig, Subscription, UsageMeter
+from .models import (
+    BillingAdminAction,
+    ClaudeApiLog,
+    Coupon,
+    CouponRedemption,
+    Plan,
+    RuntimeConfig,
+    Subscription,
+    UsageMeter,
+)
 
 
 @admin.register(RuntimeConfig)
@@ -111,6 +120,35 @@ class CouponRedemptionAdmin(admin.ModelAdmin):
     ordering = ['-redeemed_at']
 
     def has_add_permission(self, request):
+        return False
+
+
+@admin.register(BillingAdminAction)
+class BillingAdminActionAdmin(admin.ModelAdmin):
+    list_display = [
+        'created_at',
+        'admin',
+        'action',
+        'target_type',
+        'target_id',
+    ]
+    list_filter = ['action', 'target_type']
+    search_fields = ['admin__email', 'target_id', 'request_key']
+    readonly_fields = [
+        'admin',
+        'action',
+        'target_type',
+        'target_id',
+        'request_key',
+        'details',
+        'created_at',
+    ]
+    ordering = ['-created_at']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
         return False
 
 

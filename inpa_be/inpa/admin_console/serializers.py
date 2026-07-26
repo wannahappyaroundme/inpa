@@ -12,7 +12,7 @@ from rest_framework import serializers
 
 from inpa.accounts.models import Profile
 from inpa.analysis.models import AnalysisDetail, CoverageFlag, NormalizationDict, UnmatchedLog
-from inpa.billing.models import Plan, Subscription, UsageMeter
+from inpa.billing.models import Coupon, Plan, Subscription, UsageMeter
 from inpa.boards.models import (
     Faq,
     Inquiry,
@@ -30,6 +30,64 @@ from inpa.promotion.models import PromotionOrder, PromotionOrderStatusLog
 from .models import PolicyVersion
 
 User = get_user_model()
+
+
+class AdminBillingCouponSerializer(serializers.ModelSerializer):
+    plan_code = serializers.CharField(source='plan.code', read_only=True)
+    plan_display_name = serializers.CharField(
+        source='plan.display_name', read_only=True)
+
+    class Meta:
+        model = Coupon
+        fields = [
+            'id',
+            'code',
+            'plan_code',
+            'plan_display_name',
+            'duration_months',
+            'redeem_by',
+            'max_redemptions',
+            'redeemed_count',
+            'is_active',
+            'note',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class AdminBillingCouponCreateSerializer(serializers.Serializer):
+    plan_code = serializers.CharField(max_length=20)
+    duration_months = serializers.ChoiceField(choices=(1, 2, 3))
+    redeem_by = serializers.DateTimeField()
+    max_redemptions = serializers.IntegerField(
+        min_value=1, max_value=100_000)
+    note = serializers.CharField(
+        max_length=200, required=False, allow_blank=True)
+
+    def validate_redeem_by(self, value):
+        if value <= timezone.now():
+            raise serializers.ValidationError(
+                '현재 이후의 사용 기한을 입력해 주세요.')
+        return value
+
+
+class AdminBillingCouponUpdateSerializer(serializers.Serializer):
+    redeem_by = serializers.DateTimeField(required=False)
+    max_redemptions = serializers.IntegerField(
+        min_value=1, max_value=100_000, required=False)
+    is_active = serializers.BooleanField(required=False)
+    note = serializers.CharField(
+        max_length=200, required=False, allow_blank=True)
+
+
+class AdminBillingSettingsSerializer(serializers.Serializer):
+    free_tier_unlimited = serializers.BooleanField(required=False)
+    billing_card_registration_enabled = serializers.BooleanField(
+        required=False)
+    billing_recurring_charge_enabled = serializers.BooleanField(
+        required=False)
+    billing_reconciliation_enabled = serializers.BooleanField(
+        required=False)
 
 
 # ─── 설계사 관리 ─────────────────────────────────────────────────────

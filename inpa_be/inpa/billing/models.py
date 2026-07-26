@@ -547,6 +547,7 @@ class CouponRedemption(models.Model):
 
 
 from .payment_models import (  # noqa: E402,F401
+    BillingAdminAction,
     BillingAgreement,
     BillingNoticeEvent,
     CouponClaim,
