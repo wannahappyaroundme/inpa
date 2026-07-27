@@ -92,14 +92,76 @@ describe("insurance review authority UI", () => {
     expect(onReview).toHaveBeenCalledWith(9);
   });
 
-  it("keeps unconfirmed insurance visible but disables A and B selection", async () => {
+  it("allows one policy in both comparison sides and clears each side independently", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    const { rerender } = render(
+      <AssignInsRow
+        it={insurance({ id: 1, name: "A1", review_status: "confirmed", analysis_included: true })}
+        value={{ left: true, right: false }}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "A1 오른쪽에 포함" }));
+    expect(onChange).toHaveBeenCalledWith({ left: true, right: true });
+
+    rerender(
+      <AssignInsRow
+        it={insurance({ id: 1, name: "A1", review_status: "confirmed", analysis_included: true })}
+        value={{ left: true, right: false }}
+        onChange={onChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "A1 왼쪽에서 제외" }));
+    expect(onChange).toHaveBeenLastCalledWith({ left: false, right: false });
+
+    rerender(
+      <AssignInsRow
+        it={insurance({ id: 1, name: "A1", review_status: "confirmed", analysis_included: true })}
+        value={{ left: true, right: true }}
+        onChange={onChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "A1 왼쪽에서 제외" }));
+    expect(onChange).toHaveBeenLastCalledWith({ left: false, right: true });
+  });
+
+  it("shows independent accessible sides and keeps review actions for unconfirmed insurance", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const onReview = vi.fn();
-    render(<AssignInsRow it={insurance()} value="none" onChange={onChange} onReview={onReview} />);
+    const { rerender } = render(
+      <AssignInsRow
+        it={insurance({ id: 1, name: "A1", review_status: "confirmed", analysis_included: true })}
+        value={{ left: true, right: true }}
+        onChange={onChange}
+      />,
+    );
 
-    expect((screen.getByRole("button", { name: "증권 A" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "증권 B" }) as HTMLButtonElement).disabled).toBe(true);
+    const left = screen.getByRole("button", { name: "A1 왼쪽에서 제외" });
+    const right = screen.getByRole("button", { name: "A1 오른쪽에서 제외" });
+    expect(left).toHaveAttribute("aria-pressed", "true");
+    expect(right).toHaveAttribute("aria-pressed", "true");
+    expect(left.className).toContain("min-h-11");
+    expect(right.className).toContain("min-h-11");
+    expect(screen.getByText("양쪽 포함")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "비교 제외" })).toBeNull();
+    expect(screen.queryByText("비교 묶음 A")).toBeNull();
+    expect(screen.queryByText("비교 묶음 B")).toBeNull();
+
+    rerender(
+      <AssignInsRow
+        it={insurance()}
+        value={{ left: false, right: false }}
+        onChange={onChange}
+        onReview={onReview}
+      />,
+    );
+
+    expect((screen.getByRole("button", { name: "기존 보험 왼쪽에 포함" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "기존 보험 오른쪽에 포함" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "기존 자료 확인하기" }));
     expect(onReview).toHaveBeenCalledWith(9);
     expect(onChange).not.toHaveBeenCalled();

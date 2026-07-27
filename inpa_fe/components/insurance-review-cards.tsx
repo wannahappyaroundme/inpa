@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 
 import { fmtWon } from "@/components/heatmap";
 import { listAllManualInsurances, type ManualInsuranceItem } from "@/lib/api";
+import {
+  isPolicyComparisonSelectable,
+  type PolicySideSelection,
+} from "@/lib/policy-comparison-selection";
 
 function insuranceReviewPresentation(it: ManualInsuranceItem): {
   label: string;
@@ -116,34 +120,31 @@ export function InsuranceCards({
   );
 }
 
-export type SideAssign = "A" | "B" | "none";
-
 export function AssignInsRow({ it, value, onChange, onReview }: {
   it: ManualInsuranceItem;
-  value: SideAssign;
-  onChange: (value: SideAssign) => void;
+  value: PolicySideSelection;
+  onChange: (value: PolicySideSelection) => void;
   onReview?: (insuranceId: number) => void;
 }) {
   const sub = [it.contractor_name && `계약 ${it.contractor_name}`, it.insured_name && `피보험 ${it.insured_name}`]
     .filter(Boolean).join(" · ") || (it.insurance_type === 1 ? "생명" : "손해");
-  const portfolioTag = it.portfolio_type === 1 ? "비교 묶음 A" : "비교 묶음 B";
-  const selectable = it.review_status === "confirmed" && it.analysis_included && !it.is_cancelled;
+  const selectable = isPolicyComparisonSelectable(it);
   const review = insuranceReviewPresentation(it);
+  const insuranceName = it.name ?? "이름 없는 보험";
   return (
     <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2 sm:flex-nowrap">
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
-          <span className="truncate text-[13px] font-semibold text-ink">{it.name ?? "이름 없는 보험"}</span>
-          <span className="shrink-0 rounded-full border border-line bg-surface2 px-1.5 py-0.5 text-[10px] font-semibold text-ink3">{portfolioTag}</span>
+          <span className="truncate text-[13px] font-semibold text-ink">{insuranceName}</span>
+          {value.left && value.right && <span className="shrink-0 rounded-full border border-line bg-surface2 px-1.5 py-0.5 text-[10px] font-semibold text-ink3">양쪽 포함</span>}
         </span>
         <span className="block truncate text-[11px] text-ink3">{sub}</span>
         {!selectable && <span className="block text-[10px] font-semibold text-amber-700">{review.label}</span>}
       </span>
       <span className="tnum shrink-0 text-[11px] text-ink2">{fmtWon(it.monthly_premiums)}</span>
       <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-line text-[11px] font-semibold">
-        <button type="button" disabled={!selectable} onClick={() => onChange("A")} aria-pressed={value === "A"} className={`px-2.5 py-1.5 transition disabled:opacity-40 ${value === "A" ? "bg-brand text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}>증권 A</button>
-        <button type="button" onClick={() => onChange("none")} aria-pressed={value === "none"} className={`border-x border-line px-2.5 py-1.5 transition ${value === "none" ? "bg-surface2 text-ink" : "bg-surface text-ink3 hover:bg-surface2"}`}>비교 제외</button>
-        <button type="button" disabled={!selectable} onClick={() => onChange("B")} aria-pressed={value === "B"} className={`px-2.5 py-1.5 transition disabled:opacity-40 ${value === "B" ? "bg-ink text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}>증권 B</button>
+        <button type="button" disabled={!selectable} onClick={() => onChange({ ...value, left: !value.left })} aria-label={`${insuranceName} ${value.left ? "왼쪽에서 제외" : "왼쪽에 포함"}`} aria-pressed={value.left} className={`min-h-11 px-2.5 py-1.5 transition disabled:opacity-40 ${value.left ? "bg-brand text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}>왼쪽</button>
+        <button type="button" disabled={!selectable} onClick={() => onChange({ ...value, right: !value.right })} aria-label={`${insuranceName} ${value.right ? "오른쪽에서 제외" : "오른쪽에 포함"}`} aria-pressed={value.right} className={`min-h-11 border-l border-line px-2.5 py-1.5 transition disabled:opacity-40 ${value.right ? "bg-ink text-white" : "bg-surface text-ink2 hover:bg-surface2"}`}>오른쪽</button>
       </div>
       {!selectable && onReview && review.action && (
         <button type="button" onClick={() => onReview(it.id)} className="shrink-0 rounded-lg border border-brand px-2.5 py-1.5 text-[11px] font-semibold text-brand">{review.action}</button>
