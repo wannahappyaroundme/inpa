@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BookingSettings } from "@/components/booking-settings";
@@ -79,6 +79,16 @@ function customer(overrides: Partial<CustomerListItem> = {}): CustomerListItem {
     sales_stage: "contact",
     ...overrides,
   } as CustomerListItem;
+}
+
+function deferred<T>() {
+  let resolve: (value: T) => void;
+  let reject: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve: resolve!, reject: reject! };
 }
 
 describe("예약 설정 draft 상태", () => {
@@ -236,6 +246,25 @@ describe("예약 설정 화면", () => {
     expect(mockedCreateBookingRequest).not.toHaveBeenCalled();
   });
 
+  it("늦은 저장 응답이 저장 중 추가로 고친 입력을 덮지 않고 다음 저장을 허용한다", async () => {
+    const pending = deferred<ProfileResponse>();
+    mockedUpdateProfile.mockReturnValueOnce(pending.promise).mockResolvedValue(profile({ name: "저장 뒤 수정" }));
+    render(<BookingSettings />);
+    const user = userEvent.setup();
+    await screen.findByDisplayValue("황예진");
+    const name = screen.getByLabelText("내 이름");
+    await user.clear(name);
+    await user.type(name, "첫 저장 값");
+    await user.click(screen.getByRole("button", { name: "예약 설정 저장" }));
+    await user.clear(name);
+    await user.type(name, "저장 뒤 수정");
+    await act(async () => pending.resolve(profile({ name: "첫 저장 값" })));
+
+    expect(screen.getByDisplayValue("저장 뒤 수정")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "예약 설정 저장" }));
+    await waitFor(() => expect(mockedUpdateProfile).toHaveBeenCalledTimes(2));
+  });
+
   it("가짜 고객 미리보기 대신 실제 고객 안내 영역을 표시한다", async () => {
     render(<BookingSettings />);
     await screen.findByDisplayValue("황예진");
@@ -251,5 +280,43 @@ describe("예약 설정 화면", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("업무시간을 불러오지 못했어요.");
     await userEvent.setup().click(screen.getByRole("button", { name: "업무시간 다시 불러오기" }));
     await waitFor(() => expect(mockedListWorkHours).toHaveBeenCalledTimes(2));
+  });
+
+  it("업무시간을 불러오는 중이거나 실패했을 때 CRUD를 막고, 재시도 성공 뒤에 연다", async () => {
+    const pending = deferred<{ count: number; next: null; previous: null; results: [] }>();
+    mockedListWorkHours.mockReturnValueOnce(pending.promise).mockResolvedValue({ count: 0, next: null, previous: null, results: [] });
+    render(<BookingSettings />);
+    await screen.findByDisplayValue("황예진");
+    expect(screen.getByText("업무시간을 불러오고 있어요.")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "업무 요일" })).toBeDisabled();
+    expect(screen.getByLabelText("업무 시작 시간")).toBeDisabled();
+    expect(screen.getByLabelText("업무 종료 시간")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "+ 추가" })).toBeDisabled();
+
+    await act(async () => pending.reject(new Error("WORK_HOURS_DOWN")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("업무시간을 불러오지 못했어요.");
+    expect(screen.getByRole("button", { name: "+ 추가" })).toBeDisabled();
+    await userEvent.setup().click(screen.getByRole("button", { name: "업무시간 다시 불러오기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ 추가" })).toBeEnabled());
+  });
+
+  it("동명이인은 마스킹한 연락처와 영업 단계로 선택 내용을 구분한다", async () => {
+    mockedListCustomers.mockResolvedValue({
+      count: 2, next: null, previous: null,
+      results: [
+        customer({ id: 31, name: "김고객", mobile_phone_number: "010-1111-1111", sales_stage: "contact" }),
+        customer({ id: 32, name: "김고객", mobile_phone_number: "010-2222-2222", sales_stage: "meeting" }),
+      ],
+    });
+    render(<BookingSettings />);
+    const user = userEvent.setup();
+    await screen.findByDisplayValue("황예진");
+    await user.type(screen.getByRole("combobox", { name: "고객 선택" }), "김");
+    const matches = await screen.findAllByRole("option", { name: /김고객/ });
+    await user.click(matches[1]);
+
+    expect(screen.getByText("010-****-2222")).toBeTruthy();
+    expect(screen.getByText("FA")).toBeTruthy();
+    expect(screen.queryByText("010-2222-2222")).toBeNull();
   });
 });
