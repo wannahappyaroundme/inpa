@@ -64,12 +64,14 @@ def retry_explicit_nonreceipt(
 
 
 def root_is_connect_error(exc: BaseException) -> bool:
-    root = exc
+    current = exc
     seen = set()
-    while root.__cause__ is not None and id(root) not in seen:
-        seen.add(id(root))
-        root = root.__cause__
-    return isinstance(root, httpx.ConnectError)
+    while current is not None and id(current) not in seen:
+        if isinstance(current, httpx.TransportError):
+            return isinstance(current, httpx.ConnectError)
+        seen.add(id(current))
+        current = current.__cause__
+    return False
 
 
 def elapsed_milliseconds(started: float, clock) -> int:

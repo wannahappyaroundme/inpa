@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import anthropic
+import httpcore
 import httpx
 import openai
 from django.test import SimpleTestCase, override_settings
@@ -66,16 +67,21 @@ class FakeTranscriptions:
 
 class FakeResponses:
     def __init__(self, outcome):
-        self.outcome = outcome
+        self.outcomes = (
+            list(outcome)
+            if isinstance(outcome, list)
+            else [outcome]
+        )
         self.calls = 0
         self.kwargs = None
 
     def create(self, **kwargs):
         self.calls += 1
         self.kwargs = kwargs
-        if isinstance(self.outcome, BaseException):
-            raise self.outcome
-        return self.outcome
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
 
 
 class FakeOpenAIClient:
@@ -113,16 +119,21 @@ class FakeOpenAISummaryClient:
 
 class FakeMessages:
     def __init__(self, outcome):
-        self.outcome = outcome
+        self.outcomes = (
+            list(outcome)
+            if isinstance(outcome, list)
+            else [outcome]
+        )
         self.calls = 0
         self.kwargs = None
 
     def create(self, **kwargs):
         self.calls += 1
         self.kwargs = kwargs
-        if isinstance(self.outcome, BaseException):
-            raise self.outcome
-        return self.outcome
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
 
 
 class FakeAnthropicClient:
@@ -151,11 +162,28 @@ class FakeAnthropicClient:
         ]['format']
 
 
-def wrapped_openai_connection_error(root_error):
+def wrapped_provider_connection_error(provider_error_type):
     request = httpx.Request('POST', 'https://provider.invalid')
     try:
-        raise root_error
-    except httpx.HTTPError as exc:
+        raise httpcore.ConnectError('dns or tcp connect failed')
+    except httpcore.ConnectError as core_error:
+        try:
+            raise httpx.ConnectError(
+                'httpx connect failed',
+                request=request,
+            ) from core_error
+        except httpx.ConnectError as httpx_error:
+            try:
+                raise provider_error_type(request=request) from httpx_error
+            except provider_error_type as wrapped:
+                return wrapped
+
+
+def wrapped_openai_read_error():
+    request = httpx.Request('POST', 'https://provider.invalid')
+    try:
+        raise httpx.ReadError('ambiguous receipt', request=request)
+    except httpx.ReadError as exc:
         try:
             raise openai.APIConnectionError(request=request) from exc
         except openai.APIConnectionError as wrapped:
@@ -336,9 +364,8 @@ class ComparisonProviderTests(SimpleTestCase):
         self.assertEqual(sleeps, [1, 2, 4])
 
     def test_openai_retries_only_root_connect_error(self):
-        request = httpx.Request('POST', 'https://provider.invalid')
-        connection_error = wrapped_openai_connection_error(
-            httpx.ConnectError('sensitive transport detail', request=request),
+        connection_error = wrapped_provider_connection_error(
+            openai.APIConnectionError,
         )
         client = FakeOpenAIClient(
             transcription_outcomes=[
@@ -362,9 +389,7 @@ class ComparisonProviderTests(SimpleTestCase):
         self.assertEqual(sleeps, [1])
         self.assertEqual(result.segments[0].text, '안녕하세요')
 
-        read_error = wrapped_openai_connection_error(
-            httpx.ReadError('ambiguous receipt', request=request),
-        )
+        read_error = wrapped_openai_read_error()
         no_retry_client = FakeOpenAIClient(
             transcription_outcomes=[read_error],
         )
@@ -378,6 +403,42 @@ class ComparisonProviderTests(SimpleTestCase):
             'TRANSCRIPTION_OUTCOME_UNKNOWN',
         )
         self.assertEqual(no_retry_client._transcriptions.calls, 1)
+        self.assertEqual(sleeps, [1])
+
+    def test_openai_summary_retries_real_three_level_connect_chain(self):
+        client = FakeOpenAISummaryClient()
+        client.responses.outcomes.insert(
+            0,
+            wrapped_provider_connection_error(openai.APIConnectionError),
+        )
+        sleeps = []
+
+        result = OpenAIComparisonSummarizer(
+            client=client,
+            sleep=sleeps.append,
+        ).summarize('화자 1: 가림 전사문')
+
+        self.assertEqual(result.model, 'openai-response-model')
+        self.assertEqual(client.responses.calls, 2)
+        self.assertEqual(sleeps, [1])
+
+    def test_anthropic_summary_retries_real_three_level_connect_chain(self):
+        client = FakeAnthropicClient()
+        client.messages.outcomes.insert(
+            0,
+            wrapped_provider_connection_error(
+                anthropic.APIConnectionError,
+            ),
+        )
+        sleeps = []
+
+        result = AnthropicComparisonSummarizer(
+            client=client,
+            sleep=sleeps.append,
+        ).summarize('화자 1: 가림 전사문')
+
+        self.assertEqual(result.model, 'anthropic-response-model')
+        self.assertEqual(client.messages.calls, 2)
         self.assertEqual(sleeps, [1])
 
     def test_openai_timeout_is_unknown_and_never_retried(self):
