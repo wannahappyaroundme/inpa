@@ -80,6 +80,16 @@ services:
         value: "26214400"
       - key: CONSULTATION_COMPARISON_MAX_DURATION_SECONDS
         value: "300"
+      - key: CONSULTATION_COMPARISON_CONNECT_TIMEOUT_SECONDS
+        value: "2"
+      - key: CONSULTATION_COMPARISON_TRANSCRIPTION_READ_TIMEOUT_SECONDS
+        value: "35"
+      - key: CONSULTATION_COMPARISON_SUMMARY_READ_TIMEOUT_SECONDS
+        value: "25"
+      - key: CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS
+        value: "5"
+      - key: CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS
+        value: "1"
       - key: BILLING_CARD_REGISTRATION_ENABLED
         value: "False"               # KICC 계약·실거래 검증과 PM 승인 전까지 카드 등록 닫힘
       - key: BILLING_RECURRING_CHARGE_ENABLED

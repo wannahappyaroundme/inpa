@@ -1439,8 +1439,8 @@ export interface AdminConsultationComparisonResponse {
     segments: Array<{
       speaker: string;
       text: string;
-      start_seconds: number;
-      end_seconds: number;
+      start_seconds: number | null;
+      end_seconds: number | null;
     }>;
   };
   results: AdminComparisonResult[];

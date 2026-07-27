@@ -20,6 +20,7 @@ from .comparison_base import (
     ComparisonSummaryResult,
     ComparisonTranscriptSegment,
     ComparisonTranscription,
+    comparison_http_timeout,
     elapsed_milliseconds,
     retry_explicit_nonreceipt,
     root_is_connect_error,
@@ -37,6 +38,12 @@ class OpenAIComparisonTranscriber:
         self.client = client or openai.OpenAI(
             api_key=settings.OPENAI_API_KEY,
             max_retries=0,
+            timeout=comparison_http_timeout(
+                read_seconds=(
+                    settings
+                    .CONSULTATION_COMPARISON_TRANSCRIPTION_READ_TIMEOUT_SECONDS
+                ),
+            ),
         )
         self.sleep = sleep or time.sleep
         self.clock = clock or time.monotonic
@@ -142,6 +149,11 @@ class OpenAIComparisonSummarizer:
         self.client = client or openai.OpenAI(
             api_key=settings.OPENAI_API_KEY,
             max_retries=0,
+            timeout=comparison_http_timeout(
+                read_seconds=(
+                    settings.CONSULTATION_COMPARISON_SUMMARY_READ_TIMEOUT_SECONDS
+                ),
+            ),
         )
         self.sleep = sleep or time.sleep
         self.clock = clock or time.monotonic

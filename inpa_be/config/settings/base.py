@@ -281,6 +281,23 @@ CONSULTATION_COMPARISON_MAX_BYTES = env.int(
     'CONSULTATION_COMPARISON_MAX_BYTES', default=25 * 1024 * 1024)
 CONSULTATION_COMPARISON_MAX_DURATION_SECONDS = env.int(
     'CONSULTATION_COMPARISON_MAX_DURATION_SECONDS', default=300)
+# The synchronous comparison endpoint runs under Gunicorn's 120-second worker
+# limit. Worst case is one transcription stage plus the slower of two parallel
+# summary stages. Each stage allows four connect attempts, 1/2/4-second
+# backoffs, then one write/read:
+#   4 * (connect 2 + pool 1) + write 5 + read + backoff 7
+# Defaults total 59s transcription + 49s summary = 108s, leaving 12s for local
+# audio validation and response handling.
+CONSULTATION_COMPARISON_CONNECT_TIMEOUT_SECONDS = env.float(
+    'CONSULTATION_COMPARISON_CONNECT_TIMEOUT_SECONDS', default=2.0)
+CONSULTATION_COMPARISON_TRANSCRIPTION_READ_TIMEOUT_SECONDS = env.float(
+    'CONSULTATION_COMPARISON_TRANSCRIPTION_READ_TIMEOUT_SECONDS', default=35.0)
+CONSULTATION_COMPARISON_SUMMARY_READ_TIMEOUT_SECONDS = env.float(
+    'CONSULTATION_COMPARISON_SUMMARY_READ_TIMEOUT_SECONDS', default=25.0)
+CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS = env.float(
+    'CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS', default=5.0)
+CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS = env.float(
+    'CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS', default=1.0)
 CONSULTATION_RETENTION_HOURS = env.int(
     'CONSULTATION_RETENTION_HOURS', default=168)
 CONSULTATION_RETENTION_SAFETY_MINUTES = env.int(

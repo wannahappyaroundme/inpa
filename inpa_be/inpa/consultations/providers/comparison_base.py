@@ -3,10 +3,17 @@ from dataclasses import dataclass
 from typing import Callable, Sequence, TypeVar
 
 import httpx
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 from inpa.consultations.summary_schema import ConsultationSummary
 
 from .base import ExplicitProviderNonReceipt
+
+
+COMPARISON_CONNECT_BACKOFF_SECONDS = (1, 2, 4)
+COMPARISON_PROVIDER_ATTEMPTS = len(COMPARISON_CONNECT_BACKOFF_SECONDS) + 1
+COMPARISON_WORKER_CEILING_SECONDS = 120.0
 
 
 class ComparisonProviderFailure(RuntimeError):
@@ -48,11 +55,52 @@ class ComparisonSummaryResult:
 Result = TypeVar('Result')
 
 
+def comparison_request_budget_seconds() -> float:
+    connect_and_pool = (
+        settings.CONSULTATION_COMPARISON_CONNECT_TIMEOUT_SECONDS
+        + settings.CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS
+    )
+    stage_before_read = (
+        COMPARISON_PROVIDER_ATTEMPTS * connect_and_pool
+        + settings.CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS
+        + sum(COMPARISON_CONNECT_BACKOFF_SECONDS)
+    )
+    return (
+        stage_before_read
+        + settings.CONSULTATION_COMPARISON_TRANSCRIPTION_READ_TIMEOUT_SECONDS
+        + stage_before_read
+        + settings.CONSULTATION_COMPARISON_SUMMARY_READ_TIMEOUT_SECONDS
+    )
+
+
+def comparison_http_timeout(*, read_seconds: float) -> httpx.Timeout:
+    values = (
+        settings.CONSULTATION_COMPARISON_CONNECT_TIMEOUT_SECONDS,
+        read_seconds,
+        settings.CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS,
+        settings.CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS,
+    )
+    if any(value <= 0 for value in values):
+        raise ImproperlyConfigured(
+            'Consultation comparison timeouts must be positive',
+        )
+    if comparison_request_budget_seconds() >= COMPARISON_WORKER_CEILING_SECONDS:
+        raise ImproperlyConfigured(
+            'Consultation comparison request budget must stay below 120 seconds',
+        )
+    return httpx.Timeout(
+        connect=values[0],
+        read=values[1],
+        write=values[2],
+        pool=values[3],
+    )
+
+
 def retry_explicit_nonreceipt(
     operation: Callable[[], Result],
     sleep: Callable[[float], None] = time.sleep,
 ) -> Result:
-    delays = (1, 2, 4)
+    delays = COMPARISON_CONNECT_BACKOFF_SECONDS
     for attempt in range(len(delays) + 1):
         try:
             return operation()

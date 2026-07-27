@@ -16,8 +16,10 @@ from inpa.consultations.providers.anthropic_comparison import (
 from inpa.consultations.providers.anthropic_summary import SYSTEM_PROMPT
 from inpa.consultations.providers.base import ExplicitProviderNonReceipt
 from inpa.consultations.providers.comparison_base import (
+    COMPARISON_WORKER_CEILING_SECONDS,
     ComparisonOutcomeUnknown,
     ComparisonProviderFailure,
+    comparison_request_budget_seconds,
     retry_explicit_nonreceipt,
 )
 from inpa.consultations.providers.openai_comparison import (
@@ -196,6 +198,11 @@ def wrapped_openai_read_error():
     OPENAI_COMPARISON_MODEL='openai-summary-model-from-env',
     ANTHROPIC_API_KEY='anthropic-test-key',
     ANTHROPIC_COMPARISON_MODEL='anthropic-summary-model-from-env',
+    CONSULTATION_COMPARISON_CONNECT_TIMEOUT_SECONDS=2.0,
+    CONSULTATION_COMPARISON_TRANSCRIPTION_READ_TIMEOUT_SECONDS=35.0,
+    CONSULTATION_COMPARISON_SUMMARY_READ_TIMEOUT_SECONDS=25.0,
+    CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS=5.0,
+    CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS=1.0,
 )
 class ComparisonProviderTests(SimpleTestCase):
     def setUp(self):
@@ -512,7 +519,14 @@ class ComparisonProviderTests(SimpleTestCase):
         self.assertEqual(anthropic_raised.exception.code, 'SUMMARY_TIMEOUT')
         self.assertEqual(anthropic_client.messages.calls, 1)
 
-    def test_sdk_clients_disable_automatic_retries(self):
+    def test_request_budget_stays_below_worker_timeout_with_retry_backoff(self):
+        self.assertEqual(comparison_request_budget_seconds(), 108.0)
+        self.assertLess(
+            comparison_request_budget_seconds(),
+            COMPARISON_WORKER_CEILING_SECONDS,
+        )
+
+    def test_sdk_clients_receive_explicit_timeouts_and_disable_retries(self):
         with patch(
             'inpa.consultations.providers.openai_comparison.openai.OpenAI',
         ) as openai_factory:
@@ -520,9 +534,19 @@ class ComparisonProviderTests(SimpleTestCase):
             OpenAIComparisonSummarizer()
 
         self.assertEqual(openai_factory.call_count, 2)
-        for call in openai_factory.call_args_list:
+        expected_read_timeouts = (35.0, 25.0)
+        for call, expected_read_timeout in zip(
+            openai_factory.call_args_list,
+            expected_read_timeouts,
+        ):
             self.assertEqual(call.kwargs['max_retries'], 0)
             self.assertEqual(call.kwargs['api_key'], 'openai-test-key')
+            timeout = call.kwargs['timeout']
+            self.assertIsInstance(timeout, httpx.Timeout)
+            self.assertEqual(timeout.connect, 2.0)
+            self.assertEqual(timeout.read, expected_read_timeout)
+            self.assertEqual(timeout.write, 5.0)
+            self.assertEqual(timeout.pool, 1.0)
 
         with patch(
             'inpa.consultations.providers.anthropic_comparison.'
@@ -530,7 +554,13 @@ class ComparisonProviderTests(SimpleTestCase):
         ) as anthropic_factory:
             AnthropicComparisonSummarizer()
 
-        anthropic_factory.assert_called_once_with(
-            api_key='anthropic-test-key',
-            max_retries=0,
-        )
+        anthropic_factory.assert_called_once()
+        anthropic_kwargs = anthropic_factory.call_args.kwargs
+        self.assertEqual(anthropic_kwargs['api_key'], 'anthropic-test-key')
+        self.assertEqual(anthropic_kwargs['max_retries'], 0)
+        timeout = anthropic_kwargs['timeout']
+        self.assertIsInstance(timeout, httpx.Timeout)
+        self.assertEqual(timeout.connect, 2.0)
+        self.assertEqual(timeout.read, 25.0)
+        self.assertEqual(timeout.write, 5.0)
+        self.assertEqual(timeout.pool, 1.0)

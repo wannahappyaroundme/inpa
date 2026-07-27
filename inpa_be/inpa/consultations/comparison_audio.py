@@ -84,6 +84,8 @@ def prepare_comparison_audio(uploaded_file):
                     raise ComparisonAudioError('AUDIO_TOO_LARGE')
                 destination.write(chunk)
 
+        if byte_size == 0:
+            raise ComparisonAudioError('AUDIO_EMPTY')
         duration_seconds = _inspect_audio_duration(path)
         if duration_seconds > settings.CONSULTATION_COMPARISON_MAX_DURATION_SECONDS:
             raise ComparisonAudioError('AUDIO_TOO_LONG')

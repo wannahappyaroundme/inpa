@@ -100,14 +100,20 @@ function SummarySections({
           >
             {label}
           </h3>
-          <ul className="mt-2 space-y-1.5 text-[13px] leading-6 text-ink2">
-            {summary[key].map((item, index) => (
-              <li key={`${key}-${index}`} className="flex gap-2">
-                <span aria-hidden className="text-brand">•</span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
+          {summary[key].length > 0 ? (
+            <ul className="mt-2 space-y-1.5 text-[13px] leading-6 text-ink2">
+              {summary[key].map((item, index) => (
+                <li key={`${key}-${index}`} className="flex gap-2">
+                  <span aria-hidden className="text-brand">•</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-[13px] leading-6 text-ink3">
+              확인된 내용 없음
+            </p>
+          )}
         </section>
       ))}
     </div>
@@ -148,34 +154,36 @@ function ResultCard({
             한쪽 결과를 다시 확인해 주세요.
           </p>
           <p className="mt-1 text-[12px] leading-5 text-ink3">
-            다른 결과와 공통 전사문은 그대로 평가할 수 있어요.
+            성공한 결과와 공통 전사문을 평가해 주세요.
           </p>
         </div>
       )}
 
-      <fieldset className="mt-6 border-t border-line pt-5">
-        <legend className="text-[13px] font-extrabold text-ink">
-          결과 {result.slot} 평가
-        </legend>
-        <div className="mt-3 space-y-2.5">
-          {EVALUATION_LABELS.map((label, index) => (
-            <label
-              key={label}
-              className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-line px-3 py-2 text-[13px] text-ink2"
-            >
-              <input
-                type="checkbox"
-                checked={evaluation[index]}
-                onChange={(event) =>
-                  onEvaluationChange(index, event.target.checked)
-                }
-                className="h-4 w-4 accent-[var(--brand)]"
-              />
-              <span>{label}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      {result.status === "success" && result.summary && (
+        <fieldset className="mt-6 border-t border-line pt-5">
+          <legend className="text-[13px] font-extrabold text-ink">
+            결과 {result.slot} 평가
+          </legend>
+          <div className="mt-3 space-y-2.5">
+            {EVALUATION_LABELS.map((label, index) => (
+              <label
+                key={label}
+                className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-line px-3 py-2 text-[13px] text-ink2"
+              >
+                <input
+                  type="checkbox"
+                  checked={evaluation[index]}
+                  onChange={(event) =>
+                    onEvaluationChange(index, event.target.checked)
+                  }
+                  className="h-4 w-4 accent-[var(--brand)]"
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
 
       {reveal && (
         <dl className="mt-5 grid gap-2 rounded-xl bg-canvas p-4 text-[12px] sm:grid-cols-2">
@@ -324,6 +332,17 @@ export default function AdminConsultationComparisonPage() {
     ? APPROVED_EXTENSIONS.has(fileExtension(audio)) &&
       audio.size <= MAX_AUDIO_BYTES
     : false;
+  const successfulResults =
+    response?.results.filter((result) => result.status === "success") ?? [];
+  const availableFinalChoices: readonly FinalChoice[] =
+    successfulResults.length === 2
+      ? FINAL_CHOICES
+      : successfulResults.length === 1
+        ? [
+            `${successfulResults[0].slot} 우세` as FinalChoice,
+            "판단 보류",
+          ]
+        : [];
 
   return (
     <div className="max-w-6xl">
@@ -462,58 +481,80 @@ export default function AdminConsultationComparisonPage() {
             </div>
           </details>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            {response.results.map((result) => (
-              <ResultCard
-                key={result.slot}
-                result={result}
-                evaluation={evaluation[result.slot]}
-                onEvaluationChange={(index, checked) =>
-                  setSlotEvaluation(result.slot, index, checked)
-                }
-                reveal={reveal}
-              />
-            ))}
-          </div>
-
-          <Card className="mt-4 p-5 sm:p-6">
-            <fieldset>
-              <legend className="text-[15px] font-extrabold text-ink">
-                최종 선택
-              </legend>
-              <p className="mt-1 text-[12px] leading-5 text-ink3">
-                두 결과를 평가한 뒤 가장 가까운 선택을 남겨 주세요.
+          {successfulResults.length === 0 ? (
+            <Card
+              role="alert"
+              aria-labelledby="comparison-all-failed-title"
+              className="mt-4 p-5 sm:p-6"
+            >
+              <h2
+                id="comparison-all-failed-title"
+                className="text-[16px] font-extrabold text-ink"
+              >
+                두 결과를 확인하지 못했어요
+              </h2>
+              <p className="mt-2 text-[13px] leading-6 text-ink3">
+                선택한 음성은 그대로 두었어요. 비교 시작을 다시 눌러 주세요.
               </p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                {FINAL_CHOICES.map((choice) => (
-                  <label
-                    key={choice}
-                    className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-line px-3 py-2 text-[13px] font-bold text-ink2"
-                  >
-                    <input
-                      type="radio"
-                      name="final-choice"
-                      checked={finalChoice === choice}
-                      onChange={() => {
-                        setFinalChoice(choice);
-                        setReveal(false);
-                      }}
-                      className="h-4 w-4 accent-[var(--brand)]"
-                    />
-                    {choice}
-                  </label>
+            </Card>
+          ) : (
+            <>
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                {response.results.map((result) => (
+                  <ResultCard
+                    key={result.slot}
+                    result={result}
+                    evaluation={evaluation[result.slot]}
+                    onEvaluationChange={(index, checked) =>
+                      setSlotEvaluation(result.slot, index, checked)
+                    }
+                    reveal={reveal}
+                  />
                 ))}
               </div>
-            </fieldset>
-            <button
-              type="button"
-              disabled={!finalChoice}
-              onClick={() => setReveal(true)}
-              className="mt-4 min-h-11 rounded-xl border border-line bg-surface px-4 text-[13px] font-bold text-brand disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              모델명 보기
-            </button>
-          </Card>
+
+              <Card className="mt-4 p-5 sm:p-6">
+                <fieldset>
+                  <legend className="text-[15px] font-extrabold text-ink">
+                    최종 선택
+                  </legend>
+                  <p className="mt-1 text-[12px] leading-5 text-ink3">
+                    {successfulResults.length === 1
+                      ? "성공한 결과를 평가한 뒤 가장 가까운 선택을 남겨 주세요."
+                      : "두 결과를 평가한 뒤 가장 가까운 선택을 남겨 주세요."}
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {availableFinalChoices.map((choice) => (
+                      <label
+                        key={choice}
+                        className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-line px-3 py-2 text-[13px] font-bold text-ink2"
+                      >
+                        <input
+                          type="radio"
+                          name="final-choice"
+                          checked={finalChoice === choice}
+                          onChange={() => {
+                            setFinalChoice(choice);
+                            setReveal(false);
+                          }}
+                          className="h-4 w-4 accent-[var(--brand)]"
+                        />
+                        {choice}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <button
+                  type="button"
+                  disabled={!finalChoice}
+                  onClick={() => setReveal(true)}
+                  className="mt-4 min-h-11 rounded-xl border border-line bg-surface px-4 text-[13px] font-bold text-brand disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  모델명 보기
+                </button>
+              </Card>
+            </>
+          )}
         </>
       )}
     </div>

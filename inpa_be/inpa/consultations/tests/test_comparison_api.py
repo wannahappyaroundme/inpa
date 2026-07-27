@@ -1,20 +1,39 @@
+import io
+import wave
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
+from rest_framework.throttling import ScopedRateThrottle
 
 from inpa.accounts.models import Profile, User
 from inpa.billing.models import PaymentOrder, UsageMeter
+from inpa.consultations.comparison import ConsultationComparisonService
 from inpa.consultations.comparison_audio import ComparisonAudioError
 from inpa.consultations.models import ConsultationRecording
 from inpa.consultations.providers.comparison_base import (
     ComparisonOutcomeUnknown,
     ComparisonProviderFailure,
+    ComparisonSummaryResult,
+    ComparisonTranscriptSegment,
+    ComparisonTranscription,
 )
+from inpa.consultations.summary_schema import ConsultationSummary
 from inpa.customers.models import CustomerMemo
+
+
+def make_wav(seconds=1, sample_rate=16_000):
+    output = io.BytesIO()
+    with wave.open(output, 'wb') as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(b'\x00\x00' * sample_rate * seconds)
+    return output.getvalue()
 
 
 @override_settings(
@@ -221,6 +240,117 @@ class AdminConsultationComparisonApiTests(APITestCase):
         uploaded_audio = self.service.compare.call_args.args[0]
         self.assertEqual(uploaded_audio.name, 'synthetic.wav')
         self.assertEqual(uploaded_audio.content_type, 'audio/wav')
+        self.assert_product_rows_unchanged(before)
+
+    @override_settings(
+        REST_FRAMEWORK={
+            **settings.REST_FRAMEWORK,
+            'DEFAULT_THROTTLE_RATES': {
+                **settings.REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'],
+                'consultation_comparison': '10/hour',
+            },
+        },
+    )
+    def test_eleventh_request_is_throttled_before_service_cost(self):
+        with patch.object(
+            ScopedRateThrottle,
+            'THROTTLE_RATES',
+            {'consultation_comparison': '10/hour'},
+        ):
+            responses = [
+                self.post_as_admin(self.valid_payload())
+                for _index in range(11)
+            ]
+
+        self.assertEqual(
+            [response.status_code for response in responses[:10]],
+            [200] * 10,
+        )
+        self.assertEqual(responses[10].status_code, 429)
+        self.assertEqual(self.service_class.call_count, 10)
+        self.assertEqual(self.service.compare.call_count, 10)
+
+    def test_real_comparison_service_with_fake_providers_writes_nothing(self):
+        self.service_class_patcher.stop()
+        transcriber = Mock()
+        transcriber.transcribe.return_value = ComparisonTranscription(
+            segments=(
+                ComparisonTranscriptSegment(
+                    speaker='화자 1',
+                    text='가상 상담 연락처는 010-1234-5678입니다.',
+                    start_seconds=None,
+                    end_seconds=None,
+                ),
+            ),
+            model='fake-transcriber',
+            latency_ms=1,
+        )
+        summary = ConsultationSummary(
+            consultation_core=('가상 상담 핵심',),
+            customer_priorities=(),
+            items_to_confirm=(),
+            next_actions=('다음 가상 상담 일정 확인',),
+        )
+        summarizers = []
+        for provider in ('openai', 'anthropic'):
+            summarizer = Mock()
+            summarizer.provider = provider
+            summarizer.summarize.return_value = ComparisonSummaryResult(
+                summary=summary,
+                model=f'fake-{provider}',
+                latency_ms=2,
+                input_tokens=3,
+                output_tokens=4,
+            )
+            summarizers.append(summarizer)
+        service = ConsultationComparisonService(
+            transcriber=transcriber,
+            summarizers=tuple(summarizers),
+            shuffle=lambda rows: None,
+        )
+        before = {
+            'recordings': ConsultationRecording.objects.count(),
+            'memos': CustomerMemo.objects.count(),
+            'usage': UsageMeter.objects.count(),
+            'orders': PaymentOrder.objects.count(),
+        }
+        payload = {
+            'audio': SimpleUploadedFile(
+                'synthetic.wav',
+                make_wav(),
+                content_type='audio/wav',
+            ),
+            'synthetic_confirmed': True,
+        }
+
+        with patch(
+            'inpa.admin_console.views.ConsultationComparisonService',
+            return_value=service,
+        ), patch(
+            'inpa.consultations.services.get_recording_storage',
+        ) as storage_factory:
+            response = self.post_as_admin(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data['transcript']['segments'][0],
+            {
+                'speaker': '화자 1',
+                'text': '가상 상담 연락처는 [전화_1]입니다.',
+                'start_seconds': None,
+                'end_seconds': None,
+            },
+        )
+        self.assertEqual(
+            [result['status'] for result in response.data['results']],
+            ['success', 'success'],
+        )
+        transcriber.transcribe.assert_called_once()
+        for summarizer in summarizers:
+            summarizer.summarize.assert_called_once_with(
+                '화자 1: 가상 상담 연락처는 [전화_1]입니다.',
+            )
+        storage_factory.assert_not_called()
         self.assert_product_rows_unchanged(before)
 
     def test_audio_error_returns_only_safe_code(self):

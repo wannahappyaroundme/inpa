@@ -23,8 +23,8 @@ const successResponse: adminApi.AdminConsultationComparisonResponse = {
       {
         speaker: "화자 1",
         text: "가상 상담 내용입니다.",
-        start_seconds: 0,
-        end_seconds: 2.5,
+        start_seconds: null,
+        end_seconds: null,
       },
     ],
   },
@@ -79,6 +79,50 @@ const partialFailureResponse: adminApi.AdminConsultationComparisonResponse = {
       output_tokens: 0,
       error_code: "SUMMARY_FAILED",
     },
+  ],
+};
+
+const allFailureResponse: adminApi.AdminConsultationComparisonResponse = {
+  ...successResponse,
+  results: [
+    {
+      slot: "A",
+      provider: "openai",
+      model: "",
+      status: "outcome_unknown",
+      summary: null,
+      latency_ms: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      error_code: "SUMMARY_TIMEOUT",
+    },
+    {
+      slot: "B",
+      provider: "anthropic",
+      model: "",
+      status: "failed",
+      summary: null,
+      latency_ms: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      error_code: "SUMMARY_FAILED",
+    },
+  ],
+};
+
+const emptySummaryResponse: adminApi.AdminConsultationComparisonResponse = {
+  ...successResponse,
+  results: [
+    {
+      ...successResponse.results[0],
+      summary: {
+        consultation_core: [],
+        customer_priorities: [],
+        items_to_confirm: [],
+        next_actions: [],
+      },
+    },
+    successResponse.results[1],
   ],
 };
 
@@ -155,8 +199,64 @@ describe("상담 AI 블라인드 비교 화면", () => {
       screen.getByText("한쪽 결과를 다시 확인해 주세요."),
     ).toBeInTheDocument();
     expect(screen.queryByText("SUMMARY_FAILED")).not.toBeInTheDocument();
+    const resultA = screen.getByRole("article", { name: "결과 A" });
+    const resultB = screen.getByRole("article", { name: "결과 B" });
+    expect(within(resultA).getAllByRole("checkbox")).toHaveLength(5);
+    expect(within(resultB).queryAllByRole("checkbox")).toHaveLength(0);
+    expect(
+      within(resultB).getByText(
+        "성공한 결과와 공통 전사문을 평가해 주세요.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    expect(screen.getByLabelText("A 우세")).toBeInTheDocument();
+    expect(screen.getByLabelText("판단 보류")).toBeInTheDocument();
+    expect(screen.queryByLabelText("B 우세")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("동률")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("공통 전사문 보기"));
     expect(screen.getByText(/화자 1/)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("A 우세"));
+    fireEvent.click(screen.getByRole("button", { name: "모델명 보기" }));
+    expect(screen.getByText("env-openai-summary")).toBeInTheDocument();
+  });
+
+  it("두 요약이 모두 실패하면 다시 시작 안내만 보여준다", async () => {
+    vi.spyOn(adminApi, "adminCompareConsultation").mockResolvedValue(
+      allFailureResponse,
+    );
+    render(<AdminConsultationComparisonPage />);
+    selectValidFileAndConfirm();
+    fireEvent.click(screen.getByRole("button", { name: "비교 시작" }));
+
+    expect(
+      await screen.findByRole("alert", {
+        name: "두 결과를 확인하지 못했어요",
+      }),
+    ).toHaveTextContent(
+      "선택한 음성은 그대로 두었어요. 비교 시작을 다시 눌러 주세요.",
+    );
+    expect(screen.queryAllByRole("article")).toHaveLength(0);
+    expect(
+      screen.queryByRole("group", { name: "최종 선택" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "모델명 보기" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("가상 녹음 확인")).toBeChecked();
+    expect(screen.getByRole("button", { name: "비교 시작" })).toBeEnabled();
+  });
+
+  it("요약 구역이 비어 있으면 확인된 내용이 없다고 보여준다", async () => {
+    vi.spyOn(adminApi, "adminCompareConsultation").mockResolvedValue(
+      emptySummaryResponse,
+    );
+    render(<AdminConsultationComparisonPage />);
+    selectValidFileAndConfirm();
+    fireEvent.click(screen.getByRole("button", { name: "비교 시작" }));
+
+    expect(
+      await screen.findAllByText("확인된 내용 없음"),
+    ).toHaveLength(4);
   });
 
   it("각 결과에 다섯 가지 평가 항목과 네 가지 최종 선택만 제공한다", async () => {
@@ -294,6 +394,80 @@ describe("상담 AI 블라인드 비교 화면", () => {
       await comparison;
     });
     expect(screen.getByText("결과 A")).toBeInTheDocument();
+  });
+
+  it("응답이 일찍 끝나면 남은 진행 안내 타이머를 정리한다", async () => {
+    vi.useFakeTimers();
+    let resolveComparison:
+      | ((value: typeof successResponse) => void)
+      | undefined;
+    const comparison = new Promise<typeof successResponse>((resolve) => {
+      resolveComparison = resolve;
+    });
+    vi.spyOn(adminApi, "adminCompareConsultation").mockReturnValue(comparison);
+    render(<AdminConsultationComparisonPage />);
+    selectValidFileAndConfirm();
+    const timersBeforeSubmit = vi.getTimerCount();
+
+    fireEvent.click(screen.getByRole("button", { name: "비교 시작" }));
+    expect(vi.getTimerCount()).toBe(timersBeforeSubmit + 2);
+
+    await act(async () => {
+      resolveComparison?.(successResponse);
+      await comparison;
+    });
+
+    expect(screen.getByText("결과 A")).toBeInTheDocument();
+    expect(vi.getTimerCount()).toBe(timersBeforeSubmit);
+  });
+
+  it("화면을 나가면 진행 안내 타이머를 정리한다", () => {
+    vi.useFakeTimers();
+    vi.spyOn(adminApi, "adminCompareConsultation").mockReturnValue(
+      new Promise(() => undefined),
+    );
+    const { unmount } = render(<AdminConsultationComparisonPage />);
+    selectValidFileAndConfirm();
+    const timersBeforeSubmit = vi.getTimerCount();
+
+    fireEvent.click(screen.getByRole("button", { name: "비교 시작" }));
+    expect(vi.getTimerCount()).toBe(timersBeforeSubmit + 2);
+
+    unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("최종 선택을 바꾸거나 새 파일을 고르면 모델 정보를 다시 가린다", async () => {
+    vi.spyOn(adminApi, "adminCompareConsultation").mockResolvedValue(
+      successResponse,
+    );
+    render(<AdminConsultationComparisonPage />);
+    selectValidFileAndConfirm();
+    fireEvent.click(screen.getByRole("button", { name: "비교 시작" }));
+    await screen.findByText("결과 A");
+
+    fireEvent.click(screen.getByLabelText("A 우세"));
+    fireEvent.click(screen.getByRole("button", { name: "모델명 보기" }));
+    expect(screen.getByText("env-openai-summary")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("B 우세"));
+    expect(screen.queryByText("env-openai-summary")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "모델명 보기" }));
+    expect(screen.getByText("env-openai-summary")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("가상 상담 음성"), {
+      target: {
+        files: [
+          new File(["new audio"], "synthetic-2.wav", {
+            type: "audio/wav",
+          }),
+        ],
+      },
+    });
+
+    expect(screen.queryByText("env-openai-summary")).not.toBeInTheDocument();
+    expect(screen.queryByText("결과 A")).not.toBeInTheDocument();
   });
 
   it("전체 요청이 실패해도 선택과 확인을 유지해 다시 시작할 수 있다", async () => {
