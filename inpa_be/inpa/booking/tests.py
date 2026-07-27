@@ -82,6 +82,57 @@ class BookingCoreTests(TestCase):
         self.assertIn('홍길동', body['message'])
         self.assertNotIn('{링크}', body['message'])
 
+    @override_settings(FRONTEND_BASE_URL='https://www.inpa.kr')
+    def test_booking_request_default_message_contains_real_identity_and_full_url(self):
+        self.profile_a.name = '황예진'
+        self.profile_a.title = '팀장'
+        self.profile_a.booking_msg_template = ''
+        self.profile_a.save(update_fields=['name', 'title', 'booking_msg_template'])
+
+        response = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/')
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertIn('홍길동 고객님', body['message'])
+        self.assertIn('A생명 팀장 황예진 보험설계사입니다.', body['message'])
+        self.assertTrue(body['booking_url'].startswith('https://www.inpa.kr/b/'))
+        self.assertIn(body['booking_url'], body['message'])
+
+    def test_booking_request_default_message_has_no_double_space_without_label(self):
+        self.profile_a.name = '황예진'
+        self.profile_a.affiliation = ''
+        self.profile_a.title = ''
+        self.profile_a.booking_msg_template = ''
+        self.profile_a.save(update_fields=[
+            'name', 'affiliation', 'title', 'booking_msg_template',
+        ])
+
+        body = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
+        self.assertIn('안녕하세요. 황예진 보험설계사입니다.', body['message'])
+        self.assertNotIn('안녕하세요.  황예진', body['message'])
+
+    def test_booking_request_custom_template_keeps_optional_label_contract(self):
+        self.profile_a.name = '황예진'
+        self.profile_a.affiliation = ''
+        self.profile_a.title = ''
+        self.profile_a.booking_msg_template = (
+            '{고객명}님, {소속직책} {설계사명}입니다.\n{링크}')
+        self.profile_a.save(update_fields=[
+            'name', 'affiliation', 'title', 'booking_msg_template',
+        ])
+
+        body = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
+        self.assertIn('홍길동님, 황예진입니다.', body['message'])
+        self.assertNotIn('  ', body['message'])
+
+    def test_booking_request_leaves_no_known_placeholder(self):
+        body = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
+        for placeholder in ('{고객명}', '{소속직책}', '{설계사명}', '{링크}'):
+            self.assertNotIn(placeholder, body['message'])
+
     def test_booking_request_owner_isolation(self):
         r = self.client_b.post(f'/api/v1/customers/{self.customer.id}/booking-requests/')
         self.assertEqual(r.status_code, 404)
