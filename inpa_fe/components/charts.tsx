@@ -249,19 +249,22 @@ export interface CompareBarItem {
   proposed: number;
 }
 
-/** 기존 vs 제안 그룹 막대 — 담보별 2줄(기존 청록·제안 파랑). 행마다 max로 스케일해 증감을
-    한눈에. 정확 수치는 같이 표시 + 아래 비교표. 라인보다 범주형 비교에 적합(006). */
+/** 담보별 두 구성 막대. 행마다 max로 스케일해 차이를 한눈에 보고 정확 수치는 함께 표시한다. */
 export function CompareBarChart({
   items,
   format = (n) => KO.format(n),
   className = "",
+  labelA = "왼쪽 구성",
+  labelB = "오른쪽 구성",
 }: {
   items: CompareBarItem[];
   format?: (n: number) => string;
   className?: string;
+  labelA?: string;
+  labelB?: string;
 }) {
   const aria = items
-    .map((it) => `${it.label} 증권 A ${format(it.current)} 증권 B ${format(it.proposed)}`)
+    .map((it) => `${it.label} ${labelA} ${format(it.current)} ${labelB} ${format(it.proposed)}`)
     .join(", ");
   const Bar = ({ w, color, val }: { w: number; color: string; val: string }) => (
     <div className="flex items-center gap-2">

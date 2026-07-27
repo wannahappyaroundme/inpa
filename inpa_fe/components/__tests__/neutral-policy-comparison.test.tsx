@@ -20,19 +20,19 @@ const side = (monthly: number): CompareSide => ({
 });
 
 describe("neutral multi-policy comparison copy", () => {
-  it("announces comparison bars as policy A and policy B", () => {
+  it("announces comparison bars with the left and right composition labels", () => {
     render(<CompareBarChart items={[{ label: "암 진단비", current: 10, proposed: 20 }]} />);
 
     const chart = screen.getByRole("img");
-    expect(chart.getAttribute("aria-label")).toContain("증권 A 10 증권 B 20");
+    expect(chart.getAttribute("aria-label")).toContain("왼쪽 구성 10 오른쪽 구성 20");
     expect(chart.getAttribute("aria-label")).not.toMatch(/기존|제안/);
   });
 
-  it("uses policy A and policy B as the premium table defaults", () => {
+  it("uses the left and right composition labels as the premium table defaults", () => {
     const { container } = render(<ComparePremiumSplit current={side(87_000)} proposed={side(93_000)} />);
 
-    expect(screen.getByText("증권 A")).toBeTruthy();
-    expect(screen.getByText("증권 B")).toBeTruthy();
+    expect(screen.getByText("왼쪽 구성")).toBeTruthy();
+    expect(screen.getByText("오른쪽 구성")).toBeTruthy();
     expect(screen.queryByText("현재")).toBeNull();
     expect(screen.queryByText("제안")).toBeNull();
     expect(container.innerHTML).not.toMatch(/emerald|rose|text-enough|text-short/);
@@ -54,13 +54,13 @@ describe("neutral multi-policy comparison copy", () => {
       publish_blocked_reason: "",
       disclaimer: "인파가 등록된 보장 정보를 정리한 참고 자료입니다.",
     };
-    const copy = buildCompareExportText(response, "증권 A", "증권 B");
+    const copy = buildCompareExportText(response, "왼쪽 구성", "오른쪽 구성");
 
     expect(compareMock.current.product).toMatch(/^증권 A/);
     expect(compareMock.proposed.product).toMatch(/^증권 B/);
-    expect(copy).toContain("증권 A");
-    expect(copy).toContain("증권 B");
-    expect(copy).not.toMatch(/현재와 제안|갈아타기|승환|비교안내서/);
+    expect(copy).toContain("왼쪽 구성");
+    expect(copy).toContain("오른쪽 구성");
+    expect(copy).not.toMatch(/증권 A|증권 B|현재와 제안|갈아타기|승환|비교안내서/);
   });
 
   it("shows an AI notice only for an actual AI guide source", () => {

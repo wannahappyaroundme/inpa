@@ -10,6 +10,8 @@ const api = vi.hoisted(() => ({
   compareCustomer: vi.fn(),
 }));
 
+const clipboard = vi.hoisted(() => ({ copyText: vi.fn() }));
+
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   ...api,
@@ -38,6 +40,8 @@ vi.mock("@/components/premium-split", () => ({
 }));
 
 vi.mock("@/components/charts", () => ({ CompareBarChart: () => null }));
+
+vi.mock("@/lib/clipboard", () => clipboard);
 
 const insurance = (id: number, name: string, portfolio_type: 1 | 2): ManualInsuranceItem => ({
   id, name, portfolio_type, insurance_type: 2, monthly_premiums: 30_000,
@@ -132,7 +136,10 @@ describe("multi-policy overlap selection", () => {
     await user.click(screen.getByRole("button", { name: "A3 오른쪽에서 제외" }));
     expect(screen.getByText("선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요.")).toBeTruthy();
     expect(screen.queryByText("암 진단비")).toBeNull();
-    expect((screen.getByRole("button", { name: "증권 비교표 내용 복사" }) as HTMLButtonElement).disabled).toBe(true);
+    const copyButton = screen.getByRole("button", { name: "증권 비교표 내용 복사" }) as HTMLButtonElement;
+    expect(copyButton.disabled).toBe(true);
+    await user.click(copyButton);
+    expect(clipboard.copyText).not.toHaveBeenCalled();
 
     let resolve!: (value: CompareResponse) => void;
     api.compareCustomer.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
@@ -140,6 +147,20 @@ describe("multi-policy overlap selection", () => {
     await user.click(screen.getByRole("button", { name: "A2 오른쪽에서 제외" }));
     resolve(comparison);
     await waitFor(() => expect(screen.queryByText("암 진단비")).toBeNull());
+  });
+
+  it("keeps the existing copy failure guidance after a current comparison", async () => {
+    const user = userEvent.setup();
+    clipboard.copyText.mockResolvedValueOnce(false);
+    await renderSwitchTab();
+    api.compareCustomer.mockResolvedValueOnce(comparison);
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+
+    const copyButton = await screen.findByRole("button", { name: "증권 비교표 내용 복사" });
+    await user.click(copyButton);
+
+    expect(clipboard.copyText).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("복사에 실패했어요. 다시 시도해 주세요.")).toBeTruthy();
   });
 
   it("requires a new successful CTA run when the selection returns to an earlier snapshot", async () => {

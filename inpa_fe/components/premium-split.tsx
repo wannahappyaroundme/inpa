@@ -146,7 +146,7 @@ export function CompareAiGuide({
   );
 }
 
-export function ComparePremiumSplit({ current, proposed, labelA = "증권 A", labelB = "증권 B" }: { current: CompareSide; proposed: CompareSide; labelA?: string; labelB?: string }) {
+export function ComparePremiumSplit({ current, proposed, labelA = "왼쪽 구성", labelB = "오른쪽 구성" }: { current: CompareSide; proposed: CompareSide; labelA?: string; labelB?: string }) {
   return (
     <section className="mt-5 rounded-xl border border-line bg-surface px-4 py-3">
       <h4 className="text-[14px] font-bold text-ink mb-2">보험료 비교 (갱신/비갱신)</h4>

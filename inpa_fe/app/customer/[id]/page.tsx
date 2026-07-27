@@ -1403,15 +1403,18 @@ export function SwitchTab({ customerId }: { customerId: number }) {
     const sign = d > 0 ? "+" : "";
     return sign + new Intl.NumberFormat("ko-KR").format(d);
   }
-  // 담보 변동: 추가(신규)/삭제(빠짐)/변경/유지 — 증권 A vs 증권 B 금액 기준.
+  // 담보 변동: 추가(신규)/삭제(빠짐)/변경/유지. 왼쪽과 오른쪽 구성 금액 기준.
   function diffLabel(cur: number | null, prop: number | null): { text: string; cls: string } {
     const text = compareDiffText(cur, prop);
     return { text, cls: "bg-surface2 text-ink3 border-line" };
   }
 
-  const labelA = "증권 A";
-  const labelB = "증권 B";
-  const canExport = data !== null && compareStatus === "success" && !insRefreshError;
+  const labelA = "왼쪽 구성";
+  const labelB = "오른쪽 구성";
+  const canExport = data !== null
+    && isCurrentComparison
+    && compareStatus !== "loading"
+    && !insRefreshError;
 
   // ④ 고객에게 보낼 내용 — 중립 사실만(담보·금액·증감 라벨). §97: 판정·권유·switch_warnings(설계사
   // 내부 전용) 절대 미포함, 인파는 복사만 하고 발송하지 않는다(설계사가 직접 카톡·문자로 전달).
@@ -1468,7 +1471,7 @@ export function SwitchTab({ customerId }: { customerId: number }) {
           </button>
         </div>
         <p className="mt-2.5 text-[11px] leading-4 text-ink3">
-          원하는 증권을 A와 B로 나눠 담보·보장금액·보험료 차이를 나란히 확인하세요.
+          원하는 증권을 왼쪽과 오른쪽 구성으로 나눠 담보·보장금액·보험료 차이를 나란히 확인하세요.
         </p>
       </div>
       <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} onRetry={propOcr.retryUpload} onManualEntry={() => { setReviewInsuranceId(null); setManualOpen(true); }} />
@@ -1547,7 +1550,7 @@ export function SwitchTab({ customerId }: { customerId: number }) {
       {/* 갱신/비갱신 보험료 요약·증감 표 */}
       <ComparePremiumSplit current={data.current} proposed={data.proposed} labelA={labelA} labelB={labelB} />
 
-      {/* 증권 A/B 보장 그룹 막대: 담보별 두 금액과 정확 수치를 함께 표시한다. */}
+      {/* 왼쪽/오른쪽 구성 보장 그룹 막대: 담보별 두 금액과 정확 수치를 함께 표시한다. */}
       {data.rows.length >= 2 && (
         <div className="rounded-xl border border-line bg-surface px-4 py-3.5 mb-4">
           <div className="flex items-center justify-between mb-3">
@@ -1568,6 +1571,8 @@ export function SwitchTab({ customerId }: { customerId: number }) {
               proposed: r.proposed_amount ?? 0,
             }))}
             format={fmtAmount}
+            labelA={labelA}
+            labelB={labelB}
           />
           <p className="mt-2 text-[11px] text-ink3">담보별 {labelA}·{labelB} 보장금액 비교예요. 정확한 수치는 아래 비교표에서 확인하세요.</p>
         </div>
@@ -1640,7 +1645,7 @@ export function SwitchTab({ customerId }: { customerId: number }) {
           : copyMsg
           ? <span className="text-[12px] text-ink3">{copyMsg}</span>
           : (aCount === 0 || bCount === 0)
-          ? <span className="text-[12px] text-ink3">증권 A와 증권 B에 하나씩 고르면 복사할 수 있어요.</span>
+          ? <span className="text-[12px] text-ink3">왼쪽과 오른쪽 구성에 하나씩 고르면 복사할 수 있어요.</span>
           : null}
       </div>
       <p className="mt-2 text-[11px] leading-4 text-ink3">
