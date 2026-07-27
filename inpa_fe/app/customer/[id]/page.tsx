@@ -1278,6 +1278,7 @@ export function SwitchTab({ customerId }: { customerId: number }) {
   const [insurances, setInsurances] = useState<ManualInsuranceItem[]>([]);
   const [selection, setSelection] = useState<PolicySelectionMap>({});
   const [insLoadStatus, setInsLoadStatus] = useState<"loading" | "success" | "error">("loading");
+  const [insRefreshPending, setInsRefreshPending] = useState(false);
   const [insRefreshError, setInsRefreshError] = useState<string | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [reviewInsuranceId, setReviewInsuranceId] = useState<number | null>(null);
@@ -1288,6 +1289,14 @@ export function SwitchTab({ customerId }: { customerId: number }) {
     compareReqRef.current += 1;
     if (!background) {
       setInsLoadStatus("loading");
+    } else {
+      setInsRefreshPending(true);
+      setSuccessfulComparison(null);
+      setCompareStatus("idle");
+      setCompareError(null);
+      setUpgradeInfo(undefined);
+      setUpgradeOpen(false);
+      setCopyMsg(null);
     }
     setInsRefreshError(null);
     listAllManualInsurances(customerId)
@@ -1299,10 +1308,12 @@ export function SwitchTab({ customerId }: { customerId: number }) {
         setCompareError(null);
         setUpgradeInfo(undefined);
         setUpgradeOpen(false);
+        setInsRefreshPending(false);
         if (!background) setInsLoadStatus("success");
       })
       .catch(() => {
         if (insuranceReqRef.current !== req) return;
+        setInsRefreshPending(false);
         if (background) {
           setInsRefreshError("보험 목록을 다시 불러와 주세요.");
         } else {
@@ -1320,7 +1331,7 @@ export function SwitchTab({ customerId }: { customerId: number }) {
   }, [loadInsurances]);
 
   const doCompare = useCallback(() => {
-    if (insLoadStatus !== "success") return;
+    if (insLoadStatus !== "success" || insRefreshPending) return;
     const snapshot = buildPolicySelectionSnapshot(selection);
     if (snapshot.leftIds.length === 0 || snapshot.rightIds.length === 0 || isSamePolicyIdSet(snapshot.leftIds, snapshot.rightIds)) return;
     setCompareStatus("loading");
@@ -1344,7 +1355,7 @@ export function SwitchTab({ customerId }: { customerId: number }) {
           setCompareError(e instanceof Error ? e.message : "비교 내용을 불러오지 못했어요.");
         }
       });
-  }, [customerId, insLoadStatus, selection]);
+  }, [customerId, insLoadStatus, insRefreshPending, selection]);
 
   // 제안 추가(업로드/직접) 후 목록 새로고침 → 배정 갱신(기존 보존+신규 프리셋) → 재비교.
   const propOcr = useOcrUpload(() => { loadInsurances(true); }, 2, customerId);
@@ -1414,15 +1425,24 @@ export function SwitchTab({ customerId }: { customerId: number }) {
   const canExport = data !== null
     && isCurrentComparison
     && compareStatus !== "loading"
+    && !insRefreshPending
     && !insRefreshError;
-  const comparisonGuidance = selectionIssue ?? compareError ?? (successfulComparison ? "선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요." : "왼쪽과 오른쪽 구성을 확인한 뒤 비교해 주세요.");
-  const comparisonGuidanceRole = compareStatus === "loading"
-    ? "status"
+  const comparisonNotice: {
+    text: string;
+    role?: "status" | "alert";
+  } = insRefreshPending
+    ? { text: "보험 목록을 확인하고 있어요.", role: "status" }
+    : compareStatus === "loading"
+    ? { text: "비교하고 있어요.", role: "status" }
     : compareError
-    ? "alert"
-    : compareStatus !== "error" && successfulComparison
-    ? "status"
-    : undefined;
+    ? { text: compareError, role: "alert" }
+    : upgradeInfo !== undefined
+    ? { text: "한도 안내에서 다음 이용 방법을 확인해 주세요." }
+    : selectionIssue
+    ? { text: selectionIssue }
+    : successfulComparison
+    ? { text: "선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요.", role: "status" }
+    : { text: "왼쪽과 오른쪽 구성을 확인한 뒤 비교해 주세요." };
 
   // ④ 고객에게 보낼 내용 — 중립 사실만(담보·금액·증감 라벨). §97: 판정·권유·switch_warnings(설계사
   // 내부 전용) 절대 미포함, 인파는 복사만 하고 발송하지 않는다(설계사가 직접 카톡·문자로 전달).
@@ -1474,7 +1494,7 @@ export function SwitchTab({ customerId }: { customerId: number }) {
             {selectedPolicyIds.slice(0, 2).map((id) => <span key={id} className="rounded-full border border-line bg-surface px-2 py-0.5 text-[10px]">{insurances.find((item) => item.id === id)?.name ?? `보험 ${id}`}</span>)}
             {selectedPolicyIds.length > 2 && <span className="text-[10px] text-ink3">외 {selectedPolicyIds.length - 2}개</span>}
           </div>
-          <button type="button" onClick={doCompare} disabled={compareStatus === "loading" || selectionIssue !== null} className="min-h-11 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white disabled:opacity-50">
+          <button type="button" onClick={doCompare} disabled={insRefreshPending || compareStatus === "loading" || selectionIssue !== null} className="min-h-11 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white disabled:opacity-50">
             {compareStatus === "loading" ? "비교하고 있어요" : "선택한 구성 비교하기"}
           </button>
         </div>
@@ -1484,7 +1504,7 @@ export function SwitchTab({ customerId }: { customerId: number }) {
       </div>
       <OcrStatusBanner phase={propOcr.phase} errorMsg={propOcr.error} onDismiss={propOcr.clearError} onRetry={propOcr.retryUpload} onManualEntry={() => { setReviewInsuranceId(null); setManualOpen(true); }} />
       {insRefreshError && (
-        <div role="alert" className="mb-4 rounded-xl border border-line bg-surface2 px-4 py-3 text-[12px] text-ink2">
+        <div role="alert" aria-label={insRefreshError} className="mb-4 rounded-xl border border-line bg-surface2 px-4 py-3 text-[12px] text-ink2">
           {insRefreshError}
           <button type="button" onClick={() => loadInsurances(true)} className="ml-2 font-semibold text-brand">다시 불러오기</button>
         </div>
@@ -1518,8 +1538,8 @@ export function SwitchTab({ customerId }: { customerId: number }) {
 
       {!data ? (
         <>
-          <div role={comparisonGuidanceRole} aria-label={compareStatus === "loading" ? "비교하고 있어요." : undefined} className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center text-[14px] text-ink3">
-            {comparisonGuidance}
+          <div role={comparisonNotice.role} aria-label={comparisonNotice.role ? comparisonNotice.text : undefined} className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center text-[14px] text-ink3">
+            {comparisonNotice.text}
           </div>
           <button type="button" disabled className="mt-4 rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink2 disabled:opacity-50">증권 비교표 내용 복사</button>
         </>

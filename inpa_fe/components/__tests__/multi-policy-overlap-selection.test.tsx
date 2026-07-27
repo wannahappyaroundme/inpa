@@ -133,7 +133,8 @@ describe("multi-policy overlap selection", () => {
 
     await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
 
-    expect(await screen.findByRole("status", { name: "비교하고 있어요." })).toBeTruthy();
+    const status = await screen.findByRole("status", { name: "비교하고 있어요." });
+    expect(status).toHaveTextContent("비교하고 있어요.");
   });
 
   it("announces stale selection guidance through a polite status region", async () => {
@@ -145,7 +146,8 @@ describe("multi-policy overlap selection", () => {
 
     await user.click(screen.getByRole("button", { name: "A3 오른쪽에서 제외" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요.");
+    const guidance = "선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요.";
+    expect(screen.getByRole("status", { name: guidance })).toHaveTextContent(guidance);
   });
 
   it("announces a comparison 500 error through an assertive alert region", async () => {
@@ -155,7 +157,23 @@ describe("multi-policy overlap selection", () => {
 
     await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("비교 내용을 불러오지 못했어요.");
+    const error = "비교 내용을 불러오지 못했어요.";
+    expect(await screen.findByRole("alert", { name: error })).toHaveTextContent(error);
+  });
+
+  it("shows limit guidance instead of a stale-selection message after a current result", async () => {
+    const user = userEvent.setup();
+    await renderSwitchTab();
+    api.compareCustomer.mockResolvedValueOnce(comparison);
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+    expect(await screen.findByText("암 진단비")).toBeTruthy();
+
+    api.compareCustomer.mockRejectedValueOnce(new ApiError(402, "LIMIT", "", { kind: "ai_compare" }));
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+
+    expect(await screen.findByRole("button", { name: "한도 안내 닫기" })).toBeTruthy();
+    expect(screen.getByText("한도 안내에서 다음 이용 방법을 확인해 주세요.")).toBeTruthy();
+    expect(screen.queryByText("선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요.")).toBeNull();
   });
 
   it("hides obsolete and late comparison results after selection changes", async () => {
@@ -249,5 +267,64 @@ describe("multi-policy overlap selection", () => {
     expect(screen.getByRole("button", { name: "A3 오른쪽에 포함" })).toBeTruthy();
     expect(screen.getByText("오른쪽 구성 4개")).toBeTruthy();
     expect(api.compareCustomer).not.toHaveBeenCalled();
+  });
+
+  it("invalidates a successful result while refresh is pending and stays usable after refresh fails", async () => {
+    const user = userEvent.setup();
+    let rejectRefresh!: (reason?: unknown) => void;
+    api.listAllManualInsurances
+      .mockResolvedValueOnce(initialRows)
+      .mockReturnValueOnce(new Promise((_, reject) => { rejectRefresh = reject; }));
+    await renderSwitchTab();
+    await user.click(screen.getByRole("button", { name: "A3 오른쪽에서 제외" }));
+    api.compareCustomer.mockResolvedValueOnce(comparison);
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+    expect(await screen.findByText("암 진단비")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "직접 입력" }));
+    await user.click(screen.getByRole("button", { name: "보험 저장" }));
+
+    expect(await screen.findByRole("status", { name: "보험 목록을 확인하고 있어요." }))
+      .toHaveTextContent("보험 목록을 확인하고 있어요.");
+    expect(screen.queryByText("암 진단비")).toBeNull();
+    expect((screen.getByRole("button", { name: "증권 비교표 내용 복사" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "선택한 구성 비교하기" }) as HTMLButtonElement).disabled).toBe(true);
+
+    rejectRefresh(new Error("refresh failed"));
+
+    expect(await screen.findByRole("alert", { name: "보험 목록을 다시 불러와 주세요." })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "A3 오른쪽에 포함" })).toBeTruthy();
+    expect(screen.getByText("왼쪽 구성 3개")).toBeTruthy();
+    expect(screen.getByText("오른쪽 구성 3개")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "선택한 구성 비교하기" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "증권 비교표 내용 복사" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요.")).toBeNull();
+    expect(screen.getByRole("button", { name: "다시 불러오기" })).toBeTruthy();
+    expect(clipboard.copyText).not.toHaveBeenCalled();
+  });
+
+  it("discards a comparison invalidated by refresh failure and does not leave the CTA loading", async () => {
+    const user = userEvent.setup();
+    let resolveCompare!: (value: CompareResponse) => void;
+    let rejectRefresh!: (reason?: unknown) => void;
+    api.listAllManualInsurances
+      .mockResolvedValueOnce(initialRows)
+      .mockReturnValueOnce(new Promise((_, reject) => { rejectRefresh = reject; }));
+    api.compareCustomer.mockReturnValueOnce(new Promise((resolve) => { resolveCompare = resolve; }));
+    await renderSwitchTab();
+
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+    expect(await screen.findByRole("status", { name: "비교하고 있어요." })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "직접 입력" }));
+    await user.click(screen.getByRole("button", { name: "보험 저장" }));
+    rejectRefresh(new Error("refresh failed"));
+
+    await screen.findByRole("alert", { name: "보험 목록을 다시 불러와 주세요." });
+    const compareButton = screen.getByRole("button", { name: "선택한 구성 비교하기" }) as HTMLButtonElement;
+    expect(compareButton.disabled).toBe(false);
+
+    resolveCompare(comparison);
+    await waitFor(() => expect(screen.queryByText("암 진단비")).toBeNull());
+    expect(api.compareCustomer).toHaveBeenCalledTimes(1);
   });
 });

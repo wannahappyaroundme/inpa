@@ -28,6 +28,20 @@ describe("neutral multi-policy comparison copy", () => {
     expect(chart.getAttribute("aria-label")).not.toMatch(/기존|제안/);
   });
 
+  it("uses custom comparison labels in the chart accessible text", () => {
+    render(
+      <CompareBarChart
+        items={[{ label: "암 진단비", current: 10, proposed: 20 }]}
+        labelA="첫 구성"
+        labelB="둘째 구성"
+      />,
+    );
+
+    const chart = screen.getByRole("img");
+    expect(chart).toHaveAttribute("aria-label", "암 진단비 첫 구성 10 둘째 구성 20");
+    expect(chart.getAttribute("aria-label")).not.toMatch(/왼쪽 구성|오른쪽 구성/);
+  });
+
   it("uses the left and right composition labels as the premium table defaults", () => {
     const { container } = render(<ComparePremiumSplit current={side(87_000)} proposed={side(93_000)} />);
 
