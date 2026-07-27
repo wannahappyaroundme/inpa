@@ -67,7 +67,7 @@ services:
       - key: CONSULTATION_AI_SUMMARY_ENABLED
         value: "False"               # 음성 전사·요약 공급자 설정과 검증 전까지 닫힘
       - key: CONSULTATION_AI_COMPARISON_ENABLED
-        value: "False"
+        value: "True"                # 관리자 가상 상담 음성 A/B 비교 운영
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_TRANSCRIPTION_MODEL
