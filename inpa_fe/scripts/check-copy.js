@@ -79,6 +79,12 @@ const RULES = [
     paths: MULTI_POLICY_SURFACES,
     hint: "여러 증권의 A/B 시각 비교로 표현하세요.",
   },
+  {
+    name: "폐기된 증권 비교 방향 용어",
+    re: /증권 [AB]|비교 묶음 [AB]/,
+    paths: MULTI_POLICY_SURFACES,
+    hint: "화면에는 왼쪽 구성·오른쪽 구성, 저장 분류에는 현재 등록 증권·비교 화면에서 추가한 증권을 쓰세요.",
+  },
 ];
 
 /** rule.paths 가 있으면 해당 경로(디렉터리) 하위 파일에만 적용. */
