@@ -26,7 +26,10 @@ const INVALID_LINK_MESSAGE = "담당 설계사에게 새 링크를 요청해 주
 const RETRY_MESSAGE = "잠시 후 다시 불러와 주세요.";
 
 function classifyLoadFailure(error: unknown): PublicLoadFailure {
-  if (error instanceof ApiError && (error.status === 404 || error.status === 410)) {
+  if (error instanceof ApiError && error.status === 404) {
+    return { kind: "terminal", message: INVALID_LINK_MESSAGE };
+  }
+  if (error instanceof ApiError && error.status === 410) {
     return { kind: "terminal", message: error.message };
   }
   if (
@@ -126,7 +129,7 @@ export default function PublicBookingPage() {
   if (loadError) {
     return (
       <div className="mx-auto w-full max-w-md min-h-dvh bg-surface2 flex items-center justify-center px-5">
-        <Card className="px-6 py-8 text-center">
+        <Card role="alert" className="px-6 py-8 text-center">
           <div className="text-[15px] font-bold text-ink">
             {loadError.kind === "retryable" ? "잠시 연결이 원활하지 않아요" : "링크를 열 수 없어요"}
           </div>

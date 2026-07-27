@@ -23,8 +23,8 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   ...api,
 }));
 vi.mock("@/components/ui", () => ({
-  Card: ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-    <div className={className}>{children}</div>
+  Card: ({ children, className = "", ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+    <div className={className} {...props}>{children}</div>
   ),
 }));
 
@@ -89,20 +89,30 @@ describe("customer consent public signed route", () => {
 
     render(<CustomerConsentPage />);
 
-    expect(await screen.findByText("링크를 열 수 없어요")).toBeTruthy();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("링크를 열 수 없어요");
+    expect(alert).toHaveTextContent("담당 설계사에게 새 링크를 요청해 주세요.");
     expect(api.getConsentDisclosure).not.toHaveBeenCalled();
     expect(api.submitConsent).not.toHaveBeenCalled();
   });
 
   it.each([
-    new ApiError(404, "NOT_FOUND", "담당 설계사에게 새 링크를 요청해 주세요."),
-    new ApiError(410, "LINK_EXPIRED", "담당 설계사에게 새 링크를 요청해 주세요."),
-  ])("keeps %s as a terminal link-help state", async (error) => {
+    [
+      new ApiError(404, "NOT_FOUND", "유효하지 않은 링크입니다."),
+      "담당 설계사에게 새 링크를 요청해 주세요.",
+    ],
+    [
+      new ApiError(410, "LINK_EXPIRED", "링크가 만료됐어요. 담당 설계사에게 새 링크를 요청해 주세요."),
+      "링크가 만료됐어요. 담당 설계사에게 새 링크를 요청해 주세요.",
+    ],
+  ])("keeps %s as an announced terminal link-help state", async (error, message) => {
     api.getConsentDisclosure.mockRejectedValueOnce(error);
 
     render(<CustomerConsentPage />);
 
-    expect(await screen.findByText("링크를 열 수 없어요")).toBeTruthy();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("링크를 열 수 없어요");
+    expect(alert).toHaveTextContent(message);
     expect(screen.queryByRole("button", { name: "다시 불러오기" })).toBeNull();
   });
 
@@ -110,7 +120,7 @@ describe("customer consent public signed route", () => {
     new ApiError(429, "THROTTLED", "busy"),
     new ApiError(503, "TEMPORARY", "down"),
     new TypeError("network"),
-  ])("retries %s with the same normalized raw token", async (error) => {
+  ])("announces retryable %s with the same normalized raw token", async (error) => {
     navigation.token = encodeURIComponent(SIGNED);
     api.getConsentDisclosure
       .mockRejectedValueOnce(error)
@@ -118,8 +128,12 @@ describe("customer consent public signed route", () => {
 
     render(<CustomerConsentPage />);
 
-    expect(await screen.findByText("잠시 연결이 원활하지 않아요")).toBeTruthy();
-    await userEvent.setup().click(screen.getByRole("button", { name: "다시 불러오기" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("잠시 연결이 원활하지 않아요");
+    expect(alert).toHaveTextContent("잠시 후 다시 불러와 주세요.");
+    const retryButton = screen.getByRole("button", { name: "다시 불러오기" });
+    expect(alert).toContainElement(retryButton);
+    await userEvent.setup().click(retryButton);
     expect(await screen.findByText("상담을 위한 개인정보 이용")).toBeTruthy();
     expect(api.getConsentDisclosure).toHaveBeenNthCalledWith(1, SIGNED);
     expect(api.getConsentDisclosure).toHaveBeenNthCalledWith(2, SIGNED);
@@ -208,20 +222,30 @@ describe("customer booking public signed route", () => {
 
     render(<PublicBookingPage />);
 
-    expect(await screen.findByText("링크를 열 수 없어요")).toBeTruthy();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("링크를 열 수 없어요");
+    expect(alert).toHaveTextContent("담당 설계사에게 새 링크를 요청해 주세요.");
     expect(api.getBookingInfo).not.toHaveBeenCalled();
     expect(api.submitBooking).not.toHaveBeenCalled();
   });
 
   it.each([
-    new ApiError(404, "NOT_FOUND", "담당 설계사에게 새 링크를 요청해 주세요."),
-    new ApiError(410, "LINK_EXPIRED", "담당 설계사에게 새 링크를 요청해 주세요."),
-  ])("keeps %s as a terminal link-help state", async (error) => {
+    [
+      new ApiError(404, "NOT_FOUND", "유효하지 않은 링크입니다."),
+      "담당 설계사에게 새 링크를 요청해 주세요.",
+    ],
+    [
+      new ApiError(410, "LINK_EXPIRED", "링크가 만료됐어요. 담당 설계사에게 새 링크를 요청해 주세요."),
+      "링크가 만료됐어요. 담당 설계사에게 새 링크를 요청해 주세요.",
+    ],
+  ])("keeps %s as an announced terminal link-help state", async (error, message) => {
     api.getBookingInfo.mockRejectedValueOnce(error);
 
     render(<PublicBookingPage />);
 
-    expect(await screen.findByText("링크를 열 수 없어요")).toBeTruthy();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("링크를 열 수 없어요");
+    expect(alert).toHaveTextContent(message);
     expect(screen.queryByRole("button", { name: "다시 불러오기" })).toBeNull();
   });
 
@@ -229,7 +253,7 @@ describe("customer booking public signed route", () => {
     new ApiError(429, "THROTTLED", "busy"),
     new ApiError(503, "TEMPORARY", "down"),
     new TypeError("network"),
-  ])("retries %s with the same normalized raw token", async (error) => {
+  ])("announces retryable %s with the same normalized raw token", async (error) => {
     navigation.token = encodeURIComponent(SIGNED);
     api.getBookingInfo
       .mockRejectedValueOnce(error)
@@ -237,8 +261,12 @@ describe("customer booking public signed route", () => {
 
     render(<PublicBookingPage />);
 
-    expect(await screen.findByText("잠시 연결이 원활하지 않아요")).toBeTruthy();
-    await userEvent.setup().click(screen.getByRole("button", { name: "다시 불러오기" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("잠시 연결이 원활하지 않아요");
+    expect(alert).toHaveTextContent("잠시 후 다시 불러와 주세요.");
+    const retryButton = screen.getByRole("button", { name: "다시 불러오기" });
+    expect(alert).toContainElement(retryButton);
+    await userEvent.setup().click(retryButton);
     expect(await screen.findByText("상담 시간 고르기")).toBeTruthy();
     expect(api.getBookingInfo).toHaveBeenNthCalledWith(1, SIGNED);
     expect(api.getBookingInfo).toHaveBeenNthCalledWith(2, SIGNED);
