@@ -548,6 +548,12 @@ class SeedBoardsNeutralCopyTests(TestCase):
         '지금 보장과 제안 보장을 나란히 놓고 추가·삭제·변경을 정리해 주는 표예요. '
         '산출물은 AI가 정리한 참고 자료이며, 보장 판단과 고객 안내는 설계사님의 업무입니다.'
     )
+    OFFICIAL_AB_FAQ_QUESTION = '여러 증권 비교는 무엇인가요?'
+    OFFICIAL_AB_FAQ_ANSWER = (
+        '선택한 증권을 증권 A와 증권 B 묶음으로 나눠, 담보·보장금액·보험료 차이를 '
+        '같은 기준의 표와 그래프로 확인하는 기능이에요. '
+        '인파가 등록된 보장 정보를 정리한 참고 자료입니다.'
+    )
 
     def setUp(self):
         self.admin, _ = _make_planner('seed-admin@test.com', is_admin=True)
@@ -579,11 +585,33 @@ class SeedBoardsNeutralCopyTests(TestCase):
         )
         self.assertEqual(faq_rows.count(), 1)
         faq = faq_rows.get()
-        self.assertIn('증권 A와 증권 B', faq.answer)
+        self.assertIn('왼쪽 구성과 오른쪽 구성', faq.answer)
+        self.assertIn('같은 증권을 양쪽에 함께', faq.answer)
+        self.assertNotIn('증권 A', faq.answer)
+        self.assertNotIn('증권 B', faq.answer)
         for deprecated in ('현재와 제안', '제안 보장', '갈아타기', '승환', '비교안내서'):
             self.assertNotIn(deprecated, notice.body)
             self.assertNotIn(deprecated, faq.answer)
         self.assertFalse(Faq.objects.filter(question=self.OLD_FAQ_QUESTION).exists())
+
+    def test_upgrades_only_untouched_official_ab_faq_and_remains_idempotent(self):
+        Faq.objects.create(
+            author=self.admin,
+            category='기능문의',
+            order=3,
+            question=self.OFFICIAL_AB_FAQ_QUESTION,
+            answer=self.OFFICIAL_AB_FAQ_ANSWER,
+            is_published=True,
+        )
+
+        call_command('seed_boards')
+        call_command('seed_boards')
+
+        faq_rows = Faq.objects.filter(question=self.OFFICIAL_AB_FAQ_QUESTION)
+        self.assertEqual(faq_rows.count(), 1)
+        faq = faq_rows.get()
+        self.assertIn('왼쪽 구성과 오른쪽 구성', faq.answer)
+        self.assertIn('같은 증권을 양쪽에 함께', faq.answer)
 
     def test_preserves_admin_edited_notice_and_faq(self):
         edited_notice = '관리자가 직접 수정한 공지 본문입니다.'
@@ -611,6 +639,29 @@ class SeedBoardsNeutralCopyTests(TestCase):
         self.assertTrue(Faq.objects.filter(
             question=self.OLD_FAQ_QUESTION, answer=edited_answer,
         ).exists())
+
+    def test_preserves_admin_edit_to_current_comparison_faq(self):
+        edited_answer = '관리자가 현재 비교 방식에 맞게 직접 수정한 FAQ 답변입니다.'
+        Faq.objects.create(
+            author=self.admin,
+            category='기능문의',
+            order=3,
+            question=self.OFFICIAL_AB_FAQ_QUESTION,
+            answer=edited_answer,
+            is_published=True,
+        )
+
+        call_command('seed_boards')
+        call_command('seed_boards')
+
+        self.assertTrue(Faq.objects.filter(
+            question=self.OFFICIAL_AB_FAQ_QUESTION,
+            answer=edited_answer,
+        ).exists())
+        self.assertEqual(
+            Faq.objects.filter(question=self.OFFICIAL_AB_FAQ_QUESTION).count(),
+            1,
+        )
 
     def test_seeds_sales_notice_and_manager_faq_once(self):
         call_command('seed_boards')

@@ -148,8 +148,8 @@ describe("insurance review authority UI", () => {
     expect(right.className).toContain("min-h-11");
     expect(screen.getByText("양쪽 포함")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "비교 제외" })).toBeNull();
-    expect(screen.queryByText("비교 묶음 A")).toBeNull();
-    expect(screen.queryByText("비교 묶음 B")).toBeNull();
+    expect(screen.queryByText("현재 등록 증권")).toBeNull();
+    expect(screen.queryByText("비교 화면에서 추가한 증권")).toBeNull();
 
     rerender(
       <AssignInsRow

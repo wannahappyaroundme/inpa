@@ -91,8 +91,8 @@ export const heatmapMock: HeatCategory[] = [
 export interface CompareRowMock { coverage: string; current: number; proposed: number }
 export const compareMock = {
   customerName: "김보장",
-  current: { product: "증권 A · 무)종합건강보험 (2014년 가입)", monthly: 124000, total: 14880000 },
-  proposed: { product: "증권 B · 무)건강보장보험 (2026년)", monthly: 98000, total: 11760000 },
+  current: { product: "왼쪽 구성 · 무)종합건강보험 (2014년 가입)", monthly: 124000, total: 14880000 },
+  proposed: { product: "오른쪽 구성 · 무)건강보장보험 (2026년)", monthly: 98000, total: 11760000 },
   rows: [
     { coverage: "암 진단비", current: 30000000, proposed: 50000000 },
     { coverage: "뇌혈관 진단비", current: 10000000, proposed: 20000000 },
@@ -105,7 +105,7 @@ export const compareMock = {
   verdict: {
     decision: "SWITCH" as "KEEP" | "SWITCH" | "NEUTRAL",
     reason:
-      "증권 A와 증권 B의 담보·보장금액·보험료 차이를 같은 기준으로 정리한 예시입니다.",
+      "왼쪽 구성과 오른쪽 구성의 담보·보장금액·보험료 차이를 같은 기준으로 정리한 예시입니다.",
     netBenefitYear: 312000, // 1년 추정 순이득(원)
   },
   warnings: [

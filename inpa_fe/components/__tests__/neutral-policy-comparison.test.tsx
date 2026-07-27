@@ -56,8 +56,8 @@ describe("neutral multi-policy comparison copy", () => {
     };
     const copy = buildCompareExportText(response, "왼쪽 구성", "오른쪽 구성");
 
-    expect(compareMock.current.product).toMatch(/^증권 A/);
-    expect(compareMock.proposed.product).toMatch(/^증권 B/);
+    expect(compareMock.current.product).toMatch(/^왼쪽 구성/);
+    expect(compareMock.proposed.product).toMatch(/^오른쪽 구성/);
     expect(copy).toContain("왼쪽 구성");
     expect(copy).toContain("오른쪽 구성");
     expect(copy).not.toMatch(/증권 A|증권 B|현재와 제안|갈아타기|승환|비교안내서/);

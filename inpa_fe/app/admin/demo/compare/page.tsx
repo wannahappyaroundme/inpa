@@ -20,12 +20,12 @@ export default function DemoCompare() {
       {/* 요약 2열 */}
       <div className="mt-4 grid sm:grid-cols-2 gap-3">
         <Card className="p-4">
-          <div className="text-[12px] font-semibold text-ink3">증권 A</div>
+          <div className="text-[12px] font-semibold text-ink3">왼쪽 구성</div>
           <div className="text-[15px] font-bold text-ink mt-0.5">{c.current.product}</div>
           <div className="mt-2 text-[13px] text-ink2">월 보험료 <b className="text-ink">{amt(c.current.monthly)}</b> · 총 납입 {amt(c.current.total)}</div>
         </Card>
         <Card className="p-4">
-          <div className="text-[12px] font-semibold text-brand">증권 B</div>
+          <div className="text-[12px] font-semibold text-brand">오른쪽 구성</div>
           <div className="text-[15px] font-bold text-ink mt-0.5">{c.proposed.product}</div>
           <div className="mt-2 text-[13px] text-ink2">월 보험료 <b className="text-brand">{amt(c.proposed.monthly)}</b> · 총 납입 {amt(c.proposed.total)}</div>
         </Card>
@@ -35,8 +35,8 @@ export default function DemoCompare() {
       <Card className="mt-3 overflow-hidden">
         <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] text-[12px] font-semibold text-ink3 bg-surface2 px-4 py-2.5">
           <div>담보</div>
-          <div className="text-right">증권 A</div>
-          <div className="text-right">증권 B</div>
+          <div className="text-right">왼쪽 구성</div>
+          <div className="text-right">오른쪽 구성</div>
           <div className="text-right">증감</div>
         </div>
         <div className="divide-y divide-line">

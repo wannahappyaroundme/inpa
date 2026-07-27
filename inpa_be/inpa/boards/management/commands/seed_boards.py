@@ -37,10 +37,15 @@ LEGACY_COMPARE_FAQ_ANSWER = (
     '산출물은 AI가 정리한 참고 자료이며, 보장 판단과 고객 안내는 설계사님의 업무입니다.'
 )
 COMPARE_FAQ_QUESTION = '여러 증권 비교는 무엇인가요?'
-COMPARE_FAQ_ANSWER = (
+LEGACY_COMPARE_FAQ_ANSWER_AB = (
     '선택한 증권을 증권 A와 증권 B 묶음으로 나눠, 담보·보장금액·보험료 차이를 '
     '같은 기준의 표와 그래프로 확인하는 기능이에요. '
     '인파가 등록된 보장 정보를 정리한 참고 자료입니다.'
+)
+COMPARE_FAQ_ANSWER = (
+    '고객의 증권을 왼쪽 구성과 오른쪽 구성에 자유롭게 담아, 담보·보장금액·보험료 '
+    '차이를 같은 기준의 표와 그래프로 확인하는 기능이에요. 같은 증권을 양쪽에 '
+    '함께 넣을 수도 있어요. 인파가 등록된 보장 정보를 정리한 참고 자료입니다.'
 )
 
 NOTICES = [
@@ -180,6 +185,10 @@ class Command(BaseCommand):
                 question=COMPARE_FAQ_QUESTION,
                 answer=COMPARE_FAQ_ANSWER,
             )
+            Faq.objects.filter(
+                question=COMPARE_FAQ_QUESTION,
+                answer=LEGACY_COMPARE_FAQ_ANSWER_AB,
+            ).update(answer=COMPARE_FAQ_ANSWER)
 
             for n in NOTICES:
                 _, created = Notice.objects.get_or_create(

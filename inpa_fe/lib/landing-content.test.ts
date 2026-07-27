@@ -30,9 +30,11 @@ test("증권 비교 화면은 여러 증권의 중립 시각 비교로 설명한
 
   assert.equal(compare?.label, "증권 비교");
   assert.match(compare?.title ?? "", /여러 증권/);
+  assert.match(compare?.imageAlt ?? "", /왼쪽 구성과 오른쪽 구성/);
+  assert.match(WORKFLOW_STEPS[2].description, /왼쪽 구성과 오른쪽 구성/);
   assert.doesNotMatch(
     JSON.stringify({ compare, WORKFLOW_STEPS }),
-    /현재와 제안|갈아타기|승환|비교안내서/,
+    /증권 A|증권 B|현재와 제안|갈아타기|승환|비교안내서/,
   );
 });
 

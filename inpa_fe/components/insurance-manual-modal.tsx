@@ -18,7 +18,7 @@ export function InsuranceManualModal({
   onClose: () => void;
   onChanged?: () => void;
   initialInsuranceId?: number | null;
-  defaultPortfolioType?: 1 | 2;   // 1=보유 / 2=제안 (호출처에서 지정, 비교분석=2)
+  defaultPortfolioType?: 1 | 2;   // 1=현재 등록 / 2=비교 화면에서 추가(비교 화면 기본값=2)
 }) {
   const [insuranceId, setInsuranceId] = useState<number | null>(initialInsuranceId ?? null);
   const [name, setName] = useState("");
@@ -176,10 +176,10 @@ export function InsuranceManualModal({
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-[12px] font-semibold text-ink3">구분</span>
+              <span className="text-[12px] font-semibold text-ink3">등록 위치</span>
               <select value={portfolioType} onChange={(e) => setPortfolioType(e.target.value === "1" ? 1 : 2)} className={inputCls}>
-                <option value={1}>비교 묶음 A</option>
-                <option value={2}>비교 묶음 B</option>
+                <option value={1}>현재 등록 증권</option>
+                <option value={2}>비교 화면에서 추가한 증권</option>
               </select>
             </label>
           </div>
