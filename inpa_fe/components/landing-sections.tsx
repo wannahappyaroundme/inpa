@@ -94,12 +94,12 @@ export function HeroSection() {
                   <div className="flex items-center justify-between">
                     <span className="text-[12px] font-bold text-[var(--ink)]">증권 비교</span>
                     <span className="inline-flex items-center gap-1 text-[11px] font-bold rounded-full px-2 py-0.5" style={{ color: "var(--brand)", background: "var(--accent-tint)" }}>
-                      <ArrowLeftRight size={12} strokeWidth={2.2} /> 증권 A · 증권 B
+                      <ArrowLeftRight size={12} strokeWidth={2.2} /> 왼쪽 구성 · 오른쪽 구성
                     </span>
                   </div>
                   <div className="mt-2.5 space-y-1.5 text-[12px]">
-                    <div className="flex justify-between"><span className="text-[var(--ink-3)]">증권 A 월 보험료</span><span className="font-semibold text-[var(--ink)] tnum">87,000원</span></div>
-                    <div className="flex justify-between"><span className="text-[var(--ink-3)]">증권 B 월 보험료</span><span className="font-semibold text-[var(--ink)] tnum">93,000원</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--ink-3)]">왼쪽 구성 월 보험료</span><span className="font-semibold text-[var(--ink)] tnum">87,000원</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--ink-3)]">오른쪽 구성 월 보험료</span><span className="font-semibold text-[var(--ink)] tnum">93,000원</span></div>
                   </div>
                 </div>
               </div>
@@ -137,7 +137,7 @@ export function FeaturesSection() {
   const cards = [
     { icon: LayoutGrid, title: "보장 한눈표 (히트맵)", desc: "고객의 현재 보장을 100개 이상 담보 항목으로 한 화면에. 보유·공백을 색으로 즉시 확인합니다." },
     { icon: BarChart3, title: "보장 공백 분석", desc: "보유 0인 담보를 모아 우선순위로 정렬합니다. 충분·부족 판단은 설계사님이 설정한 기준선을 따릅니다." },
-    { icon: ArrowLeftRight, title: "여러 증권 시각 비교", desc: "선택한 증권 A와 증권 B의 담보, 보장금액, 보험료를 같은 기준의 표와 그래프로 나란히 확인합니다." },
+    { icon: ArrowLeftRight, title: "여러 증권 시각 비교", desc: "선택한 두 구성의 담보, 보장금액, 보험료를 같은 기준의 표와 그래프로 나란히 확인합니다." },
   ];
   return (
     <section id="features" className="py-20 md:py-28 bg-[var(--surface)]">
@@ -168,13 +168,13 @@ function ShowcaseViz({ kind }: { kind: "analysis" | "funnel" | "calendar" | "mes
         <div className="w-full">
           <LineCompareChart
             series={[
-              { label: "증권 A", color: "var(--existing)", points: [18, 30, 24, 38, 32] },
-              { label: "증권 B", color: "var(--proposal)", points: [26, 40, 38, 52, 60] },
+              { label: "왼쪽 구성", color: "var(--existing)", points: [18, 30, 24, 38, 32] },
+              { label: "오른쪽 구성", color: "var(--proposal)", points: [26, 40, 38, 52, 60] },
             ]}
           />
           <div className="mt-1 flex gap-3 text-[10px] text-ink3">
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-[3px] rounded" style={{ background: "var(--existing)" }} />증권 A</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-[3px] rounded" style={{ background: "var(--proposal)" }} />증권 B</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-[3px] rounded" style={{ background: "var(--existing)" }} />왼쪽 구성</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-[3px] rounded" style={{ background: "var(--proposal)" }} />오른쪽 구성</span>
           </div>
         </div>
       );
@@ -244,7 +244,7 @@ function ShowcaseViz({ kind }: { kind: "analysis" | "funnel" | "calendar" | "mes
 
 // 실제 화면 캡처가 있는 카드는 ShowcaseViz(마케팅용 예시 그래픽) 대신 이걸 씀 — 2026-07-15 PM 지시(가짜 목업 대신 실제 화면, 적절한 위치에 배치).
 const REAL_SHOTS: Partial<Record<"analysis" | "funnel" | "calendar" | "message" | "kpi" | "promo", { src: string; alt: string }>> = {
-  analysis: { src: "/landing-new/compare-analysis.webp", alt: "증권 비교 실제 화면: 증권 A와 증권 B의 담보별 비교" },
+  analysis: { src: "/landing-new/compare-analysis.webp", alt: "증권 비교 실제 화면: 왼쪽 구성과 오른쪽 구성의 담보별 비교" },
   funnel: { src: "/landing-new/customer-pipeline.webp", alt: "고객 관리 시스템 실제 화면: 고객 검색과 영업 단계별 분류" },
   calendar: { src: "/landing-new/schedule-calendar.webp", alt: "일정 & 예약 관리 실제 화면: 캘린더와 오늘 일정" },
   promo: { src: "/landing-new/promotion.webp", alt: "판촉물 디자인 & 발주 실제 화면: 명함 디자인 샘플" },
@@ -299,7 +299,7 @@ export function FeatureShowcaseSection() {
 
 export function DifferentiatorsSection() {
   const items = [
-    { icon: ArrowLeftRight, badge: "증권 A · 증권 B를 같은 기준으로", title: "여러 증권의 차이를 시각적으로",
+    { icon: ArrowLeftRight, badge: "왼쪽 구성 · 오른쪽 구성을 같은 기준으로", title: "여러 증권의 차이를 시각적으로",
       desc: "비교할 증권을 직접 고르면 담보, 보장금액, 보험료를 같은 기준으로 정리합니다. 어느 증권이 더 낫다고 판단하지 않고 등록된 사실을 표와 그래프로 보여줘요." },
     { icon: LayoutGrid, badge: "담보 100+ 표준화 · 보험사별 명칭 자동 매핑", title: "어떤 보험사 증권도 같은 틀로",
       desc: "'암진단급부금', '일반암진단비', '암진단 특약'처럼 회사마다 다른 이름을 100개 이상 표준 담보로 자동 정규화합니다. 데이터가 쌓일수록 매칭 정확도가 높아집니다." },

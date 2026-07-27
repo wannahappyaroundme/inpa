@@ -17,6 +17,8 @@ router.register('work-hours', views.WorkHourViewSet, basename='work-hour')
 router.register('meetings', views.MeetingViewSet, basename='meeting')
 
 urlpatterns = router.urls + [
+    path('booking-customers/',
+         views.BookingCustomerListView.as_view(), name='booking-customer-list'),
     path('customers/<int:customer_pk>/booking-requests/',
          views.BookingRequestCreateView.as_view(), name='booking-request-create'),
     path('b/<str:token>/', PublicBookingView.as_view(), name='public-booking'),

@@ -4,10 +4,12 @@ import type {
   RecruitingCareerBand,
   RecruitingContactWindow,
 } from "../../lib/api";
+import {
+  isSafeSignedRouteToken,
+} from "@/lib/signed-route-token";
 
 export const MANAGE_STORAGE_KEY = "inpa_recruiting_manage";
 
-const SAFE_RECRUITING_TOKEN = /^[A-Za-z0-9._:-]+$/;
 const MANAGE_PATH = /^\/r\/manage\/([A-Za-z0-9._:-]+)$/;
 
 export interface StorageLike {
@@ -26,24 +28,7 @@ export interface PublicApplicationFormValues {
   agreed: boolean;
 }
 
-export function isSafeRecruitingToken(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value !== "." &&
-    value !== ".." &&
-    SAFE_RECRUITING_TOKEN.test(value)
-  );
-}
-
-export function normalizeRecruitingRouteToken(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  try {
-    const decoded = decodeURIComponent(value);
-    return isSafeRecruitingToken(decoded) ? decoded : null;
-  } catch {
-    return null;
-  }
-}
+export const isSafeRecruitingToken = isSafeSignedRouteToken;
 
 export function getOrCreateSubmissionAttempt(
   current: PublicRecruitingApplication | null,

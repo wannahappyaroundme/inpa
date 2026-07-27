@@ -82,9 +82,224 @@ class BookingCoreTests(TestCase):
         self.assertIn('홍길동', body['message'])
         self.assertNotIn('{링크}', body['message'])
 
+    @override_settings(FRONTEND_BASE_URL='https://www.inpa.kr')
+    def test_booking_request_default_message_contains_real_identity_and_full_url(self):
+        self.profile_a.name = '황예진'
+        self.profile_a.title = '팀장'
+        self.profile_a.booking_msg_template = ''
+        self.profile_a.save(update_fields=['name', 'title', 'booking_msg_template'])
+
+        response = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/')
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertIn('홍길동 고객님', body['message'])
+        self.assertIn('A생명 팀장 황예진 보험설계사입니다.', body['message'])
+        self.assertTrue(body['booking_url'].startswith('https://www.inpa.kr/b/'))
+        self.assertIn(body['booking_url'], body['message'])
+
+    def test_booking_request_default_message_uses_fallback_name_without_affiliation_duplication(self):
+        self.profile_a.name = ''
+        self.profile_a.affiliation = 'A생명'
+        self.profile_a.title = ''
+        self.profile_a.booking_msg_template = ''
+        self.profile_a.save(update_fields=[
+            'name', 'affiliation', 'title', 'booking_msg_template',
+        ])
+
+        body = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
+        self.assertIn('안녕하세요. A생명 담당 설계사입니다.', body['message'])
+        self.assertNotIn('A생명 A생명', body['message'])
+        self.assertNotIn('담당 설계사 보험설계사', body['message'])
+
+    def test_booking_request_default_message_has_no_double_space_without_label(self):
+        self.profile_a.name = '황예진'
+        self.profile_a.affiliation = ''
+        self.profile_a.title = ''
+        self.profile_a.booking_msg_template = ''
+        self.profile_a.save(update_fields=[
+            'name', 'affiliation', 'title', 'booking_msg_template',
+        ])
+
+        body = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
+        self.assertIn('안녕하세요. 황예진 보험설계사입니다.', body['message'])
+        self.assertNotIn('안녕하세요.  황예진', body['message'])
+
+    def test_booking_request_custom_template_keeps_optional_label_contract(self):
+        self.profile_a.name = '황예진'
+        self.profile_a.affiliation = ''
+        self.profile_a.title = ''
+        self.profile_a.booking_msg_template = (
+            '{고객명}님, {소속직책} {설계사명}입니다.\n{링크}')
+        self.profile_a.save(update_fields=[
+            'name', 'affiliation', 'title', 'booking_msg_template',
+        ])
+
+        body = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
+        self.assertIn('홍길동님, 황예진입니다.', body['message'])
+        self.assertNotIn('  ', body['message'])
+
+    def test_booking_request_custom_template_keeps_fallback_name(self):
+        self.profile_a.name = ''
+        self.profile_a.affiliation = 'A생명'
+        self.profile_a.booking_msg_template = '{소속직책} {설계사명}님\n{링크}'
+        self.profile_a.save(update_fields=[
+            'name', 'affiliation', 'booking_msg_template',
+        ])
+
+        body = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
+        self.assertIn('A생명 담당 설계사님', body['message'])
+
+    def test_booking_request_leaves_no_known_placeholder(self):
+        body = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
+        for placeholder in ('{고객명}', '{소속직책}', '{설계사명}', '{링크}'):
+            self.assertNotIn(placeholder, body['message'])
+
     def test_booking_request_owner_isolation(self):
         r = self.client_b.post(f'/api/v1/customers/{self.customer.id}/booking-requests/')
         self.assertEqual(r.status_code, 404)
+
+    def test_booking_request_admin_cannot_issue_link_for_foreign_customer(self):
+        self.profile_b.is_admin = True
+        self.profile_b.save(update_fields=['is_admin'])
+
+        response = self.client_b.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/')
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_booking_request_admin_can_issue_link_for_own_customer(self):
+        self.profile_b.is_admin = True
+        self.profile_b.save(update_fields=['is_admin'])
+        own_customer = Customer.objects.create(
+            owner=self.user_b,
+            name='관리자 본인 고객',
+            mobile_phone_number='010-1111-2222',
+        )
+
+        response = self.client_b.post(
+            f'/api/v1/customers/{own_customer.id}/booking-requests/')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(read_booking_token(response.json()['token']), own_customer.id)
+
+    # ── 예약 고객 검색(설계사 본인 소유만) ──
+    def test_booking_customer_list_returns_only_owner_rows_with_minimal_fields(self):
+        own_customer = Customer.objects.create(
+            owner=self.user_a,
+            name='내 고객',
+            mobile_phone_number='010-1111-2222',
+            sales_stage=Customer.STAGE_CONTACT,
+            memo='예약 선택기에 노출되면 안 되는 메모',
+        )
+        foreign_customer = Customer.objects.create(
+            owner=self.user_b,
+            name='외부 고객 비밀이름',
+            mobile_phone_number='010-9999-8888',
+            sales_stage=Customer.STAGE_MEETING,
+        )
+
+        response = self.client_a.get('/api/v1/booking-customers/')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['count'], 2)
+        self.assertEqual(set(body), {'count', 'next', 'previous', 'results'})
+        row = next(item for item in body['results'] if item['id'] == own_customer.id)
+        self.assertEqual(
+            row,
+            {
+                'id': own_customer.id,
+                'name': '내 고객',
+                'mobile_phone_number': '010-1111-2222',
+                'sales_stage': Customer.STAGE_CONTACT,
+            },
+        )
+        payload = response.content.decode()
+        self.assertNotIn(
+            foreign_customer.id,
+            [item['id'] for item in body['results']],
+        )
+        self.assertNotIn('외부 고객 비밀이름', payload)
+        self.assertNotIn('010-9999-8888', payload)
+        self.assertNotIn('예약 선택기에 노출되면 안 되는 메모', payload)
+
+    def test_booking_customer_list_keeps_admin_strictly_owner_scoped(self):
+        self.profile_b.is_admin = True
+        self.profile_b.save(update_fields=['is_admin'])
+        own_customer = Customer.objects.create(
+            owner=self.user_b,
+            name='관리자 본인 고객',
+            mobile_phone_number='010-3333-4444',
+        )
+
+        response = self.client_b.get('/api/v1/booking-customers/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item['id'] for item in response.json()['results']],
+            [own_customer.id],
+        )
+        payload = response.content.decode()
+        self.assertNotIn('홍길동', payload)
+        self.assertNotIn('010-0000-0000', payload)
+
+    def test_booking_customer_search_trims_and_matches_name_or_phone(self):
+        name_match = Customer.objects.create(
+            owner=self.user_a,
+            name='검색 대상',
+            mobile_phone_number='010-1111-2222',
+        )
+        phone_match = Customer.objects.create(
+            owner=self.user_a,
+            name='다른 고객',
+            mobile_phone_number='010-5555-6789',
+        )
+        Customer.objects.create(
+            owner=self.user_a,
+            name='검색 제외',
+            mobile_phone_number='010-0000-0001',
+        )
+
+        by_name = self.client_a.get(
+            '/api/v1/booking-customers/',
+            {'search': '  검색 대상  '},
+        )
+        by_phone = self.client_a.get(
+            '/api/v1/booking-customers/',
+            {'search': '  6789  '},
+        )
+
+        self.assertEqual(by_name.status_code, 200)
+        self.assertEqual(
+            [item['id'] for item in by_name.json()['results']],
+            [name_match.id],
+        )
+        self.assertEqual(by_phone.status_code, 200)
+        self.assertEqual(
+            [item['id'] for item in by_phone.json()['results']],
+            [phone_match.id],
+        )
+
+    def test_booking_customer_list_requires_authentication_and_verified_email(self):
+        anonymous = APIClient().get('/api/v1/booking-customers/')
+        unverified_user = User.objects.create_user(
+            email='unverified-booking@test.com',
+            password='inpaPass123!',
+        )
+        Profile.objects.create(user=unverified_user)
+        unverified_client = APIClient()
+        unverified_client.force_authenticate(user=unverified_user)
+
+        unverified = unverified_client.get('/api/v1/booking-customers/')
+
+        self.assertEqual(anonymous.status_code, 401)
+        self.assertEqual(unverified.status_code, 403)
 
     # ── 공개 GET (업무시간 기준 빈 슬롯 자동 생성) ──
     def test_public_get_masked_and_workhour_slots(self):
@@ -313,6 +528,10 @@ class BookingDisabledGateTests(TestCase):
     def test_booking_request_403(self):
         r = self.client.post(f'/api/v1/customers/{self.customer.id}/booking-requests/')
         self.assertEqual(r.status_code, 403)
+
+    def test_booking_customer_list_403(self):
+        response = self.client.get('/api/v1/booking-customers/')
+        self.assertEqual(response.status_code, 403)
 
     def test_public_get_404(self):
         token = make_booking_token(self.customer)

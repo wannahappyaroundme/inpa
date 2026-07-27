@@ -15,6 +15,34 @@ import {
   type ConsentDisclosure,
   type ConsentScope,
 } from "@/lib/api";
+import { normalizeSignedRouteToken } from "@/lib/signed-route-token";
+
+type PublicLoadFailure = {
+  kind: "terminal" | "retryable";
+  message: string;
+};
+
+const INVALID_LINK_MESSAGE = "담당 설계사에게 새 링크를 요청해 주세요.";
+const RETRY_MESSAGE = "잠시 후 다시 불러와 주세요.";
+
+function classifyLoadFailure(error: unknown): PublicLoadFailure {
+  if (error instanceof ApiError && error.status === 404) {
+    return { kind: "terminal", message: INVALID_LINK_MESSAGE };
+  }
+  if (error instanceof ApiError && error.status === 410) {
+    return { kind: "terminal", message: error.message };
+  }
+  if (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 429 || error.status >= 500))
+  ) {
+    return { kind: "retryable", message: RETRY_MESSAGE };
+  }
+  return {
+    kind: "terminal",
+    message: error instanceof ApiError ? error.message : INVALID_LINK_MESSAGE,
+  };
+}
 
 function ConsentSkeleton() {
   return (
@@ -57,11 +85,11 @@ const REVOKE_NOTES: Partial<Record<ConsentScope, string>> = {
 const REVOKE_NOTE_DEFAULT = "철회 후에도 언제든 다시 동의할 수 있어요.";
 
 export default function CustomerConsentPage() {
-  const params = useParams();
-  const token = typeof params?.token === "string" ? params.token : "";
+  const params = useParams<{ token?: string | string[] }>();
+  const token = normalizeSignedRouteToken(params?.token);
 
   const [disclosure, setDisclosure] = useState<ConsentDisclosure | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<PublicLoadFailure | null>(null);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -73,25 +101,25 @@ export default function CustomerConsentPage() {
   const [revokedMsg, setRevokedMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const d = await getConsentDisclosure(token);
-    setDisclosure(d);
-    setAlreadyDoneAtLoad(d.all_required_done);
-    // 이미 동의한 항목은 체크 표시(비활성)
-    setChecked(Object.fromEntries(d.items.filter((i) => i.already).map((i) => [i.scope, true])));
-    return d;
+    setLoadError(null);
+    if (token === null) {
+      setDisclosure(null);
+      setLoadError({ kind: "terminal", message: INVALID_LINK_MESSAGE });
+      return;
+    }
+    try {
+      const d = await getConsentDisclosure(token);
+      setDisclosure(d);
+      setAlreadyDoneAtLoad(d.all_required_done);
+      // 이미 동의한 항목은 체크 표시(비활성)
+      setChecked(Object.fromEntries(d.items.filter((i) => i.already).map((i) => [i.scope, true])));
+    } catch (error: unknown) {
+      setLoadError(classifyLoadFailure(error));
+    }
   }, [token]);
 
   useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    load().catch((e: unknown) => {
-      if (cancelled) return;
-      setLoadError(
-        e instanceof ApiError ? e.message
-          : "링크를 열 수 없어요. 담당 설계사에게 새 링크를 요청해 주세요."
-      );
-    });
-    return () => { cancelled = true; };
+    void load();
   }, [token, load]);
 
   const requiredOk =
@@ -102,7 +130,7 @@ export default function CustomerConsentPage() {
     !!disclosure && disclosure.items.some((i) => !i.already && checked[i.scope]);
 
   const submit = useCallback(async () => {
-    if (!disclosure) return;
+    if (!disclosure || token === null) return;
     setSubmitting(true);
     setSubmitError(null);
     const agreed = disclosure.items.filter((i) => checked[i.scope]).map((i) => i.scope);
@@ -119,6 +147,7 @@ export default function CustomerConsentPage() {
   }, [token, disclosure, checked]);
 
   const revoke = useCallback(async (scope: ConsentScope) => {
+    if (token === null) return;
     setRevoking(true);
     setSubmitError(null);
     try {
@@ -138,9 +167,19 @@ export default function CustomerConsentPage() {
   if (loadError) {
     return (
       <div className="mx-auto w-full max-w-md min-h-dvh bg-surface2 flex items-center justify-center px-5">
-        <Card className="px-6 py-8 text-center">
-          <div className="text-[15px] font-bold text-ink">링크를 열 수 없어요</div>
-          <p className="mt-2 text-[13px] text-ink3 leading-5">{loadError}</p>
+        <Card role="alert" className="px-6 py-8 text-center">
+          <div className="text-[15px] font-bold text-ink">
+            {loadError.kind === "retryable" ? "잠시 연결이 원활하지 않아요" : "링크를 열 수 없어요"}
+          </div>
+          <p className="mt-2 text-[13px] text-ink3 leading-5">{loadError.message}</p>
+          {loadError.kind === "retryable" && (
+            <button
+              onClick={() => { void load(); }}
+              className="mt-5 rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink2"
+            >
+              다시 불러오기
+            </button>
+          )}
         </Card>
       </div>
     );
@@ -159,7 +198,7 @@ export default function CustomerConsentPage() {
             담당 설계사가 이어서 도와드릴 거예요. 이 창은 닫으셔도 됩니다.
           </p>
           <button
-            onClick={() => { setDone(false); load().catch(() => {}); }}
+            onClick={() => { setDone(false); void load(); }}
             className="mt-6 rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink2"
           >
             동의 내용 확인·철회하기

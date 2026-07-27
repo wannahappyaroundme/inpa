@@ -1,7 +1,7 @@
 """미팅 예약 메시지 템플릿 — 설계사별 커스텀(빈 값이면 기본). BE가 인증 경로에서만 렌더."""
 
 DEFAULT_BOOKING_MSG_TEMPLATE = (
-    '{고객명} 고객님, 안녕하세요. {설계사명} 보험설계사입니다.\n'
+    '{고객명} 고객님, 안녕하세요. {소속직책} {설계사명} 보험설계사입니다.\n'
     '가능하신 날짜를 선택해 주시면 자세한 보험 상담을 도와드리겠습니다.\n'
     '아래 링크에서 편하신 시간을 골라주세요 👇\n'
     '{링크}'
@@ -11,8 +11,14 @@ DEFAULT_BOOKING_MSG_TEMPLATE = (
 def render_booking_message(template, customer_name, planner_name, url, planner_label=''):
     """{고객명}{소속직책}{설계사명}{링크} 치환. template이 비면 기본 템플릿 사용."""
     text = template or DEFAULT_BOOKING_MSG_TEMPLATE
+    label = (planner_label or '').strip()
+    name = (planner_name or '').strip()
+    if (not template or template == DEFAULT_BOOKING_MSG_TEMPLATE) and not name:
+        text = text.replace('{설계사명} 보험설계사', '담당 설계사')
+    name = name or '담당 설계사'
+    text = text.replace('{소속직책} ', f'{label} ' if label else '')
     return (text
             .replace('{고객명}', customer_name or '고객')
-            .replace('{소속직책}', planner_label or '')
-            .replace('{설계사명}', planner_name or '담당 설계사')
+            .replace('{소속직책}', label)
+            .replace('{설계사명}', name)
             .replace('{링크}', url))

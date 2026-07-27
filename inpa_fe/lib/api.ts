@@ -2886,6 +2886,27 @@ export interface PublicBookingInfo {
   disclaimer: string;
 }
 
+export interface BookingCustomerListItem {
+  id: number;
+  name: string;
+  mobile_phone_number: string | null;
+  sales_stage: SalesStage;
+}
+
+/** GET /api/v1/booking-customers/ — 예약 선택기용 내 고객 최소 목록(인증) */
+export async function listBookingCustomers(
+  params: { page?: number; search?: string } = {}
+): Promise<PaginatedResult<BookingCustomerListItem>> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set("page", String(params.page));
+  const search = params.search?.trim();
+  if (search) qs.set("search", search);
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return request<PaginatedResult<BookingCustomerListItem>>(
+    "GET", `/booking-customers/${query}`, undefined, true
+  );
+}
+
 /** GET /api/v1/meetings/ — 내 미팅 목록(인증) */
 export async function listMeetings(upcoming = false): Promise<PaginatedResult<Meeting>> {
   const q = upcoming ? "?upcoming=true" : "";

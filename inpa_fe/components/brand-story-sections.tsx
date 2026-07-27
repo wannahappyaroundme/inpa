@@ -232,7 +232,7 @@ const PROCESS: { stage: string; groups: { name: string; items: { label: string; 
   ]},
   { stage: "상담 준비", groups: [
     { name: "증권 분석", items: [{ label: "기보유 증권 분석" }] },
-    { name: "증권 비교", items: [{ label: "증권 A 선택" }, { label: "증권 B 선택" }, { label: "담보·보험료 비교" }] },
+    { name: "증권 비교", items: [{ label: "왼쪽 구성 선택" }, { label: "오른쪽 구성 선택" }, { label: "담보·보험료 비교" }] },
     { name: "상담 준비", items: [{ label: "비교 자료 시각화" }, { label: "영업 자료 생성" }] },
   ]},
   { stage: "FA", groups: [

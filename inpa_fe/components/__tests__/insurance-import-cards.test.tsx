@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +13,7 @@ vi.mock("@/lib/api", async () => {
 
 import { getInsuranceImportConfig, listInsuranceImports } from "@/lib/api";
 import { InsuranceImportCards } from "@/components/insurance-import-cards";
+import { InsuranceManualModal } from "@/components/insurance-manual-modal";
 
 const sourceReview = {
   required: false,
@@ -27,13 +28,17 @@ const sourceReview = {
   guidance: "",
 };
 
-function job(customerId: number, status: "queued" | "review_required" | "failed") {
+function job(
+  customerId: number,
+  status: "queued" | "review_required" | "failed",
+  portfolioType: 1 | 2 = 1,
+) {
   return {
     job_id: `${status}-job`,
     customer_id: customerId,
     status,
     intent: "add" as const,
-    portfolio_type: 1 as const,
+    portfolio_type: portfolioType,
     safe_display_name: `${status}.pdf`,
     page_count: 3,
     draft_version: 1,
@@ -81,6 +86,23 @@ describe("보험 작업 이어보기", () => {
     expect(screen.getByText("분석 순서를 기다리고 있어요")).toBeTruthy();
     expect(screen.getByText("증권 원문을 다시 선택해 주세요")).toBeTruthy();
     expect(listInsuranceImports).toHaveBeenCalledWith(31);
+  });
+
+  it("저장 위치 1과 2를 비교 방향이 아닌 등록 위치로 표시한다", async () => {
+    vi.mocked(listInsuranceImports).mockResolvedValue({
+      count: 2,
+      next: null,
+      previous: null,
+      results: [
+        { ...job(31, "review_required", 1), safe_display_name: "현재.pdf" },
+        { ...job(31, "queued", 2), safe_display_name: "추가.pdf" },
+      ],
+    });
+
+    render(<InsuranceImportCards customerId={31} />);
+
+    expect(await screen.findByText("현재 등록 증권")).toBeTruthy();
+    expect(screen.getByText("비교 화면에서 추가한 증권")).toBeTruthy();
   });
 
   it("서버 스위치가 꺼져 있으면 기존 화면을 그대로 둔다", async () => {
@@ -157,5 +179,22 @@ describe("보험 작업 이어보기", () => {
       expect(screen.queryByText("customer-31-late.pdf")).toBeNull();
       expect(screen.queryByText("증권 확인 작업을 불러오지 못했어요.")).toBeNull();
     });
+  });
+});
+
+describe("보험 직접 입력 저장 위치", () => {
+  it("기본값 2를 유지하면서 새 등록 위치 문구를 제공한다", () => {
+    render(
+      <InsuranceManualModal
+        customerId={31}
+        defaultPortfolioType={2}
+        onClose={() => undefined}
+      />,
+    );
+
+    const storageSelect = screen.getByRole("combobox", { name: "등록 위치" });
+    expect(within(storageSelect).getByRole("option", { name: "현재 등록 증권" })).toBeTruthy();
+    expect(within(storageSelect).getByRole("option", { name: "비교 화면에서 추가한 증권" })).toBeTruthy();
+    expect((storageSelect as HTMLSelectElement).value).toBe("2");
   });
 });

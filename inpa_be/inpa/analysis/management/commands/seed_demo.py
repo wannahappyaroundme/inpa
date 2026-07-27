@@ -738,7 +738,7 @@ class Command(BaseCommand):
             category='기능문의',
             question=f'{DEMO_CATALOG_TAG} 여러 증권 비교는 어떻게 활용하나요?',
             answer=(
-                '[DEMO] 선택한 증권을 증권 A와 증권 B 묶음으로 나눠, '
+                '[DEMO] 선택한 증권을 왼쪽 구성과 오른쪽 구성에 담아, '
                 '담보·보장금액·보험료 차이를 같은 기준으로 확인합니다.\n'
                 '인파가 등록된 보장 정보를 정리한 참고 자료입니다.'
             ),

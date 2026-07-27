@@ -1,7 +1,18 @@
 from django.utils import timezone
 from rest_framework import serializers
 
+from inpa.customers.models import Customer
+
 from .models import Meeting, MeetingSlot, WorkHour
+
+
+class BookingCustomerListSerializer(serializers.ModelSerializer):
+    """예약 고객 선택기 전용 최소 정보."""
+
+    class Meta:
+        model = Customer
+        fields = ('id', 'name', 'mobile_phone_number', 'sales_stage')
+        read_only_fields = fields
 
 
 class WorkHourSerializer(serializers.ModelSerializer):

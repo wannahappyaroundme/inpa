@@ -15,6 +15,34 @@ import {
   type PublicBookingInfo,
   type MeetingMethod,
 } from "@/lib/api";
+import { normalizeSignedRouteToken } from "@/lib/signed-route-token";
+
+type PublicLoadFailure = {
+  kind: "terminal" | "retryable";
+  message: string;
+};
+
+const INVALID_LINK_MESSAGE = "담당 설계사에게 새 링크를 요청해 주세요.";
+const RETRY_MESSAGE = "잠시 후 다시 불러와 주세요.";
+
+function classifyLoadFailure(error: unknown): PublicLoadFailure {
+  if (error instanceof ApiError && error.status === 404) {
+    return { kind: "terminal", message: INVALID_LINK_MESSAGE };
+  }
+  if (error instanceof ApiError && error.status === 410) {
+    return { kind: "terminal", message: error.message };
+  }
+  if (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 429 || error.status >= 500))
+  ) {
+    return { kind: "retryable", message: RETRY_MESSAGE };
+  }
+  return {
+    kind: "terminal",
+    message: error instanceof ApiError ? error.message : INVALID_LINK_MESSAGE,
+  };
+}
 
 function BookingSkeleton() {
   return (
@@ -49,11 +77,11 @@ function fmtKST(iso: string): string {
 }
 
 export default function PublicBookingPage() {
-  const params = useParams();
-  const token = typeof params?.token === "string" ? params.token : "";
+  const params = useParams<{ token?: string | string[] }>();
+  const token = normalizeSignedRouteToken(params?.token);
 
   const [info, setInfo] = useState<PublicBookingInfo | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<PublicLoadFailure | null>(null);
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
   const [method, setMethod] = useState<MeetingMethod | null>(null);
   const [note, setNote] = useState("");
@@ -61,19 +89,24 @@ export default function PublicBookingPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [done, setDone] = useState<{ start_at: string; method: MeetingMethod } | null>(null);
 
-  const load = useCallback(() => {
-    if (!token) return;
-    getBookingInfo(token)
-      .then(setInfo)
-      .catch((e: unknown) =>
-        setLoadError(e instanceof ApiError ? e.message : "예약 페이지를 열 수 없어요. 담당 설계사에게 새 링크를 요청해 주세요.")
-      );
+  const load = useCallback(async () => {
+    setLoadError(null);
+    if (token === null) {
+      setInfo(null);
+      setLoadError({ kind: "terminal", message: INVALID_LINK_MESSAGE });
+      return;
+    }
+    try {
+      setInfo(await getBookingInfo(token));
+    } catch (error: unknown) {
+      setLoadError(classifyLoadFailure(error));
+    }
   }, [token]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const submit = useCallback(async () => {
-    if (selectedStart === null || method === null) return;
+    if (selectedStart === null || method === null || token === null) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -83,7 +116,7 @@ export default function PublicBookingPage() {
       if (e instanceof ApiError && e.status === 409) {
         setSubmitError(e.message); // BE 친절 메시지(상의 안내 포함)
         setSelectedStart(null);
-        load(); // 빈 시간 새로고침(마감/충돌 시간 사라짐)
+        void load(); // 빈 시간 새로고침(마감/충돌 시간 사라짐)
       } else {
         setSubmitError(e instanceof ApiError ? e.message : "신청에 실패했어요. 잠시 후 다시 시도해 주세요.");
       }
@@ -96,9 +129,19 @@ export default function PublicBookingPage() {
   if (loadError) {
     return (
       <div className="mx-auto w-full max-w-md min-h-dvh bg-surface2 flex items-center justify-center px-5">
-        <Card className="px-6 py-8 text-center">
-          <div className="text-[15px] font-bold text-ink">링크를 열 수 없어요</div>
-          <p className="mt-2 text-[13px] text-ink3 leading-5">{loadError}</p>
+        <Card role="alert" className="px-6 py-8 text-center">
+          <div className="text-[15px] font-bold text-ink">
+            {loadError.kind === "retryable" ? "잠시 연결이 원활하지 않아요" : "링크를 열 수 없어요"}
+          </div>
+          <p className="mt-2 text-[13px] text-ink3 leading-5">{loadError.message}</p>
+          {loadError.kind === "retryable" && (
+            <button
+              onClick={() => { void load(); }}
+              className="mt-5 rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink2"
+            >
+              다시 불러오기
+            </button>
+          )}
         </Card>
       </div>
     );

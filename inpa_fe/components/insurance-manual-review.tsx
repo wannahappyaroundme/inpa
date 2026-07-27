@@ -328,7 +328,7 @@ function validIsoDate(value: string): boolean {
 function policyValidation(form: ManualPolicyForm): string[] {
   const errors: string[] = [];
   if (!["1", "2"].includes(form.insuranceType)) errors.push("보험 종류를 선택해 주세요.");
-  if (!["1", "2"].includes(form.portfolioType)) errors.push("비교 묶음 A 또는 B를 선택해 주세요.");
+  if (!["1", "2"].includes(form.portfolioType)) errors.push("등록 위치를 선택해 주세요.");
   if (form.contractDate && !validIsoDate(form.contractDate)) errors.push("계약일을 다시 확인해 주세요.");
   if (form.expiryDate && !validIsoDate(form.expiryDate)) errors.push("만기일을 다시 확인해 주세요.");
   if (validIsoDate(form.contractDate) && validIsoDate(form.expiryDate) && form.contractDate > form.expiryDate) {
@@ -610,8 +610,8 @@ export function ManualInsuranceReview({
             <select aria-label="검토 보험 종류" value={policyForm.insuranceType} onChange={(event) => updatePolicy("insuranceType", event.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-[13px]"><option value="">선택해 주세요</option><option value="1">생명보험</option><option value="2">손해보험</option></select>
           </label>
           <label className="grid gap-1 text-[12px] font-semibold text-ink2">
-            구분
-            <select aria-label="검토 구분" value={policyForm.portfolioType} onChange={(event) => updatePolicy("portfolioType", event.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-[13px]"><option value="1">비교 묶음 A</option><option value="2">비교 묶음 B</option></select>
+            등록 위치
+            <select aria-label="검토 등록 위치" value={policyForm.portfolioType} onChange={(event) => updatePolicy("portfolioType", event.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-[13px]"><option value="1">현재 등록 증권</option><option value="2">비교 화면에서 추가한 증권</option></select>
           </label>
           <label className="grid gap-1 text-[12px] font-semibold text-ink2">
             계약자

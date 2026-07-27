@@ -6,7 +6,8 @@ owner 격리(OwnedQuerySetMixin + IsOwner). BOOKING_ENABLED 게이트.
 from django.conf import settings
 from django.utils import timezone
 from django.db import IntegrityError
-from rest_framework import status, viewsets
+from django.db.models import Q
+from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -18,7 +19,11 @@ from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.customers.models import Customer
 
 from .models import Meeting, WorkHour
-from .serializers import MeetingSerializer, WorkHourSerializer
+from .serializers import (
+    BookingCustomerListSerializer,
+    MeetingSerializer,
+    WorkHourSerializer,
+)
 from .templates_text import DEFAULT_BOOKING_MSG_TEMPLATE, render_booking_message
 from .tokens import make_booking_token
 
@@ -41,6 +46,28 @@ def _push_to_google(meeting):
                 meeting.save(update_fields=['google_event_id'])
     except Exception:
         pass
+
+
+class BookingCustomerListView(generics.ListAPIView):
+    """예약 고객 선택기 목록. 관리자도 예외 없이 본인 소유 고객만 조회한다."""
+
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+    serializer_class = BookingCustomerListSerializer
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if not _booking_enabled():
+            raise PermissionDenied('미팅 예약 기능이 현재 비활성화되어 있습니다.')
+
+    def get_queryset(self):
+        queryset = Customer.objects.filter(owner=self.request.user)
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(mobile_phone_number__icontains=search)
+            )
+        return queryset.order_by('-created_at')
 
 
 class WorkHourViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
@@ -134,16 +161,12 @@ class BookingRequestCreateView(APIView):
     """
     permission_classes = [IsAuthenticated, IsEmailVerified]
 
-    def _is_admin(self):
-        profile = getattr(self.request.user, 'profile', None)
-        return bool(getattr(profile, 'is_admin', False))
-
     def _get_customer(self, pk):
-        qs = Customer.objects.all()
-        if not self._is_admin():
-            qs = qs.filter(owner=self.request.user)  # owner 격리 — 타 설계사 고객 404
         try:
-            return qs.get(pk=pk)
+            return Customer.objects.get(
+                pk=pk,
+                owner=self.request.user,
+            )
         except Customer.DoesNotExist:
             raise NotFound('고객을 찾을 수 없습니다.')
 
@@ -155,9 +178,7 @@ class BookingRequestCreateView(APIView):
         base = (getattr(settings, 'FRONTEND_BASE_URL', '') or '').rstrip('/')
         url = f'{base}/b/{token}'
         profile = getattr(request.user, 'profile', None)
-        planner_name = ((getattr(profile, 'name', '') or '')
-                        or (getattr(profile, 'affiliation', '') or '')
-                        or request.user.email)
+        planner_name = getattr(profile, 'name', '') or ''
         planner_label = ' '.join(
             p for p in ((getattr(profile, 'affiliation', '') or '').strip(),
                         (getattr(profile, 'title', '') or '').strip()) if p)

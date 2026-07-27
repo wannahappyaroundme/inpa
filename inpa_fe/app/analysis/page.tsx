@@ -532,7 +532,7 @@ function InsuranceSelectCard({
         <span className="flex shrink-0 items-center gap-1">
           {ins.portfolio_type === 2 && (
             <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-brand-soft text-brand border border-line">
-              비교 묶음 B
+              비교 화면에서 추가한 증권
             </span>
           )}
           <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-surface2 text-ink3 border border-line">

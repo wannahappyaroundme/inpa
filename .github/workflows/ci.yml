@@ -69,6 +69,9 @@ jobs:
       - name: Copy guard (정직성 카피)
         run: npm run lint:copy
 
+      - name: Copy guard rule tests
+        run: npm run test:copy-lint
+
       - name: Landing regression tests
         run: npm run test:landing
 
