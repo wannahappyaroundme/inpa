@@ -129,7 +129,7 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
         role="combobox"
         aria-label="고객 선택"
         aria-autocomplete="list"
-        aria-expanded={showList}
+        aria-expanded={showsListbox}
         aria-controls={showsListbox ? listboxId : undefined}
         aria-activedescendant={activeIndex >= 0 && showsListbox ? `${listboxId}-option-${activeIndex}` : undefined}
         value={query}

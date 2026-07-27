@@ -200,7 +200,10 @@ describe("예약 고객 검색 선택기", () => {
     const listboxes = screen.getAllByRole("listbox", { name: "고객 검색 결과" });
     const options = screen.getAllByRole("option", { name: /김보장/ });
     expect(new Set([...inputs, ...listboxes, ...options].map((element) => element.id)).size).toBe(6);
-    inputs.forEach((input, index) => expect(input.getAttribute("aria-controls")).toBe(listboxes[index].id));
+    inputs.forEach((input, index) => {
+      expect(input).toHaveAttribute("aria-expanded", "true");
+      expect(input.getAttribute("aria-controls")).toBe(listboxes[index].id);
+    });
   });
 
   it("짧은 연락처는 원문 조각 대신 숨김 안내만 보인다", async () => {
@@ -231,6 +234,34 @@ describe("예약 고객 검색 선택기", () => {
     fireEvent.keyDown(input, { key: "ArrowUp" });
 
     expect(input).not.toHaveAttribute("aria-activedescendant");
+    expect(input).not.toHaveAttribute("aria-controls");
+  });
+
+  it("로딩·오류·빈 결과에서는 존재하지 않는 listbox를 펼친 것으로 알리지 않는다", async () => {
+    vi.useFakeTimers();
+    const pending = new Promise<ReturnType<typeof page>>(() => undefined);
+    mockedListCustomers
+      .mockReturnValueOnce(pending)
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce(page([]));
+
+    render(<BookingCustomerPicker value={null} onChange={vi.fn()} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    const input = screen.getByRole("combobox", { name: "고객 선택" });
+
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(input).not.toHaveAttribute("aria-controls");
+
+    fireEvent.change(input, { target: { value: "오류" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(input).not.toHaveAttribute("aria-controls");
+
+    fireEvent.click(screen.getByRole("button", { name: "다시 불러오기" }));
+    await act(async () => {});
+    expect(screen.getByText("고객을 먼저 추가하면 바로 예약 안내를 만들 수 있어요.")).toBeTruthy();
+    expect(input).toHaveAttribute("aria-expanded", "false");
     expect(input).not.toHaveAttribute("aria-controls");
   });
 });

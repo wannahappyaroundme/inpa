@@ -164,6 +164,30 @@ class BookingCoreTests(TestCase):
         r = self.client_b.post(f'/api/v1/customers/{self.customer.id}/booking-requests/')
         self.assertEqual(r.status_code, 404)
 
+    def test_booking_request_admin_cannot_issue_link_for_foreign_customer(self):
+        self.profile_b.is_admin = True
+        self.profile_b.save(update_fields=['is_admin'])
+
+        response = self.client_b.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/')
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_booking_request_admin_can_issue_link_for_own_customer(self):
+        self.profile_b.is_admin = True
+        self.profile_b.save(update_fields=['is_admin'])
+        own_customer = Customer.objects.create(
+            owner=self.user_b,
+            name='관리자 본인 고객',
+            mobile_phone_number='010-1111-2222',
+        )
+
+        response = self.client_b.post(
+            f'/api/v1/customers/{own_customer.id}/booking-requests/')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(read_booking_token(response.json()['token']), own_customer.id)
+
     # ── 공개 GET (업무시간 기준 빈 슬롯 자동 생성) ──
     def test_public_get_masked_and_workhour_slots(self):
         _all_week_workhours(self.user_a)

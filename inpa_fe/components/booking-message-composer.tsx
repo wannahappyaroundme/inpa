@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { createBookingRequest } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -9,6 +9,7 @@ export interface BookingMessageComposerProps {
   customerId: number | null;
   prepare?: () => Promise<void>;
   disabled?: boolean;
+  onBusyChange?: (busy: boolean) => void;
 }
 
 type ComposerState = "idle" | "preparing" | "generating" | "success" | "error";
@@ -20,6 +21,7 @@ export function BookingMessageComposer({
   customerId,
   prepare,
   disabled = false,
+  onBusyChange,
 }: BookingMessageComposerProps) {
   const [state, setState] = useState<ComposerState>("idle");
   const [stateOwnerCustomerId, setStateOwnerCustomerId] = useState<number | null>(customerId);
@@ -33,14 +35,9 @@ export function BookingMessageComposer({
   const requestGeneration = useRef(0);
   const latestCustomerId = useRef<number | null>(customerId);
   const inFlight = useRef<{ customerId: number; generation: number } | null>(null);
+  const busyGeneration = useRef<number | null>(null);
   const copyTimer = useRef<number | null>(null);
   const messageId = useId();
-
-  if (latestCustomerId.current !== customerId) {
-    latestCustomerId.current = customerId;
-    requestGeneration.current += 1;
-    inFlight.current = null;
-  }
 
   const clearCopyTimer = useCallback(() => {
     if (copyTimer.current !== null) {
@@ -49,8 +46,22 @@ export function BookingMessageComposer({
     }
   }, []);
 
-  useEffect(() => {
+  const releaseBusy = useCallback((generation?: number) => {
+    if (
+      busyGeneration.current === null
+      || (generation !== undefined && busyGeneration.current !== generation)
+    ) {
+      return;
+    }
+    busyGeneration.current = null;
+    onBusyChange?.(false);
+  }, [onBusyChange]);
+
+  useLayoutEffect(() => {
+    latestCustomerId.current = customerId;
     requestGeneration.current += 1;
+    inFlight.current = null;
+    releaseBusy();
     clearCopyTimer();
     setState("idle");
     setStateOwnerCustomerId(customerId);
@@ -64,14 +75,18 @@ export function BookingMessageComposer({
 
     return () => {
       requestGeneration.current += 1;
+      inFlight.current = null;
+      releaseBusy();
       clearCopyTimer();
     };
-  }, [customerId, clearCopyTimer]);
+  }, [customerId, clearCopyTimer, releaseBusy]);
 
   const generate = useCallback(async () => {
     if (customerId === null || disabled || inFlight.current?.customerId === customerId) return;
     const generation = ++requestGeneration.current;
     inFlight.current = { customerId, generation };
+    busyGeneration.current = generation;
+    onBusyChange?.(true);
     clearCopyTimer();
     setError(null);
     setErrorOwnerCustomerId(customerId);
@@ -83,50 +98,49 @@ export function BookingMessageComposer({
       generation === requestGeneration.current && latestCustomerId.current === customerId
     );
 
-    if (prepare) {
-      setState("preparing");
+    try {
+      if (prepare) {
+        setState("preparing");
+        try {
+          await prepare();
+        } catch {
+          if (!isCurrentRequest()) return;
+          setState("error");
+          setStateOwnerCustomerId(customerId);
+          setError("예약 설정을 다시 저장해 주세요.");
+          setErrorOwnerCustomerId(customerId);
+          return;
+        }
+      }
+
+      if (!isCurrentRequest()) return;
+      setState("generating");
+      setStateOwnerCustomerId(customerId);
       try {
-        await prepare();
+        const result = await createBookingRequest(customerId);
+        if (!isCurrentRequest()) return;
+        setMessage(result.message);
+        setBookingUrl(result.booking_url);
+        setResultCustomerId(customerId);
+        setState("success");
+        setStateOwnerCustomerId(customerId);
       } catch {
         if (!isCurrentRequest()) return;
         setState("error");
         setStateOwnerCustomerId(customerId);
-        setError("예약 설정을 다시 저장해 주세요.");
+        setError("문구를 다시 만들 수 있어요.");
         setErrorOwnerCustomerId(customerId);
-        if (inFlight.current?.generation === generation && inFlight.current.customerId === customerId) {
-          inFlight.current = null;
-        }
-        return;
       }
-    }
-
-    if (!isCurrentRequest()) return;
-    setState("generating");
-    setStateOwnerCustomerId(customerId);
-    try {
-      const result = await createBookingRequest(customerId);
-      if (!isCurrentRequest()) return;
-      setMessage(result.message);
-      setBookingUrl(result.booking_url);
-      setResultCustomerId(customerId);
-      setState("success");
-      setStateOwnerCustomerId(customerId);
-    } catch {
-      if (!isCurrentRequest()) return;
-      setState("error");
-      setStateOwnerCustomerId(customerId);
-      setError("문구를 다시 만들 수 있어요.");
-      setErrorOwnerCustomerId(customerId);
     } finally {
       if (
-        latestCustomerId.current === customerId
-        && inFlight.current?.generation === generation
+        inFlight.current?.generation === generation
         && inFlight.current.customerId === customerId
       ) {
         inFlight.current = null;
       }
+      releaseBusy(generation);
     }
-  }, [clearCopyTimer, customerId, disabled, prepare]);
+  }, [clearCopyTimer, customerId, disabled, onBusyChange, prepare, releaseBusy]);
 
   const copy = useCallback(async (text: string, target: Exclude<CopyTarget, null>) => {
     const generation = requestGeneration.current;

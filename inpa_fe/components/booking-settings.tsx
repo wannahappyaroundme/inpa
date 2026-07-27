@@ -37,6 +37,7 @@ export function BookingSettings() {
   const [draft, setDraft] = useState<BookingSettingsDraft | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState<BookingSettingsDraft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [composerBusy, setComposerBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerListItem | null>(null);
 
@@ -160,7 +161,7 @@ export function BookingSettings() {
     }
   }, [loadWorkHours, workHourStatus]);
 
-  const inputCls = "min-h-11 rounded-xl border border-line px-3 py-2 text-[14px]";
+  const inputCls = "min-h-11 rounded-xl border border-line px-3 py-2 text-[14px] disabled:bg-surface disabled:text-ink3";
 
   if (profileStatus === "loading") {
     return (
@@ -198,12 +199,12 @@ export function BookingSettings() {
       {message && <div role="status" className="mt-3 rounded-xl bg-accent-tint px-3 py-2 text-[13px] text-brand">{message}</div>}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <label className="block"><span className="text-[12px] text-ink3">내 이름</span><input value={draft.name} onChange={(event) => replaceDraft({ ...draft, name: event.target.value })} placeholder="예) 홍길동" className={`mt-1 w-full ${inputCls}`} /></label>
-        <label className="block"><span className="text-[12px] text-ink3">소속</span><input value={draft.affiliation} onChange={(event) => replaceDraft({ ...draft, affiliation: event.target.value })} placeholder="예) 부산지점" className={`mt-1 w-full ${inputCls}`} /></label>
-        <label className="block"><span className="text-[12px] text-ink3">직책</span><input value={draft.title} onChange={(event) => replaceDraft({ ...draft, title: event.target.value })} placeholder="예) FC, 팀장" className={`mt-1 w-full ${inputCls}`} /></label>
+        <label className="block"><span className="text-[12px] text-ink3">내 이름</span><input disabled={composerBusy} value={draft.name} onChange={(event) => replaceDraft({ ...draft, name: event.target.value })} placeholder="예) 홍길동" className={`mt-1 w-full ${inputCls}`} /></label>
+        <label className="block"><span className="text-[12px] text-ink3">소속</span><input disabled={composerBusy} value={draft.affiliation} onChange={(event) => replaceDraft({ ...draft, affiliation: event.target.value })} placeholder="예) 부산지점" className={`mt-1 w-full ${inputCls}`} /></label>
+        <label className="block"><span className="text-[12px] text-ink3">직책</span><input disabled={composerBusy} value={draft.title} onChange={(event) => replaceDraft({ ...draft, title: event.target.value })} placeholder="예) FC, 팀장" className={`mt-1 w-full ${inputCls}`} /></label>
       </div>
 
-      <label className="mt-4 block"><span className="text-[12px] text-ink3">예약 안내 문구</span><textarea value={draft.template} onChange={(event) => replaceDraft({ ...draft, template: event.target.value })} rows={4} placeholder={DEFAULT_TPL_PLACEHOLDER} className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-[13px] leading-5" /></label>
+      <label className="mt-4 block"><span className="text-[12px] text-ink3">예약 안내 문구</span><textarea disabled={composerBusy} value={draft.template} onChange={(event) => replaceDraft({ ...draft, template: event.target.value })} rows={4} placeholder={DEFAULT_TPL_PLACEHOLDER} className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-[13px] leading-5 disabled:bg-surface disabled:text-ink3" /></label>
       <p className="mt-1 text-[12px] leading-5 text-ink3">문구에 넣을 수 있는 내용: <b>{"{고객명}"} · {"{소속직책}"} · {"{설계사명}"} · {"{링크}"}</b>. 기본 문구는 입력 전 안내용이며, 고객에게 보낼 문구는 실제 생성 결과로만 보여요.</p>
 
       <div className="mt-5">
@@ -216,15 +217,15 @@ export function BookingSettings() {
         {whErr && <div role="alert" className="mt-2 text-[12px] text-danger-ink">{whErr}</div>}
       </div>
 
-      <label className="mt-5 block"><span className="text-[12px] text-ink3">대면 미팅 장소</span><input value={draft.location} onChange={(event) => replaceDraft({ ...draft, location: event.target.value })} placeholder="예) 부산 서면 스타벅스 1층" className={`mt-1 w-full ${inputCls}`} /></label>
-      <div className="mt-5 flex flex-wrap items-end gap-3"><label className="flex flex-col gap-1"><span className="text-[12px] text-ink3">미팅 시간(분)</span><input type="number" min={10} max={240} value={draft.duration} onChange={(event) => replaceDraft({ ...draft, duration: Number(event.target.value) || 30 })} className="min-h-11 w-24 rounded-xl border border-line px-3 text-center text-[14px] tnum" /></label><label className="flex flex-col gap-1"><span className="text-[12px] text-ink3">앞뒤 여유(분, 이동시간)</span><input type="number" min={0} max={180} step={15} value={draft.buffer} onChange={(event) => replaceDraft({ ...draft, buffer: Number(event.target.value) || 0 })} className="min-h-11 w-24 rounded-xl border border-line px-3 text-center text-[14px] tnum" /></label><button type="button" disabled={saving} onClick={() => void saveSettings().catch(() => undefined)} className="min-h-11 rounded-xl bg-brand px-4 text-[13px] font-bold text-white disabled:opacity-60">예약 설정 저장</button></div>
+      <label className="mt-5 block"><span className="text-[12px] text-ink3">대면 미팅 장소</span><input disabled={composerBusy} value={draft.location} onChange={(event) => replaceDraft({ ...draft, location: event.target.value })} placeholder="예) 부산 서면 스타벅스 1층" className={`mt-1 w-full ${inputCls}`} /></label>
+      <div className="mt-5 flex flex-wrap items-end gap-3"><label className="flex flex-col gap-1"><span className="text-[12px] text-ink3">미팅 시간(분)</span><input disabled={composerBusy} type="number" min={10} max={240} value={draft.duration} onChange={(event) => replaceDraft({ ...draft, duration: Number(event.target.value) || 30 })} className="min-h-11 w-24 rounded-xl border border-line px-3 text-center text-[14px] tnum" /></label><label className="flex flex-col gap-1"><span className="text-[12px] text-ink3">앞뒤 여유(분, 이동시간)</span><input disabled={composerBusy} type="number" min={0} max={180} step={15} value={draft.buffer} onChange={(event) => replaceDraft({ ...draft, buffer: Number(event.target.value) || 0 })} className="min-h-11 w-24 rounded-xl border border-line px-3 text-center text-[14px] tnum" /></label><button type="button" disabled={saving || composerBusy} onClick={() => void saveSettings().catch(() => undefined)} className="min-h-11 rounded-xl bg-brand px-4 text-[13px] font-bold text-white disabled:opacity-60">예약 설정 저장</button></div>
 
       <section className="mt-7 border-t border-line pt-5" aria-labelledby="booking-message-title">
         <h2 id="booking-message-title" className="text-[15px] font-bold text-ink">고객에게 예약 안내 보내기</h2>
         <p className="mt-1 text-[12px] leading-5 text-ink3">고객을 고르면 실제 예약 링크와 안내 문구를 바로 만들 수 있어요.</p>
-        <div className="mt-4"><BookingCustomerPicker value={selectedCustomer} onChange={setSelectedCustomer} disabled={saving} /></div>
+        <div className="mt-4"><BookingCustomerPicker value={selectedCustomer} onChange={setSelectedCustomer} disabled={saving || composerBusy} /></div>
         {selectedCustomer && <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl bg-surface2 px-3 py-2 text-[13px] text-ink2"><b className="text-ink">{selectedCustomer.name}</b><span>{maskCustomerPhone(selectedCustomer.mobile_phone_number)}</span><span className="rounded-md bg-white px-2 py-0.5 text-[12px] font-bold text-ink2">{customerStage(selectedCustomer)}</span><span>고객에게 보낼 안내를 준비하고 있어요.</span></p>}
-        <div className="mt-3"><BookingMessageComposer customerId={selectedCustomer?.id ?? null} prepare={() => saveSettings({ announce: false })} disabled={saving} /></div>
+        <div className="mt-3"><BookingMessageComposer customerId={selectedCustomer?.id ?? null} prepare={() => saveSettings({ announce: false })} disabled={saving || composerBusy} onBusyChange={setComposerBusy} /></div>
       </section>
     </Card>
   );

@@ -207,16 +207,19 @@ describe("예약 설정 화면", () => {
   });
 
   it("깨끗한 설정은 PATCH 없이 선택한 고객에게 바로 문구를 만든다", async () => {
+    const pendingCreate = deferred<{
+      token: string;
+      booking_url: string;
+      message: string;
+    }>();
     mockedListCustomers.mockResolvedValue({
       count: 1, next: null, previous: null,
       results: [customer()],
     });
-    mockedCreateBookingRequest.mockResolvedValue({
-      token: "signed:31", booking_url: "https://www.inpa.kr/b/signed:31", message: "실제 고객 안내 문구",
-    });
+    mockedCreateBookingRequest.mockReturnValue(pendingCreate.promise);
     render(<BookingSettings />);
     const user = userEvent.setup();
-    await screen.findByDisplayValue("황예진");
+    const name = await screen.findByDisplayValue("황예진");
     await user.type(screen.getByRole("combobox", { name: "고객 선택" }), "최");
     expect(await screen.findByRole("option", { name: /최고객/ })).toBeTruthy();
     await user.click(screen.getByRole("option", { name: /최고객/ }));
@@ -224,6 +227,13 @@ describe("예약 설정 화면", () => {
 
     await waitFor(() => expect(mockedCreateBookingRequest).toHaveBeenCalledWith(31));
     expect(mockedUpdateProfile).not.toHaveBeenCalled();
+    expect(name).toBeDisabled();
+    await act(async () => pendingCreate.resolve({
+      token: "signed:31",
+      booking_url: "https://www.inpa.kr/b/signed:31",
+      message: "실제 고객 안내 문구",
+    }));
+    await waitFor(() => expect(name).toBeEnabled());
   });
 
   it("저장 실패 시 입력을 보존하고 실제 안내 요청을 보내지 않는다", async () => {
@@ -263,6 +273,59 @@ describe("예약 설정 화면", () => {
     expect(screen.getByDisplayValue("저장 뒤 수정")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "예약 설정 저장" }));
     await waitFor(() => expect(mockedUpdateProfile).toHaveBeenCalledTimes(2));
+  });
+
+  it("안내 생성의 저장부터 문구 응답까지 설정을 잠가 화면보다 오래된 문구 생성을 막는다", async () => {
+    const pendingSave = deferred<ProfileResponse>();
+    const pendingCreate = deferred<{
+      token: string;
+      booking_url: string;
+      message: string;
+    }>();
+    mockedListCustomers.mockResolvedValue({
+      count: 1, next: null, previous: null,
+      results: [customer()],
+    });
+    mockedUpdateProfile.mockReturnValue(pendingSave.promise);
+    mockedCreateBookingRequest.mockReturnValue(pendingCreate.promise);
+    render(<BookingSettings />);
+    const user = userEvent.setup();
+    await screen.findByDisplayValue("황예진");
+    const name = screen.getByLabelText("내 이름");
+    await user.clear(name);
+    await user.type(name, "생성에 사용할 이름");
+    await user.type(screen.getByRole("combobox", { name: "고객 선택" }), "최");
+    await user.click(await screen.findByRole("option", { name: /최고객/ }));
+
+    await user.click(screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" }));
+    const lockedSettings = [
+      name,
+      screen.getByLabelText("소속"),
+      screen.getByLabelText("직책"),
+      screen.getByRole("textbox", { name: "예약 안내 문구" }),
+      screen.getByLabelText("대면 미팅 장소"),
+      screen.getByLabelText("미팅 시간(분)"),
+      screen.getByLabelText("앞뒤 여유(분, 이동시간)"),
+    ];
+    lockedSettings.forEach((field) => expect(field).toBeDisabled());
+    await user.type(name, " 화면의 새 이름");
+    expect(name).toHaveValue("생성에 사용할 이름");
+    expect(mockedCreateBookingRequest).not.toHaveBeenCalled();
+
+    await act(async () => pendingSave.resolve(profile({ name: "생성에 사용할 이름" })));
+    await waitFor(() => expect(mockedCreateBookingRequest).toHaveBeenCalledWith(31));
+    expect(name).toBeDisabled();
+    expect(mockedUpdateProfile).toHaveBeenCalledWith(expect.objectContaining({
+      name: "생성에 사용할 이름",
+    }));
+
+    await act(async () => pendingCreate.resolve({
+      token: "signed:31",
+      booking_url: "https://www.inpa.kr/b/signed:31",
+      message: "생성에 사용할 이름의 실제 고객 안내 문구",
+    }));
+    await waitFor(() => lockedSettings.forEach((field) => expect(field).toBeEnabled()));
+    expect(name).toHaveValue("생성에 사용할 이름");
   });
 
   it("가짜 고객 미리보기 대신 실제 고객 안내 영역을 표시한다", async () => {

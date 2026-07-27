@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useLayoutEffect, useState } from "react";
+import { Suspense, useLayoutEffect, useState, useTransition } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BookingMessageComposer } from "@/components/booking-message-composer";
@@ -143,6 +143,45 @@ describe("예약 안내 문구 생성기", () => {
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]).not.toContain(oldResponse.booking_url);
     expect(snapshots[0]).not.toContain(oldResponse.message);
+  });
+
+  it("커밋되지 않은 고객 전환 렌더는 현재 고객의 진행 중 요청을 무효화하지 않는다", async () => {
+    const pending = deferred<BookingRequestResponse>();
+    mockedCreateBookingRequest.mockReturnValue(pending.promise);
+    const never = new Promise<never>(() => undefined);
+
+    function SuspendUncommittedCustomer({ customerId }: { customerId: number }) {
+      if (customerId === 32) throw never;
+      return null;
+    }
+
+    function Probe() {
+      const [customerId, setCustomerId] = useState(31);
+      const [, startTransition] = useTransition();
+      return <>
+        <button
+          type="button"
+          onClick={() => startTransition(() => setCustomerId(32))}
+        >
+          커밋되지 않을 고객 전환
+        </button>
+        <Suspense fallback={<p>전환 중</p>}>
+          <BookingMessageComposer customerId={customerId} />
+          <SuspendUncommittedCustomer customerId={customerId} />
+        </Suspense>
+      </>;
+    }
+
+    render(<Probe />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" }));
+    await user.click(screen.getByRole("button", { name: "커밋되지 않을 고객 전환" }));
+    expect(screen.queryByText("전환 중")).toBeNull();
+
+    const currentResponse = response("customer-31-token");
+    await act(async () => pending.resolve(currentResponse));
+
+    expect(await screen.findByText(currentResponse.booking_url)).toBeTruthy();
   });
 
   it("고객 전환 첫 커밋에서 이전 고객의 저장 오류와 다시 만들기 상태를 숨긴다", async () => {

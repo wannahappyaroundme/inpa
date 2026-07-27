@@ -134,16 +134,12 @@ class BookingRequestCreateView(APIView):
     """
     permission_classes = [IsAuthenticated, IsEmailVerified]
 
-    def _is_admin(self):
-        profile = getattr(self.request.user, 'profile', None)
-        return bool(getattr(profile, 'is_admin', False))
-
     def _get_customer(self, pk):
-        qs = Customer.objects.all()
-        if not self._is_admin():
-            qs = qs.filter(owner=self.request.user)  # owner 격리 — 타 설계사 고객 404
         try:
-            return qs.get(pk=pk)
+            return Customer.objects.get(
+                pk=pk,
+                owner=self.request.user,
+            )
         except Customer.DoesNotExist:
             raise NotFound('고객을 찾을 수 없습니다.')
 
