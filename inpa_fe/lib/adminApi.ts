@@ -70,6 +70,27 @@ async function req<T>(
   return data as T;
 }
 
+async function reqForm<T>(path: string, body: FormData): Promise<T> {
+  const headers: Record<string, string> = {};
+  const tok = tokenStore.get();
+  if (tok) headers["Authorization"] = `Token ${tok}`;
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers,
+    body,
+  });
+
+  let data: Record<string, unknown> = {};
+  try { data = await res.json(); } catch { /* empty body */ }
+
+  if (!res.ok) {
+    const { code, detail } = normalizeAdminApiError(data, res.status, res.statusText);
+    throw new ApiError(res.status, code, detail);
+  }
+  return data as T;
+}
+
 // ─── Billing operations ─────────────────────────────────────────────────────
 
 export interface AdminBillingEnvironment {
@@ -1392,6 +1413,50 @@ export interface AdminConsultationResponse {
   settings: AdminConsultationSettings;
   status: AdminConsultationStatus;
   pilot_users: AdminConsultationPilot[];
+}
+
+export interface AdminComparisonSummary {
+  consultation_core: string[];
+  customer_priorities: string[];
+  items_to_confirm: string[];
+  next_actions: string[];
+}
+
+export interface AdminComparisonResult {
+  slot: "A" | "B";
+  provider: "openai" | "anthropic";
+  model: string;
+  status: "success" | "failed" | "outcome_unknown";
+  summary: AdminComparisonSummary | null;
+  latency_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  error_code: string;
+}
+
+export interface AdminConsultationComparisonResponse {
+  transcript: {
+    segments: Array<{
+      speaker: string;
+      text: string;
+      start_seconds: number;
+      end_seconds: number;
+    }>;
+  };
+  results: AdminComparisonResult[];
+}
+
+export async function adminCompareConsultation(
+  audio: File,
+  syntheticConfirmed: true,
+): Promise<AdminConsultationComparisonResponse> {
+  const body = new FormData();
+  body.append("audio", audio);
+  body.append("synthetic_confirmed", String(syntheticConfirmed));
+  return reqForm<AdminConsultationComparisonResponse>(
+    "/admin/consultations/comparison/",
+    body,
+  );
 }
 
 export async function adminGetConsultationSettings(): Promise<AdminConsultationResponse> {
