@@ -782,6 +782,35 @@ class CompareFactsTests(TestCase):
         self.assertEqual(row['proposed_amount'], 90000000)
         self.assertEqual(row['delta'], 50000000)
 
+    def test_overlapping_three_policy_sets_aggregate_each_side_once(self):
+        """겹치는 보험은 각 A/B 구성에서 한 번씩만 합산한다."""
+        a1 = _make_portfolio_typed(
+            self.customer, self.idet, 10_000_000, portfolio_type=1, monthly=10_000)
+        a2 = _make_portfolio_typed(
+            self.customer, self.idet, 20_000_000, portfolio_type=1, monthly=20_000)
+        a3 = _make_portfolio_typed(
+            self.customer, self.idet, 30_000_000, portfolio_type=1, monthly=30_000)
+        b1 = _make_portfolio_typed(
+            self.customer, self.idet, 40_000_000, portfolio_type=2, monthly=40_000)
+
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/compare/',
+            {
+                'side_a_ids': [a1.id, a2.id, a3.id],
+                'side_b_ids': [a1.id, a2.id, b1.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['current']['monthly_premiums'], 60_000)
+        self.assertEqual(body['proposed']['monthly_premiums'], 70_000)
+        row = next(item for item in body['rows'] if item['coverage'] == '사망보장')
+        self.assertEqual(row['current_amount'], 60_000_000)
+        self.assertEqual(row['proposed_amount'], 70_000_000)
+        self.assertEqual(row['delta'], 10_000_000)
+
     def test_side_ab_selection_requires_nonempty_integer_arrays(self):
         """A/B 선택은 양쪽의 정수 배열이어야 하며 빈 선택을 사실 표로 처리하지 않는다."""
         policy_a = _make_portfolio_typed(
@@ -810,6 +839,10 @@ class CompareFactsTests(TestCase):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json()['code'], 'INVALID_COMPARISON_SELECTION')
+            self.assertEqual(
+                response.json()['detail'],
+                '왼쪽 구성과 오른쪽 구성에 각각 하나 이상 골라 주세요.',
+            )
 
     def test_side_ab_selection_rejects_mixed_ineligible_policy_ids(self):
         """한 쪽에 취소 보험이 섞여도 일부만 골라 사실표를 만들지 않는다."""

@@ -52,7 +52,7 @@ class InvalidComparisonSelection(ValueError):
 def _invalid_selection_response():
     return Response(
         {
-            'detail': '증권 A와 증권 B에 각각 하나 이상 골라 주세요.',
+            'detail': '왼쪽 구성과 오른쪽 구성에 각각 하나 이상 골라 주세요.',
             'code': 'INVALID_COMPARISON_SELECTION',
         },
         status=status.HTTP_400_BAD_REQUEST,
