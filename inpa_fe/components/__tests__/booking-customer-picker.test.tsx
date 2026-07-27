@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CustomerListItem } from "@/lib/api";
 import { listCustomers } from "@/lib/api";
@@ -130,7 +131,7 @@ describe("예약 고객 검색 선택기", () => {
     fireEvent.click(input);
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
-    expect(input).toHaveAttribute("aria-activedescendant", "booking-customer-option-1");
+    expect(input.getAttribute("aria-activedescendant")).toBe(screen.getAllByRole("option")[1].id);
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ id: 32 }));
     fireEvent.click(input);
@@ -148,5 +149,74 @@ describe("예약 고객 검색 선택기", () => {
     expect(screen.getByRole("option", { name: /김보장/ })).toHaveTextContent("010-****-5678");
     expect(screen.getByRole("option", { name: /김보장/ })).toHaveTextContent("FA");
     expect(screen.queryByText("010-1234-5678")).toBeNull();
+  });
+
+  it("외부 고객 변경은 입력에 반영하고, 새 검색이 null을 알린 뒤에는 입력을 지우지 않는다", async () => {
+    vi.useFakeTimers();
+    mockedListCustomers.mockResolvedValue(page([]));
+    const first = customer({ id: 1, name: "김첫번째" });
+    const second = customer({ id: 2, name: "이두번째" });
+    const { rerender, unmount } = render(<BookingCustomerPicker value={first} onChange={vi.fn()} />);
+    const input = screen.getByRole("combobox", { name: "고객 선택" });
+
+    rerender(<BookingCustomerPicker value={second} onChange={vi.fn()} />);
+    expect(input).toHaveValue("이두번째");
+    rerender(<BookingCustomerPicker value={null} onChange={vi.fn()} />);
+    expect(input).toHaveValue("");
+    unmount();
+
+    function ControlledPicker() {
+      const [selected, setSelected] = useState<CustomerListItem | null>(first);
+      return <BookingCustomerPicker value={selected} onChange={setSelected} />;
+    }
+    const controlled = render(<ControlledPicker />);
+    const controlledInput = controlled.getByRole("combobox", { name: "고객 선택" });
+    fireEvent.change(controlledInput, { target: { value: "새 검색" } });
+    expect(controlledInput).toHaveValue("새 검색");
+  });
+
+  it("두 선택기의 ARIA ID가 겹치지 않고 각 결과만 가리킨다", async () => {
+    vi.useFakeTimers();
+    mockedListCustomers.mockResolvedValue(page([customer()]));
+
+    render(<><BookingCustomerPicker value={null} onChange={vi.fn()} /><BookingCustomerPicker value={null} onChange={vi.fn()} /></>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+
+    const inputs = screen.getAllByRole("combobox", { name: "고객 선택" });
+    const listboxes = screen.getAllByRole("listbox", { name: "고객 검색 결과" });
+    const options = screen.getAllByRole("option", { name: /김보장/ });
+    expect(new Set([...inputs, ...listboxes, ...options].map((element) => element.id)).size).toBe(6);
+    inputs.forEach((input, index) => expect(input.getAttribute("aria-controls")).toBe(listboxes[index].id));
+  });
+
+  it("짧은 연락처는 원문 조각 대신 숨김 안내만 보인다", async () => {
+    vi.useFakeTimers();
+    mockedListCustomers.mockResolvedValue(page([
+      customer({ id: 11, name: "열한자리", mobile_phone_number: "010-1234-5678" }),
+      customer({ id: 12, name: "여덟자리", mobile_phone_number: "010-12345" }),
+      customer({ id: 13, name: "일곱자리", mobile_phone_number: "123-4567" }),
+    ]));
+
+    render(<BookingCustomerPicker value={null} onChange={vi.fn()} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+
+    expect(screen.getByRole("option", { name: /열한자리/ })).toHaveTextContent("010-****-5678");
+    expect(screen.getByRole("option", { name: /여덟자리/ })).toHaveTextContent("010-****-2345");
+    expect(screen.getByRole("option", { name: /일곱자리/ })).toHaveTextContent("연락처 일부 숨김");
+    expect(screen.queryByText("123-4567")).toBeNull();
+  });
+
+  it("빈 결과에서는 화살표로 활성 항목을 만들지 않고 목록 참조를 비운다", async () => {
+    vi.useFakeTimers();
+    mockedListCustomers.mockResolvedValue(page([]));
+
+    render(<BookingCustomerPicker value={null} onChange={vi.fn()} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    const input = screen.getByRole("combobox", { name: "고객 선택" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+
+    expect(input).not.toHaveAttribute("aria-activedescendant");
+    expect(input).not.toHaveAttribute("aria-controls");
   });
 });

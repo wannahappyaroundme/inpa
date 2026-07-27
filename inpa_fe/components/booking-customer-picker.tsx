@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { listCustomers, SALES_STAGES, type CustomerListItem } from "@/lib/api";
 
 export interface BookingCustomerPickerProps {
@@ -9,11 +9,9 @@ export interface BookingCustomerPickerProps {
   disabled?: boolean;
 }
 
-const LISTBOX_ID = "booking-customer-listbox";
-
 function maskPhone(phone: string | null): string {
   const digits = phone?.replace(/\D/g, "") ?? "";
-  if (digits.length >= 7) {
+  if (digits.length >= 8) {
     return `${digits.slice(0, 3)}-****-${digits.slice(-4)}`;
   }
   return "연락처 일부 숨김";
@@ -31,6 +29,9 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
   const [open, setOpen] = useState(true);
   const requestGeneration = useRef(0);
   const selectedRef = useRef(Boolean(value));
+  const valueIdRef = useRef(value?.id ?? null);
+  const inputId = useId();
+  const listboxId = `${inputId}-listbox`;
 
   const load = useCallback(async (search: string) => {
     const generation = ++requestGeneration.current;
@@ -56,8 +57,19 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
     };
   }, [load, query]);
 
+  useEffect(() => {
+    const nextValueId = value?.id ?? null;
+    if (valueIdRef.current === nextValueId) return;
+    valueIdRef.current = nextValueId;
+    selectedRef.current = Boolean(value);
+    setQuery(value?.name ?? "");
+    setResults([]);
+    setActiveIndex(-1);
+  }, [value?.id, value?.name]);
+
   const choose = (customer: CustomerListItem) => {
     selectedRef.current = true;
+    valueIdRef.current = customer.id;
     setQuery(customer.name);
     setOpen(false);
     setActiveIndex(-1);
@@ -67,6 +79,7 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
   const handleInputChange = (next: string) => {
     if (selectedRef.current) {
       selectedRef.current = false;
+      valueIdRef.current = null;
       onChange(null);
     }
     setQuery(next);
@@ -82,12 +95,20 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      if (results.length === 0) {
+        setActiveIndex(-1);
+        return;
+      }
       setOpen(true);
       setActiveIndex((current) => Math.min(current + 1, results.length - 1));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
+      if (results.length === 0) {
+        setActiveIndex(-1);
+        return;
+      }
       setActiveIndex((current) => Math.max(current - 1, 0));
       return;
     }
@@ -98,18 +119,19 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
   };
 
   const showList = open && !disabled;
+  const showsListbox = showList && status === "success" && results.length > 0;
 
   return (
     <div className="relative">
-      <label className="mb-2 block text-sm font-bold text-ink" htmlFor="booking-customer-search">고객 선택</label>
+      <label className="mb-2 block text-sm font-bold text-ink" htmlFor={inputId}>고객 선택</label>
       <input
-        id="booking-customer-search"
+        id={inputId}
         role="combobox"
         aria-label="고객 선택"
         aria-autocomplete="list"
         aria-expanded={showList}
-        aria-controls={LISTBOX_ID}
-        aria-activedescendant={activeIndex >= 0 ? `booking-customer-option-${activeIndex}` : undefined}
+        aria-controls={showsListbox ? listboxId : undefined}
+        aria-activedescendant={activeIndex >= 0 && showsListbox ? `${listboxId}-option-${activeIndex}` : undefined}
         value={query}
         disabled={disabled}
         onChange={(event) => handleInputChange(event.target.value)}
@@ -136,12 +158,12 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
               <a href="/customers" className="mt-2 inline-flex min-h-11 items-center rounded-lg px-3 font-bold text-indigo-700 hover:bg-indigo-50">고객 추가하기</a>
             </div>
           )}
-          {status === "success" && results.length > 0 && (
-            <ul id={LISTBOX_ID} role="listbox" aria-label="고객 검색 결과" className="max-h-64 overflow-y-auto p-1">
+          {showsListbox && (
+            <ul id={listboxId} role="listbox" aria-label="고객 검색 결과" className="max-h-64 overflow-y-auto p-1">
               {results.map((customer, index) => (
                 <li
                   key={customer.id}
-                  id={`booking-customer-option-${index}`}
+                  id={`${listboxId}-option-${index}`}
                   role="option"
                   aria-selected={activeIndex === index}
                   onMouseDown={(event) => event.preventDefault()}
