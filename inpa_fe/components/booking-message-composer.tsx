@@ -22,11 +22,14 @@ export function BookingMessageComposer({
   disabled = false,
 }: BookingMessageComposerProps) {
   const [state, setState] = useState<ComposerState>("idle");
+  const [stateOwnerCustomerId, setStateOwnerCustomerId] = useState<number | null>(customerId);
   const [message, setMessage] = useState("");
   const [bookingUrl, setBookingUrl] = useState("");
   const [resultCustomerId, setResultCustomerId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorOwnerCustomerId, setErrorOwnerCustomerId] = useState<number | null>(customerId);
   const [copied, setCopied] = useState<CopyTarget>(null);
+  const [copiedOwnerCustomerId, setCopiedOwnerCustomerId] = useState<number | null>(customerId);
   const requestGeneration = useRef(0);
   const latestCustomerId = useRef<number | null>(customerId);
   const inFlight = useRef<{ customerId: number; generation: number } | null>(null);
@@ -50,11 +53,14 @@ export function BookingMessageComposer({
     requestGeneration.current += 1;
     clearCopyTimer();
     setState("idle");
+    setStateOwnerCustomerId(customerId);
     setMessage("");
     setBookingUrl("");
     setResultCustomerId(null);
     setError(null);
+    setErrorOwnerCustomerId(customerId);
     setCopied(null);
+    setCopiedOwnerCustomerId(customerId);
 
     return () => {
       requestGeneration.current += 1;
@@ -68,7 +74,10 @@ export function BookingMessageComposer({
     inFlight.current = { customerId, generation };
     clearCopyTimer();
     setError(null);
+    setErrorOwnerCustomerId(customerId);
     setCopied(null);
+    setCopiedOwnerCustomerId(customerId);
+    setStateOwnerCustomerId(customerId);
 
     const isCurrentRequest = () => (
       generation === requestGeneration.current && latestCustomerId.current === customerId
@@ -81,7 +90,9 @@ export function BookingMessageComposer({
       } catch {
         if (!isCurrentRequest()) return;
         setState("error");
+        setStateOwnerCustomerId(customerId);
         setError("예약 설정을 다시 저장해 주세요.");
+        setErrorOwnerCustomerId(customerId);
         if (inFlight.current?.generation === generation && inFlight.current.customerId === customerId) {
           inFlight.current = null;
         }
@@ -91,6 +102,7 @@ export function BookingMessageComposer({
 
     if (!isCurrentRequest()) return;
     setState("generating");
+    setStateOwnerCustomerId(customerId);
     try {
       const result = await createBookingRequest(customerId);
       if (!isCurrentRequest()) return;
@@ -98,10 +110,13 @@ export function BookingMessageComposer({
       setBookingUrl(result.booking_url);
       setResultCustomerId(customerId);
       setState("success");
+      setStateOwnerCustomerId(customerId);
     } catch {
       if (!isCurrentRequest()) return;
       setState("error");
+      setStateOwnerCustomerId(customerId);
       setError("문구를 다시 만들 수 있어요.");
+      setErrorOwnerCustomerId(customerId);
     } finally {
       if (
         latestCustomerId.current === customerId
@@ -118,14 +133,18 @@ export function BookingMessageComposer({
     const copyCustomerId = customerId;
     clearCopyTimer();
     setError(null);
+    setErrorOwnerCustomerId(copyCustomerId);
     setCopied(null);
+    setCopiedOwnerCustomerId(copyCustomerId);
     const succeeded = await copyText(text);
     if (generation !== requestGeneration.current || latestCustomerId.current !== copyCustomerId) return;
     if (!succeeded) {
       setError(COPY_ERROR);
+      setErrorOwnerCustomerId(copyCustomerId);
       return;
     }
     setCopied(target);
+    setCopiedOwnerCustomerId(copyCustomerId);
     copyTimer.current = window.setTimeout(() => {
       if (generation !== requestGeneration.current || latestCustomerId.current !== copyCustomerId) return;
       setCopied(null);
@@ -133,17 +152,20 @@ export function BookingMessageComposer({
     }, 2000);
   }, [clearCopyTimer, customerId]);
 
-  const isCurrentResult = state === "success" && resultCustomerId === customerId;
-  const isBusy = state === "preparing" || state === "generating";
+  const visibleState = stateOwnerCustomerId === customerId ? state : "idle";
+  const visibleError = errorOwnerCustomerId === customerId ? error : null;
+  const visibleCopied = copiedOwnerCustomerId === customerId ? copied : null;
+  const isCurrentResult = visibleState === "success" && resultCustomerId === customerId;
+  const isBusy = visibleState === "preparing" || visibleState === "generating";
   const canGenerate = customerId !== null && !disabled && !isBusy;
-  const actionLabel = state === "error" ? "다시 만들기" : "고객에게 보낼 문구 만들기";
+  const actionLabel = visibleState === "error" ? "다시 만들기" : "고객에게 보낼 문구 만들기";
 
   return (
     <section className="min-w-0 rounded-2xl border border-line bg-surface p-4 sm:p-5" aria-label="예약 안내 문구">
       <div aria-live="polite" className="sr-only">
-        {state === "preparing" ? "예약 설정을 저장하고 있어요." : state === "generating" ? "고객에게 보낼 문구를 만들고 있어요." : copied === "message" ? "메시지를 복사했어요." : copied === "link" ? "링크를 복사했어요." : ""}
+        {visibleState === "preparing" ? "예약 설정을 저장하고 있어요." : visibleState === "generating" ? "고객에게 보낼 문구를 만들고 있어요." : visibleCopied === "message" ? "메시지를 복사했어요." : visibleCopied === "link" ? "링크를 복사했어요." : ""}
       </div>
-      {error && <p role="alert" className="mb-3 rounded-xl bg-danger-tint px-3 py-2.5 text-[13px] font-semibold text-danger-ink">{error}</p>}
+      {visibleError && <p role="alert" className="mb-3 rounded-xl bg-danger-tint px-3 py-2.5 text-[13px] font-semibold text-danger-ink">{visibleError}</p>}
 
       {customerId === null && (
         <p className="mb-3 text-[13px] leading-5 text-ink2">고객을 먼저 고르면 바로 예약 안내를 만들 수 있어요.</p>
@@ -156,7 +178,7 @@ export function BookingMessageComposer({
           disabled={!canGenerate}
           className="min-h-11 w-full rounded-xl bg-brand px-4 text-[14px] font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
-          {state === "preparing" ? "예약 설정 저장 중..." : state === "generating" ? "문구 만드는 중..." : actionLabel}
+          {visibleState === "preparing" ? "예약 설정 저장 중..." : visibleState === "generating" ? "문구 만드는 중..." : actionLabel}
         </button>
       ) : (
         <div className="min-w-0 space-y-3">
@@ -181,7 +203,7 @@ export function BookingMessageComposer({
               고객 화면 열기
             </a>
           </div>
-          {copied && <p aria-live="polite" className="text-[13px] font-semibold text-success-ink">{copied === "message" ? "메시지를 복사했어요." : "링크를 복사했어요."}</p>}
+          {visibleCopied && <p aria-live="polite" className="text-[13px] font-semibold text-success-ink">{visibleCopied === "message" ? "메시지를 복사했어요." : "링크를 복사했어요."}</p>}
         </div>
       )}
     </section>

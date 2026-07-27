@@ -145,6 +145,93 @@ describe("예약 안내 문구 생성기", () => {
     expect(snapshots[0]).not.toContain(oldResponse.message);
   });
 
+  it("고객 전환 첫 커밋에서 이전 고객의 저장 오류와 다시 만들기 상태를 숨긴다", async () => {
+    const snapshots: { text: string; disabled: boolean; alerts: number }[] = [];
+
+    function Probe() {
+      const [customerId, setCustomerId] = useState(31);
+      useLayoutEffect(() => {
+        if (customerId === 32) {
+          const composer = document.querySelector('[aria-label="예약 안내 문구"]');
+          snapshots.push({
+            text: composer?.textContent ?? "",
+            disabled: (composer?.querySelector("button") as HTMLButtonElement).disabled,
+            alerts: composer?.querySelectorAll('[role="alert"]').length ?? 0,
+          });
+        }
+      }, [customerId]);
+      return <>
+        <button type="button" onClick={() => setCustomerId(32)}>고객 바꾸기</button>
+        <BookingMessageComposer customerId={customerId} prepare={() => Promise.reject(new Error("SAVE_FAILED"))} />
+      </>;
+    }
+
+    render(<Probe />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" }));
+    await screen.findByRole("alert");
+    await user.click(screen.getByRole("button", { name: "고객 바꾸기" }));
+
+    expect(snapshots).toEqual([{ text: "고객에게 보낼 문구 만들기", disabled: false, alerts: 0 }]);
+  });
+
+  it("고객 전환 첫 커밋에서 이전 고객의 저장 중 버튼을 기본 활성 CTA로 바꾼다", async () => {
+    const pendingPrepare = deferred<void>();
+    const snapshots: { text: string; disabled: boolean }[] = [];
+
+    function Probe() {
+      const [customerId, setCustomerId] = useState(31);
+      useLayoutEffect(() => {
+        if (customerId === 32) {
+          const composer = document.querySelector('[aria-label="예약 안내 문구"]');
+          snapshots.push({
+            text: composer?.textContent ?? "",
+            disabled: (composer?.querySelector("button") as HTMLButtonElement).disabled,
+          });
+        }
+      }, [customerId]);
+      return <>
+        <button type="button" onClick={() => setCustomerId(32)}>고객 바꾸기</button>
+        <BookingMessageComposer customerId={customerId} prepare={() => pendingPrepare.promise} />
+      </>;
+    }
+
+    render(<Probe />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" }));
+    await user.click(screen.getByRole("button", { name: "고객 바꾸기" }));
+
+    expect(snapshots).toEqual([{ text: "고객에게 보낼 문구 만들기", disabled: false }]);
+    await act(async () => pendingPrepare.resolve());
+  });
+
+  it("고객 전환 첫 커밋에서 이전 고객의 복사 완료 안내를 숨긴다", async () => {
+    mockedCreateBookingRequest.mockResolvedValue(response());
+    const snapshots: string[] = [];
+
+    function Probe() {
+      const [customerId, setCustomerId] = useState(31);
+      useLayoutEffect(() => {
+        if (customerId === 32) {
+          snapshots.push(document.querySelector('[aria-label="예약 안내 문구"]')?.textContent ?? "");
+        }
+      }, [customerId]);
+      return <>
+        <button type="button" onClick={() => setCustomerId(32)}>고객 바꾸기</button>
+        <BookingMessageComposer customerId={customerId} />
+      </>;
+    }
+
+    render(<Probe />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" }));
+    await screen.findByRole("button", { name: "메시지 전체 복사" });
+    await user.click(screen.getByRole("button", { name: "메시지 전체 복사" }));
+    await user.click(screen.getByRole("button", { name: "고객 바꾸기" }));
+
+    expect(snapshots).toEqual(["고객에게 보낼 문구 만들기"]);
+  });
+
   it("고객이 바뀌면 늦게 끝난 복사 실패도 새 고객 화면에 보이지 않는다", async () => {
     mockedCreateBookingRequest.mockResolvedValue(response());
     const pendingCopy = deferred<boolean>();
