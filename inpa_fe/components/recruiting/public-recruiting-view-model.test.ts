@@ -15,7 +15,6 @@ import {
   getOrCreateSubmissionAttempt,
   getStopFailurePresentation,
   isSafeRecruitingToken,
-  normalizeRecruitingRouteToken,
   prepareRecruitingJoinAuthReturn,
   readStoredManageToken,
   resetConsentForRefresh,
@@ -53,14 +52,6 @@ test("공개 경로 토큰은 단일 안전 구간만 허용한다", () => {
   for (const token of ["", ".", "..", "a/b", "a?b", "a#b", "a%2Fb", "한글"]) {
     assert.equal(isSafeRecruitingToken(token), false, token);
   }
-});
-
-test("기존 모집 토큰 정규화 별칭은 공용 정규화 계약을 유지한다", () => {
-  const signed = "payload:timestamp:signature_-";
-  assert.equal(normalizeRecruitingRouteToken(signed), signed);
-  assert.equal(normalizeRecruitingRouteToken(encodeURIComponent(signed)), signed);
-  assert.equal(normalizeRecruitingRouteToken("double%252Fencoded"), null);
-  assert.equal(normalizeRecruitingRouteToken("broken%2"), null);
 });
 
 test("응답을 잃은 지원은 편집된 화면값과 무관하게 첫 전체 payload를 그대로 재사용한다", () => {

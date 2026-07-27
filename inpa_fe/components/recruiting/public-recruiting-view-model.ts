@@ -6,7 +6,6 @@ import type {
 } from "../../lib/api";
 import {
   isSafeSignedRouteToken,
-  normalizeSignedRouteToken,
 } from "@/lib/signed-route-token";
 
 export const MANAGE_STORAGE_KEY = "inpa_recruiting_manage";
@@ -30,7 +29,6 @@ export interface PublicApplicationFormValues {
 }
 
 export const isSafeRecruitingToken = isSafeSignedRouteToken;
-export const normalizeRecruitingRouteToken = normalizeSignedRouteToken;
 
 export function getOrCreateSubmissionAttempt(
   current: PublicRecruitingApplication | null,
