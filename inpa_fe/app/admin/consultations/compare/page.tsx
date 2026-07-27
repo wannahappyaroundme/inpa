@@ -10,6 +10,7 @@ import {
   type AdminComparisonSummary,
   type AdminConsultationComparisonResponse,
 } from "@/lib/adminApi";
+import { ApiError } from "@/lib/api";
 import { useAdminGuard } from "@/lib/useAdminGuard";
 
 const MAX_AUDIO_BYTES = 26214400;
@@ -38,6 +39,28 @@ const EVALUATION_LABELS = [
   "바로 메모로 사용할 수 있음",
 ];
 const FINAL_CHOICES = ["A 우세", "B 우세", "동률", "판단 보류"] as const;
+const SAFE_COMPARISON_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  CONSULTATION_COMPARISON_CLOSED:
+    "내부 비교 설정을 켜면 바로 확인할 수 있어요.",
+  CONSULTATION_COMPARISON_NOT_READY:
+    "두 AI 연결 설정을 마치면 비교를 시작할 수 있어요.",
+  SYNTHETIC_CONFIRMATION_REQUIRED:
+    "가상 녹음 확인을 선택하면 바로 비교할 수 있어요.",
+  AUDIO_EMPTY:
+    "내용이 담긴 음성 파일을 선택하면 바로 비교할 수 있어요.",
+  AUDIO_FORMAT_UNSUPPORTED:
+    "지원하는 음성 파일을 선택하면 바로 비교할 수 있어요.",
+  AUDIO_INVALID:
+    "재생되는 음성 파일을 선택하면 바로 비교할 수 있어요.",
+  AUDIO_ONLY_REQUIRED:
+    "영상 없이 음성만 담긴 파일을 선택하면 바로 비교할 수 있어요.",
+  AUDIO_TOO_LARGE:
+    "25MB 이하 음성 파일을 선택하면 바로 비교할 수 있어요.",
+  AUDIO_TOO_LONG:
+    "5분 이하 가상 상담 음성을 선택하면 바로 비교할 수 있어요.",
+};
+const GENERIC_COMPARISON_ERROR_MESSAGE =
+  "음성 파일은 그대로 두었어요. 연결 상태를 확인한 뒤 비교 시작을 다시 눌러 주세요.";
 
 type FinalChoice = (typeof FINAL_CHOICES)[number];
 type EvaluationState = Record<"A" | "B", boolean[]>;
@@ -265,9 +288,12 @@ export default function AdminConsultationComparisonPage() {
     setReveal(false);
     try {
       setResponse(await adminCompareConsultation(audio, true));
-    } catch {
+    } catch (caught) {
       setError(
-        "음성 파일은 그대로 두었어요. 연결 상태를 확인한 뒤 비교 시작을 다시 눌러 주세요.",
+        caught instanceof ApiError
+          ? SAFE_COMPARISON_ERROR_MESSAGES[caught.code] ??
+              GENERIC_COMPARISON_ERROR_MESSAGE
+          : GENERIC_COMPARISON_ERROR_MESSAGE,
       );
     } finally {
       submittingRef.current = false;

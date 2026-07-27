@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AdminConsultationComparisonPage from "@/app/admin/consultations/compare/page";
 import AdminConsultationsPage from "@/app/admin/consultations/page";
-import { tokenStore } from "@/lib/api";
+import { ApiError, tokenStore } from "@/lib/api";
 import * as adminApi from "@/lib/adminApi";
 
 vi.mock("@/lib/useAdminGuard", () => ({
@@ -315,6 +315,72 @@ describe("상담 AI 블라인드 비교 화면", () => {
     expect(await screen.findByText("결과 A")).toBeInTheDocument();
     expect(compare).toHaveBeenCalledTimes(2);
   });
+
+  it.each([
+    [
+      403,
+      "CONSULTATION_COMPARISON_CLOSED",
+      "내부 비교 설정을 켜면 바로 확인할 수 있어요.",
+    ],
+    [
+      503,
+      "CONSULTATION_COMPARISON_NOT_READY",
+      "두 AI 연결 설정을 마치면 비교를 시작할 수 있어요.",
+    ],
+    [
+      400,
+      "SYNTHETIC_CONFIRMATION_REQUIRED",
+      "가상 녹음 확인을 선택하면 바로 비교할 수 있어요.",
+    ],
+    [
+      400,
+      "AUDIO_EMPTY",
+      "내용이 담긴 음성 파일을 선택하면 바로 비교할 수 있어요.",
+    ],
+    [
+      400,
+      "AUDIO_FORMAT_UNSUPPORTED",
+      "지원하는 음성 파일을 선택하면 바로 비교할 수 있어요.",
+    ],
+    [
+      400,
+      "AUDIO_INVALID",
+      "재생되는 음성 파일을 선택하면 바로 비교할 수 있어요.",
+    ],
+    [
+      400,
+      "AUDIO_ONLY_REQUIRED",
+      "영상 없이 음성만 담긴 파일을 선택하면 바로 비교할 수 있어요.",
+    ],
+    [
+      400,
+      "AUDIO_TOO_LARGE",
+      "25MB 이하 음성 파일을 선택하면 바로 비교할 수 있어요.",
+    ],
+    [
+      400,
+      "AUDIO_TOO_LONG",
+      "5분 이하 가상 상담 음성을 선택하면 바로 비교할 수 있어요.",
+    ],
+  ])(
+    "%s %s 응답은 서버 문구 대신 정해진 다음 행동을 보여준다",
+    async (status, code, expectedMessage) => {
+      vi.spyOn(adminApi, "adminCompareConsultation").mockRejectedValue(
+        new ApiError(status, code, "private backend detail"),
+      );
+      render(<AdminConsultationComparisonPage />);
+      selectValidFileAndConfirm();
+
+      fireEvent.click(screen.getByRole("button", { name: "비교 시작" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        expectedMessage,
+      );
+      expect(screen.queryByText("private backend detail")).not.toBeInTheDocument();
+      expect(screen.queryByText(code)).not.toBeInTheDocument();
+      expect(screen.getByLabelText("가상 녹음 확인")).toBeChecked();
+    },
+  );
 });
 
 describe("상담 녹음 운영 화면의 비교 진입점", () => {
