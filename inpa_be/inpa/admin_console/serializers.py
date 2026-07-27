@@ -839,6 +839,25 @@ class AdminConsultationConfigSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class AdminConsultationComparisonSerializer(serializers.Serializer):
+    audio = serializers.FileField(
+        required=True,
+        allow_empty_file=False,
+        error_messages={
+            'required': '가상 상담 음성을 선택해 주세요.',
+            'empty': '내용이 있는 음성 파일을 선택해 주세요.',
+            'invalid': '음성 파일을 다시 선택해 주세요.',
+        },
+    )
+    synthetic_confirmed = serializers.BooleanField(
+        required=True,
+        error_messages={
+            'required': '가상 녹음 확인을 선택해 주세요.',
+            'invalid': '가상 녹음 확인값을 다시 선택해 주세요.',
+        },
+    )
+
+
 class AdminConsultationPilotSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(source='user.id', read_only=True)
     email = serializers.EmailField(source='user.email', read_only=True)

@@ -116,6 +116,8 @@ CONSULTATION_THROTTLE_RATES = {
         'CONSULTATION_SUMMARY_RATE', default='30/hour'),
     'consultation_callback': env(
         'CONSULTATION_CALLBACK_RATE', default='120/hour'),
+    'consultation_comparison': env(
+        'CONSULTATION_COMPARISON_RATE', default='10/hour'),
 }
 
 REST_FRAMEWORK = {
