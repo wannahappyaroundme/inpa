@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import CustomerConsentPage from "@/app/c/[token]/page";
 import PublicBookingPage from "@/app/b/[token]/page";
+import PublicRecruitingPage from "@/app/r/[token]/page";
+import RecruitingManagePage from "@/app/r/manage/[token]/page";
+import RecruitingJoinPage from "@/app/recruiting/join/[token]/page";
 import { ApiError } from "@/lib/api";
 
 const api = vi.hoisted(() => ({
@@ -257,5 +260,55 @@ describe("customer booking public signed route", () => {
     expect(api.getBookingInfo).toHaveBeenNthCalledWith(1, SIGNED);
     expect(api.getBookingInfo).toHaveBeenNthCalledWith(2, SIGNED);
     expect(screen.getByRole("button", { name: "이 시간으로 신청" })).toBeDisabled();
+  });
+});
+
+describe("recruiting public signed server routes", () => {
+  it("passes raw and once-encoded tokens as the same raw application token", async () => {
+    const raw = await PublicRecruitingPage({
+      params: Promise.resolve({ token: SIGNED }),
+    });
+    const encoded = await PublicRecruitingPage({
+      params: Promise.resolve({ token: encodeURIComponent(SIGNED) }),
+    });
+    const invalid = await PublicRecruitingPage({
+      params: Promise.resolve({ token: encodeURIComponent(encodeURIComponent(SIGNED)) }),
+    });
+
+    expect(raw.props.token).toBe(SIGNED);
+    expect(encoded.props.token).toBe(SIGNED);
+    expect(invalid.props.token).toBe("");
+  });
+
+  it("passes raw and once-encoded tokens as the same raw manage token", async () => {
+    const raw = await RecruitingManagePage({
+      params: Promise.resolve({ token: SIGNED }),
+    });
+    const encoded = await RecruitingManagePage({
+      params: Promise.resolve({ token: encodeURIComponent(SIGNED) }),
+    });
+    const invalid = await RecruitingManagePage({
+      params: Promise.resolve({ token: encodeURIComponent(encodeURIComponent(SIGNED)) }),
+    });
+
+    expect(raw.props.token).toBe(SIGNED);
+    expect(encoded.props.token).toBe(SIGNED);
+    expect(invalid.props.token).toBe("");
+  });
+
+  it("passes raw and once-encoded tokens as the same raw join token", async () => {
+    const raw = await RecruitingJoinPage({
+      params: Promise.resolve({ token: SIGNED }),
+    });
+    const encoded = await RecruitingJoinPage({
+      params: Promise.resolve({ token: encodeURIComponent(SIGNED) }),
+    });
+    const invalid = await RecruitingJoinPage({
+      params: Promise.resolve({ token: encodeURIComponent(encodeURIComponent(SIGNED)) }),
+    });
+
+    expect(raw.props.token).toBe(SIGNED);
+    expect(encoded.props.token).toBe(SIGNED);
+    expect(invalid.props.token).toBe("");
   });
 });
