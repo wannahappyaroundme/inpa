@@ -19,6 +19,36 @@ from inpa.consultations.summary_schema import SECTION_KEYS
 from inpa.consultations.transcript_mask import mask_transcript
 
 
+SUMMARY_FAILURE_CODES = frozenset({
+    'MASKED_TRANSCRIPT_EMPTY',
+    'SUMMARY_CONNECT_FAILED',
+    'SUMMARY_FAILED',
+    'SUMMARY_INVALID',
+    'SUMMARY_REFUSED',
+    'SUMMARY_TRUNCATED',
+})
+SUMMARY_UNKNOWN_CODES = frozenset({
+    'SUMMARY_OUTCOME_UNKNOWN',
+    'SUMMARY_TIMEOUT',
+})
+
+
+def _safe_code(value, *, allowed, fallback):
+    if not isinstance(value, str):
+        return fallback
+    normalized = value.upper()
+    if (
+        len(normalized) > 80
+        or any(
+            character not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'
+            for character in normalized
+        )
+        or normalized not in allowed
+    ):
+        return fallback
+    return normalized
+
+
 class ConsultationComparisonService:
     def __init__(self, transcriber=None, summarizers=None, shuffle=None):
         self.transcriber = transcriber or OpenAIComparisonTranscriber()
@@ -95,13 +125,21 @@ class ConsultationComparisonService:
             return self._failure_result(
                 provider,
                 status='outcome_unknown',
-                error_code=exc.code,
+                error_code=_safe_code(
+                    exc.code,
+                    allowed=SUMMARY_UNKNOWN_CODES,
+                    fallback='SUMMARY_OUTCOME_UNKNOWN',
+                ),
             )
         except ComparisonProviderFailure as exc:
             return self._failure_result(
                 provider,
                 status='failed',
-                error_code=exc.code,
+                error_code=_safe_code(
+                    exc.code,
+                    allowed=SUMMARY_FAILURE_CODES,
+                    fallback='SUMMARY_FAILED',
+                ),
             )
         except Exception:
             return self._failure_result(

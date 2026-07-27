@@ -160,7 +160,7 @@ class ComparisonServiceTests(SimpleTestCase):
                 SuccessfulSummarizer('openai'),
                 FailingSummarizer(
                     'anthropic',
-                    ComparisonProviderFailure('PROVIDER_REJECTED'),
+                    ComparisonProviderFailure('SUMMARY_REFUSED'),
                 ),
             ),
             shuffle=lambda rows: None,
@@ -169,7 +169,7 @@ class ComparisonServiceTests(SimpleTestCase):
         self.assertEqual(payload['results'][0]['status'], 'success')
         self.assertEqual(payload['results'][1]['status'], 'failed')
         self.assertIsNone(payload['results'][1]['summary'])
-        self.assertEqual(payload['results'][1]['error_code'], 'PROVIDER_REJECTED')
+        self.assertEqual(payload['results'][1]['error_code'], 'SUMMARY_REFUSED')
         self._assert_temp_audio_removed()
 
     def test_marks_unknown_provider_outcome_separately(self):
@@ -196,6 +196,41 @@ class ComparisonServiceTests(SimpleTestCase):
         self.assertEqual(payload['results'][0]['status'], 'outcome_unknown')
         self.assertEqual(payload['results'][0]['error_code'], 'SUMMARY_TIMEOUT')
         self.assertEqual(payload['results'][1]['status'], 'success')
+        self._assert_temp_audio_removed()
+
+    def test_replaces_provider_controlled_error_codes_with_safe_fallbacks(self):
+        valid_segments = (
+            ComparisonTranscriptSegment(
+                speaker='화자 1',
+                text='상담 내용을 확인합니다',
+                start_seconds=0.0,
+                end_seconds=2.0,
+            ),
+        )
+        unsafe_failure = ' customer phone 010-1234-5678! '
+        unsafe_unknown = 'timeout: transcript content\n'
+
+        payload = self._compare(self._service(
+            transcriber=FakeTranscriber(valid_segments),
+            summarizers=(
+                FailingSummarizer(
+                    'openai',
+                    ComparisonProviderFailure(unsafe_failure),
+                ),
+                FailingSummarizer(
+                    'anthropic',
+                    ComparisonOutcomeUnknown(unsafe_unknown),
+                ),
+            ),
+            shuffle=lambda rows: None,
+        ))
+
+        self.assertEqual(
+            [row['error_code'] for row in payload['results']],
+            ['SUMMARY_FAILED', 'SUMMARY_OUTCOME_UNKNOWN'],
+        )
+        self.assertNotIn(unsafe_failure, str(payload))
+        self.assertNotIn(unsafe_unknown, str(payload))
         self._assert_temp_audio_removed()
 
     def test_does_not_start_summaries_after_transcription_failure(self):
