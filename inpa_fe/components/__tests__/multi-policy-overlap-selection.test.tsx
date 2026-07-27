@@ -126,6 +126,38 @@ describe("multi-policy overlap selection", () => {
     expect(api.compareCustomer).toHaveBeenCalledTimes(3);
   });
 
+  it("announces an in-flight comparison through a polite status region", async () => {
+    const user = userEvent.setup();
+    await renderSwitchTab();
+    api.compareCustomer.mockReturnValueOnce(new Promise(() => {}));
+
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+
+    expect(await screen.findByRole("status", { name: "비교하고 있어요." })).toBeTruthy();
+  });
+
+  it("announces stale selection guidance through a polite status region", async () => {
+    const user = userEvent.setup();
+    await renderSwitchTab();
+    api.compareCustomer.mockResolvedValueOnce(comparison);
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+    await screen.findByText("암 진단비");
+
+    await user.click(screen.getByRole("button", { name: "A3 오른쪽에서 제외" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요.");
+  });
+
+  it("announces a comparison 500 error through an assertive alert region", async () => {
+    const user = userEvent.setup();
+    await renderSwitchTab();
+    api.compareCustomer.mockRejectedValueOnce(new ApiError(500, "ERROR", "비교 내용을 불러오지 못했어요."));
+
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("비교 내용을 불러오지 못했어요.");
+  });
+
   it("hides obsolete and late comparison results after selection changes", async () => {
     const user = userEvent.setup();
     await renderSwitchTab();

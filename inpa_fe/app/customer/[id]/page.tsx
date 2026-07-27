@@ -1415,6 +1415,14 @@ export function SwitchTab({ customerId }: { customerId: number }) {
     && isCurrentComparison
     && compareStatus !== "loading"
     && !insRefreshError;
+  const comparisonGuidance = selectionIssue ?? compareError ?? (successfulComparison ? "선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요." : "왼쪽과 오른쪽 구성을 확인한 뒤 비교해 주세요.");
+  const comparisonGuidanceRole = compareStatus === "loading"
+    ? "status"
+    : compareError
+    ? "alert"
+    : compareStatus !== "error" && successfulComparison
+    ? "status"
+    : undefined;
 
   // ④ 고객에게 보낼 내용 — 중립 사실만(담보·금액·증감 라벨). §97: 판정·권유·switch_warnings(설계사
   // 내부 전용) 절대 미포함, 인파는 복사만 하고 발송하지 않는다(설계사가 직접 카톡·문자로 전달).
@@ -1510,8 +1518,8 @@ export function SwitchTab({ customerId }: { customerId: number }) {
 
       {!data ? (
         <>
-          <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center text-[14px] text-ink3">
-            {selectionIssue ?? compareError ?? (successfulComparison ? "선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요." : "왼쪽과 오른쪽 구성을 확인한 뒤 비교해 주세요.")}
+          <div role={comparisonGuidanceRole} aria-label={compareStatus === "loading" ? "비교하고 있어요." : undefined} className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center text-[14px] text-ink3">
+            {comparisonGuidance}
           </div>
           <button type="button" disabled className="mt-4 rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink2 disabled:opacity-50">증권 비교표 내용 복사</button>
         </>
