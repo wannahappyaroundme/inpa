@@ -1,5 +1,6 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useLayoutEffect, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BookingMessageComposer } from "@/components/booking-message-composer";
@@ -115,6 +116,35 @@ describe("예약 안내 문구 생성기", () => {
     expect(screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" })).toBeTruthy();
   });
 
+  it("고객 전환 커밋부터 이전 고객의 문구와 주소를 렌더하지 않는다", async () => {
+    const oldResponse = response("customer-31-token");
+    mockedCreateBookingRequest.mockResolvedValue(oldResponse);
+    const snapshots: string[] = [];
+
+    function Probe() {
+      const [customerId, setCustomerId] = useState(31);
+      useLayoutEffect(() => {
+        if (customerId === 32) {
+          snapshots.push(document.querySelector('[aria-label="예약 안내 문구"]')?.textContent ?? "");
+        }
+      }, [customerId]);
+      return <>
+        <button type="button" onClick={() => setCustomerId(32)}>고객 바꾸기</button>
+        <BookingMessageComposer customerId={customerId} />
+      </>;
+    }
+
+    render(<Probe />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" }));
+    await screen.findByText(oldResponse.booking_url);
+    await user.click(screen.getByRole("button", { name: "고객 바꾸기" }));
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).not.toContain(oldResponse.booking_url);
+    expect(snapshots[0]).not.toContain(oldResponse.message);
+  });
+
   it("고객이 바뀌면 늦게 끝난 복사 실패도 새 고객 화면에 보이지 않는다", async () => {
     mockedCreateBookingRequest.mockResolvedValue(response());
     const pendingCopy = deferred<boolean>();
@@ -146,6 +176,26 @@ describe("예약 안내 문구 생성기", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("문구를 다시 만들 수 있어요.");
     await user.click(screen.getByRole("button", { name: "다시 만들기" }));
     expect(mockedCreateBookingRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("같은 렌더 배치의 두 활성화도 저장 준비와 생성 요청을 한 번만 보낸다", async () => {
+    const pendingPrepare = deferred<void>();
+    const pendingCreate = deferred<BookingRequestResponse>();
+    const prepare = vi.fn(() => pendingPrepare.promise);
+    mockedCreateBookingRequest.mockReturnValue(pendingCreate.promise);
+
+    render(<BookingMessageComposer customerId={31} prepare={prepare} />);
+    const button = screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" });
+    act(() => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(mockedCreateBookingRequest).not.toHaveBeenCalled();
+
+    await act(async () => pendingPrepare.resolve());
+    expect(mockedCreateBookingRequest).toHaveBeenCalledTimes(1);
+    await act(async () => pendingCreate.resolve(response()));
   });
 
   it("고객을 고르기 전에는 문구 생성을 막고 다음 행동을 안내한다", () => {

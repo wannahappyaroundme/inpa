@@ -24,11 +24,20 @@ export function BookingMessageComposer({
   const [state, setState] = useState<ComposerState>("idle");
   const [message, setMessage] = useState("");
   const [bookingUrl, setBookingUrl] = useState("");
+  const [resultCustomerId, setResultCustomerId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<CopyTarget>(null);
   const requestGeneration = useRef(0);
+  const latestCustomerId = useRef<number | null>(customerId);
+  const inFlight = useRef<{ customerId: number; generation: number } | null>(null);
   const copyTimer = useRef<number | null>(null);
   const messageId = useId();
+
+  if (latestCustomerId.current !== customerId) {
+    latestCustomerId.current = customerId;
+    requestGeneration.current += 1;
+    inFlight.current = null;
+  }
 
   const clearCopyTimer = useCallback(() => {
     if (copyTimer.current !== null) {
@@ -43,6 +52,7 @@ export function BookingMessageComposer({
     setState("idle");
     setMessage("");
     setBookingUrl("");
+    setResultCustomerId(null);
     setError(null);
     setCopied(null);
 
@@ -53,57 +63,77 @@ export function BookingMessageComposer({
   }, [customerId, clearCopyTimer]);
 
   const generate = useCallback(async () => {
-    if (customerId === null || disabled || state === "preparing" || state === "generating") return;
+    if (customerId === null || disabled || inFlight.current?.customerId === customerId) return;
     const generation = ++requestGeneration.current;
+    inFlight.current = { customerId, generation };
     clearCopyTimer();
     setError(null);
     setCopied(null);
+
+    const isCurrentRequest = () => (
+      generation === requestGeneration.current && latestCustomerId.current === customerId
+    );
 
     if (prepare) {
       setState("preparing");
       try {
         await prepare();
       } catch {
-        if (generation !== requestGeneration.current) return;
+        if (!isCurrentRequest()) return;
         setState("error");
         setError("예약 설정을 다시 저장해 주세요.");
+        if (inFlight.current?.generation === generation && inFlight.current.customerId === customerId) {
+          inFlight.current = null;
+        }
         return;
       }
     }
 
-    if (generation !== requestGeneration.current) return;
+    if (!isCurrentRequest()) return;
     setState("generating");
     try {
       const result = await createBookingRequest(customerId);
-      if (generation !== requestGeneration.current) return;
+      if (!isCurrentRequest()) return;
       setMessage(result.message);
       setBookingUrl(result.booking_url);
+      setResultCustomerId(customerId);
       setState("success");
     } catch {
-      if (generation !== requestGeneration.current) return;
+      if (!isCurrentRequest()) return;
       setState("error");
       setError("문구를 다시 만들 수 있어요.");
+    } finally {
+      if (
+        latestCustomerId.current === customerId
+        && inFlight.current?.generation === generation
+        && inFlight.current.customerId === customerId
+      ) {
+        inFlight.current = null;
+      }
     }
-  }, [clearCopyTimer, customerId, disabled, prepare, state]);
+  }, [clearCopyTimer, customerId, disabled, prepare]);
 
   const copy = useCallback(async (text: string, target: Exclude<CopyTarget, null>) => {
     const generation = requestGeneration.current;
+    const copyCustomerId = customerId;
     clearCopyTimer();
     setError(null);
     setCopied(null);
     const succeeded = await copyText(text);
-    if (generation !== requestGeneration.current) return;
+    if (generation !== requestGeneration.current || latestCustomerId.current !== copyCustomerId) return;
     if (!succeeded) {
       setError(COPY_ERROR);
       return;
     }
     setCopied(target);
     copyTimer.current = window.setTimeout(() => {
+      if (generation !== requestGeneration.current || latestCustomerId.current !== copyCustomerId) return;
       setCopied(null);
       copyTimer.current = null;
     }, 2000);
-  }, [clearCopyTimer]);
+  }, [clearCopyTimer, customerId]);
 
+  const isCurrentResult = state === "success" && resultCustomerId === customerId;
   const isBusy = state === "preparing" || state === "generating";
   const canGenerate = customerId !== null && !disabled && !isBusy;
   const actionLabel = state === "error" ? "다시 만들기" : "고객에게 보낼 문구 만들기";
@@ -119,7 +149,7 @@ export function BookingMessageComposer({
         <p className="mb-3 text-[13px] leading-5 text-ink2">고객을 먼저 고르면 바로 예약 안내를 만들 수 있어요.</p>
       )}
 
-      {state !== "success" ? (
+      {!isCurrentResult ? (
         <button
           type="button"
           onClick={() => void generate()}
