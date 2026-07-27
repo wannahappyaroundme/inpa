@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BookingSettings } from "@/components/booking-settings";
 import {
-  createBookingRequest, deleteWorkHour, getProfile, listCustomers, listWorkHours, updateProfile,
-  type CustomerListItem, type ProfileResponse,
+  createBookingRequest, deleteWorkHour, getProfile, listBookingCustomers, listWorkHours, updateProfile,
+  type BookingCustomerListItem, type ProfileResponse,
 } from "@/lib/api";
 import {
   bookingSettingsPayload,
@@ -19,7 +19,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   updateProfile: vi.fn(),
   listWorkHours: vi.fn(),
   deleteWorkHour: vi.fn(),
-  listCustomers: vi.fn(),
+  listBookingCustomers: vi.fn(),
   createBookingRequest: vi.fn(),
 }));
 
@@ -27,7 +27,7 @@ const mockedGetProfile = vi.mocked(getProfile);
 const mockedUpdateProfile = vi.mocked(updateProfile);
 const mockedListWorkHours = vi.mocked(listWorkHours);
 const mockedDeleteWorkHour = vi.mocked(deleteWorkHour);
-const mockedListCustomers = vi.mocked(listCustomers);
+const mockedListBookingCustomers = vi.mocked(listBookingCustomers);
 const mockedCreateBookingRequest = vi.mocked(createBookingRequest);
 
 function profile(overrides: Partial<ProfileResponse> = {}): ProfileResponse {
@@ -71,14 +71,14 @@ function profile(overrides: Partial<ProfileResponse> = {}): ProfileResponse {
   };
 }
 
-function customer(overrides: Partial<CustomerListItem> = {}): CustomerListItem {
+function customer(overrides: Partial<BookingCustomerListItem> = {}): BookingCustomerListItem {
   return {
     id: 31,
     name: "최고객",
     mobile_phone_number: "01012345678",
     sales_stage: "contact",
     ...overrides,
-  } as CustomerListItem;
+  };
 }
 
 function deferred<T>() {
@@ -156,11 +156,11 @@ describe("예약 설정 화면", () => {
     mockedUpdateProfile.mockReset();
     mockedListWorkHours.mockReset();
     mockedDeleteWorkHour.mockReset();
-    mockedListCustomers.mockReset();
+    mockedListBookingCustomers.mockReset();
     mockedCreateBookingRequest.mockReset();
     mockedGetProfile.mockResolvedValue(profile());
     mockedListWorkHours.mockResolvedValue({ count: 0, next: null, previous: null, results: [] });
-    mockedListCustomers.mockResolvedValue({ count: 0, next: null, previous: null, results: [] });
+    mockedListBookingCustomers.mockResolvedValue({ count: 0, next: null, previous: null, results: [] });
   });
 
   it("프로필을 읽는 동안 저장과 안내 생성을 막고, 실패는 빈 초안 대신 다시 불러오기를 보여 준다", async () => {
@@ -185,7 +185,7 @@ describe("예약 설정 화면", () => {
   });
 
   it("바뀐 설정을 먼저 저장한 뒤 선택 고객의 실제 안내 문구를 만든다", async () => {
-    mockedListCustomers.mockResolvedValue({
+    mockedListBookingCustomers.mockResolvedValue({
       count: 1, next: null, previous: null,
       results: [customer()],
     });
@@ -212,7 +212,7 @@ describe("예약 설정 화면", () => {
       booking_url: string;
       message: string;
     }>();
-    mockedListCustomers.mockResolvedValue({
+    mockedListBookingCustomers.mockResolvedValue({
       count: 1, next: null, previous: null,
       results: [customer()],
     });
@@ -237,7 +237,7 @@ describe("예약 설정 화면", () => {
   });
 
   it("저장 실패 시 입력을 보존하고 실제 안내 요청을 보내지 않는다", async () => {
-    mockedListCustomers.mockResolvedValue({
+    mockedListBookingCustomers.mockResolvedValue({
       count: 1, next: null, previous: null,
       results: [customer()],
     });
@@ -282,7 +282,7 @@ describe("예약 설정 화면", () => {
       booking_url: string;
       message: string;
     }>();
-    mockedListCustomers.mockResolvedValue({
+    mockedListBookingCustomers.mockResolvedValue({
       count: 1, next: null, previous: null,
       results: [customer()],
     });
@@ -364,7 +364,7 @@ describe("예약 설정 화면", () => {
   });
 
   it("동명이인은 마스킹한 연락처와 영업 단계로 선택 내용을 구분한다", async () => {
-    mockedListCustomers.mockResolvedValue({
+    mockedListBookingCustomers.mockResolvedValue({
       count: 2, next: null, previous: null,
       results: [
         customer({ id: 31, name: "김고객", mobile_phone_number: "010-1111-1111", sales_stage: "contact" }),

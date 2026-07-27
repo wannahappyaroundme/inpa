@@ -1,11 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { listCustomers, SALES_STAGES, type CustomerListItem } from "@/lib/api";
+import {
+  listBookingCustomers,
+  SALES_STAGES,
+  type BookingCustomerListItem,
+} from "@/lib/api";
 
 export interface BookingCustomerPickerProps {
-  value: CustomerListItem | null;
-  onChange: (customer: CustomerListItem | null) => void;
+  value: BookingCustomerListItem | null;
+  onChange: (customer: BookingCustomerListItem | null) => void;
   disabled?: boolean;
 }
 
@@ -17,13 +21,13 @@ function maskPhone(phone: string | null): string {
   return "연락처 일부 숨김";
 }
 
-function stageLabel(stage: CustomerListItem["sales_stage"]): string {
+function stageLabel(stage: BookingCustomerListItem["sales_stage"]): string {
   return SALES_STAGES.find((item) => item.key === stage)?.label ?? "";
 }
 
 export function BookingCustomerPicker({ value, onChange, disabled = false }: BookingCustomerPickerProps) {
   const [query, setQuery] = useState(value?.name ?? "");
-  const [results, setResults] = useState<CustomerListItem[]>([]);
+  const [results, setResults] = useState<BookingCustomerListItem[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [activeIndex, setActiveIndex] = useState(-1);
   const [open, setOpen] = useState(true);
@@ -38,7 +42,7 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
     setStatus("loading");
     setActiveIndex(-1);
     try {
-      const response = await listCustomers({ page: 1, search: search.trim() || undefined });
+      const response = await listBookingCustomers({ page: 1, search: search.trim() || undefined });
       if (generation !== requestGeneration.current) return;
       setResults(response.results);
       setStatus("success");
@@ -67,7 +71,7 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
     setActiveIndex(-1);
   }, [value?.id, value?.name]);
 
-  const choose = (customer: CustomerListItem) => {
+  const choose = (customer: BookingCustomerListItem) => {
     selectedRef.current = true;
     valueRef.current = { id: customer.id, name: customer.name };
     setQuery(customer.name);

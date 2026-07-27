@@ -1,47 +1,28 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CustomerListItem } from "@/lib/api";
-import { listCustomers } from "@/lib/api";
+import type { BookingCustomerListItem } from "@/lib/api";
+import { listBookingCustomers } from "@/lib/api";
 import { BookingCustomerPicker } from "@/components/booking-customer-picker";
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
-  listCustomers: vi.fn(),
+  listBookingCustomers: vi.fn(),
 }));
 
-const mockedListCustomers = vi.mocked(listCustomers);
+const mockedListBookingCustomers = vi.mocked(listBookingCustomers);
 
-function customer(overrides: Partial<CustomerListItem> = {}): CustomerListItem {
+function customer(overrides: Partial<BookingCustomerListItem> = {}): BookingCustomerListItem {
   return {
     id: 31,
     name: "김보장",
-    gender: null,
-    birth_day: null,
     mobile_phone_number: "010-1234-5678",
-    consent_overseas_at: null,
-    color: null,
-    avatar_label: "김",
-    tags: [],
-    family_count: 0,
-    memo_count: 0,
     sales_stage: "meeting",
-    status: "active",
-    share_token: null,
-    created_at: "2026-07-27T00:00:00Z",
-    lead_source: null,
-    last_contacted_at: null,
-    is_favorite: false,
-    is_pinned: false,
-    insurance_age: null,
-    job_risk_grade: null,
-    marketing_consent: "none",
-    personal_info_consent: "none",
     ...overrides,
   };
 }
 
-function page(results: CustomerListItem[]) {
+function page(results: BookingCustomerListItem[]) {
   return { count: results.length, next: null, previous: null, results };
 }
 
@@ -50,13 +31,13 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  mockedListCustomers.mockReset();
+  mockedListBookingCustomers.mockReset();
 });
 
 describe("예약 고객 검색 선택기", () => {
   it("고객명을 300ms 뒤 검색하고 선택을 상위에 알린다", async () => {
     vi.useFakeTimers();
-    mockedListCustomers.mockResolvedValue(page([customer()]));
+    mockedListBookingCustomers.mockResolvedValue(page([customer()]));
     const onChange = vi.fn();
 
     render(<BookingCustomerPicker value={null} onChange={onChange} />);
@@ -64,7 +45,7 @@ describe("예약 고객 검색 선택기", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "고객 선택" }), { target: { value: "김보" } });
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
 
-    expect(mockedListCustomers).toHaveBeenLastCalledWith({ page: 1, search: "김보" });
+    expect(mockedListBookingCustomers).toHaveBeenLastCalledWith({ page: 1, search: "김보" });
     fireEvent.click(screen.getByRole("option", { name: /김보장/ }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ id: 31 }));
     expect(screen.getByRole("combobox", { name: "고객 선택" })).toHaveValue("김보장");
@@ -74,7 +55,7 @@ describe("예약 고객 검색 선택기", () => {
     vi.useFakeTimers();
     let resolveOld: ((value: ReturnType<typeof page>) => void) | undefined;
     const oldSearch = new Promise<ReturnType<typeof page>>((resolve) => { resolveOld = resolve; });
-    mockedListCustomers
+    mockedListBookingCustomers
       .mockResolvedValueOnce(page([]))
       .mockImplementationOnce(() => oldSearch)
       .mockResolvedValueOnce(page([customer()]));
@@ -94,7 +75,7 @@ describe("예약 고객 검색 선택기", () => {
 
   it("빈 결과에서 고객 추가를 안내한다", async () => {
     vi.useFakeTimers();
-    mockedListCustomers.mockResolvedValue(page([]));
+    mockedListBookingCustomers.mockResolvedValue(page([]));
 
     render(<BookingCustomerPicker value={null} onChange={vi.fn()} />);
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
@@ -105,7 +86,7 @@ describe("예약 고객 검색 선택기", () => {
 
   it("실패한 검색은 다시 불러올 수 있다", async () => {
     vi.useFakeTimers();
-    mockedListCustomers.mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce(page([customer()]));
+    mockedListBookingCustomers.mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce(page([customer()]));
 
     render(<BookingCustomerPicker value={null} onChange={vi.fn()} />);
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
@@ -118,7 +99,7 @@ describe("예약 고객 검색 선택기", () => {
 
   it("화살표와 Enter로 고객을 선택하고 Escape로 목록을 닫는다", async () => {
     vi.useFakeTimers();
-    mockedListCustomers.mockResolvedValue(page([
+    mockedListBookingCustomers.mockResolvedValue(page([
       customer({ id: 31, name: "김보장" }),
       customer({ id: 32, name: "이보장", sales_stage: "contract" }),
     ]));
@@ -141,7 +122,7 @@ describe("예약 고객 검색 선택기", () => {
 
   it("검색 결과에 마스킹한 전화번호와 공용 영업 단계를 보인다", async () => {
     vi.useFakeTimers();
-    mockedListCustomers.mockResolvedValue(page([customer({ sales_stage: "meeting" })]));
+    mockedListBookingCustomers.mockResolvedValue(page([customer({ sales_stage: "meeting" })]));
 
     render(<BookingCustomerPicker value={null} onChange={vi.fn()} />);
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
@@ -153,7 +134,7 @@ describe("예약 고객 검색 선택기", () => {
 
   it("외부 고객 변경은 입력에 반영하고, 새 검색이 null을 알린 뒤에는 입력을 지우지 않는다", async () => {
     vi.useFakeTimers();
-    mockedListCustomers.mockResolvedValue(page([]));
+    mockedListBookingCustomers.mockResolvedValue(page([]));
     const first = customer({ id: 1, name: "김첫번째" });
     const renamed = customer({ id: 1, name: "김첫번째 새 이름" });
     const second = customer({ id: 2, name: "이두번째" });
@@ -169,7 +150,7 @@ describe("예약 고객 검색 선택기", () => {
     unmount();
 
     function ControlledPicker() {
-      const [selected, setSelected] = useState<CustomerListItem | null>(first);
+      const [selected, setSelected] = useState<BookingCustomerListItem | null>(first);
       return <BookingCustomerPicker value={selected} onChange={setSelected} />;
     }
     const controlled = render(<ControlledPicker />);
@@ -191,7 +172,7 @@ describe("예약 고객 검색 선택기", () => {
 
   it("두 선택기의 ARIA ID가 겹치지 않고 각 결과만 가리킨다", async () => {
     vi.useFakeTimers();
-    mockedListCustomers.mockResolvedValue(page([customer()]));
+    mockedListBookingCustomers.mockResolvedValue(page([customer()]));
 
     render(<><BookingCustomerPicker value={null} onChange={vi.fn()} /><BookingCustomerPicker value={null} onChange={vi.fn()} /></>);
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
@@ -208,7 +189,7 @@ describe("예약 고객 검색 선택기", () => {
 
   it("짧은 연락처는 원문 조각 대신 숨김 안내만 보인다", async () => {
     vi.useFakeTimers();
-    mockedListCustomers.mockResolvedValue(page([
+    mockedListBookingCustomers.mockResolvedValue(page([
       customer({ id: 11, name: "열한자리", mobile_phone_number: "010-1234-5678" }),
       customer({ id: 12, name: "여덟자리", mobile_phone_number: "010-12345" }),
       customer({ id: 13, name: "일곱자리", mobile_phone_number: "123-4567" }),
@@ -225,7 +206,7 @@ describe("예약 고객 검색 선택기", () => {
 
   it("빈 결과에서는 화살표로 활성 항목을 만들지 않고 목록 참조를 비운다", async () => {
     vi.useFakeTimers();
-    mockedListCustomers.mockResolvedValue(page([]));
+    mockedListBookingCustomers.mockResolvedValue(page([]));
 
     render(<BookingCustomerPicker value={null} onChange={vi.fn()} />);
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
@@ -240,7 +221,7 @@ describe("예약 고객 검색 선택기", () => {
   it("로딩·오류·빈 결과에서는 존재하지 않는 listbox를 펼친 것으로 알리지 않는다", async () => {
     vi.useFakeTimers();
     const pending = new Promise<ReturnType<typeof page>>(() => undefined);
-    mockedListCustomers
+    mockedListBookingCustomers
       .mockReturnValueOnce(pending)
       .mockRejectedValueOnce(new Error("network"))
       .mockResolvedValueOnce(page([]));

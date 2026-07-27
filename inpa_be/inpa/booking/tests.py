@@ -188,6 +188,119 @@ class BookingCoreTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(read_booking_token(response.json()['token']), own_customer.id)
 
+    # ── 예약 고객 검색(설계사 본인 소유만) ──
+    def test_booking_customer_list_returns_only_owner_rows_with_minimal_fields(self):
+        own_customer = Customer.objects.create(
+            owner=self.user_a,
+            name='내 고객',
+            mobile_phone_number='010-1111-2222',
+            sales_stage=Customer.STAGE_CONTACT,
+            memo='예약 선택기에 노출되면 안 되는 메모',
+        )
+        foreign_customer = Customer.objects.create(
+            owner=self.user_b,
+            name='외부 고객 비밀이름',
+            mobile_phone_number='010-9999-8888',
+            sales_stage=Customer.STAGE_MEETING,
+        )
+
+        response = self.client_a.get('/api/v1/booking-customers/')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['count'], 2)
+        self.assertEqual(set(body), {'count', 'next', 'previous', 'results'})
+        row = next(item for item in body['results'] if item['id'] == own_customer.id)
+        self.assertEqual(
+            row,
+            {
+                'id': own_customer.id,
+                'name': '내 고객',
+                'mobile_phone_number': '010-1111-2222',
+                'sales_stage': Customer.STAGE_CONTACT,
+            },
+        )
+        payload = response.content.decode()
+        self.assertNotIn(
+            foreign_customer.id,
+            [item['id'] for item in body['results']],
+        )
+        self.assertNotIn('외부 고객 비밀이름', payload)
+        self.assertNotIn('010-9999-8888', payload)
+        self.assertNotIn('예약 선택기에 노출되면 안 되는 메모', payload)
+
+    def test_booking_customer_list_keeps_admin_strictly_owner_scoped(self):
+        self.profile_b.is_admin = True
+        self.profile_b.save(update_fields=['is_admin'])
+        own_customer = Customer.objects.create(
+            owner=self.user_b,
+            name='관리자 본인 고객',
+            mobile_phone_number='010-3333-4444',
+        )
+
+        response = self.client_b.get('/api/v1/booking-customers/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item['id'] for item in response.json()['results']],
+            [own_customer.id],
+        )
+        payload = response.content.decode()
+        self.assertNotIn('홍길동', payload)
+        self.assertNotIn('010-0000-0000', payload)
+
+    def test_booking_customer_search_trims_and_matches_name_or_phone(self):
+        name_match = Customer.objects.create(
+            owner=self.user_a,
+            name='검색 대상',
+            mobile_phone_number='010-1111-2222',
+        )
+        phone_match = Customer.objects.create(
+            owner=self.user_a,
+            name='다른 고객',
+            mobile_phone_number='010-5555-6789',
+        )
+        Customer.objects.create(
+            owner=self.user_a,
+            name='검색 제외',
+            mobile_phone_number='010-0000-0001',
+        )
+
+        by_name = self.client_a.get(
+            '/api/v1/booking-customers/',
+            {'search': '  검색 대상  '},
+        )
+        by_phone = self.client_a.get(
+            '/api/v1/booking-customers/',
+            {'search': '  6789  '},
+        )
+
+        self.assertEqual(by_name.status_code, 200)
+        self.assertEqual(
+            [item['id'] for item in by_name.json()['results']],
+            [name_match.id],
+        )
+        self.assertEqual(by_phone.status_code, 200)
+        self.assertEqual(
+            [item['id'] for item in by_phone.json()['results']],
+            [phone_match.id],
+        )
+
+    def test_booking_customer_list_requires_authentication_and_verified_email(self):
+        anonymous = APIClient().get('/api/v1/booking-customers/')
+        unverified_user = User.objects.create_user(
+            email='unverified-booking@test.com',
+            password='inpaPass123!',
+        )
+        Profile.objects.create(user=unverified_user)
+        unverified_client = APIClient()
+        unverified_client.force_authenticate(user=unverified_user)
+
+        unverified = unverified_client.get('/api/v1/booking-customers/')
+
+        self.assertEqual(anonymous.status_code, 401)
+        self.assertEqual(unverified.status_code, 403)
+
     # ── 공개 GET (업무시간 기준 빈 슬롯 자동 생성) ──
     def test_public_get_masked_and_workhour_slots(self):
         _all_week_workhours(self.user_a)
@@ -415,6 +528,10 @@ class BookingDisabledGateTests(TestCase):
     def test_booking_request_403(self):
         r = self.client.post(f'/api/v1/customers/{self.customer.id}/booking-requests/')
         self.assertEqual(r.status_code, 403)
+
+    def test_booking_customer_list_403(self):
+        response = self.client.get('/api/v1/booking-customers/')
+        self.assertEqual(response.status_code, 403)
 
     def test_public_get_404(self):
         token = make_booking_token(self.customer)

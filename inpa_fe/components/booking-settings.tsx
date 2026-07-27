@@ -7,7 +7,7 @@ import { BookingMessageComposer } from "@/components/booking-message-composer";
 import { Card } from "@/components/ui";
 import {
   createWorkHour, deleteWorkHour, getProfile, listWorkHours, updateProfile, SALES_STAGES,
-  type CustomerListItem, type WorkHour,
+  type BookingCustomerListItem, type WorkHour,
 } from "@/lib/api";
 import {
   bookingSettingsPayload, isSameBookingSettings, profileToBookingSettings,
@@ -28,7 +28,7 @@ function maskCustomerPhone(phone: string | null): string {
   return digits.length >= 8 ? `${digits.slice(0, 3)}-****-${digits.slice(-4)}` : "연락처 일부 숨김";
 }
 
-function customerStage(customer: CustomerListItem): string {
+function customerStage(customer: BookingCustomerListItem): string {
   return SALES_STAGES.find((stage) => stage.key === customer.sales_stage)?.label ?? "";
 }
 
@@ -39,7 +39,7 @@ export function BookingSettings() {
   const [saving, setSaving] = useState(false);
   const [composerBusy, setComposerBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerListItem | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<BookingCustomerListItem | null>(null);
 
   const [workHourStatus, setWorkHourStatus] = useState<WorkHourLoadStatus>("loading");
   const [workHours, setWorkHours] = useState<WorkHour[]>([]);
