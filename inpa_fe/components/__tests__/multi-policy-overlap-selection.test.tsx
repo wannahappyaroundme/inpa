@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -140,6 +140,48 @@ describe("multi-policy overlap selection", () => {
     await user.click(screen.getByRole("button", { name: "A2 오른쪽에서 제외" }));
     resolve(comparison);
     await waitFor(() => expect(screen.queryByText("암 진단비")).toBeNull());
+  });
+
+  it("requires a new successful CTA run when the selection returns to an earlier snapshot", async () => {
+    const user = userEvent.setup();
+    await renderSwitchTab();
+    api.compareCustomer.mockResolvedValueOnce(comparison);
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+    expect(await screen.findByText("암 진단비")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "A3 오른쪽에서 제외" }));
+    await user.click(screen.getByRole("button", { name: "A3 오른쪽에 포함" }));
+    expect(screen.queryByText("암 진단비")).toBeNull();
+    expect((screen.getByRole("button", { name: "증권 비교표 내용 복사" }) as HTMLButtonElement).disabled).toBe(true);
+
+    api.compareCustomer.mockResolvedValueOnce(comparison);
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+    expect(await screen.findByText("암 진단비")).toBeTruthy();
+  });
+
+  it("discards an ABA late response before a fresh explicit run succeeds", async () => {
+    const user = userEvent.setup();
+    await renderSwitchTab();
+    let resolve!: (value: CompareResponse) => void;
+    api.compareCustomer.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+    await user.click(screen.getByRole("button", { name: "A3 오른쪽에서 제외" }));
+    await user.click(screen.getByRole("button", { name: "A3 오른쪽에 포함" }));
+    resolve(comparison);
+    await waitFor(() => expect(screen.queryByText("암 진단비")).toBeNull());
+    expect((screen.getByRole("button", { name: "증권 비교표 내용 복사" }) as HTMLButtonElement).disabled).toBe(true);
+
+    api.compareCustomer.mockResolvedValueOnce(comparison);
+    await user.click(screen.getByRole("button", { name: "선택한 구성 비교하기" }));
+    expect(await screen.findByText("암 진단비")).toBeTruthy();
+  });
+
+  it("keeps every selected policy name in the desktop composition summary", async () => {
+    await renderSwitchTab();
+    const chips = within(screen.getByTestId("selected-policy-chips-desktop"));
+    for (const name of ["A1", "A2", "A3", "B1"]) {
+      expect(chips.getByText(name)).toBeTruthy();
+    }
   });
 
   it("preserves changed selections and presets only new policies on refresh", async () => {

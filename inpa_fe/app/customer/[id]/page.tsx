@@ -1362,7 +1362,7 @@ export function SwitchTab({ customerId }: { customerId: number }) {
     : null;
   const isCurrentComparison = successfulComparison != null
     && isSamePolicySelectionSnapshot(successfulComparison.snapshot, snapshot);
-  const data = isCurrentComparison && compareStatus !== "error" ? successfulComparison.data : null;
+  const data = isCurrentComparison && compareStatus === "success" ? successfulComparison.data : null;
   const changeSelection = (insuranceId: number, value: PolicySideSelection) => {
     compareReqRef.current += 1;
     setSelection((previous) => ({ ...previous, [insuranceId]: value }));
@@ -1456,7 +1456,10 @@ export function SwitchTab({ customerId }: { customerId: number }) {
             <span>오른쪽 구성 {bCount}개</span>
           </div>
           <div className="sr-only">왼쪽 구성: {snapshot.leftIds.map((id) => insurances.find((item) => item.id === id)?.name ?? `보험 ${id}`).join(", ") || "없음"}. 오른쪽 구성: {snapshot.rightIds.map((id) => insurances.find((item) => item.id === id)?.name ?? `보험 ${id}`).join(", ") || "없음"}.</div>
-          <div className="flex flex-wrap gap-1.5" aria-hidden="true">
+          <div data-testid="selected-policy-chips-desktop" className="hidden flex-wrap gap-1.5 sm:flex" aria-hidden="true">
+            {selectedPolicyIds.map((id) => <span key={id} className="rounded-full border border-line bg-surface px-2 py-0.5 text-[10px]">{insurances.find((item) => item.id === id)?.name ?? `보험 ${id}`}</span>)}
+          </div>
+          <div className="flex flex-wrap gap-1.5 sm:hidden" aria-hidden="true">
             {selectedPolicyIds.slice(0, 2).map((id) => <span key={id} className="rounded-full border border-line bg-surface px-2 py-0.5 text-[10px]">{insurances.find((item) => item.id === id)?.name ?? `보험 ${id}`}</span>)}
             {selectedPolicyIds.length > 2 && <span className="text-[10px] text-ink3">외 {selectedPolicyIds.length - 2}개</span>}
           </div>
