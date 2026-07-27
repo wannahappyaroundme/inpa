@@ -66,6 +66,32 @@ services:
         value: "False"               # 전용 R2·동의·운영 점검 뒤 파일럿 계정부터 공개
       - key: CONSULTATION_AI_SUMMARY_ENABLED
         value: "False"               # 음성 전사·요약 공급자 설정과 검증 전까지 닫힘
+      - key: CONSULTATION_AI_COMPARISON_ENABLED
+        value: "True"                # 관리자 가상 상담 음성 A/B 비교 운영
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_TRANSCRIPTION_MODEL
+        sync: false
+      - key: OPENAI_COMPARISON_MODEL
+        sync: false
+      - key: ANTHROPIC_COMPARISON_MODEL
+        sync: false
+      - key: CONSULTATION_COMPARISON_MAX_BYTES
+        value: "26214400"
+      - key: CONSULTATION_COMPARISON_MAX_DURATION_SECONDS
+        value: "300"
+      - key: CONSULTATION_COMPARISON_REQUEST_DEADLINE_SECONDS
+        value: "110"
+      - key: CONSULTATION_COMPARISON_CONNECT_TIMEOUT_SECONDS
+        value: "2"
+      - key: CONSULTATION_COMPARISON_TRANSCRIPTION_READ_TIMEOUT_SECONDS
+        value: "35"
+      - key: CONSULTATION_COMPARISON_SUMMARY_READ_TIMEOUT_SECONDS
+        value: "25"
+      - key: CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS
+        value: "5"
+      - key: CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS
+        value: "1"
       - key: BILLING_CARD_REGISTRATION_ENABLED
         value: "False"               # KICC 계약·실거래 검증과 PM 승인 전까지 카드 등록 닫힘
       - key: BILLING_RECURRING_CHARGE_ENABLED

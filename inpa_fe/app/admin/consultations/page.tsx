@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { Card } from "@/components/ui";
@@ -185,6 +186,12 @@ export default function AdminConsultationsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link
+            href="/admin/consultations/compare"
+            className="min-h-11 rounded-xl border border-line bg-surface px-4 py-3 text-[13px] font-bold text-brand"
+          >
+            상담 AI 비교
+          </Link>
           <button
             type="button"
             disabled={saving || (!data.environment_gate_open && !data.settings.recording_enabled)}

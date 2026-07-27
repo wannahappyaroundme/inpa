@@ -18,6 +18,7 @@ from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.throttling import ScopedRateThrottle
@@ -48,6 +49,13 @@ from inpa.billing.models import (
 from inpa.billing.tasks import (
     reconcile_unknown_order_task,
     revoke_payment_token_task,
+)
+from inpa.consultations.comparison import ConsultationComparisonService
+from inpa.consultations.comparison_audio import ComparisonAudioError
+from inpa.consultations.providers.comparison_base import (
+    ComparisonDeadline,
+    ComparisonOutcomeUnknown,
+    ComparisonProviderFailure,
 )
 from inpa.consultations.quota import release_meter
 from inpa.boards.models import (
@@ -81,6 +89,7 @@ from .serializers import (
     AdminBillingCouponSerializer,
     AdminBillingCouponUpdateSerializer,
     AdminBillingSettingsSerializer,
+    AdminConsultationComparisonSerializer,
     AdminConsultationConfigSerializer,
     AdminConsultationPilotCreateSerializer,
     AdminConsultationPilotSerializer,
@@ -2753,6 +2762,109 @@ class AdminConsultationSettingsView(APIView):
             serializer.is_valid(raise_exception=True)
             serializer.save()
         return Response(self._response(config))
+
+
+_COMPARISON_AUDIO_ERROR_CODES = frozenset({
+    'AUDIO_EMPTY',
+    'AUDIO_FORMAT_UNSUPPORTED',
+    'AUDIO_INVALID',
+    'AUDIO_ONLY_REQUIRED',
+    'AUDIO_TOO_LARGE',
+    'AUDIO_TOO_LONG',
+})
+
+
+def _consultation_comparison_ready():
+    return all((
+        django_settings.OPENAI_API_KEY,
+        django_settings.OPENAI_TRANSCRIPTION_MODEL,
+        django_settings.OPENAI_COMPARISON_MODEL,
+        django_settings.ANTHROPIC_API_KEY,
+        django_settings.ANTHROPIC_COMPARISON_MODEL,
+    ))
+
+
+class AdminConsultationComparisonView(APIView):
+    permission_classes = [IsAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'consultation_comparison'
+
+    def post(self, request):
+        if not django_settings.CONSULTATION_AI_COMPARISON_ENABLED:
+            return Response(
+                {
+                    'code': 'CONSULTATION_COMPARISON_CLOSED',
+                    'detail': (
+                        '내부 비교 설정을 켜면 바로 확인할 수 있어요.'
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not _consultation_comparison_ready():
+            return Response(
+                {
+                    'code': 'CONSULTATION_COMPARISON_NOT_READY',
+                    'detail': (
+                        '두 AI 연결 설정을 마치면 비교를 시작할 수 있어요.'
+                    ),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        deadline = ComparisonDeadline.for_request()
+        serializer = AdminConsultationComparisonSerializer(
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+        if serializer.validated_data['synthetic_confirmed'] is not True:
+            return Response(
+                {
+                    'code': 'SYNTHETIC_CONFIRMATION_REQUIRED',
+                    'detail': '가상 녹음 확인을 선택해 주세요.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            payload = ConsultationComparisonService().compare(
+                serializer.validated_data['audio'],
+                deadline=deadline,
+            )
+        except ComparisonAudioError as exc:
+            code = (
+                exc.code
+                if exc.code in _COMPARISON_AUDIO_ERROR_CODES
+                else 'AUDIO_INVALID'
+            )
+            return Response(
+                {
+                    'code': code,
+                    'detail': '음성 파일을 확인한 뒤 다시 선택해 주세요.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ComparisonOutcomeUnknown:
+            return Response(
+                {
+                    'code': 'TRANSCRIPTION_OUTCOME_UNKNOWN',
+                    'detail': (
+                        '처리 상태를 확인한 뒤 새 비교를 시작해 주세요.'
+                    ),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except ComparisonProviderFailure:
+            return Response(
+                {
+                    'code': 'TRANSCRIPTION_FAILED',
+                    'detail': (
+                        '음성을 글로 바꾸는 단계를 다시 시작해 주세요.'
+                    ),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response(payload)
 
 
 class AdminConsultationSummaryCompensateView(APIView):

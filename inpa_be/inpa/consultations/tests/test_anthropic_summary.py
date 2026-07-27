@@ -9,6 +9,7 @@ from inpa.consultations.providers.anthropic_summary import (
 )
 from inpa.consultations.providers.base import SummaryOutcomeUnknown
 from inpa.consultations.summary_schema import (
+    ANTHROPIC_SUMMARY_JSON_SCHEMA,
     ConsultationSummary,
     InvalidSummary,
     render_summary_memo,
@@ -35,6 +36,11 @@ class ConsultationSummarySchemaTests(SimpleTestCase):
             ConsultationSummary.from_payload({
                 **valid_payload(),
                 'consultation_core': ['가' * 301],
+            })
+        with self.assertRaises(InvalidSummary):
+            ConsultationSummary.from_payload({
+                **valid_payload(),
+                'consultation_core': ['항목'] * 13,
             })
 
     def test_renders_exact_four_bullet_sections(self):
@@ -84,6 +90,10 @@ class AnthropicConsultationSummarizerTests(SimpleTestCase):
         self.assertEqual(
             kwargs['output_config']['format']['type'],
             'json_schema',
+        )
+        self.assertEqual(
+            kwargs['output_config']['format']['schema'],
+            ANTHROPIC_SUMMARY_JSON_SCHEMA,
         )
         self.assertNotIn('가입을 권유', render_summary_memo(result.summary))
 
