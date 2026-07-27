@@ -16,6 +16,7 @@ from inpa.consultations.comparison import ConsultationComparisonService
 from inpa.consultations.comparison_audio import ComparisonAudioError
 from inpa.consultations.models import ConsultationRecording
 from inpa.consultations.providers.comparison_base import (
+    ComparisonDeadline,
     ComparisonOutcomeUnknown,
     ComparisonProviderFailure,
     ComparisonSummaryResult,
@@ -238,8 +239,11 @@ class AdminConsultationComparisonApiTests(APITestCase):
         self.service_class.assert_called_once_with()
         self.service.compare.assert_called_once()
         uploaded_audio = self.service.compare.call_args.args[0]
+        deadline = self.service.compare.call_args.kwargs['deadline']
         self.assertEqual(uploaded_audio.name, 'synthetic.wav')
         self.assertEqual(uploaded_audio.content_type, 'audio/wav')
+        self.assertIsInstance(deadline, ComparisonDeadline)
+        self.assertGreater(deadline.remaining_work_seconds(), 0)
         self.assert_product_rows_unchanged(before)
 
     @override_settings(

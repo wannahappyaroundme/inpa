@@ -1,11 +1,17 @@
 from contextlib import contextmanager
+import io
 from pathlib import Path
 import tempfile
+import threading
+import time
 from unittest.mock import patch
+import wave
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 
 from inpa.consultations.providers.comparison_base import (
+    ComparisonDeadline,
     ComparisonOutcomeUnknown,
     ComparisonProviderFailure,
     ComparisonSummaryResult,
@@ -17,6 +23,16 @@ from inpa.consultations.summary_schema import ConsultationSummary
 
 def make_upload():
     return object()
+
+
+def make_wav(seconds=1, sample_rate=16_000):
+    output = io.BytesIO()
+    with wave.open(output, 'wb') as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(b'\x00\x00' * sample_rate * seconds)
+    return output.getvalue()
 
 
 def valid_summary():
@@ -32,9 +48,11 @@ class FakeTranscriber:
     def __init__(self, segments):
         self.segments = segments
         self.calls = 0
+        self.last_path = None
 
     def transcribe(self, path):
         self.calls += 1
+        self.last_path = path
         return ComparisonTranscription(
             segments=self.segments,
             model='transcriber-model',
@@ -80,12 +98,73 @@ class FailingSummarizer(CapturingSummarizer):
         raise self.error
 
 
+class BlockingTranscriber(FakeTranscriber):
+    def __init__(self, segments):
+        super().__init__(segments)
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.finished = threading.Event()
+
+    def transcribe(self, path):
+        self.calls += 1
+        self.last_path = path
+        self.started.set()
+        self.release.wait(timeout=0.8)
+        self.finished.set()
+        return ComparisonTranscription(
+            segments=self.segments,
+            model='transcriber-model',
+            latency_ms=12,
+        )
+
+
+class BlockingSummarizer(CapturingSummarizer):
+    def __init__(self, provider):
+        super().__init__(provider)
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.finished = threading.Event()
+
+    def summarize(self, masked_transcript):
+        self.calls += 1
+        self.received = masked_transcript
+        self.started.set()
+        self.release.wait(timeout=0.8)
+        self.finished.set()
+        return ComparisonSummaryResult(
+            summary=valid_summary(),
+            model=f'{self.provider}-model',
+            latency_ms=24,
+            input_tokens=40,
+            output_tokens=10,
+        )
+
+
+class BlockingUpload:
+    name = 'synthetic.wav'
+
+    def __init__(self, payload):
+        self.payload = payload
+        self.size = len(payload)
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.finished = threading.Event()
+
+    def chunks(self):
+        self.started.set()
+        self.release.wait(timeout=0.8)
+        try:
+            yield self.payload
+        finally:
+            self.finished.set()
+
+
 class ComparisonServiceTests(SimpleTestCase):
     def setUp(self):
         self.prepared_paths = []
 
     @contextmanager
-    def _prepared_audio(self, _uploaded_file):
+    def _prepared_audio(self, _uploaded_file, **_kwargs):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / 'comparison.wav'
             path.write_bytes(b'synthetic')
@@ -101,7 +180,7 @@ class ComparisonServiceTests(SimpleTestCase):
 
         return ConsultationComparisonService(**kwargs)
 
-    def _compare(self, service):
+    def _compare(self, service, *, deadline=None):
         from inpa.consultations import comparison
 
         with patch.object(
@@ -109,7 +188,7 @@ class ComparisonServiceTests(SimpleTestCase):
             'prepare_comparison_audio',
             self._prepared_audio,
         ):
-            return service.compare(make_upload())
+            return service.compare(make_upload(), deadline=deadline)
 
     def test_calls_transcriber_once_and_sends_identical_masked_text_to_both(self):
         transcriber = FakeTranscriber([
@@ -245,3 +324,114 @@ class ComparisonServiceTests(SimpleTestCase):
 
         self.assertEqual(first.calls + second.calls, 0)
         self._assert_temp_audio_removed()
+
+    def test_absolute_deadline_returns_during_transcription_and_cleans_temp(self):
+        segments = (
+            ComparisonTranscriptSegment(
+                speaker='화자 1',
+                text='가상 상담입니다',
+                start_seconds=0.0,
+                end_seconds=1.0,
+            ),
+        )
+        transcriber = BlockingTranscriber(segments)
+        first = CapturingSummarizer('openai')
+        second = CapturingSummarizer('anthropic')
+        service = self._service(
+            transcriber=transcriber,
+            summarizers=(first, second),
+            shuffle=lambda rows: None,
+        )
+        deadline = ComparisonDeadline.after(
+            0.20,
+            response_reserve_seconds=0.05,
+        )
+
+        started = time.monotonic()
+        with self.assertRaises(ComparisonOutcomeUnknown) as raised:
+            service.compare(
+                SimpleUploadedFile('synthetic.wav', make_wav()),
+                deadline=deadline,
+            )
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(raised.exception.code, 'TRANSCRIPTION_TIMEOUT')
+        self.assertLess(elapsed, 0.45)
+        self.assertTrue(transcriber.started.is_set())
+        self.assertIsNotNone(transcriber.last_path)
+        self.assertFalse(transcriber.last_path.exists())
+        self.assertEqual(first.calls + second.calls, 0)
+        transcriber.release.set()
+        self.assertTrue(transcriber.finished.wait(timeout=1.0))
+
+    def test_absolute_deadline_returns_during_local_audio_validation(self):
+        upload = BlockingUpload(make_wav())
+        transcriber = FakeTranscriber(())
+        service = self._service(
+            transcriber=transcriber,
+            summarizers=(
+                CapturingSummarizer('openai'),
+                CapturingSummarizer('anthropic'),
+            ),
+        )
+        deadline = ComparisonDeadline.after(
+            0.20,
+            response_reserve_seconds=0.05,
+        )
+
+        started = time.monotonic()
+        with self.assertRaises(ComparisonOutcomeUnknown) as raised:
+            service.compare(upload, deadline=deadline)
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(raised.exception.code, 'TRANSCRIPTION_TIMEOUT')
+        self.assertLess(elapsed, 0.45)
+        self.assertTrue(upload.started.is_set())
+        self.assertEqual(transcriber.calls, 0)
+        upload.release.set()
+        self.assertTrue(upload.finished.wait(timeout=1.0))
+
+    def test_summary_deadline_keeps_success_without_waiting_for_slow_future(self):
+        segments = (
+            ComparisonTranscriptSegment(
+                speaker='화자 1',
+                text='가상 상담입니다',
+                start_seconds=0.0,
+                end_seconds=1.0,
+            ),
+        )
+        transcriber = FakeTranscriber(segments)
+        fast = CapturingSummarizer('openai')
+        slow = BlockingSummarizer('anthropic')
+        service = self._service(
+            transcriber=transcriber,
+            summarizers=(fast, slow),
+            shuffle=lambda rows: None,
+        )
+        deadline = ComparisonDeadline.after(
+            0.30,
+            response_reserve_seconds=0.05,
+        )
+
+        started = time.monotonic()
+        payload = service.compare(
+            SimpleUploadedFile('synthetic.wav', make_wav()),
+            deadline=deadline,
+        )
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 0.55)
+        self.assertTrue(slow.started.is_set())
+        self.assertEqual(payload['results'][0]['status'], 'success')
+        self.assertEqual(
+            payload['results'][1]['status'],
+            'outcome_unknown',
+        )
+        self.assertEqual(
+            payload['results'][1]['error_code'],
+            'SUMMARY_TIMEOUT',
+        )
+        self.assertIsNotNone(transcriber.last_path)
+        self.assertFalse(transcriber.last_path.exists())
+        slow.release.set()
+        self.assertTrue(slow.finished.wait(timeout=1.0))

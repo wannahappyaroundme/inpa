@@ -1,5 +1,6 @@
+import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Sequence, TypeVar
 
 import httpx
@@ -12,7 +13,7 @@ from .base import ExplicitProviderNonReceipt
 
 
 COMPARISON_CONNECT_BACKOFF_SECONDS = (1, 2, 4)
-COMPARISON_PROVIDER_ATTEMPTS = len(COMPARISON_CONNECT_BACKOFF_SECONDS) + 1
+COMPARISON_RESPONSE_RESERVE_SECONDS = 5.0
 COMPARISON_WORKER_CEILING_SECONDS = 120.0
 
 
@@ -26,6 +27,85 @@ class ComparisonOutcomeUnknown(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+@dataclass(frozen=True)
+class ComparisonDeadline:
+    expires_at: float
+    response_reserve_seconds: float
+    clock: Callable[[], float] = field(repr=False, compare=False)
+
+    @classmethod
+    def for_request(cls, *, clock=time.monotonic):
+        total_seconds = float(
+            settings.CONSULTATION_COMPARISON_REQUEST_DEADLINE_SECONDS
+        )
+        if (
+            not math.isfinite(total_seconds)
+            or total_seconds <= COMPARISON_RESPONSE_RESERVE_SECONDS
+            or total_seconds >= COMPARISON_WORKER_CEILING_SECONDS
+        ):
+            raise ImproperlyConfigured(
+                'Consultation comparison request deadline must be above '
+                'the response reserve and below 120 seconds',
+            )
+        return cls.after(
+            total_seconds,
+            response_reserve_seconds=COMPARISON_RESPONSE_RESERVE_SECONDS,
+            clock=clock,
+        )
+
+    @classmethod
+    def after(
+        cls,
+        seconds: float,
+        *,
+        response_reserve_seconds: float = 0.0,
+        clock=time.monotonic,
+    ):
+        seconds = float(seconds)
+        response_reserve_seconds = float(response_reserve_seconds)
+        if (
+            not math.isfinite(seconds)
+            or not math.isfinite(response_reserve_seconds)
+            or seconds <= 0
+            or response_reserve_seconds < 0
+            or response_reserve_seconds >= seconds
+        ):
+            raise ValueError('COMPARISON_DEADLINE_INVALID')
+        return cls(
+            expires_at=clock() + seconds,
+            response_reserve_seconds=response_reserve_seconds,
+            clock=clock,
+        )
+
+    def remaining_request_seconds(self) -> float:
+        return max(0.0, self.expires_at - self.clock())
+
+    def remaining_work_seconds(
+        self,
+        *,
+        extra_reserve_seconds: float = 0.0,
+    ) -> float:
+        extra_reserve_seconds = float(extra_reserve_seconds)
+        if (
+            not math.isfinite(extra_reserve_seconds)
+            or extra_reserve_seconds < 0
+        ):
+            raise ValueError('COMPARISON_DEADLINE_RESERVE_INVALID')
+        return max(
+            0.0,
+            self.expires_at
+            - self.clock()
+            - self.response_reserve_seconds
+            - extra_reserve_seconds,
+        )
+
+    def require_work_time(self, *, code: str) -> float:
+        remaining = self.remaining_work_seconds()
+        if remaining <= 0:
+            raise ComparisonOutcomeUnknown(code)
+        return remaining
 
 
 @dataclass(frozen=True)
@@ -55,24 +135,6 @@ class ComparisonSummaryResult:
 Result = TypeVar('Result')
 
 
-def comparison_request_budget_seconds() -> float:
-    connect_and_pool = (
-        settings.CONSULTATION_COMPARISON_CONNECT_TIMEOUT_SECONDS
-        + settings.CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS
-    )
-    stage_before_read = (
-        COMPARISON_PROVIDER_ATTEMPTS * connect_and_pool
-        + settings.CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS
-        + sum(COMPARISON_CONNECT_BACKOFF_SECONDS)
-    )
-    return (
-        stage_before_read
-        + settings.CONSULTATION_COMPARISON_TRANSCRIPTION_READ_TIMEOUT_SECONDS
-        + stage_before_read
-        + settings.CONSULTATION_COMPARISON_SUMMARY_READ_TIMEOUT_SECONDS
-    )
-
-
 def comparison_http_timeout(*, read_seconds: float) -> httpx.Timeout:
     values = (
         settings.CONSULTATION_COMPARISON_CONNECT_TIMEOUT_SECONDS,
@@ -80,13 +142,9 @@ def comparison_http_timeout(*, read_seconds: float) -> httpx.Timeout:
         settings.CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS,
         settings.CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS,
     )
-    if any(value <= 0 for value in values):
+    if any(not math.isfinite(float(value)) or value <= 0 for value in values):
         raise ImproperlyConfigured(
             'Consultation comparison timeouts must be positive',
-        )
-    if comparison_request_budget_seconds() >= COMPARISON_WORKER_CEILING_SECONDS:
-        raise ImproperlyConfigured(
-            'Consultation comparison request budget must stay below 120 seconds',
         )
     return httpx.Timeout(
         connect=values[0],

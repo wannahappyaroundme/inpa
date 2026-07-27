@@ -53,6 +53,7 @@ from inpa.billing.tasks import (
 from inpa.consultations.comparison import ConsultationComparisonService
 from inpa.consultations.comparison_audio import ComparisonAudioError
 from inpa.consultations.providers.comparison_base import (
+    ComparisonDeadline,
     ComparisonOutcomeUnknown,
     ComparisonProviderFailure,
 )
@@ -2811,6 +2812,7 @@ class AdminConsultationComparisonView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        deadline = ComparisonDeadline.for_request()
         serializer = AdminConsultationComparisonSerializer(
             data=request.data,
         )
@@ -2827,6 +2829,7 @@ class AdminConsultationComparisonView(APIView):
         try:
             payload = ConsultationComparisonService().compare(
                 serializer.validated_data['audio'],
+                deadline=deadline,
             )
         except ComparisonAudioError as exc:
             code = (

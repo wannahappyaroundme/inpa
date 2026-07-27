@@ -29,6 +29,7 @@ class FakeContainer:
     def __init__(self, streams, frames=()):
         self.streams = streams
         self.frames = frames
+        self.decoded_frames = 0
 
     def __enter__(self):
         return self
@@ -39,7 +40,9 @@ class FakeContainer:
     def decode(self, *, audio):
         if audio != 0:
             raise AssertionError('unexpected audio stream')
-        return iter(self.frames)
+        for frame in self.frames:
+            self.decoded_frames += 1
+            yield frame
 
 
 @override_settings(
@@ -105,6 +108,15 @@ class ComparisonAudioTests(SimpleTestCase):
     @override_settings(CONSULTATION_COMPARISON_MAX_DURATION_SECONDS=1)
     def test_rejects_over_duration_and_removes_temp_file(self):
         upload = SimpleUploadedFile('synthetic.wav', make_wav(seconds=2))
+
+        self._assert_rejected_and_cleaned(upload, 'AUDIO_TOO_LONG')
+
+    @override_settings(CONSULTATION_COMPARISON_MAX_BYTES=16 * 1024 * 1024)
+    def test_rejects_audio_over_production_300_second_boundary(self):
+        upload = SimpleUploadedFile(
+            'synthetic.wav',
+            make_wav(seconds=301),
+        )
 
         self._assert_rejected_and_cleaned(upload, 'AUDIO_TOO_LONG')
 
@@ -174,6 +186,25 @@ class ComparisonAudioTests(SimpleTestCase):
 
         self.assertFalse(path.exists())
         self.assertEqual(list(Path(self.temp_root.name).iterdir()), [])
+
+    def test_decode_fallback_stops_at_production_duration_boundary(self):
+        upload = SimpleUploadedFile('synthetic.wav', b'synthetic container')
+        one_second_frames = tuple(
+            SimpleNamespace(samples=16_000, sample_rate=16_000)
+            for _index in range(400)
+        )
+        container = FakeContainer(
+            [SimpleNamespace(type='audio', duration=None, time_base=None)],
+            frames=one_second_frames,
+        )
+
+        with patch(
+            'inpa.consultations.comparison_audio.av.open',
+            return_value=container,
+        ):
+            self._assert_rejected_and_cleaned(upload, 'AUDIO_TOO_LONG')
+
+        self.assertEqual(container.decoded_frames, 301)
 
     def test_rejects_zero_length_audio_and_removes_temp_file(self):
         upload = SimpleUploadedFile('synthetic.wav', b'synthetic container')

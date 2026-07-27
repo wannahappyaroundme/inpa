@@ -16,10 +16,11 @@ from inpa.consultations.providers.anthropic_comparison import (
 from inpa.consultations.providers.anthropic_summary import SYSTEM_PROMPT
 from inpa.consultations.providers.base import ExplicitProviderNonReceipt
 from inpa.consultations.providers.comparison_base import (
+    COMPARISON_RESPONSE_RESERVE_SECONDS,
     COMPARISON_WORKER_CEILING_SECONDS,
+    ComparisonDeadline,
     ComparisonOutcomeUnknown,
     ComparisonProviderFailure,
-    comparison_request_budget_seconds,
     retry_explicit_nonreceipt,
 )
 from inpa.consultations.providers.openai_comparison import (
@@ -203,6 +204,7 @@ def wrapped_openai_read_error():
     CONSULTATION_COMPARISON_SUMMARY_READ_TIMEOUT_SECONDS=25.0,
     CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS=5.0,
     CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS=1.0,
+    CONSULTATION_COMPARISON_REQUEST_DEADLINE_SECONDS=110.0,
 )
 class ComparisonProviderTests(SimpleTestCase):
     def setUp(self):
@@ -519,10 +521,15 @@ class ComparisonProviderTests(SimpleTestCase):
         self.assertEqual(anthropic_raised.exception.code, 'SUMMARY_TIMEOUT')
         self.assertEqual(anthropic_client.messages.calls, 1)
 
-    def test_request_budget_stays_below_worker_timeout_with_retry_backoff(self):
-        self.assertEqual(comparison_request_budget_seconds(), 108.0)
+    def test_absolute_request_deadline_reserves_response_time_below_worker(self):
+        deadline = ComparisonDeadline.for_request(clock=lambda: 10.0)
+
+        self.assertEqual(deadline.expires_at, 120.0)
+        self.assertEqual(deadline.remaining_request_seconds(), 110.0)
+        self.assertEqual(deadline.remaining_work_seconds(), 105.0)
+        self.assertEqual(COMPARISON_RESPONSE_RESERVE_SECONDS, 5.0)
         self.assertLess(
-            comparison_request_budget_seconds(),
+            deadline.remaining_request_seconds(),
             COMPARISON_WORKER_CEILING_SECONDS,
         )
 
