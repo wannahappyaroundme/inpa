@@ -12,7 +12,10 @@ def render_booking_message(template, customer_name, planner_name, url, planner_l
     """{고객명}{소속직책}{설계사명}{링크} 치환. template이 비면 기본 템플릿 사용."""
     text = template or DEFAULT_BOOKING_MSG_TEMPLATE
     label = (planner_label or '').strip()
-    name = (planner_name or '').strip() or '담당 설계사'
+    name = (planner_name or '').strip()
+    if (not template or template == DEFAULT_BOOKING_MSG_TEMPLATE) and not name:
+        text = text.replace('{설계사명} 보험설계사', '담당 설계사')
+    name = name or '담당 설계사'
     text = text.replace('{소속직책} ', f'{label} ' if label else '')
     return (text
             .replace('{고객명}', customer_name or '고객')

@@ -109,8 +109,9 @@ class BookingCoreTests(TestCase):
 
         body = self.client_a.post(
             f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
-        self.assertIn('안녕하세요. A생명 담당 설계사 보험설계사입니다.', body['message'])
+        self.assertIn('안녕하세요. A생명 담당 설계사입니다.', body['message'])
         self.assertNotIn('A생명 A생명', body['message'])
+        self.assertNotIn('담당 설계사 보험설계사', body['message'])
 
     def test_booking_request_default_message_has_no_double_space_without_label(self):
         self.profile_a.name = '황예진'
@@ -140,6 +141,18 @@ class BookingCoreTests(TestCase):
             f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
         self.assertIn('홍길동님, 황예진입니다.', body['message'])
         self.assertNotIn('  ', body['message'])
+
+    def test_booking_request_custom_template_keeps_fallback_name(self):
+        self.profile_a.name = ''
+        self.profile_a.affiliation = 'A생명'
+        self.profile_a.booking_msg_template = '{소속직책} {설계사명}님\n{링크}'
+        self.profile_a.save(update_fields=[
+            'name', 'affiliation', 'booking_msg_template',
+        ])
+
+        body = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
+        self.assertIn('A생명 담당 설계사님', body['message'])
 
     def test_booking_request_leaves_no_known_placeholder(self):
         body = self.client_a.post(
