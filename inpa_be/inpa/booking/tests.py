@@ -98,6 +98,20 @@ class BookingCoreTests(TestCase):
         self.assertTrue(body['booking_url'].startswith('https://www.inpa.kr/b/'))
         self.assertIn(body['booking_url'], body['message'])
 
+    def test_booking_request_default_message_uses_fallback_name_without_affiliation_duplication(self):
+        self.profile_a.name = ''
+        self.profile_a.affiliation = 'A생명'
+        self.profile_a.title = ''
+        self.profile_a.booking_msg_template = ''
+        self.profile_a.save(update_fields=[
+            'name', 'affiliation', 'title', 'booking_msg_template',
+        ])
+
+        body = self.client_a.post(
+            f'/api/v1/customers/{self.customer.id}/booking-requests/').json()
+        self.assertIn('안녕하세요. A생명 담당 설계사 보험설계사입니다.', body['message'])
+        self.assertNotIn('A생명 A생명', body['message'])
+
     def test_booking_request_default_message_has_no_double_space_without_label(self):
         self.profile_a.name = '황예진'
         self.profile_a.affiliation = ''
