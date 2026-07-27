@@ -83,6 +83,61 @@ describe("고객 상세 예약 안내 모달", () => {
     expect(document.activeElement).toBe(close);
   });
 
+  it("dialog 밖에 focus가 있어도 Tab과 Shift+Tab을 실제 첫·마지막 조작 요소로 되돌린다", () => {
+    render(<><button type="button">바깥 동작</button><BookingModal customerId={31} onClose={vi.fn()} /></>);
+    const outside = screen.getByRole("button", { name: "바깥 동작" });
+    const close = screen.getByRole("button", { name: "닫기" });
+    const create = screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" });
+
+    outside.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(close);
+    outside.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(create);
+  });
+
+  it("Composer 동작이 비활성화되어 닫기만 남아도 Tab과 Shift+Tab이 닫기에 머문다", () => {
+    render(<BookingModal customerId={31} onClose={vi.fn()} />);
+    const close = screen.getByRole("button", { name: "닫기" });
+    const create = screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" }) as HTMLButtonElement;
+    create.disabled = true;
+
+    close.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(close);
+  });
+
+  it("정상 UI에는 닫기가 항상 있지만, 모든 조작 요소가 없을 때도 dialog에 focus를 지키는 방어 분기를 제공한다", () => {
+    render(<BookingModal customerId={31} onClose={vi.fn()} />);
+    const dialog = screen.getByRole("dialog");
+    const close = screen.getByRole("button", { name: "닫기" }) as HTMLButtonElement;
+    const create = screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" }) as HTMLButtonElement;
+    close.disabled = true;
+    create.disabled = true;
+
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(dialog);
+  });
+
+  it("문구 생성 뒤 늘어난 textarea·복사·고객 화면 동작까지 포함해 focus를 순환한다", async () => {
+    mockedCreateBookingRequest.mockResolvedValue(response());
+    const user = userEvent.setup();
+    render(<BookingModal customerId={31} onClose={vi.fn()} />);
+    const close = screen.getByRole("button", { name: "닫기" });
+
+    await user.click(screen.getByRole("button", { name: "고객에게 보낼 문구 만들기" }));
+    const customerView = await screen.findByRole("link", { name: "고객 화면 열기" });
+    customerView.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(close);
+    close.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(customerView);
+  });
+
   it("공용 Composer로 현재 고객의 문구를 만들고 복사 실패를 같은 안내로 보여 준다", async () => {
     mockedCreateBookingRequest.mockResolvedValue(response());
     mockedCopyText.mockResolvedValue(false);
