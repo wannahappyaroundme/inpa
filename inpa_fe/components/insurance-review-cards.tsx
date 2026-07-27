@@ -9,6 +9,10 @@ import {
   type PolicySideSelection,
 } from "@/lib/policy-comparison-selection";
 
+function insuranceDisplayName(name: string | null): string {
+  return name?.trim() || "이름 없는 보험";
+}
+
 function insuranceReviewPresentation(it: ManualInsuranceItem): {
   label: string;
   action: string | null;
@@ -31,7 +35,7 @@ export function InsuranceCard({ it, onReview }: {
   return (
     <div className="rounded-xl border border-line bg-surface p-3.5">
       <div className="flex items-start justify-between gap-2">
-        <div className="truncate text-[14px] font-bold text-ink">{it.name ?? "이름 없는 보험"}</div>
+        <div className="truncate text-[14px] font-bold text-ink">{insuranceDisplayName(it.name)}</div>
         <span className="shrink-0 rounded-full border border-line bg-surface2 px-2 py-0.5 text-[10px] font-semibold text-ink3">{typeLabel}</span>
       </div>
       <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
@@ -130,7 +134,7 @@ export function AssignInsRow({ it, value, onChange, onReview }: {
     .filter(Boolean).join(" · ") || (it.insurance_type === 1 ? "생명" : "손해");
   const selectable = isPolicyComparisonSelectable(it);
   const review = insuranceReviewPresentation(it);
-  const insuranceName = it.name ?? "이름 없는 보험";
+  const insuranceName = insuranceDisplayName(it.name);
   return (
     <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2 sm:flex-nowrap">
       <span className="min-w-0 flex-1">

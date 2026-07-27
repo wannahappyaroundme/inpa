@@ -10,6 +10,7 @@ import {
 } from "@/components/heatmap";
 import {
   AssignInsRow,
+  InsuranceCard,
   InsuranceCards,
 } from "@/components/insurance-review-cards";
 import type { HeatmapResponse, ManualInsuranceItem } from "@/lib/api";
@@ -165,6 +166,27 @@ describe("insurance review authority UI", () => {
     await user.click(screen.getByRole("button", { name: "기존 자료 확인하기" }));
     expect(onReview).toHaveBeenCalledWith(9);
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("uses the fallback name for whitespace-only policy names in cards and comparison controls", () => {
+    const unnamed = insurance({
+      name: " \n\t ",
+      review_status: "confirmed",
+      analysis_included: true,
+    });
+
+    render(<>
+      <InsuranceCard it={unnamed} />
+      <AssignInsRow
+        it={unnamed}
+        value={{ left: false, right: false }}
+        onChange={() => undefined}
+      />
+    </>);
+
+    expect(screen.getAllByText("이름 없는 보험")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "이름 없는 보험 왼쪽에 포함" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "이름 없는 보험 오른쪽에 포함" })).toBeTruthy();
   });
 
   it("renders server authority counts and distinct pending, excluded, and truly empty next actions", () => {
