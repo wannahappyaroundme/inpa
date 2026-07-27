@@ -155,10 +155,13 @@ describe("예약 고객 검색 선택기", () => {
     vi.useFakeTimers();
     mockedListCustomers.mockResolvedValue(page([]));
     const first = customer({ id: 1, name: "김첫번째" });
+    const renamed = customer({ id: 1, name: "김첫번째 새 이름" });
     const second = customer({ id: 2, name: "이두번째" });
     const { rerender, unmount } = render(<BookingCustomerPicker value={first} onChange={vi.fn()} />);
     const input = screen.getByRole("combobox", { name: "고객 선택" });
 
+    rerender(<BookingCustomerPicker value={renamed} onChange={vi.fn()} />);
+    expect(input).toHaveValue("김첫번째 새 이름");
     rerender(<BookingCustomerPicker value={second} onChange={vi.fn()} />);
     expect(input).toHaveValue("이두번째");
     rerender(<BookingCustomerPicker value={null} onChange={vi.fn()} />);
@@ -173,6 +176,17 @@ describe("예약 고객 검색 선택기", () => {
     const controlledInput = controlled.getByRole("combobox", { name: "고객 선택" });
     fireEvent.change(controlledInput, { target: { value: "새 검색" } });
     expect(controlledInput).toHaveValue("새 검색");
+  });
+
+  it("같은 고객의 이름이 외부에서 바뀌면 입력도 새 이름으로 바꾼다", () => {
+    const previous = customer({ id: 1, name: "이전" });
+    const renamed = customer({ id: 1, name: "새 이름" });
+    const { rerender } = render(<BookingCustomerPicker value={previous} onChange={vi.fn()} />);
+    const input = screen.getByRole("combobox", { name: "고객 선택" });
+
+    rerender(<BookingCustomerPicker value={renamed} onChange={vi.fn()} />);
+
+    expect(input).toHaveValue("새 이름");
   });
 
   it("두 선택기의 ARIA ID가 겹치지 않고 각 결과만 가리킨다", async () => {

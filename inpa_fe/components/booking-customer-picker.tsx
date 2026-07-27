@@ -29,7 +29,7 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
   const [open, setOpen] = useState(true);
   const requestGeneration = useRef(0);
   const selectedRef = useRef(Boolean(value));
-  const valueIdRef = useRef(value?.id ?? null);
+  const valueRef = useRef({ id: value?.id ?? null, name: value?.name ?? "" });
   const inputId = useId();
   const listboxId = `${inputId}-listbox`;
 
@@ -58,9 +58,9 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
   }, [load, query]);
 
   useEffect(() => {
-    const nextValueId = value?.id ?? null;
-    if (valueIdRef.current === nextValueId) return;
-    valueIdRef.current = nextValueId;
+    const nextValue = { id: value?.id ?? null, name: value?.name ?? "" };
+    if (valueRef.current.id === nextValue.id && valueRef.current.name === nextValue.name) return;
+    valueRef.current = nextValue;
     selectedRef.current = Boolean(value);
     setQuery(value?.name ?? "");
     setResults([]);
@@ -69,7 +69,7 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
 
   const choose = (customer: CustomerListItem) => {
     selectedRef.current = true;
-    valueIdRef.current = customer.id;
+    valueRef.current = { id: customer.id, name: customer.name };
     setQuery(customer.name);
     setOpen(false);
     setActiveIndex(-1);
@@ -79,7 +79,7 @@ export function BookingCustomerPicker({ value, onChange, disabled = false }: Boo
   const handleInputChange = (next: string) => {
     if (selectedRef.current) {
       selectedRef.current = false;
-      valueIdRef.current = null;
+      valueRef.current = { id: null, name: "" };
       onChange(null);
     }
     setQuery(next);
