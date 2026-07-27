@@ -39,7 +39,7 @@ import { BookingModal } from "@/components/booking-modal";
 import { ContactLogModal } from "@/components/contact-log-modal";
 import { CustomerMemos } from "@/components/customer-memos";
 import { InsuranceManualModal } from "@/components/insurance-manual-modal";
-import { AssignInsRow, InsuranceCards, type SideAssign } from "@/components/insurance-review-cards";
+import { AssignInsRow, InsuranceCards } from "@/components/insurance-review-cards";
 import { BaselineRequiredModal } from "@/components/baseline-required-modal";
 import { PremiumSplitSection, CompareAiGuide, ComparePremiumSplit } from "@/components/premium-split";
 import { UpgradeModal, type UpgradeModalInfo } from "@/components/upgrade-modal";
@@ -81,6 +81,15 @@ import {
 } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { buildCompareExportText, compareDiffText } from "@/lib/compare-export";
+import {
+  buildPolicySelectionSnapshot,
+  isSamePolicyIdSet,
+  isSamePolicySelectionSnapshot,
+  reconcilePolicySelection,
+  type PolicySelectionMap,
+  type PolicySelectionSnapshot,
+  type PolicySideSelection,
+} from "@/lib/policy-comparison-selection";
 
 type TabKey = "analysis" | "switch" | "info" | "contract" | "history";
 
@@ -1024,17 +1033,6 @@ function ChecklistTab({ customerId }: { customerId: number }) {
   );
 }
 
-// ── 자유 A/B 배정 행 (비교 분석 — 보험 아무거나 A안·B안·미포함 중 하나로) ── 2026-07-09 ──
-// ★ 미포함은 '키 삭제'가 아니라 명시적 "none"으로 저장한다: 삭제하면 목록 새로고침(제안 추가 등) 때
-//   '미배정'과 구분이 안 돼 portfolio_type 프리셋으로 되살아나, 설계사가 뺀 보험이 고객 텍스트에
-//   다시 섞이는 버그가 있었다(리뷰 major). "none"으로 남기면 새로고침이 그 배정을 보존한다.
-function assignInsurance(
-  setter: (updater: (prev: Record<number, SideAssign>) => Record<number, SideAssign>) => void,
-  id: number,
-  value: SideAssign
-) {
-  setter((prev) => ({ ...prev, [id]: value }));
-}
 // ── 분석 탭 ───────────────────────────────────────────────────────────────
 type OcrCtl = ReturnType<typeof useOcrUpload>;
 
@@ -1261,23 +1259,24 @@ function AnalysisTab({
   );
 }
 
-// ── 비교 분석 탭 ── compareCustomer 실연결. 2026-07-09 재정의: 판정(KEEP/SWITCH) 없이
-// 두 보험을 나란히 정리해 보여주는 중립 시각화. 정직성 레드라인 전면 적용 ──────────
-function SwitchTab({ customerId }: { customerId: number }) {
-  const [data, setData] = useState<CompareResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+type CompareRunStatus = "idle" | "loading" | "success" | "error";
+
+interface SuccessfulComparison {
+  data: CompareResponse;
+  snapshot: PolicySelectionSnapshot;
+}
+
+// ── 비교 분석 탭 ── 선택한 두 구성을 명시적으로 실행해 나란히 정리한다. ──────────
+export function SwitchTab({ customerId }: { customerId: number }) {
+  const [compareStatus, setCompareStatus] = useState<CompareRunStatus>("idle");
+  const [successfulComparison, setSuccessfulComparison] = useState<SuccessfulComparison | null>(null);
+  const [compareError, setCompareError] = useState<string | null>(null);
   const [upgradeInfo, setUpgradeInfo] = useState<UpgradeModalInfo | undefined>(undefined);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
-  // 배정을 바꿀 때마다 재비교가 도는데, 늦게 온 이전 응답이 최신 화면을 덮어쓰지 않도록 요청 번호로 가드.
-  // (analysis 탭의 insReqRef 패턴 재사용)
   const compareReqRef = useRef(0);
-  // 보험 목록 + 비교 대상 자유 배정(A안/B안/미포함, 2026-07-09 재정의 — 보유/제안 풀 구분 없이
-  // 아무 보험이나 A·B에 넣을 수 있다: 제안 vs 제안·증권 vs 증권도 가능). 마운트 시 보유→A/제안→B
-  // 프리셋(회귀 방지 UX), 이후 설계사가 자유 변경. 목록 새로고침 시 기존 배정은 보존, 새 보험만 프리셋.
   const [insurances, setInsurances] = useState<ManualInsuranceItem[]>([]);
-  const [assign, setAssign] = useState<Record<number, SideAssign>>({});
+  const [selection, setSelection] = useState<PolicySelectionMap>({});
   const [insLoadStatus, setInsLoadStatus] = useState<"loading" | "success" | "error">("loading");
   const [insRefreshError, setInsRefreshError] = useState<string | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
@@ -1289,28 +1288,17 @@ function SwitchTab({ customerId }: { customerId: number }) {
     compareReqRef.current += 1;
     if (!background) {
       setInsLoadStatus("loading");
-      setData(null);
     }
-    setLoading(true);
-    setError(null);
     setInsRefreshError(null);
     listAllManualInsurances(customerId)
       .then((rows) => {
         if (insuranceReqRef.current !== req) return;
         setInsurances(rows);
-        setAssign((prev) => {
-          const next: Record<number, SideAssign> = {};
-          for (const it of rows) {
-            const selectable = it.review_status === "confirmed" && it.analysis_included && !it.is_cancelled;
-            if (!selectable) { next[it.id] = "none"; continue; }
-            // 기존 배정(A·B·none 모두)은 그대로 보존 — 설계사가 뺀 보험을 되살리지 않는다.
-            if (it.id in prev) { next[it.id] = prev[it.id]; continue; }
-            if (it.portfolio_type === 1) next[it.id] = "A";
-            else if (it.portfolio_type === 2) next[it.id] = "B";
-            else next[it.id] = "none";
-          }
-          return next;
-        });
+        setSelection((previous) => reconcilePolicySelection(rows, previous));
+        setCompareStatus("idle");
+        setCompareError(null);
+        setUpgradeInfo(undefined);
+        setUpgradeOpen(false);
         if (!background) setInsLoadStatus("success");
       })
       .catch(() => {
@@ -1321,7 +1309,6 @@ function SwitchTab({ customerId }: { customerId: number }) {
           setInsurances([]);
           setInsLoadStatus("error");
         }
-        setLoading(false);
       });
   }, [customerId]);
   useEffect(() => {
@@ -1334,45 +1321,56 @@ function SwitchTab({ customerId }: { customerId: number }) {
 
   const doCompare = useCallback(() => {
     if (insLoadStatus !== "success") return;
-    setLoading(true);
-    setError(null);
+    const snapshot = buildPolicySelectionSnapshot(selection);
+    if (snapshot.leftIds.length === 0 || snapshot.rightIds.length === 0 || isSamePolicyIdSet(snapshot.leftIds, snapshot.rightIds)) return;
+    setCompareStatus("loading");
+    setCompareError(null);
     setUpgradeInfo(undefined);
     setUpgradeOpen(false);
     const req = ++compareReqRef.current;
-    const sideAIds = Object.entries(assign).filter(([, v]) => v === "A").map(([id]) => Number(id));
-    const sideBIds = Object.entries(assign).filter(([, v]) => v === "B").map(([id]) => Number(id));
-    compareCustomer(customerId, { sideAIds, sideBIds })
+    compareCustomer(customerId, { sideAIds: snapshot.leftIds, sideBIds: snapshot.rightIds })
       .then((d) => {
-        if (compareReqRef.current !== req) return; // 최신 요청 응답만 반영
-        setData(d);
+        if (compareReqRef.current !== req) return;
+        setSuccessfulComparison({ data: d, snapshot });
+        setCompareStatus("success");
       })
       .catch((e: unknown) => {
         if (compareReqRef.current !== req) return;
-        // 이 배정의 비교가 실패했으니 이전 성공분(data)을 비운다 → 현재 선택과 맞지 않는
-        // 옛 내용이 화면·복사에 남지 않게(고객에게 stale 내용 전송 방지). 표·복사는 data 로
-        // 게이트되므로 data 만 비우면 옛 라벨이 남아도 렌더·복사에 쓰이지 않는다.
-        setData(null);
+        setCompareStatus("error");
         if (e instanceof ApiError && e.status === 402) {
           setUpgradeInfo(e.creditBody ?? { kind: "ai_compare" });
           setUpgradeOpen(true);
         } else {
-          setError(e instanceof Error ? e.message : "비교 데이터를 불러오지 못했어요.");
+          setCompareError(e instanceof Error ? e.message : "비교 내용을 불러오지 못했어요.");
         }
-      })
-      .finally(() => {
-        if (compareReqRef.current === req) setLoading(false);
       });
-  }, [customerId, assign, insLoadStatus]);
+  }, [customerId, insLoadStatus, selection]);
 
   // 제안 추가(업로드/직접) 후 목록 새로고침 → 배정 갱신(기존 보존+신규 프리셋) → 재비교.
   const propOcr = useOcrUpload(() => { loadInsurances(true); }, 2, customerId);
 
-  useEffect(() => {
-    if (insLoadStatus === "success") doCompare();
-  }, [doCompare, insLoadStatus]);
-
-  const aCount = Object.values(assign).filter((v) => v === "A").length;
-  const bCount = Object.values(assign).filter((v) => v === "B").length;
+  const snapshot = buildPolicySelectionSnapshot(selection);
+  const aCount = snapshot.leftIds.length;
+  const bCount = snapshot.rightIds.length;
+  const selectedPolicyIds = [...new Set([...snapshot.leftIds, ...snapshot.rightIds])];
+  const selectionIssue = aCount === 0
+    ? "왼쪽 구성에 증권을 골라 주세요."
+    : bCount === 0
+    ? "오른쪽 구성에 증권을 골라 주세요."
+    : isSamePolicyIdSet(snapshot.leftIds, snapshot.rightIds)
+    ? "오른쪽 구성을 조정하면 차이를 볼 수 있어요."
+    : null;
+  const isCurrentComparison = successfulComparison != null
+    && isSamePolicySelectionSnapshot(successfulComparison.snapshot, snapshot);
+  const data = isCurrentComparison && compareStatus !== "error" ? successfulComparison.data : null;
+  const changeSelection = (insuranceId: number, value: PolicySideSelection) => {
+    compareReqRef.current += 1;
+    setSelection((previous) => ({ ...previous, [insuranceId]: value }));
+    setCompareStatus("idle");
+    setCompareError(null);
+    setUpgradeInfo(undefined);
+    setUpgradeOpen(false);
+  };
 
   if (insLoadStatus === "loading") {
     return (
@@ -1390,51 +1388,6 @@ function SwitchTab({ customerId }: { customerId: number }) {
         <p className="text-[14px] text-ink3">보험 목록을 불러오지 못했어요.</p>
         <button type="button" onClick={() => loadInsurances()} className="mt-3 text-[13px] font-semibold text-brand">
           보험 목록 다시 불러오기
-        </button>
-      </div>
-    );
-  }
-
-  if (loading && !data) {
-    return (
-      <div role="status" aria-label="비교 내용을 불러오는 중" className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-12 rounded-xl bg-line animate-pulse" />
-        ))}
-      </div>
-    );
-  }
-
-  if (upgradeInfo !== undefined) {
-    return (
-      <>
-        <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
-          <p className="text-[14px] text-ink3">이번 달 증권 비교 한도를 모두 사용했어요.</p>
-          <button
-            onClick={() => setUpgradeOpen(true)}
-            className="mt-3 text-[13px] font-semibold text-brand"
-          >
-            안내 다시 보기
-          </button>
-        </div>
-        <UpgradeModal
-          open={upgradeOpen}
-          onClose={() => setUpgradeOpen(false)}
-          info={upgradeInfo}
-        />
-      </>
-    );
-  }
-
-  if (error || !data) {
-    return (
-      <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center">
-        <p className="text-[14px] text-ink3">{error ?? "데이터 없음"}</p>
-        <button
-          onClick={doCompare}
-          className="mt-3 text-[13px] font-semibold text-brand"
-        >
-          다시 시도
         </button>
       </div>
     );
@@ -1458,8 +1411,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
 
   const labelA = "증권 A";
   const labelB = "증권 B";
-  // 복사 가능 = 양쪽 배정 ≥1 + 재계산 중이 아님(진행 중엔 옛 데이터가 복사되지 않도록 잠근다).
-  const canExport = aCount > 0 && bCount > 0 && !loading && !insRefreshError;
+  const canExport = data !== null && compareStatus === "success" && !insRefreshError;
 
   // ④ 고객에게 보낼 내용 — 중립 사실만(담보·금액·증감 라벨). §97: 판정·권유·switch_warnings(설계사
   // 내부 전용) 절대 미포함, 인파는 복사만 하고 발송하지 않는다(설계사가 직접 카톡·문자로 전달).
@@ -1473,11 +1425,10 @@ function SwitchTab({ customerId }: { customerId: number }) {
 
   return (
     <div>
-      {/* 저장 구분과 관계없이 원하는 증권을 A/B 묶음으로 자유 배정한다. */}
       <div className="mb-4 rounded-2xl border border-line bg-surface2 p-3.5">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <div className="text-[13px] font-bold text-ink">
-            비교할 증권 고르기 <span className="text-ink3 tnum">증권 A {aCount} · 증권 B {bCount}</span>
+            비교할 증권 고르기
           </div>
           <div className="flex items-center gap-1.5">
             <OcrUploadButton customerId={customerId} phase={propOcr.phase} onFileChange={propOcr.onFileChange} inputId="proposal-ocr-input" label="증권 추가" />
@@ -1492,13 +1443,27 @@ function SwitchTab({ customerId }: { customerId: number }) {
               <AssignInsRow
                 key={it.id}
                 it={it}
-                value={assign[it.id] ?? "none"}
-                onChange={(v) => assignInsurance(setAssign, it.id, v)}
+                value={selection[it.id] ?? { left: false, right: false }}
+                onChange={(value) => changeSelection(it.id, value)}
                 onReview={(insuranceId) => { setReviewInsuranceId(insuranceId); setManualOpen(true); }}
               />
             ))}
           </div>
         )}
+        <div className="mt-3 space-y-2 text-[12px] text-ink2">
+          <div className="flex flex-wrap gap-2">
+            <span>왼쪽 구성 {aCount}개</span>
+            <span>오른쪽 구성 {bCount}개</span>
+          </div>
+          <div className="sr-only">왼쪽 구성: {snapshot.leftIds.map((id) => insurances.find((item) => item.id === id)?.name ?? `보험 ${id}`).join(", ") || "없음"}. 오른쪽 구성: {snapshot.rightIds.map((id) => insurances.find((item) => item.id === id)?.name ?? `보험 ${id}`).join(", ") || "없음"}.</div>
+          <div className="flex flex-wrap gap-1.5" aria-hidden="true">
+            {selectedPolicyIds.slice(0, 2).map((id) => <span key={id} className="rounded-full border border-line bg-surface px-2 py-0.5 text-[10px]">{insurances.find((item) => item.id === id)?.name ?? `보험 ${id}`}</span>)}
+            {selectedPolicyIds.length > 2 && <span className="text-[10px] text-ink3">외 {selectedPolicyIds.length - 2}개</span>}
+          </div>
+          <button type="button" onClick={doCompare} disabled={compareStatus === "loading" || selectionIssue !== null} className="min-h-11 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white disabled:opacity-50">
+            {compareStatus === "loading" ? "비교하고 있어요" : "선택한 구성 비교하기"}
+          </button>
+        </div>
         <p className="mt-2.5 text-[11px] leading-4 text-ink3">
           원하는 증권을 A와 B로 나눠 담보·보장금액·보험료 차이를 나란히 확인하세요.
         </p>
@@ -1526,6 +1491,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
         />
       )}
       <UpgradeModal open={propOcr.phase === "limit_exceeded"} onClose={propOcr.dismissUpgrade} info={propOcr.upgradeInfo} />
+      <UpgradeModal open={upgradeOpen} onClose={() => setUpgradeOpen(false)} info={upgradeInfo} />
       {manualOpen && (
         <InsuranceManualModal
           customerId={customerId}
@@ -1535,6 +1501,16 @@ function SwitchTab({ customerId }: { customerId: number }) {
           onChanged={() => loadInsurances(true)}
         />
       )}
+
+      {!data ? (
+        <>
+          <div className="rounded-xl border border-line bg-surface2 px-4 py-8 text-center text-[14px] text-ink3">
+            {selectionIssue ?? compareError ?? (successfulComparison ? "선택이 바뀌었어요. 다시 비교하면 새 구성으로 결과를 볼 수 있어요." : "왼쪽과 오른쪽 구성을 확인한 뒤 비교해 주세요.")}
+          </div>
+          <button type="button" disabled className="mt-4 rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink2 disabled:opacity-50">증권 비교표 내용 복사</button>
+        </>
+      ) : (
+        <>
 
       <CompareAiGuide
         guideEnabled={data.guide_enabled}
@@ -1656,7 +1632,7 @@ function SwitchTab({ customerId }: { customerId: number }) {
         >
           증권 비교표 내용 복사
         </button>
-        {loading
+        {compareStatus === "loading"
           ? <span className="text-[12px] text-ink3">비교를 다시 계산하고 있어요. 잠시만요.</span>
           : copyMsg
           ? <span className="text-[12px] text-ink3">{copyMsg}</span>
@@ -1667,6 +1643,8 @@ function SwitchTab({ customerId }: { customerId: number }) {
       <p className="mt-2 text-[11px] leading-4 text-ink3">
         담보·보장금액·보험료처럼 화면에서 확인한 사실만 복사됩니다.
       </p>
+        </>
+      )}
     </div>
   );
 }
