@@ -26,6 +26,26 @@ SUMMARY_JSON_SCHEMA = {
     'additionalProperties': False,
 }
 
+# Anthropic raw JSON schemas do not accept length constraints such as
+# maxItems/maxLength. Keep the same shape in the provider request and enforce
+# the full contract in ConsultationSummary.from_payload after the response.
+ANTHROPIC_SUMMARY_JSON_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        key: {
+            'type': 'array',
+            'description': '최대 12개 항목',
+            'items': {
+                'type': 'string',
+                'description': '비어 있지 않은 300자 이하 문장',
+            },
+        }
+        for key in SECTION_KEYS
+    },
+    'required': list(SECTION_KEYS),
+    'additionalProperties': False,
+}
+
 
 def _validated_items(payload, key):
     values = payload.get(key)

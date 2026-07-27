@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from inpa.consultations.summary_schema import (
-    SUMMARY_JSON_SCHEMA,
+    ANTHROPIC_SUMMARY_JSON_SCHEMA,
     ConsultationSummary,
     InvalidSummary,
 )
@@ -57,7 +57,7 @@ class AnthropicComparisonSummarizer:
                 output_config={
                     'format': {
                         'type': 'json_schema',
-                        'schema': SUMMARY_JSON_SCHEMA,
+                        'schema': ANTHROPIC_SUMMARY_JSON_SCHEMA,
                     },
                 },
             )

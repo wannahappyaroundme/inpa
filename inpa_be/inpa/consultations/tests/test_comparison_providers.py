@@ -27,7 +27,10 @@ from inpa.consultations.providers.openai_comparison import (
     OpenAIComparisonSummarizer,
     OpenAIComparisonTranscriber,
 )
-from inpa.consultations.summary_schema import SUMMARY_JSON_SCHEMA
+from inpa.consultations.summary_schema import (
+    ANTHROPIC_SUMMARY_JSON_SCHEMA,
+    SUMMARY_JSON_SCHEMA,
+)
 
 
 def valid_payload():
@@ -282,7 +285,7 @@ class ComparisonProviderTests(SimpleTestCase):
         self.assertEqual(raised.exception.code, 'TRANSCRIPT_EMPTY')
         self.assertEqual(str(raised.exception), 'TRANSCRIPT_EMPTY')
 
-    def test_both_summarizers_enforce_the_same_existing_schema(self):
+    def test_both_summarizers_enforce_the_same_summary_contract(self):
         openai_client = FakeOpenAISummaryClient(valid_payload())
         anthropic_client = FakeAnthropicClient(valid_payload())
 
@@ -302,8 +305,14 @@ class ComparisonProviderTests(SimpleTestCase):
         )
         self.assertEqual(
             FakeAnthropicClient.last_format['schema'],
-            SUMMARY_JSON_SCHEMA,
+            ANTHROPIC_SUMMARY_JSON_SCHEMA,
         )
+        for section in ANTHROPIC_SUMMARY_JSON_SCHEMA['properties'].values():
+            self.assertNotIn('maxItems', section)
+            self.assertNotIn('maxLength', section['items'])
+        for section in SUMMARY_JSON_SCHEMA['properties'].values():
+            self.assertEqual(section['maxItems'], 12)
+            self.assertEqual(section['items']['maxLength'], 300)
         self.assertEqual(
             openai_client.responses.kwargs['instructions'],
             SYSTEM_PROMPT,
