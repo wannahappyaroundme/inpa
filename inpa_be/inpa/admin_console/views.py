@@ -69,6 +69,7 @@ from inpa.boards.models import (
     Report,
 )
 from inpa.core.copyguard import scan_blog_content
+from inpa.core.internal_accounts import internal_user_q
 from inpa.core.permissions import IsAdmin
 from inpa.customers.models import ConsentLog, Customer
 from inpa.consultations.cleanup import SOURCE_PRESENT_STATUSES
@@ -748,13 +749,15 @@ class AdminDashboardView(APIView):
 
         data = {
             # 오늘 현황
-            'today_new_users': User.objects.filter(date_joined__date=today).count(),
+            'today_new_users': User.objects.exclude(
+                internal_user_q()).filter(date_joined__date=today).count(),
             'today_new_orders': PromotionOrder.objects.filter(created_at__date=today).count(),
             'open_inquiries': Inquiry.objects.filter(status=Inquiry.STATUS_OPEN).count(),
             'pending_reports': Report.objects.filter(status=Report.STATUS_PENDING).count(),
             # 누적 지표 (사실 카운트만 — "활성화율 낮음/위험" 등 판정 금지)
-            'total_users': User.objects.count(),
-            'total_customers': Customer.objects.count(),
+            'total_users': User.objects.exclude(internal_user_q()).count(),
+            'total_customers': Customer.objects.exclude(
+                internal_user_q('owner')).count(),
             # 요금제 분포
             'plan_distribution': _get_plan_distribution(),
             # 미처리 항목
@@ -775,14 +778,14 @@ def _get_plan_distribution() -> dict:
     """요금제별 설계사 수 (판정 레이블 없이 수치만 반환)."""
     from django.db.models import Count
     dist = (
-        Subscription.objects
+        Subscription.objects.exclude(internal_user_q('user'))
         .values('plan__code')
         .annotate(count=Count('id'))
     )
     result = {row['plan__code']: row['count'] for row in dist}
     # 구독 없는 설계사(미초기화) 카운트 포함
     subbed_count = sum(result.values())
-    total = User.objects.count()
+    total = User.objects.exclude(internal_user_q()).count()
     if total > subbed_count:
         result['no_plan'] = total - subbed_count
     return result
@@ -1876,7 +1879,7 @@ class AdminUsageView(APIView):
     """설계사별 기능 사용량 집계 — GET /api/v1/admin/usage/?days=30 (IsAdmin).
 
     NorthStarEvent(sender=설계사, event_type별)를 집계해 '누가 어떤 기능을 많이 쓰나'를 본다.
-    ★ 데모 계정(@inpa.local)은 제외. days=0 이면 전체 기간(시간 필터 없음).
+    ★ 내부 계정은 제외. days=0 이면 전체 기간(시간 필터 없음).
 
     ★ 이벤트를 두 갈래로 나눠 본다:
       - planner_activity: 설계사가 직접 한 행동(증권 스캔·분석 조회·공유 발급·복사).
@@ -1904,7 +1907,7 @@ class AdminUsageView(APIView):
 
         qs = (NorthStarEvent.objects
               .filter(sender__isnull=False)
-              .exclude(sender__email__iendswith='@inpa.local'))  # 데모 계정 제외
+              .exclude(internal_user_q('sender')))
         if days > 0:
             qs = qs.filter(created_at__gte=timezone.now() - timedelta(days=days))
 
@@ -1967,8 +1970,8 @@ class AdminClaudeCostView(APIView):
     outcome enum·회사코드 int·매칭/미매칭 건수만)를 창(days) 내 집계한다.
     cost_krw 는 어드민 관측용 **추정치**(billing/pricing.py — 토큰×모델계열단가×환율)이며
     실제 청구서와 다를 수 있다(§6 정직성 — 판정어 없이 사실 수치만).
-    ★ 데모 계정(@inpa.local)은 제외(AdminUsageView 관례). user=null(예: /d 공개 경로)
-    행은 데모가 아니므로 제외되지 않는다.
+    ★ 내부 계정은 제외(AdminUsageView 관례). user=null(예: /d 공개 경로)
+    행은 내부 계정이 아니므로 제외되지 않는다.
     """
     permission_classes = [IsAdmin]
 
@@ -2114,7 +2117,7 @@ class AdminClaudeCostView(APIView):
 
         jobs_qs = (
             InsuranceExtractionJob.objects
-            .exclude(owner__email__iendswith='@inpa.local')
+            .exclude(internal_user_q('owner'))
             .select_related('owner')
         )
         if since is not None:
@@ -2336,7 +2339,7 @@ class AdminClaudeCostView(APIView):
         if days != 0:
             days = max(1, min(days, 365))
 
-        qs = ClaudeApiLog.objects.exclude(user__email__iendswith='@inpa.local')
+        qs = ClaudeApiLog.objects.exclude(internal_user_q('user'))
         since = None
         if days > 0:
             since = timezone.now() - timedelta(days=days)
@@ -2573,7 +2576,7 @@ class AdminActivationFunnelView(APIView):
       first_analysis(MIN CustomerInsurance.created_at per customer__owner) →
       first_share(MIN Customer.share_sent_at per owner, not null) →
       activated(첫분석 AND 첫공유 모두 가입 후 ACTIVATION_WINDOW_DAYS(기본 7일) 이내).
-    가입 코호트(창 days 내 date_joined) 기준, @inpa.local 제외(AdminUsageView 관례).
+    가입 코호트(창 days 내 date_joined) 기준, 내부 계정 제외(AdminUsageView 관례).
     사실 카운트 + 단계별(직전 단계 대비) 전환율(%)만(§6 판정어 금지). UTM(utm_source, 없으면
     'direct') 별 가입·활성화 분해 + 활성화 코호트 평균 활성화 소요일수도 함께 반환.
     성능: 코호트 크기와 무관하게 고정 쿼리 수(코호트 1 + owner별 MIN 3, N+1 없음).
@@ -2599,7 +2602,7 @@ class AdminActivationFunnelView(APIView):
         window_days = int(getattr(dj_settings, 'ACTIVATION_WINDOW_DAYS', 7) or 7)
         window = timedelta(days=window_days)
 
-        cohort_qs = User.objects.exclude(email__iendswith='@inpa.local')
+        cohort_qs = User.objects.exclude(internal_user_q())
         if days > 0:
             cohort_qs = cohort_qs.filter(date_joined__gte=timezone.now() - timedelta(days=days))
         cohort_rows = list(cohort_qs.values(

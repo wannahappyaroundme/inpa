@@ -1922,6 +1922,63 @@ class AdminActivationFunnelTest(TestCase):
         self.assertEqual(data['signup_count'], 0)  # a·b(10일 전)·c(5일 전) 전부 창 밖
 
 
+@override_settings(SHOWCASE_ACCOUNT_EMAIL='showcase-funnel@inpa.example')
+class ActivationFunnelShowcaseExclusionTests(TestCase):
+    """시연 계정은 퍼널의 단계, 분모, UTM 요약에서 모두 제외한다."""
+
+    def setUp(self):
+        from inpa.analytics.models import NorthStarEvent
+
+        self.admin = _make_user('showcase-funnel-admin@inpa.example', is_admin=True)
+        self.client_admin = _auth_client(self.admin)
+        far_past = timezone.now() - timedelta(days=3650)
+        User.objects.filter(pk=self.admin.pk).update(date_joined=far_past)
+
+        joined = timezone.now() - timedelta(days=1)
+        for email, is_showcase in (
+                ('ordinary-funnel@inpa.example', False),
+                ('showcase-funnel@inpa.example', True)):
+            user = _make_user(email)
+            Profile.objects.filter(user=user).update(
+                is_showcase=is_showcase,
+                email_verified_at=joined,
+                utm_source='naver',
+            )
+            User.objects.filter(pk=user.pk).update(date_joined=joined)
+            customer = Customer.objects.create(owner=user, name=f'고객-{email}')
+            Customer.objects.filter(pk=customer.pk).update(created_at=joined)
+            insurance = CustomerInsurance.objects.create(
+                customer=customer, portfolio_type=1, name='암보험')
+            CustomerInsurance.objects.filter(pk=insurance.pk).update(created_at=joined)
+            event = NorthStarEvent.objects.create(
+                event_type=NorthStarEvent.SHARE_CREATED,
+                sender=user,
+                customer=customer,
+            )
+            NorthStarEvent.objects.filter(pk=event.pk).update(created_at=joined)
+
+    def test_showcase_account_is_excluded_from_every_funnel_step_and_utm_denominator(self):
+        data = self.client_admin.get('/api/v1/admin/activation-funnel/?days=30').json()
+        by_step = {step['step']: step['count'] for step in data['steps']}
+
+        self.assertEqual(data['signup_count'], 1)
+        self.assertEqual(data['activated_count'], 1)
+        self.assertEqual(by_step, {
+            'signup': 1,
+            'verified': 1,
+            'first_customer': 1,
+            'first_analysis': 1,
+            'first_share': 1,
+            'activated': 1,
+        })
+        self.assertEqual(data['utm_sources'], [{
+            'source': 'naver',
+            'signups': 1,
+            'activated': 1,
+            'activation_rate': 100.0,
+        }])
+
+
 # ─── FIX 1: 관리자 액션 알림 라우팅 (EXPIRY_SOON 오분류 방지) ──────────
 
 class AdminNotificationRoutingTest(TestCase):
@@ -2051,6 +2108,102 @@ class AdminUsageGroupingTest(TestCase):
         self.assertEqual(p['planner_activity'], 2)
         self.assertEqual(p['customer_response'], 3)
         self.assertEqual(p['total'], 5)  # 하위호환(전체 합) 유지
+
+
+@override_settings(SHOWCASE_ACCOUNT_EMAIL='showcase-stats@inpa.example')
+class AdminUsageShowcaseExclusionTests(TestCase):
+    """검증된 시연 계정은 운영 통계의 모든 분자·분모에서 빠져야 한다."""
+
+    def setUp(self):
+        self.admin = _make_user('showcase-stats-admin@inpa.example', is_admin=True)
+        self.planner = _make_user('showcase-stats-planner@inpa.example')
+        self.showcase = _make_user('showcase-stats@inpa.example')
+        self.showcase.profile.is_showcase = True
+        self.showcase.profile.save(update_fields=['is_showcase'])
+        self.client_admin = _auth_client(self.admin)
+
+    def test_dashboard_excludes_showcase_user_customer_and_subscription_distribution(self):
+        plan = _make_plan('showcase-free', 'Showcase Free')
+        Subscription.objects.create(user=self.planner, plan=plan, status='active')
+        Subscription.objects.create(user=self.showcase, plan=plan, status='active')
+        Customer.objects.create(owner=self.planner, name='일반 고객')
+        Customer.objects.create(owner=self.showcase, name='시연 고객')
+
+        data = self.client_admin.get('/api/v1/admin/dashboard/').json()
+
+        self.assertEqual(data['today_new_users'], 2)
+        self.assertEqual(data['total_users'], 2)
+        self.assertEqual(data['total_customers'], 1)
+        self.assertEqual(data['plan_distribution'], {
+            'showcase-free': 1,
+            'no_plan': 1,
+        })
+
+    def test_usage_excludes_showcase_events_from_totals_and_rankings(self):
+        from inpa.analytics.models import NorthStarEvent
+
+        NorthStarEvent.objects.create(sender=self.planner, event_type='analysis_view')
+        NorthStarEvent.objects.create(sender=self.planner, event_type='share_view')
+        for _ in range(3):
+            NorthStarEvent.objects.create(sender=self.showcase, event_type='ocr_upload')
+
+        data = self.client_admin.get('/api/v1/admin/usage/?days=0').json()
+
+        self.assertEqual(data['active_users'], 1)
+        self.assertEqual(data['feature_totals'], {
+            'analysis_view': 1,
+            'share_view': 1,
+        })
+        self.assertEqual(data['group_totals'], {
+            'planner_activity': 1,
+            'customer_response': 1,
+        })
+        self.assertEqual([user['email'] for user in data['users']], [self.planner.email])
+
+    def test_claude_cost_excludes_showcase_calls_and_cost(self):
+        from inpa.billing.models import ClaudeApiLog
+
+        ClaudeApiLog.objects.create(
+            action='ocr_parse', model='claude-opus-4-8', user=self.planner,
+            input_tokens=10, cost_krw=Decimal('100.00'), parse_outcome='success',
+        )
+        ClaudeApiLog.objects.create(
+            action='ocr_parse', model='claude-opus-4-8', user=self.showcase,
+            input_tokens=99, cost_krw=Decimal('9900.00'), parse_outcome='success',
+        )
+
+        data = self.client_admin.get('/api/v1/admin/claude-cost/?days=0').json()
+
+        self.assertEqual(data['total_calls'], 1)
+        self.assertEqual(data['total_cost_krw'], 100.0)
+        self.assertEqual(data['total_tokens']['input'], 10)
+
+    def test_insurance_review_excludes_showcase_jobs_from_all_job_metrics(self):
+        from inpa.insurances.models import InsuranceExtractionJob
+
+        planner_customer = Customer.objects.create(owner=self.planner, name='일반 검토 고객')
+        showcase_customer = Customer.objects.create(owner=self.showcase, name='시연 검토 고객')
+        for number, owner, customer in (
+                (1, self.planner, planner_customer),
+                (2, self.showcase, showcase_customer)):
+            InsuranceExtractionJob.objects.create(
+                owner=owner,
+                customer=customer,
+                intent='add',
+                portfolio_type=1,
+                status='queued',
+                file_sha256=f'{number:064x}',
+                file_size=100,
+                safe_display_name='policy.pdf',
+            )
+
+        review = self.client_admin.get(
+            '/api/v1/admin/claude-cost/?days=0').json()['insurance_review']
+
+        self.assertEqual(review['job_count'], 1)
+        self.assertEqual(review['status_counts'], {'queued': 1})
+        self.assertEqual(review['attempts']['job_count'], 1)
+        self.assertEqual(review['leases']['job_count'], 1)
 
 
 # ─── FIX 4: 관리자 사용량 화면 = 강제와 동일한 유효 요금제 한도 ──────────

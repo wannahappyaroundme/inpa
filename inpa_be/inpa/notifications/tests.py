@@ -12,7 +12,7 @@
 from datetime import date
 import uuid
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -1053,6 +1053,60 @@ class SignupVerificationFlatlineTests(TestCase):
         self.assertEqual(created, 1)
         self.assertTrue(Notification.objects.filter(
             owner=self.admin, notif_type=NotifType.SIGNUP_VERIFY_FLATLINE).exists())
+
+
+@override_settings(SHOWCASE_ACCOUNT_EMAIL='showcase-flatline@inpa.example')
+class SignupFlatlineShowcaseExclusionTests(TestCase):
+    """시연 가입·인증은 일반 사용자 인증 장애 감시에 영향을 주지 않는다."""
+
+    def setUp(self):
+        self.today = tz.localdate()
+        self.admin = User.objects.create_user(email='flatline-admin@inpa.example', password=None)
+        Profile.objects.create(
+            user=self.admin,
+            is_admin=True,
+            email_verified_at=tz.now() - timedelta(days=1),
+        )
+        User.objects.filter(pk=self.admin.pk).update(
+            date_joined=tz.now() - timedelta(days=1))
+
+    def _signup(self, email, *, verified=False, is_showcase=False):
+        user = User.objects.create_user(email=email, password=None)
+        Profile.objects.create(
+            user=user,
+            is_showcase=is_showcase,
+            email_verified_at=tz.now() if verified else None,
+        )
+        return user
+
+    def test_showcase_signup_does_not_raise_signup_numerator_to_alert_threshold(self):
+        for index in range(2):
+            self._signup(f'ordinary-signup-{index}@inpa.example')
+        self._signup('showcase-flatline@inpa.example', is_showcase=True)
+
+        created = check_signup_verification_flatline(self.today)
+
+        self.assertEqual(created, 0)
+        self.assertFalse(Notification.objects.filter(
+            notif_type=NotifType.SIGNUP_VERIFY_FLATLINE).exists())
+
+    def test_showcase_verification_does_not_suppress_ordinary_signup_alert(self):
+        for index in range(3):
+            self._signup(f'ordinary-verified-{index}@inpa.example')
+        self._signup(
+            'showcase-flatline@inpa.example',
+            verified=True,
+            is_showcase=True,
+        )
+
+        created = check_signup_verification_flatline(self.today)
+
+        self.assertEqual(created, 1)
+        notification = Notification.objects.get(
+            owner=self.admin,
+            notif_type=NotifType.SIGNUP_VERIFY_FLATLINE,
+        )
+        self.assertIn('3', notification.body)
 
 
 # ─── 문의/피드백 알림 유형 버킷 매핑 (support) ────────────────────────

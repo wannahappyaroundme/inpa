@@ -30,6 +30,7 @@ from django.utils import timezone
 from inpa.accounts.models import Profile
 from inpa.analysis.models import SeedMarker
 from inpa.booking.models import Meeting
+from inpa.core.internal_accounts import internal_user_q
 from inpa.customers.models import Customer
 from inpa.insurances.models import CustomerInsurance
 from inpa.recruiting.jobs import (
@@ -378,17 +379,17 @@ def check_signup_verification_flatline(today):
     window_end = timezone.now()
     window_start = window_end - dt.timedelta(days=lookback)
 
-    # ★ 데모 계정(@inpa.local) 제외 — seed_demo 는 is_active+email_verified_at 를 동시에
+    # ★ 내부 계정 제외 — seed_demo 는 is_active+email_verified_at 를 동시에
     #   세팅하므로, 실제 인증 장애 중 Render Shell 에서 seed_demo 를 돌리면 이 알람이
     #   거짓으로 억제된다(리뷰 major). 다른 집계(AdminUsageView/퍼널)와 동일 관례.
     User = get_user_model()
     signups = (User.objects
-               .exclude(email__iendswith='@inpa.local')
+               .exclude(internal_user_q())
                .filter(date_joined__gte=window_start, date_joined__lt=window_end).count())
     if signups < min_signups:
         return 0
     verifications = (Profile.objects
-                     .exclude(user__email__iendswith='@inpa.local')
+                     .exclude(internal_user_q('user'))
                      .filter(email_verified_at__gte=window_start,
                              email_verified_at__lt=window_end).count())
     if verifications > 0:
