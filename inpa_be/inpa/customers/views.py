@@ -1072,10 +1072,13 @@ class BaselineCatalogView(APIView):
                     if baseline.recommend_max is not None else None
                 ),
                 'unit': baseline.unit,
+                'is_active': baseline.is_active,
                 'is_applied': is_applied,
                 'requires_adoption': bool(
-                    baseline.is_active
-                    and not is_grading_eligible_baseline(baseline)
+                    baseline.baseline_source in {
+                        PlannerBaseline.SOURCE_PRESET,
+                        None,
+                    }
                 ),
                 'conflict_code': conflict_code,
                 'conflict_reason': conflict_reason,

@@ -65,9 +65,9 @@ const MILESTONES: Milestone[] = [
   },
   {
     id: "L6", track: "legal", priority: "P1", status: "todo", owner: "개발",
-    title: "graded(부족/충분) 판정 영구 동결 정책 명문화",
-    detail: "기준선 출처 확정 전까지 graded는 OFF 유지(이미 baseline_source=null→neutral로 코드 강제됨). 정책 문서화 필요.",
-    how: "dev 문서에 '출처·면책·법무 통과 전 graded·비교안내서·AI문자 fail-safe OFF' 정책을 명문화.",
+    title: "설계사 기준 판정 운영 정책 명문화",
+    detail: "운영 웹 판정은 활성 설계사 기준에만 사용하고, 코드 기본값은 닫힌 상태로 유지합니다. 정책 문서화가 필요합니다.",
+    how: "dev 문서에 '활성 설계사 기준만 판정, 비교안내서·AI문자는 별도 운영 조건' 정책을 명문화합니다.",
   },
 
   // ── 제품·코드 ──

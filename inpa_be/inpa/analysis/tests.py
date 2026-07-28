@@ -271,13 +271,13 @@ class HeatmapNeutralGateTests(TestCase):
                     self.assertIsNone(det['baseline'])
 
     def test_baseline_with_null_source_still_neutral(self):
-        """baseline 있으나 baseline_source=null → 여전히 neutral 강제(준법 통제점)."""
+        """활성 행이어도 planner 출처가 아니면 neutral 강제(준법 통제점)."""
         PlannerBaseline.objects.create(
             owner=self.user, coverage_key='사망보장',
             product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
             age_band='30s', gender=1,
             recommend_min=100000000, recommend_max=300000000,
-            baseline_source=None,  # ★ source 없음 → 판정 권위 미확립
+            baseline_source=None,  # ★ planner 출처 아님 → 판정 권위 미확립
         )
         r = self._get()
         body = r.json()
@@ -353,7 +353,7 @@ class HeatmapGradedTests(TestCase):
             age_band=age_band, gender=gender,
             recommend_min=lo, recommend_max=hi,
             unit=unit,
-            baseline_source='planner',  # ★ 살아있는 출처
+            baseline_source='planner',  # ★ 활성 설계사 출처
         )
 
     def _heatmap_detail_status(self):

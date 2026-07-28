@@ -12,7 +12,7 @@
 
 설계사가 **연령대 × 성별 × 상품군별 권장 보장 밴드(기준선)** 를 직접 설정·저장하고, 그 기준이 **히트맵의 충족(넉넉/적정/부족/없음) 판정에 단일 입력**으로 들어간다.
 
-**왜 이 문서가 컴플라이언스의 심장인가**: 인파는 "이 고객은 보장이 부족하다"를 **자체적으로 판정할 근거를 보유하지 않는다.** 부족/충분이라는 단어가 화면에 뜨려면, 그 판정 기준은 **반드시 라이선스를 가진 설계사 본인이 설정한 값**이어야 한다. `planner_baseline` 테이블이 없으면 히트맵 3색(enough/short)은 **영구히 활성화할 수 없다**(neutral 모드 고정). 이 문서는 그 단일 입력의 데이터 모델·UI 흐름·책임 경계를 못박는다.
+**왜 이 문서가 컴플라이언스의 심장인가**: 인파는 "이 고객은 보장이 부족하다"를 **자체적으로 판정할 근거를 보유하지 않는다.** 부족/충분이라는 단어가 화면에 뜨려면, 그 판정 기준은 **반드시 라이선스를 가진 설계사 본인이 활성 상태로 설정한 값**이어야 한다. 운영 웹은 활성 `planner` 기준에만 판정을 사용하고, 코드 기본값은 판정을 닫은 상태로 시작한다. 이 문서는 그 단일 입력의 데이터 모델·UI 흐름·책임 경계를 못박는다.
 
 ---
 
@@ -36,16 +36,18 @@
 이 원칙은 추상적 선언이 아니라 **코드 레벨 물리 강제**로 박힌다:
 
 ```
-baseline_source == null  →  heatmap_status() 강제 neutral
+is_active != true 또는 baseline_source != 'planner'
+                         →  heatmap_status() 강제 neutral
                             (enough/short 발화 물리 차단)
 ─────────────────────────────────────────────────────────
-baseline_source == 'planner'  →  graded 모드 허용
-                                 (설계사가 값을 넣었을 때만)
+is_active == true 그리고 baseline_source == 'planner'
+                         →  graded 모드 허용
+                            (설계사가 확인하고 다시 사용했을 때만)
 ```
 
 - **인파 디폴트 상태 = neutral**. 설계사가 `planner_baseline`을 한 번도 설정하지 않으면 히트맵은 `none`(0원=객관적 사실)만 회색으로 표기하고, enough/short는 **물리적으로 발화하지 않는다.**
 - 즉 **"부족" 한 글자가 화면에 뜨는 순간, 그 책임의 출처는 100% 설계사의 설정값**이다. 인파가 임의로 만든 기준이 아니다.
-- 이 단일 게이트(`baseline_source`)가 **준법 통제점**이다. `dev/09 §5`의 "graded 플립 = BE 단일스위치"가 여기서 **테이블 존재 여부 + source 값**으로 구현된다.
+- 이 단일 게이트(`is_active + baseline_source`)가 **준법 통제점**이다. 운영 웹 판정은 활성 `planner` 기준만 사용하며, 코드 기본값은 fail-closed다.
 
 ### 1.3 기본 프리셋의 책임 경계 (디스클레이머 의무)
 
@@ -119,11 +121,11 @@ makemigrations
 ```
 heatmap_status(actual, baseline, mode):
     # mode = 'neutral' | 'graded'
-    if baseline is None or baseline.source is None:
+    if baseline is None or not baseline.is_active or baseline.source != 'planner':
         return 'none' if actual == 0 else 'neutral'   # ← 기준 미설정 강제 중립
     if mode == 'neutral':
         return 'none' if actual == 0 else 'neutral'   # ← 전역 중립 디폴트(베타)
-    # mode == 'graded' AND baseline.source in ('planner','preset:*')
+    # mode == 'graded' AND baseline.is_active AND baseline.source == 'planner'
     if actual == 0:                  return 'none'      # 없음(회색)
     if actual <  baseline.recommend_min:  return 'short'   # 부족(amber)
     if baseline.recommend_max and actual > baseline.recommend_max:
@@ -228,12 +230,12 @@ heatmap_status(actual, baseline, mode):
 
 | 항목 | 규칙 |
 |---|---|
-| 채택 시 source | `'preset:<id>'` (인파가 정한 게 **아니라** 설계사가 채택) |
+| 채택 시 source | `'preset'`으로 보관, 설계사가 확인 후 저장하면 `'planner'`로 전환 |
 | 출처 명시 | `preset_origin` 필수 — 디스클레이머에 표시 |
 | 수정 가능성 | 채택 후 설계사가 개별 밴드 수정 자유(수정 시 해당 행 `source='planner'` 승격) |
-| **출처 미확정 시** | **프리셋 비활성** — Q1/G4-1(기준선 출처·권위) 미확정 동안 프리셋 제공 보류 |
+| 판정 사용 | 활성 `planner` 기준만 판정에 사용, 프리셋은 확인·저장 전까지 neutral 유지 |
 
-> ⚠️ **블로킹 의존성**: 프리셋의 시드값(`recommend_min/max` 100+ 담보분)과 그 **출처·권위**(금감원/보험연구원/자체+면책 중 무엇)는 **Q1/G4-1 미확정**이다. 출처 없는 프리셋은 "인파가 임의 기준을 정했다"는 컴플라이언스 위반이 되므로, **출처 확정 전까지 프리셋 탭 비활성**하고 설계사 직접 입력(`source='planner'`)만 허용한다. 이것이 neutral 우회와 함께 가는 **이중 안전판**이다.
+> ⚠️ **운영 원칙**: 프리셋의 시드값은 설계사 확인 전 판정 근거가 아니다. 설계사가 금액을 확인하고 저장하면 해당 행만 활성 `planner` 기준으로 전환되며, 그때부터 판정에 사용한다.
 
 ---
 
@@ -259,8 +261,8 @@ heatmap_status(actual, baseline, mode):
 ### 6.1 이 문서가 잠그는 것 (Sprint0 게이트 해소)
 
 - ✅ **G4-2 해소**: `planner_baseline` 모델 스키마 동결 → 히트맵 graded 활성화의 데이터 근거 확보.
-- ✅ **컴플라이언스 단일 입력 확보**: 충족 판정의 유일한 기준 출처 = 설계사 설정값(`source='planner'|'preset:*'`).
-- ✅ **neutral 강제 게이트**: `baseline_source=null → 강제 neutral`을 모델·함수 양단에 물리 박음.
+- ✅ **컴플라이언스 단일 입력 확보**: 충족 판정의 유일한 기준 출처 = 설계사가 활성화한 `source='planner'` 값.
+- ✅ **neutral 강제 게이트**: 비활성 행과 `planner`가 아닌 출처를 모델·함수 양단에서 neutral로 처리.
 
 ### 6.2 이 문서가 잠그지 못하는 것 (상위 블로킹 의존)
 

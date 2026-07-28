@@ -12,7 +12,7 @@
        assurance_amount) → calculate_total_analysis 가 analysis_detail 따라 합산
        → 트리 leaf 의 held_amount(=total_premium) > 0.
   4) PlannerBaseline.coverage_key == AnalysisDetail.name (★ 히트맵 grading 매칭 키),
-       baseline_source!=null + is_active=True → 해당 고객 heatmap mode='graded'.
+       baseline_source='planner' + is_active=True → 해당 고객 heatmap mode='graded'.
 
 추가 시드 도메인 (v2 — boards / notifications / promotion / billing):
   9)  boards: 게시글 5~8개(demo + neutral 작성) + 댓글·좋아요 + 공지 2 + FAQ 3 + 1:1문의 1
@@ -645,7 +645,7 @@ class Command(BaseCommand):
                 product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
                 age_band=gc_band, gender=gc_gender,
                 recommend_min=lo, recommend_max=hi, unit=2,    # 2=원
-                baseline_source='planner',                     # ★ 살아있는 출처 → graded
+                baseline_source='planner',                     # ★ 활성 설계사 출처 → graded
                 is_active=True)
         self.stdout.write(f'  [7] PlannerBaseline: {len(baselines)}개 '
                           f'(graded 고객={graded_customer.name}, id={graded_customer.id})')

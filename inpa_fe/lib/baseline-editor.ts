@@ -17,6 +17,7 @@ export interface BaselineDraftScope {
   recommend_max: string | null;
   unit: BaselineUnit;
   baseline_source: string | null;
+  is_active: boolean;
   is_stored: boolean;
 }
 
@@ -120,6 +121,7 @@ export function catalogToDraft(
             recommend_max: normalizeBaselineAmount(baseline.recommend_max),
             unit: baseline.unit,
             baseline_source: baseline.baseline_source,
+            is_active: baseline.is_active,
             is_stored: true,
           }));
           const defaultIndex = scopes.findIndex(
@@ -138,6 +140,7 @@ export function catalogToDraft(
                   recommend_max: null,
                   unit: detail.unit,
                   baseline_source: null,
+                  is_active: true,
                   is_stored: false,
                 };
           return {
@@ -266,7 +269,8 @@ function sameScopeValue(
     normalizeBaselineAmount(left.recommend_max) ===
       normalizeBaselineAmount(right.recommend_max) &&
     left.unit === right.unit &&
-    left.baseline_source === right.baseline_source
+    left.baseline_source === right.baseline_source &&
+    left.is_active === right.is_active
   );
 }
 
@@ -285,7 +289,11 @@ function asChange(scope: BaselineDraftScope): PlannerBaselineBatchChange {
 export function adoptBaselineScope(
   scope: BaselineDraftScope,
 ): BaselineDraftScope {
-  return { ...scope, baseline_source: "planner" };
+  return {
+    ...scope,
+    baseline_source: "planner",
+    is_active: true,
+  };
 }
 
 export function normalizeSavedBaselineDraft(
@@ -316,6 +324,7 @@ export function normalizeSavedBaselineDraft(
               recommend_min,
               recommend_max,
               baseline_source: is_stored ? "planner" : null,
+              is_active: true,
               is_stored,
             };
           }),

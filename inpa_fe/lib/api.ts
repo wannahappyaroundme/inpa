@@ -1179,7 +1179,7 @@ export interface HeatmapResponse {
   mode: "neutral" | "graded";
   baseline_present: boolean;
   grading_enabled: boolean;
-  baseline_count: number;       // 저장된 활성 기준 수, 판정 적용 수는 applied_baseline_count
+  baseline_count: number;       // 출처가 있는 활성 기준 수
   applied_baseline_count?: number;
   unapplied_baseline_count?: number;
   insurance_count: number;
@@ -1358,6 +1358,7 @@ export interface BaselineCatalogStoredScope {
   recommend_max: string | null;
   unit: BaselineUnit;
   baseline_source: string | null;
+  is_active: boolean;
 }
 
 export interface BaselineCatalogDetail {
@@ -1398,6 +1399,7 @@ export interface LegacyPlannerBaseline {
   recommend_min: string | null;
   recommend_max: string | null;
   unit: BaselineUnit;
+  is_active: boolean;
   is_applied: boolean;
   requires_adoption?: boolean;
   conflict_code: LegacyBaselineConflictCode;

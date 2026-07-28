@@ -84,6 +84,7 @@ const catalog: BaselineCatalogResponse = {
                   recommend_max: null,
                   unit: 1,
                   baseline_source: "planner",
+                  is_active: true,
                 },
               ],
             },
@@ -187,6 +188,7 @@ describe("담보 전체 기준표 페이지 상태", () => {
           recommend_min: "2500.00",
           recommend_max: null,
           unit: 1,
+          is_active: true,
           is_applied: true,
           conflict_code: "multiple_standard_matches",
           conflict_reason:
@@ -236,6 +238,7 @@ describe("담보 전체 기준표 페이지 상태", () => {
           recommend_min: "1500.00",
           recommend_max: null,
           unit: 1,
+          is_active: true,
           is_applied: false,
           conflict_code: "no_standard_match",
           conflict_reason:
@@ -271,6 +274,7 @@ describe("담보 전체 기준표 페이지 상태", () => {
           recommend_min: "1500.00",
           recommend_max: null,
           unit: 1,
+          is_active: true,
           is_applied: false,
           requires_adoption: true,
           conflict_code: "link_confirmation_required",
@@ -366,6 +370,38 @@ describe("담보 전체 기준표 페이지 상태", () => {
         unit: 1,
       }],
     });
+  });
+
+  it("비활성 내 기준을 다시 사용하면 기존 요청 형식으로 저장하고 완료 뒤 안내를 지운다", async () => {
+    const user = userEvent.setup();
+    const inactiveCatalog = structuredClone(catalog) as BaselineCatalogResponse & {
+      categories: Array<{ subcategories: Array<{ details: Array<{ baselines: Array<Record<string, unknown>> }> }> }>;
+    };
+    inactiveCatalog.categories[0].subcategories[0].details[0].baselines[0].is_active = false;
+    apiGet.mockResolvedValue(inactiveCatalog);
+    render(<BaselineSettingsPage />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "일반암 진단비 상세 설정" }),
+    );
+    await user.click(screen.getByRole("button", { name: "내 기준으로 다시 사용" }));
+    await user.click(screen.getByRole("button", { name: "변경 내용 저장" }));
+
+    expect(apiSave).toHaveBeenCalledWith({
+      revision: 3,
+      changes: [{
+        analysis_detail_id: 101,
+        product_group: 0,
+        age_band: "all",
+        gender: null,
+        recommend_min: "3000",
+        recommend_max: null,
+        unit: 1,
+      }],
+    });
+    expect(
+      screen.queryByRole("button", { name: "내 기준으로 다시 사용" }),
+    ).toBeNull();
   });
 
   it("금액을 고쳐 저장한 이전 기준은 바로 내 기준으로 표시한다", async () => {

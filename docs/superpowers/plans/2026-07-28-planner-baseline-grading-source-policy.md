@@ -27,10 +27,13 @@
 
 **Acceptance criteria:**
 
-- The legacy response computes `is_applied` with `is_grading_eligible_baseline` and adds `requires_adoption` for active rows that are not eligible.
-- A legacy planner fallback that is actually usable shows `분석에 적용 중`; an eligible but unresolved row shows `연결 필요`; preset or source-less rows show `연결 후 금액 확인 필요`.
+- The legacy response returns `is_active`; `is_applied` remains `is_grading_eligible_baseline` truth, while `requires_adoption` means only preset or source-less adoption is needed.
+- A legacy planner fallback that is actually usable shows `분석에 적용 중`; an inactive planner row shows `연결 후 다시 사용 필요`; an eligible but unresolved row shows `연결 필요`; preset or source-less rows show `연결 후 금액 확인 필요`.
 - Linking preserves `baseline_source` and `preset_origin`; a catalog reload keeps the linked detail in the pending-adoption state until explicit batch save.
-- An unchanged requested preset or source-less row becomes active planner source and clears `preset_origin`; untouched scopes remain unchanged.
+- An unchanged requested inactive planner, preset, or source-less row becomes active planner source and clears `preset_origin`; untouched scopes remain unchanged.
+- Draft equality includes active state, while the existing batch request keeps omitting source and active-state fields. A successful save clears the re-use affordance only for the requested scope.
+
+**Deployment order, pending execution:** Vercel's compatible frontend must be `Ready` before starting the Render backend deployment. If Render auto-deploy starts concurrently after merge, cancel or hold it, wait for Vercel `Ready`, then deploy Render. No deployment has been executed by this follow-up.
 
 ---
 
@@ -652,6 +655,8 @@ git log --oneline origin/master..HEAD
 ```
 
 Use a ready PR from `codex/planner-baseline-grading` to `master`. Merge only when backend, PostgreSQL concurrency, frontend, gitleaks, and Vercel checks all pass.
+
+After merge, wait until the Vercel frontend deployment is `Ready` before starting Render. If Render begins automatically at the same time, cancel or hold that deployment and start it only after Vercel is `Ready`.
 
 - [ ] **Step 8: Verify production**
 

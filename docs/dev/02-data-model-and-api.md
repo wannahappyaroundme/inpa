@@ -64,7 +64,7 @@
  └────────────────────┘        └──────────────────────────────┘
 ```
 
-★ **준법 통제점 = planner_baseline.** `baseline_source == null`이면 분석 결과를 "부족/충분"으로 단정하지 않고 **neutral 강제**. 인파는 중개·권유하지 않으며, 보장 기준은 설계사가 소유한다.
+★ **준법 통제점 = planner_baseline.** 활성 `baseline_source == 'planner'`가 아니면 분석 결과를 "부족/충분"으로 단정하지 않고 **neutral 강제**. 운영 웹 판정은 활성 설계사 기준만 사용하며, 코드 기본값은 fail-closed다.
 
 ---
 
@@ -654,15 +654,15 @@ N장 일괄 큐잉, **부분 실패 허용**. 야간 배치는 Claude Batches AP
 
 **status 판정 (★ planner_baseline 게이트):**
 ```python
-def heatmap_status(actual, baseline, baseline_source):
-    if baseline_source is None:                  # planner_baseline 없음/source==null
+def heatmap_status(actual, baseline, baseline_source, is_active):
+    if not is_active or baseline_source != 'planner':
         return "none" if actual == 0 else "neutral"   # 보유여부만 회색, 부족/충분 단정 금지
     if actual == 0:                  return "none"     # 🔴 없음
     if actual < baseline * 0.7:      return "short"    # 🟡 부족
     return "enough"                                    # 🟢 충분
 ```
 
-> ★ **중립 모드 = 준법 안전장치.** `planner_baseline`(설계사가 직접 소유·설정한 기준)이 없으면 `enough/short` 판정 보류, `none`(0원 보유여부)만 회색 중립. 인파는 기준을 제시하지 않는다 — 설계사가 소유한다. 상세 `dev/10`.
+> ★ **중립 모드 = 준법 안전장치.** 활성 `planner_baseline`(설계사가 직접 소유·확인한 기준)이 없으면 `enough/short` 판정 보류, `none`(0원 보유여부)만 회색 중립. 인파는 기준을 제시하지 않는다 — 설계사가 소유한다. 상세 `dev/10`.
 
 ---
 
@@ -785,7 +785,7 @@ python manage.py seed_policy_versions   # TOS/PP/OVERSEAS 초기 버전
 
 | ID | 항목 | 막는 것 | 기본 가정(이번 통합에서 확정) |
 |---|---|---|---|
-| **Q1** | planner_baseline / 표준 기준선 출처·권위 | heatmap `graded` 모드 | `planner_baseline` 없으면 `neutral`(none만), 설계사 소유 원칙 |
+| **Q1** | planner_baseline / 표준 기준선 출처·권위 | heatmap `graded` 모드 | 활성 `planner` 기준만 `graded`, 그 외 `neutral`(none만), 설계사 소유 원칙 |
 | **Q2** | 국외이전 동의 1탭 vs 별도 동의서 | **detect API 전체** | 별도 필드(`consent_overseas_at`)+ConsentLog 분리 |
 | **Q3** | §97 비교안내 6항목 법적 확정 | compare 발행 하드블록 | 6항목 미완 시 `publishable=false` |
 | **Q4** | 셀프진단 제3자 동의 충분성 | `consent_type=selfdiag` 동선 | share_token 만료·회수 정책 동반 |

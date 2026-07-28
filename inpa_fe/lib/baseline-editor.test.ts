@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  adoptBaselineScope,
   buildBaselineChanges,
   catalogToDraft,
   countChangedScopes,
@@ -45,6 +46,7 @@ const catalog: BaselineCatalogResponse = {
                   recommend_max: null,
                   unit: 1,
                   baseline_source: "planner",
+                  is_active: true,
                 },
                 {
                   analysis_detail: 101,
@@ -55,6 +57,7 @@ const catalog: BaselineCatalogResponse = {
                   recommend_max: "7000.00",
                   unit: 1,
                   baseline_source: "planner",
+                  is_active: true,
                 },
               ],
             },
@@ -126,6 +129,7 @@ describe("담보 기준 편집 변환", () => {
         recommend_max: null,
         unit: 1,
         baseline_source: null,
+        is_active: true,
         is_stored: false,
       },
     ]);
@@ -138,6 +142,7 @@ describe("담보 기준 편집 변환", () => {
       recommend_max: null,
       unit: 1,
       baseline_source: "planner",
+      is_active: true,
       is_stored: true,
     });
   });
@@ -203,6 +208,43 @@ describe("담보 기준 편집 변환", () => {
         recommend_max: null,
       }),
     ]);
+  });
+
+  it("비활성 내 기준을 다시 사용하면 출처와 활성 상태 변경만 저장한다", () => {
+    const server = structuredClone(catalog) as BaselineCatalogResponse & {
+      categories: Array<{ subcategories: Array<{ details: Array<{ baselines: Array<Record<string, unknown>> }> }> }>;
+    };
+    server.categories[0].subcategories[0].details[0].baselines[0].is_active = false;
+    const serverDraft = catalogToDraft(server);
+    const scope = serverDraft.categories[0].subcategories[0].details[0].baselines[0];
+
+    expect(scope.is_active).toBe(false);
+    const adopted = adoptBaselineScope(scope);
+    expect(adopted).toMatchObject({
+      baseline_source: "planner",
+      is_active: true,
+    });
+    expect(buildBaselineChanges(serverDraft, {
+      ...serverDraft,
+      categories: [{
+        ...serverDraft.categories[0],
+        subcategories: [{
+          ...serverDraft.categories[0].subcategories[0],
+          details: [{
+            ...serverDraft.categories[0].subcategories[0].details[0],
+            baselines: [adopted, ...serverDraft.categories[0].subcategories[0].details[0].baselines.slice(1)],
+          }],
+        }],
+      }],
+    })).toEqual([{
+      analysis_detail_id: 101,
+      product_group: 0,
+      age_band: "all",
+      gender: null,
+      recommend_min: "3000",
+      recommend_max: null,
+      unit: 1,
+    }]);
   });
 
   it("저장한 범위만 설계사 기준으로 정리하고 나머지 이전 기준은 보존한다", () => {

@@ -88,11 +88,15 @@ function scopeIdentity(scope: BaselineDraftScope): string {
   return `${scope.product_group}:${scope.age_band}:${scope.gender ?? "common"}`;
 }
 
-function needsBaselineAdoption(scope: BaselineDraftScope): boolean {
-  return (
-    scope.is_stored &&
-    (scope.baseline_source === "preset" || scope.baseline_source === null)
-  );
+function baselineAdoptionAction(
+  scope: BaselineDraftScope,
+): "adopt" | "reuse" | null {
+  if (!scope.is_stored) return null;
+  if (scope.baseline_source === "planner" && !scope.is_active) return "reuse";
+  if (scope.baseline_source === "preset" || scope.baseline_source === null) {
+    return "adopt";
+  }
+  return null;
 }
 
 function ScopeEditor({
@@ -115,6 +119,7 @@ function ScopeEditor({
   const maximumError = errors?.recommend_max;
   const minimumErrorId = `${prefix}-minimum-error`;
   const maximumErrorId = `${prefix}-maximum-error`;
+  const adoptionAction = baselineAdoptionAction(scope);
   return (
     <section
       className={`rounded-2xl border p-4 ${
@@ -132,10 +137,12 @@ function ScopeEditor({
               ? "모든 상품과 연령에 먼저 적용되는 값이에요."
               : "해당 조건에는 이 값을 우선 적용해요."}
           </p>
-          {needsBaselineAdoption(scope) && (
+          {adoptionAction && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <p className="text-xs leading-5 text-ink2">
-                이 금액을 확인한 뒤 내 기준으로 사용하면 분석에 반영돼요.
+                {adoptionAction === "reuse"
+                  ? "이 금액을 확인한 뒤 내 기준으로 다시 사용하면 분석에 반영돼요."
+                  : "이 금액을 확인한 뒤 내 기준으로 사용하면 분석에 반영돼요."}
               </p>
               <button
                 type="button"
@@ -143,7 +150,9 @@ function ScopeEditor({
                 disabled={disabled}
                 className="min-h-10 rounded-xl border border-brand/30 bg-surface px-3 text-xs font-bold text-brand transition hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50"
               >
-                내 기준으로 사용
+                {adoptionAction === "reuse"
+                  ? "내 기준으로 다시 사용"
+                  : "내 기준으로 사용"}
               </button>
             </div>
           )}
@@ -368,6 +377,7 @@ export function BaselineDetailDrawer({
       recommend_max: null,
       unit: detail.unit,
       baseline_source: null,
+      is_active: true,
       is_stored: false,
     } satisfies BaselineDraftScope);
   const exceptions = detail.baselines.filter((scope) => !isDefaultScope(scope));
@@ -386,6 +396,7 @@ export function BaselineDetailDrawer({
           recommend_max: null,
           unit: detail.unit,
           baseline_source: null,
+          is_active: true,
           is_stored: false,
         };
         if (!occupied.has(scopeIdentity(candidate))) {

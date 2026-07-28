@@ -17,6 +17,7 @@ const defaultScope: BaselineDraftScope = {
   recommend_max: null,
   unit: 1,
   baseline_source: "planner",
+  is_active: true,
   is_stored: true,
 };
 
@@ -29,6 +30,7 @@ const exceptionScope: BaselineDraftScope = {
   recommend_max: "7000",
   unit: 1,
   baseline_source: "planner",
+  is_active: true,
   is_stored: true,
 };
 
@@ -180,6 +182,33 @@ describe("담보 상세 기준 드로어", () => {
     expect(onScopeChange).toHaveBeenCalledWith(
       linkedScope,
       expect.objectContaining({ baseline_source: "planner" }),
+    );
+  });
+
+  it("비활성 내 기준은 다시 사용을 안내하고 활성 상태로 전환한다", async () => {
+    const user = userEvent.setup();
+    const inactiveScope = {
+      ...defaultScope,
+      is_active: false,
+    } as BaselineDraftScope;
+    const onScopeChange = vi.fn();
+    render(
+      <BaselineDetailDrawer
+        open
+        detail={{ ...detail, baselines: [inactiveScope, exceptionScope] }}
+        onClose={vi.fn()}
+        onScopeChange={onScopeChange}
+        onAddScope={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getAllByText("이 금액을 확인한 뒤 내 기준으로 다시 사용하면 분석에 반영돼요."),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "내 기준으로 다시 사용" }));
+    expect(onScopeChange).toHaveBeenCalledWith(
+      inactiveScope,
+      expect.objectContaining({ baseline_source: "planner", is_active: true }),
     );
   });
 
