@@ -1,17 +1,15 @@
-// 단계별 화법·문구 라이브러리 — 정적 데이터(컴플라이언스 게이트 무관, 빠름).
-// 신입이 "뭐라 말하지"를 해소하는 상황별 대본. {고객명}·{설계사명} 치환.
-//
-// ★ 정직성/컴플라이언스 레드라인:
-//   - 자동발송 없음 → 복사 후 직접 전달(카톡/문자)까지만.
-//   - 카톡(개인 1:1) ⟂ 문자(광고규제): (광고) 표기·무료수신거부·야간(21~08시) 발송금지·아는 고객에게만.
+// 설계사가 고객과 다음 행동을 구체적으로 정할 때 쓰는 기본 화법 30개.
+// 기본값은 운영 원본이다. 사용자는 복사해 개인 템플릿으로 저장할 수 있지만 직접 덮어쓰지 않는다.
 
-export type CopyChannel = "kakao" | "sms";
+export type TalkTemplateChannel = "message" | "call";
 
 export interface CopyTemplate {
-  id: string;
+  key: string;
   title: string;
-  body: string; // {고객명}·{설계사명} 치환
-  channel: CopyChannel;
+  body: string;
+  channel: TalkTemplateChannel;
+  isAdvertising?: boolean;
+  requiresResultCheck?: boolean;
 }
 
 export interface CopyCategory {
@@ -21,263 +19,311 @@ export interface CopyCategory {
   templates: CopyTemplate[];
 }
 
-/** {고객명}·{설계사명}·{소속}·{직책}·{소속직책} 치환(booking/templates_text.render 패턴의 FE판). 빈 값은 안전한 일반어로. */
-export function renderCopy(
-  body: string,
-  vars: { customer?: string; planner?: string; affiliation?: string; title?: string }
-): string {
-  const aff = (vars.affiliation || "").trim();
+export interface CopyVariables {
+  customer?: string;
+  planner?: string;
+  affiliation?: string;
+  title?: string;
+  phone?: string;
+  optOut?: string;
+}
+
+/** 저장된 변수 문구를 새 문자열로 치환한다. 입력 본문은 바꾸지 않는다. */
+export function renderCopy(body: string, vars: CopyVariables): string {
+  const customer = (vars.customer || "").trim();
+  const affiliation = (vars.affiliation || "").trim();
   const title = (vars.title || "").trim();
-  return body
-    .replace(/\{고객명\}/g, (vars.customer || "").trim() || "고객")
+  const affiliationAndTitle = [affiliation, title].filter(Boolean).join(" ");
+  const customerReadyBody = customer
+    ? body.replace(/\{고객명\}/g, customer)
+    : body
+        .replace(/\{고객명\}\s*고객님/g, "고객님")
+        .replace(/\{고객명\}님/g, "안녕하세요")
+        .replace(/\{고객명\}/g, "고객님");
+  const rendered = customerReadyBody
     .replace(/\{설계사명\}/g, (vars.planner || "").trim() || "담당 설계사")
-    .replace(/\{소속직책\}/g, [aff, title].filter(Boolean).join(" "))
-    .replace(/\{소속\}/g, aff)
-    .replace(/\{직책\}/g, title);
+    .replace(
+      /\{소속직책\}으로/g,
+      affiliationAndTitle
+        ? `${affiliationAndTitle}으로`
+        : "보험 설계사로",
+    )
+    .replace(/\{소속직책\}/g, affiliationAndTitle)
+    .replace(/\{소속\}/g, affiliation)
+    .replace(/\{직책\}/g, title)
+    .replace(/\{설계사연락처\}/g, (vars.phone || "").trim())
+    .replace(/\{수신거부안내\}/g, (vars.optOut || "").trim());
+  return rendered
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/^[ \t]+|[ \t]+$/gm, "");
 }
 
 export const COPY_CATEGORIES: CopyCategory[] = [
   {
     key: "referral",
     label: "소개 요청",
-    desc: "기존 고객에게 소개를 부탁할 때. 자연스럽게 안부를 전하는 흐름이에요.",
+    desc: "관리 경험을 떠올릴 수 있는 고객에게 구체적인 연결 방법을 제안해요.",
     templates: [
       {
-        id: "referral-thanks",
-        title: "감사 인사 + 소개 부탁",
-        channel: "kakao",
-        body: "{고객명}님, 늘 믿고 맡겨주셔서 감사해요 🙏 혹시 주변에 보험 정리나 보장 점검이 필요한 분 계실까요? 부담 드리지 않고 한 번 살펴봐 드릴게요. {설계사명} 드림",
+        key: "referral-thanks",
+        title: "관리 후 소개 부탁",
+        channel: "message",
+        body: "{고객명} 고객님, 함께 보험 내용을 정리해 주셔서 감사합니다. 주변에도 가입한 내용을 한눈에 정리하고 싶은 분이 있다면 같은 방식으로 도와드릴 수 있어요. 떠오르는 한 분께 제 연락처를 보내 주실까요, 세 사람이 함께 있는 대화방을 열어 주실까요? {설계사명} 드림",
       },
       {
-        id: "referral-trigger",
-        title: "점검 계기로 자연스럽게",
-        channel: "kakao",
-        body: "{고객명}님, 요즘 실손·암보험 갱신으로 점검 문의가 많아요. 가족이나 지인 중 '내 보험 이대로 괜찮나' 궁금해하시는 분 있으면 편하게 연결해 주세요. 제가 깔끔하게 정리해 드릴게요.",
+        key: "referral-trigger",
+        title: "가족 점검으로 연결",
+        channel: "call",
+        body: "{고객명} 고객님, 가족 보험은 서로 다른 시기에 가입해 한 번에 보기 어려운 경우가 있습니다. 등록된 보험료와 보장 항목을 함께 펼쳐 보면 가족이 각자 확인할 부분을 나눌 수 있어요. 먼저 확인해 볼 가족 한 분을 정할까요, 가족이 함께 가능한 시간을 예약할까요?",
       },
     ],
   },
   {
     key: "objection",
-    label: "거절 응대",
-    desc: "흔한 거절 3가지에 대한 부드러운 응대. 밀어붙이지 않는 게 핵심.",
+    label: "망설임 응대",
+    desc: "고객의 상황을 먼저 인정하고, 작게 시작할 수 있는 선택지를 제시해요.",
     templates: [
       {
-        id: "obj-busy",
-        title: "“지금 바빠요”",
-        channel: "kakao",
-        body: "{고객명}님, 바쁘신데 연락드려 죄송해요. 통화 10분이면 충분하고 편하신 시간에 맞출게요. 이번 주 중 언제가 좋으실까요?",
+        key: "obj-busy",
+        title: "지금 시간이 없을 때",
+        channel: "message",
+        body: "{고객명} 고객님, 지금 일정이 바쁘신 점 확인했습니다. 필요한 자료와 먼저 볼 항목을 짧게 나누면 다음 대화를 준비하기 쉬워요. 메시지로 준비물을 먼저 확인할까요, 짧은 통화를 예약할까요?",
       },
       {
-        id: "obj-have-planner",
-        title: "“이미 담당 설계사 있어요”",
-        channel: "kakao",
-        body: "{고객명}님, 담당 설계사가 계시는군요 👍 바꾸시라는 게 아니라 보장이 겹치거나 빈 곳은 없는지 '제3자 점검' 차원으로 봐드릴게요. 결정은 {고객명}님 몫이에요.",
+        key: "obj-have-planner",
+        title: "담당 설계사가 있을 때",
+        channel: "call",
+        body: "{고객명} 고객님, 이미 관리해 주는 설계사가 있다는 점 확인했습니다. 담당 관계는 그대로 두고 등록된 보험료와 보장 항목을 한 표에서 확인할 수 있어요. 표만 받아볼까요, 담당 설계사와 함께 볼 시간을 정할까요?",
       },
       {
-        id: "obj-money",
-        title: "“보험료 부담돼요”",
-        channel: "kakao",
-        body: "{고객명}님, 보험료 부담되시죠. 새로 드시라는 게 아니라 지금 내는 것 중 줄일 수 있는 중복은 없는지부터 봐요. 오히려 보험료를 아낀 분도 많아요.",
+        key: "obj-money",
+        title: "보험료가 걱정될 때",
+        channel: "call",
+        body: "{고객명} 고객님, 매달 내는 금액을 먼저 살펴보는 게 중요하다는 말씀 확인했습니다. 판단에 앞서 보험별 보험료와 납입기간을 나란히 보면 현재 부담을 분명히 알 수 있어요. 월 보험료부터 확인할까요, 납입기간까지 함께 볼까요?",
       },
       {
-        id: "obj-think",
-        title: "“생각해 볼게요”",
-        channel: "kakao",
-        body: "{고객명}님, 천천히 생각하셔도 돼요 😊 결정하시라는 게 아니라, 우선 지금 보장이 어떤 상태인지만 한 화면으로 정리해서 보내드릴게요. 보고 나서 편하실 때 말씀 주세요.",
+        key: "obj-think",
+        title: "조금 더 생각하고 싶을 때",
+        channel: "message",
+        body: "{고객명} 고객님, 더 살펴본 뒤 정하고 싶다는 말씀 확인했습니다. 검토할 내용을 짧게 나누면 다음 대화에서 같은 설명을 반복하지 않아도 돼요. 보험료와 보장 내용 중 어느 항목을 먼저 확인해 보내드릴까요?",
       },
       {
-        id: "obj-dont-know",
-        title: "“보험 잘 몰라요”",
-        channel: "kakao",
-        body: "{고객명}님, 모르시는 게 당연해요. 그래서 제가 있는 거고요 🙂 어려운 용어 빼고 '지금 받을 수 있는 돈 / 빈 곳'만 쉽게 짚어드릴게요. 증권 한 장이면 충분해요.",
+        key: "obj-dont-know",
+        title: "보험 용어가 어려울 때",
+        channel: "call",
+        body: "{고객명} 고객님, 보험 용어부터 쉽게 설명해 달라는 말씀 확인했습니다. 증권에 적힌 항목을 일상적인 말로 하나씩 풀어보면 현재 가입 내용을 직접 확인할 수 있어요. 증권 사진을 먼저 보내 주실까요, 화면을 보며 통화할까요?",
       },
     ],
   },
   {
     key: "appointment",
-    label: "약속 잡기 (TA)",
-    desc: "전화·문자로 첫 접촉해 만날 약속을 잡는 단계. 선택지를 주면 잡기 쉬워요.",
+    label: "약속 잡기",
+    desc: "시간과 준비물을 분명히 제시해 고객이 바로 선택할 수 있게 해요.",
     templates: [
       {
-        id: "ta-first",
-        title: "첫 약속 제안",
-        channel: "kakao",
-        body: "{고객명}님, 안녕하세요. {설계사명}입니다. 보장 점검 30분이면 되는데, 이번 주 목요일 오후 / 금요일 오전 중 언제가 편하실까요?",
+        key: "ta-first",
+        title: "첫 점검 약속",
+        channel: "message",
+        body: "{고객명} 고객님, 안녕하세요. {소속직책} {설계사명}입니다. 첫 만남에서는 가입한 보험과 궁금한 항목을 함께 정리하겠습니다. 평일 낮과 평일 저녁 중 어느 시간대로 예약할까요?",
       },
       {
-        id: "ta-remind",
-        title: "약속 전날 리마인드",
-        channel: "kakao",
-        body: "{고객명}님, 내일 약속 잊지 않으셨죠 😊 시간·장소 그대로 뵐게요. 가지고 계신 증권이나 보험 앱 캡처 있으면 가져와 주시면 더 정확히 봐드려요.",
+        key: "ta-remind",
+        title: "약속 전날 확인",
+        channel: "message",
+        body: "{고객명} 고객님, 내일 약속 시간을 다시 확인드립니다. 보험 증권이나 보험 앱 화면이 있으면 등록된 내용을 함께 살펴볼 수 있어요. 약속대로 진행할지, 시간을 조정할지 답장으로 알려 주실까요?",
       },
       {
-        id: "ta-phone",
-        title: "비대면(전화) 약속",
-        channel: "kakao",
-        body: "{고객명}님, 직접 뵙기 어려우시면 전화로도 충분해요. 미리 증권만 캡처해서 보내주시면, 통화하면서 화면 보며 같이 짚어드릴게요. 오늘 저녁 / 내일 점심 중 언제가 편하세요?",
+        key: "ta-phone",
+        title: "전화로 점검 예약",
+        channel: "message",
+        body: "{고객명} 고객님, 이동이 어려우시면 전화로 가입 내용을 함께 확인할 수 있어요. 통화 전에 증권 사진을 보내 주시면 같은 화면을 보며 설명드리겠습니다. 평일 낮과 평일 저녁 중 어느 시간대로 예약할까요?",
       },
       {
-        id: "ta-noshow",
-        title: "약속 미루어진 뒤 재제안",
-        channel: "kakao",
-        body: "{고객명}님, 지난번엔 바쁘셨죠 😊 이번 주나 다음 주 중 편하신 요일을 알려주세요.",
+        key: "ta-noshow",
+        title: "놓친 약속 다시 잡기",
+        channel: "message",
+        body: "{고객명} 고객님, 지난 약속은 일정이 맞지 않아 만나지 못했습니다. 필요한 시간을 다시 정해 두면 확인하려던 내용을 이어갈 수 있어요. 이번 주와 다음 주 중 어느 주로 예약할까요?",
       },
     ],
   },
   {
     key: "needs",
-    label: "니즈 환기 (FA)",
-    desc: "직접 만나기 전·후, 담보별로 점검 필요성을 가볍게 일깨울 때.",
+    label: "확인할 항목 찾기",
+    desc: "결과를 미리 단정하지 않고 실제 증권에서 볼 항목을 정해요.",
     templates: [
       {
-        id: "fa-silson",
-        title: "실손 갱신 안내",
-        channel: "kakao",
-        body: "{고객명}님, 실손보험 갱신 시기가 다가오는데 보험료가 꽤 오를 수 있어요. 지금 보장과 비교해 유지/조정 어느 쪽이 유리한지 정리해 드릴게요.",
+        key: "fa-silson",
+        title: "실손 갱신 내용 확인",
+        channel: "message",
+        body: "{고객명} 고객님, 실손 갱신 안내를 받으셨다면 바뀐 보험료와 보장 내용을 실제 안내서에서 확인해야 합니다. 현재 내용과 갱신 뒤 내용을 나란히 적으면 달라지는 항목을 놓치지 않을 수 있어요. 안내서 사진을 먼저 보내 주실까요, 통화로 함께 확인할까요?",
       },
       {
-        id: "fa-cancer",
-        title: "암 보장 점검",
-        channel: "kakao",
-        body: "{고객명}님, 요즘 암 진단비·표적항암 같은 보장이 예전 가입 상품엔 약한 경우가 많아요. {고객명}님 증권 기준으로 빈 곳 있는지 한 번 볼까요?",
+        key: "fa-cancer",
+        title: "암 관련 보장 확인",
+        channel: "call",
+        body: "{고객명} 고객님, 암 관련 보장은 상품마다 항목 이름과 지급 범위가 다를 수 있어 실제 증권 확인이 먼저입니다. 진단비와 치료비 항목을 나눠 보면 가입 내용을 이해하기 쉬워요. 진단비부터 확인할까요, 치료비부터 확인할까요?",
       },
       {
-        id: "fa-gap",
-        title: "보장 공백 환기",
-        channel: "kakao",
-        body: "{고객명}님, 가입은 여러 개인데 정작 큰 병·수술 때 받는 금액은 적은 경우가 있어요. 증권 한 장만 주시면 보장 공백을 한 화면에 정리해 드릴게요.",
+        key: "fa-gap",
+        title: "전체 보장 항목 펼쳐 보기",
+        channel: "call",
+        body: "{고객명} 고객님, 여러 보험을 따로 보면 같은 종류의 보장도 한 번에 파악하기 어렵습니다. 등록된 보험을 한 표에 모으면 가지고 있는 항목과 금액을 차례로 확인할 수 있어요. 큰 질병 항목부터 볼까요, 수술·입원 항목부터 볼까요?",
       },
     ],
   },
   {
     key: "aftercare",
-    label: "안부 · AS",
-    desc: "계약 후 관계 유지. 생일·기념일 안부는 환수를 막는 가장 싼 보험.",
+    label: "안부와 관리",
+    desc: "생활 변화가 있었는지 자연스럽게 묻고 다음 관리 시점을 정해요.",
     templates: [
       {
-        id: "as-birthday",
-        title: "생일 축하",
-        channel: "kakao",
-        body: "{고객명}님, 생일 진심으로 축하드려요 🎉 건강하고 좋은 일 가득한 한 해 되시길 바라요. {설계사명} 드림",
+        key: "as-birthday",
+        title: "생일 축하와 관리 일정",
+        channel: "message",
+        body: "{고객명} 고객님, 생일을 진심으로 축하드립니다. 건강하고 좋은 일이 가득한 한 해 보내세요. 생일이 지난 뒤 등록된 연락처와 직업 정보를 짧게 확인할까요, 다음 정기 연락 때 함께 볼까요? {설계사명} 드림",
       },
       {
-        id: "as-1year",
-        title: "계약 1년 안부",
-        channel: "kakao",
-        body: "{고객명}님, 가입하신 지 벌써 1년이 됐네요. 그동안 변동(이사·가족·직업) 있으셨으면 보장도 같이 점검해요. 별일 없으셔도 안부차 연락드렸어요 😊",
+        key: "as-1year",
+        title: "가입 1년 뒤 안부",
+        channel: "call",
+        body: "{고객명} 고객님, 가입 후 1년이 되어 관리 연락드립니다. 그동안 가족, 직업, 주소가 달라졌다면 등록된 정보도 같이 확인할 수 있어요. 이번 주에 확인할까요, 다음 주로 예약할까요?",
       },
       {
-        id: "as-holiday",
-        title: "명절 안부",
-        channel: "kakao",
-        body: "{고객명}님, 풍성한 명절 보내고 계신가요 🙂 가족과 좋은 시간 보내시고, 늘 건강하시길 바라요. 필요하신 일 있으면 언제든 편하게 연락 주세요. {설계사명} 드림",
+        key: "as-holiday",
+        title: "명절 안부와 다음 연락",
+        channel: "message",
+        body: "{고객명} 고객님, 가족과 편안한 명절 보내시길 바랍니다. 연휴 뒤 바뀐 연락처나 가족 정보가 있는지 확인하면 다음 관리 때 바로 반영할 수 있어요. 연휴 다음 주에 확인할까요, 이번에는 안부만 나눌까요? {설계사명} 드림",
       },
       {
-        id: "as-life-event",
-        title: "경사(출산·결혼·이직) 계기",
-        channel: "kakao",
-        body: "{고객명}님, 좋은 소식 진심으로 축하드려요 🎉 가족이 늘거나 환경이 바뀌면 필요한 보장도 달라질 수 있어요. 바쁘신 거 정리되시면 가볍게 한 번 점검해 드릴게요.",
+        key: "as-life-event",
+        title: "결혼·출산·이직 뒤 확인",
+        channel: "call",
+        body: "{고객명} 고객님, 새로운 시작을 진심으로 축하드립니다. 가족이나 직업 정보가 달라졌다면 현재 등록 내용도 함께 맞춰볼 수 있어요. 바뀐 정보만 먼저 확인할까요, 전체 가입 내용을 보는 약속을 잡을까요?",
       },
       {
-        id: "as-event-sms",
-        title: "이벤트 안내 (광고문자 예시)",
-        channel: "sms",
-        body: "(광고) {고객명}님, {설계사명}입니다. 보장점검 안내: [링크]\n수신 거부 안내: 담당 설계사 연락처",
+        key: "as-event-sms",
+        title: "보장 정리 안내 문자",
+        channel: "message",
+        isAdvertising: true,
+        body: "(광고) {고객명} 고객님, {소속직책} {설계사명}입니다. 문의: {설계사연락처}\n등록된 보험의 보험료와 보장 항목을 한 화면에 정리해 드립니다. 안내를 받아볼지, 다음 연락을 원치 않는지 답장으로 선택해 주세요.\n수신거부: {수신거부안내}",
       },
     ],
   },
   {
     key: "prospecting",
-    label: "신규 발굴 (지인 첫 접촉)",
-    desc: "아는 사람에게 첫 말을 꺼낼 때. 안부를 먼저 전하는 톤으로.",
+    label: "첫 연락",
+    desc: "관계의 맥락을 밝히고 고객이 원하는 대화 범위를 직접 고르게 해요.",
     templates: [
       {
-        id: "prospect-acquaintance",
-        title: "지인에게 첫 알림",
-        channel: "kakao",
-        body: "{고객명}님, 저 요즘 보험 일 하고 있어요 🙂 뭘 권하려는 건 아니고, 혹시 '내 보험 이대로 괜찮나' 궁금하실 때 편하게 물어보시라고요. 점검은 무료고 결정은 {고객명}님 몫이에요.",
+        key: "prospect-acquaintance",
+        title: "지인에게 근황 알리기",
+        channel: "message",
+        body: "{고객명}님, 오랜만이에요. 저는 요즘 보험 설계사로 일하며 가입한 보험료와 보장 항목을 정리하는 일을 돕고 있어요. 궁금한 보험 하나를 먼저 확인해 볼까요, 제 연락처만 저장해 둘까요?",
       },
       {
-        id: "prospect-longtime",
-        title: "오랜만에 연락하는 지인",
-        channel: "kakao",
-        body: "{고객명}님, 오랜만이에요! 잘 지내시죠 😊 다름 아니라 제가 보장 점검을 도와드리는 일을 하고 있어서요. 부담 갖지 마시고, 필요하실 때 증권 한 장만 보여주시면 깔끔히 정리해 드릴게요.",
+        key: "prospect-longtime",
+        title: "오랜만인 지인에게 연락",
+        channel: "call",
+        body: "{고객명}님, 오랜만에 안부 전합니다. 저는 현재 {소속직책}으로 일하며 보험 증권을 이해하기 쉽게 정리해 드리고 있어요. 먼저 근황만 나눌까요, 가입한 보험 중 궁금한 한 가지를 함께 확인할까요?",
       },
       {
-        id: "prospect-card",
-        title: "명함 받은 분께 첫 인사",
-        channel: "kakao",
-        body: "{고객명}님, 어제 인사드린 {설계사명}입니다. 만나뵙게 되어 반가웠어요 🙂 언제든 보험 관련해 궁금한 점 생기면 편하게 연락 주세요. 답만 드려도 좋습니다.",
+        key: "prospect-card",
+        title: "명함을 나눈 뒤 첫 인사",
+        channel: "message",
+        body: "안녕하세요, {고객명} 고객님. 명함을 나눈 {소속직책} {설계사명}입니다. 만나 뵙게 되어 반가웠습니다. 보험료, 납입기간, 보장 항목 중 궁금한 내용이 생기면 확인을 도와드릴게요. 제 연락처를 저장해 둘까요, 짧은 전화 약속을 잡을까요?",
       },
     ],
   },
   {
     key: "reengage",
-    label: "재접촉 (오래 연락 못 한 고객)",
-    desc: "연락 끊긴 기간이 길어진 고객에게 자연스럽게 다시 다가갈 때. 안부가 먼저.",
+    label: "다시 연락하기",
+    desc: "지난 연락 이후 달라진 정보를 확인하며 대화를 다시 시작해요.",
     templates: [
       {
-        id: "reengage-checkup",
-        title: "안부 + 가벼운 점검 제안",
-        channel: "kakao",
-        body: "{고객명}님, 한동안 연락 못 드렸네요. 잘 지내셨죠 😊 별일 없으셔도 안부차 연락드렸어요. 그동안 가족이나 직업에 변동 있으셨으면, 보장도 한 번 같이 살펴볼까요?",
+        key: "reengage-checkup",
+        title: "오랜만에 안부와 정보 확인",
+        channel: "message",
+        body: "{고객명} 고객님, 오랜만에 안부 전합니다. 지난 연락 뒤 가족, 직업, 연락처가 달라졌다면 등록된 정보도 함께 맞춰둘 수 있어요. 바뀐 정보만 답장으로 확인할까요, 통화 시간을 예약할까요?",
       },
       {
-        id: "reengage-system",
-        title: "제도·상품 변경 계기",
-        channel: "kakao",
-        body: "{고객명}님, 잘 지내시죠. 최근 실손·암보장 관련 제도가 좀 바뀌어서요. {고객명}님 가입 상품에 영향 있는지만 빠르게 확인해 드리려고 연락드렸어요. 부담 갖지 마세요 🙂",
+        key: "reengage-system",
+        title: "등록된 보험 다시 펼쳐 보기",
+        channel: "call",
+        body: "{고객명} 고객님, 한동안 따로 보지 않았던 보험은 현재 보험료와 납입기간부터 다시 확인하면 이해하기 쉽습니다. 실제 증권에 적힌 내용을 기준으로 차례로 정리하겠습니다. 보험료부터 확인할까요, 만기와 납입기간부터 확인할까요?",
       },
     ],
   },
   {
     key: "result",
-    label: "점검 결과 공유",
-    desc: "분석을 마친 뒤 결과를 전달할 때. 등록된 보장 정보를 사실 중심으로 안내.",
+    label: "정리 내용 공유",
+    desc: "실제 화면과 같은지 설계사가 먼저 확인한 뒤 고객과 볼 순서를 정해요.",
     templates: [
       {
-        id: "result-share",
-        title: "보장 한눈표 링크 전달",
-        channel: "kakao",
-        body: "{고객명}님, 말씀드린 보장 점검표 정리했어요. 아래 링크에서 지금 보장 상태를 한 화면으로 보실 수 있어요. 보시고 궁금한 점 있으면 편하게 물어봐 주세요. [링크]",
+        key: "result-share",
+        title: "정리한 보험 내용 안내",
+        channel: "message",
+        requiresResultCheck: true,
+        body: "{고객명} 고객님, 등록해 주신 보험의 보험료와 보장 항목을 한 화면에 정리했습니다. 정리한 화면에서 보험료를 먼저 확인할까요, 보장 내용을 먼저 확인할까요?",
       },
       {
-        id: "result-gap",
-        title: "공백 요약 (중립 안내)",
-        channel: "kakao",
-        body: "{고객명}님, 점검해 보니 잘 갖춰진 부분도 있고, 큰 병·수술 쪽은 조금 얇은 곳이 보였어요. 어떻게 할지는 천천히 정하시면 되고, 저는 선택지만 객관적으로 정리해 드릴게요.",
+        key: "result-gap",
+        title: "표에서 볼 항목 정하기",
+        channel: "call",
+        requiresResultCheck: true,
+        body: "{고객명} 고객님, 표에 표시된 금액은 등록된 보험 내용을 기준으로 정리한 값입니다. 실제 증권과 같은지 함께 확인한 뒤 자세히 볼 항목을 정하겠습니다. 질병 관련 항목부터 확인할까요, 상해 관련 항목부터 확인할까요?",
       },
       {
-        id: "result-keep",
-        title: "지금 유지가 나을 때 (정직 안내)",
-        channel: "kakao",
-        body: "{고객명}님, 점검 결과 지금 보험을 굳이 바꾸실 필요는 없어 보여요. 잘 들어두셨어요 👍 무리해서 바꾸기보다 이대로 유지하시고, 변동 생기면 그때 다시 봐드릴게요.",
+        key: "result-keep",
+        title: "현재 등록 내용 다시 확인",
+        channel: "message",
+        requiresResultCheck: true,
+        body: "{고객명} 고객님, 현재 등록된 보험료와 보장 항목을 다시 정리해 두었습니다. 실제 증권과 같은지 확인하면 다음 관리 때 같은 자료를 이어서 볼 수 있어요. 등록 내용을 먼저 확인할까요, 달라진 정보부터 반영할까요?",
       },
     ],
   },
   {
     key: "closing",
-    label: "청약 · 마무리",
-    desc: "고객이 마음을 정한 뒤 청약을 차분히 마무리할 때. 재촉하지 않고 안내 위주로.",
+    label: "신청과 마무리",
+    desc: "고객이 확인할 내용을 한 번 더 짚고 다음 절차를 구체적으로 정해요.",
     templates: [
       {
-        id: "closing-confirm",
-        title: "청약 직전 확인",
-        channel: "kakao",
-        body: "{고객명}님, 지난번 말씀 주신 방향으로 준비해 두었어요. 진행 전에 한 번 더 확인만 드릴게요. 궁금하거나 마음에 걸리는 부분 있으면 지금 편하게 말씀 주세요 🙂",
+        key: "closing-confirm",
+        title: "신청 직전 최종 확인",
+        channel: "call",
+        body: "{고객명} 고객님, 오늘 확인한 보험료와 보장 내용을 한 번 더 점검한 뒤 신청 절차를 이어가겠습니다. 지금 진행할까요, 조정할 항목부터 함께 확인할까요?",
       },
       {
-        id: "closing-docs",
-        title: "필요 서류 안내",
-        channel: "kakao",
-        body: "{고객명}님, 청약에 필요한 건 신분증과 본인 명의 계좌 정도예요. 준비되시면 알려주세요. 작성은 제가 옆에서 같이 도와드릴게요. 오래 안 걸려요 😊",
+        key: "closing-docs",
+        title: "필요 서류와 진행 방법",
+        channel: "message",
+        body: "{고객명} 고객님, 필요한 서류는 신청할 상품과 상황에 따라 달라질 수 있어 확인한 준비 목록을 먼저 보내드리겠습니다. 목록을 받은 뒤 모바일로 진행할까요, 만나서 진행할까요?",
       },
       {
-        id: "closing-thanks",
-        title: "청약 후 감사 + 다음 단계",
-        channel: "kakao",
-        body: "{고객명}님, 믿고 맡겨주셔서 감사해요 🙏 증권 나오면 바로 전달드리고, 이후에도 갱신·변동 챙겨서 먼저 연락드릴게요. 늘 편하게 연락 주세요. {설계사명} 드림",
+        key: "closing-thanks",
+        title: "신청 후 다음 절차 안내",
+        channel: "message",
+        body: "{고객명} 고객님, 오늘 신청한 내용과 다음 절차를 다시 정리해 보내드리겠습니다. 증권이 발급되면 신청 내용과 같은지 함께 확인할 수 있어요. 증권을 받은 날 확인할까요, 다음 날 통화로 확인할까요? {설계사명} 드림",
       },
     ],
   },
 ];
+
+const ADVERTISING_VARIABLES = [
+  "{설계사연락처}",
+  "{수신거부안내}",
+] as const;
+
+export function getAdvertisingVariableGuidance(
+  sourceKey: string | null,
+  body: string,
+): string | null {
+  const source = COPY_CATEGORIES
+    .flatMap((category) => category.templates)
+    .find((template) => template.key === sourceKey);
+  if (!source?.isAdvertising) return null;
+  const missing = ADVERTISING_VARIABLES.filter(
+    (variable) => !body.includes(variable),
+  );
+  if (missing.length === 0) return null;
+  return `광고 화법 본문에 ${missing.join(", ")} 변수를 다시 넣어 주세요.`;
+}

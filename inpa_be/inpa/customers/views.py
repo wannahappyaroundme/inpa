@@ -9,8 +9,9 @@
   CustomerMedicalHistory 생성을 412(PRECONDITION_FAILED)로 물리 차단. UI 숨김은 방어가 아니다.
 """
 from django.conf import settings
-from django.db import models, transaction
-from django.db.models import Q
+from django.contrib.auth import get_user_model
+from django.db import IntegrityError, models, transaction
+from django.db.models import Prefetch, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -21,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from inpa.billing.credit import LimitExceeded, check_and_consume, check_and_consume_n
+from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.insurances.models import CustomerInsurance
@@ -30,7 +32,8 @@ from inpa.notifications.jobs import _next_birthday, _parse_date
 from .consent_texts import CONSENT_TEXTS_VERSION, has_current_overseas_consent
 from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
-    CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, DEFAULT_CONTRACT_CHECKLIST,
+    CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline,
+    PlannerBaselineRevision, DEFAULT_CONTRACT_CHECKLIST,
 )
 from .memos import (
     MAX_MEMO_BODY_LENGTH, create_manual_memo, delete_memo, sync_legacy_memo,
@@ -43,7 +46,8 @@ from .presets import (
 from .serializers import (
     ConsentLogSerializer, ContactLogSerializer, ContractChecklistItemSerializer, CustomerListSerializer,
     CustomerMemoSerializer, CustomerSerializer, CustomerMedicalHistorySerializer, CustomerTagSerializer,
-    FamilyMemberSerializer, JobRiskCodeSerializer, PlannerBaselineSerializer,
+    FamilyMemberSerializer, JobRiskCodeSerializer, PlannerBaselineBatchSerializer,
+    PlannerBaselineSerializer,
 )
 from .tokens import make_consent_token
 
@@ -590,6 +594,268 @@ class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
     serializer_class = PlannerBaselineSerializer
     queryset = PlannerBaseline.objects.all()
 
+    @staticmethod
+    def _lock_revision(owner_id):
+        user_model = get_user_model()
+        user_model.objects.select_for_update().only('pk').get(pk=owner_id)
+        revision, _created = (
+            PlannerBaselineRevision.objects
+            .select_for_update()
+            .get_or_create(owner_id=owner_id)
+        )
+        return revision
+
+    @staticmethod
+    def _increment_revision(revision):
+        revision.revision += 1
+        revision.save(update_fields=['revision', 'updated_at'])
+
+    @staticmethod
+    def _scope_conflict_response():
+        return Response(
+            {
+                'code': 'baseline_scope_conflict',
+                'detail': '같은 범위의 기준이 바뀌었어요. 최신 내용을 다시 확인해 주세요.',
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    def create(self, request, *args, **kwargs):
+        try:
+            with transaction.atomic():
+                revision = self._lock_revision(request.user.pk)
+                serializer = self.get_serializer(data=request.data)
+                serializer.is_valid(raise_exception=True)
+                serializer.save(owner=request.user)
+                self._increment_revision(revision)
+        except IntegrityError:
+            return self._scope_conflict_response()
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED,
+            headers=headers,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        current = self.get_object()
+        owner_id = current.owner_id
+        try:
+            with transaction.atomic():
+                revision = self._lock_revision(owner_id)
+                instance = (
+                    self.get_queryset()
+                    .select_for_update()
+                    .select_related('analysis_detail')
+                    .get(pk=current.pk)
+                )
+                serializer = self.get_serializer(
+                    instance,
+                    data=request.data,
+                    partial=partial,
+                )
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                self._increment_revision(revision)
+        except PlannerBaseline.DoesNotExist:
+            raise NotFound('기준을 다시 확인해 주세요.')
+        except IntegrityError:
+            return self._scope_conflict_response()
+
+        return Response(serializer.data)
+
+    def destroy(self, request, *args, **kwargs):
+        current = self.get_object()
+        owner_id = current.owner_id
+        try:
+            with transaction.atomic():
+                revision = self._lock_revision(owner_id)
+                instance = (
+                    self.get_queryset()
+                    .select_for_update()
+                    .select_related('analysis_detail')
+                    .get(pk=current.pk)
+                )
+                self.perform_destroy(instance)
+                self._increment_revision(revision)
+        except PlannerBaseline.DoesNotExist:
+            raise NotFound('기준을 다시 확인해 주세요.')
+        except IntegrityError:
+            return self._scope_conflict_response()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['post'], url_path='link')
+    def link(self, request, pk=None):
+        current = self.get_object()
+        owner_id = current.owner_id
+        try:
+            detail_id = int(request.data.get('analysis_detail_id'))
+        except (TypeError, ValueError):
+            raise ValidationError({
+                'analysis_detail_id': '연결할 표준 담보를 선택해 주세요.',
+            })
+
+        try:
+            detail = (
+                AnalysisDetail.objects
+                .select_related('sub_category__category')
+                .get(
+                    pk=detail_id,
+                    sub_category__category__name__startswith='[표준]',
+                )
+            )
+        except AnalysisDetail.DoesNotExist:
+            raise ValidationError({
+                'analysis_detail_id': '표준 담보를 다시 선택해 주세요.',
+            })
+
+        try:
+            with transaction.atomic():
+                revision = self._lock_revision(owner_id)
+                instance = (
+                    self.get_queryset()
+                    .select_for_update()
+                    .get(pk=current.pk)
+                )
+                if instance.analysis_detail_id is not None:
+                    return Response(
+                        {
+                            'code': 'baseline_already_linked',
+                            'detail': '이미 표준 담보에 연결된 기준이에요.',
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                instance.analysis_detail = detail
+                instance.coverage_key = detail.name
+                instance.save(update_fields=[
+                    'analysis_detail',
+                    'coverage_key',
+                    'updated_at',
+                ])
+                self._increment_revision(revision)
+        except PlannerBaseline.DoesNotExist:
+            raise NotFound('기존 기준을 다시 확인해 주세요.')
+        except IntegrityError:
+            return self._scope_conflict_response()
+
+        return Response({
+            'revision': revision.revision,
+            'baseline': self.get_serializer(instance).data,
+        })
+
+    @action(detail=False, methods=['post'], url_path='batch')
+    def batch(self, request):
+        serializer = PlannerBaselineBatchSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        revision_requested = serializer.validated_data['revision']
+        changes = serializer.validated_data['changes']
+
+        try:
+            with transaction.atomic():
+                revision = self._lock_revision(request.user.pk)
+                if revision.revision != revision_requested:
+                    return Response(
+                        {
+                            'code': 'baseline_revision_conflict',
+                            'detail': '다른 곳에서 기준이 바뀌었어요. 최신 내용을 다시 확인해 주세요.',
+                            'revision': revision.revision,
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                detail_ids = {
+                    change['analysis_detail'].pk for change in changes}
+                existing_rows = list(
+                    PlannerBaseline.objects
+                    .select_for_update()
+                    .filter(
+                        owner=request.user,
+                        analysis_detail_id__in=detail_ids,
+                    )
+                )
+                existing_by_scope = {
+                    (
+                        row.analysis_detail_id,
+                        row.product_group,
+                        row.age_band,
+                        row.gender,
+                    ): row
+                    for row in existing_rows
+                }
+
+                to_create = []
+                to_update = []
+                delete_ids = set()
+                updated_at = timezone.now()
+                for change in changes:
+                    detail = change['analysis_detail']
+                    scope = (
+                        detail.pk,
+                        change['product_group'],
+                        change['age_band'],
+                        change['gender'],
+                    )
+                    row = existing_by_scope.get(scope)
+                    minimum = change['recommend_min']
+                    maximum = change['recommend_max']
+                    if minimum is None and maximum is None:
+                        if row is not None:
+                            delete_ids.add(row.pk)
+                        continue
+
+                    values = {
+                        'coverage_key': detail.name,
+                        'recommend_min': minimum,
+                        'recommend_max': maximum,
+                        'unit': change['unit'],
+                        'baseline_source': 'planner',
+                        'preset_origin': None,
+                        'is_active': True,
+                    }
+                    if row is None:
+                        to_create.append(PlannerBaseline(
+                            owner=request.user,
+                            analysis_detail=detail,
+                            product_group=change['product_group'],
+                            age_band=change['age_band'],
+                            gender=change['gender'],
+                            **values,
+                        ))
+                    else:
+                        for field, value in values.items():
+                            setattr(row, field, value)
+                        row.updated_at = updated_at
+                        to_update.append(row)
+
+                PlannerBaseline.objects.filter(
+                    owner=request.user,
+                    pk__in=delete_ids,
+                ).delete()
+                if to_create:
+                    PlannerBaseline.objects.bulk_create(to_create)
+                if to_update:
+                    PlannerBaseline.objects.bulk_update(
+                        to_update,
+                        [
+                            'coverage_key',
+                            'recommend_min',
+                            'recommend_max',
+                            'unit',
+                            'baseline_source',
+                            'preset_origin',
+                            'is_active',
+                            'updated_at',
+                        ],
+                    )
+                self._increment_revision(revision)
+        except IntegrityError:
+            return self._scope_conflict_response()
+
+        return Response({'revision': revision.revision})
+
     @action(detail=False, methods=['post'], url_path='apply-preset')
     def apply_preset(self, request):
         """v0 스타터 프리셋을 요청 설계사(owner)에게 일괄 생성.
@@ -669,6 +935,157 @@ class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class BaselineCatalogView(APIView):
+    permission_classes = [IsAuthenticated, IsEmailVerified]
+
+    def get(self, request):
+        revision, _created = PlannerBaselineRevision.objects.get_or_create(
+            owner=request.user)
+        owner_baselines = (
+            PlannerBaseline.objects
+            .filter(owner=request.user, analysis_detail__isnull=False)
+            .order_by('product_group', 'age_band', 'gender', 'id')
+        )
+        linked_detail_ids = set(
+            owner_baselines.values_list('analysis_detail_id', flat=True))
+        legacy_baselines = list(
+            PlannerBaseline.objects
+            .filter(owner=request.user, analysis_detail__isnull=True)
+            .order_by('coverage_key', 'product_group', 'age_band', 'gender', 'id')
+        )
+        detail_prefetch = Prefetch(
+            'details',
+            queryset=(
+                AnalysisDetail.objects
+                .order_by('order', 'id')
+                .prefetch_related(Prefetch(
+                    'planner_baselines',
+                    queryset=owner_baselines,
+                    to_attr='catalog_baselines',
+                ))
+            ),
+        )
+        subcategory_prefetch = Prefetch(
+            'sub_categories',
+            queryset=(
+                AnalysisSubCategory.objects
+                .order_by('order', 'id')
+                .prefetch_related(detail_prefetch)
+            ),
+        )
+        categories = (
+            AnalysisCategory.objects
+            .filter(name__startswith='[표준]')
+            .order_by('order', 'id')
+            .prefetch_related(subcategory_prefetch)
+        )
+
+        category_payload = []
+        standard_details_by_name = {}
+        for category in categories:
+            subcategory_payload = []
+            for subcategory in category.sub_categories.all():
+                details = []
+                for detail in subcategory.details.all():
+                    standard_details_by_name.setdefault(
+                        detail.name, []).append(detail.id)
+                    details.append({
+                        'id': detail.id,
+                        'name': detail.name,
+                        'order': detail.order,
+                        'unit': PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+                        'baselines': PlannerBaselineSerializer(
+                            detail.catalog_baselines,
+                            many=True,
+                        ).data,
+                    })
+                subcategory_payload.append({
+                    'id': subcategory.id,
+                    'name': subcategory.name,
+                    'insurance_type': subcategory.insurance_type,
+                    'order': subcategory.order,
+                    'details': details,
+                })
+            category_payload.append({
+                'id': category.id,
+                'name': category.name.removeprefix('[표준]'),
+                'insurance_type': category.insurance_type,
+                'order': category.order,
+                'subcategories': subcategory_payload,
+            })
+
+        legacy_scope_counts = {}
+        for baseline in legacy_baselines:
+            scope = (
+                baseline.coverage_key,
+                baseline.product_group,
+                baseline.age_band,
+                baseline.gender,
+            )
+            legacy_scope_counts[scope] = legacy_scope_counts.get(scope, 0) + 1
+
+        legacy_payload = []
+        for baseline in legacy_baselines:
+            matching_ids = sorted(
+                standard_details_by_name.get(baseline.coverage_key, []))
+            if not matching_ids:
+                conflict_code = 'no_standard_match'
+                conflict_reason = (
+                    '같은 이름의 표준 담보를 찾지 못해 연결할 항목을 확인해 주세요.'
+                )
+            elif len(matching_ids) > 1:
+                conflict_code = 'multiple_standard_matches'
+                conflict_reason = (
+                    '같은 이름의 표준 담보가 여러 곳에 있어 연결할 항목을 확인해 주세요.'
+                )
+            else:
+                conflict_code = 'link_confirmation_required'
+                conflict_reason = '연결할 표준 담보를 확인해 주세요.'
+
+            scope = (
+                baseline.coverage_key,
+                baseline.product_group,
+                baseline.age_band,
+                baseline.gender,
+            )
+            is_applied = bool(
+                baseline.is_active
+                and baseline.baseline_source
+                and matching_ids
+                and legacy_scope_counts[scope] == 1
+                and any(
+                    detail_id not in linked_detail_ids
+                    for detail_id in matching_ids
+                )
+            )
+            legacy_payload.append({
+                'id': baseline.id,
+                'coverage_key': baseline.coverage_key,
+                'product_group': baseline.product_group,
+                'age_band': baseline.age_band,
+                'gender': baseline.gender,
+                'recommend_min': (
+                    f'{baseline.recommend_min:.2f}'
+                    if baseline.recommend_min is not None else None
+                ),
+                'recommend_max': (
+                    f'{baseline.recommend_max:.2f}'
+                    if baseline.recommend_max is not None else None
+                ),
+                'unit': baseline.unit,
+                'is_applied': is_applied,
+                'conflict_code': conflict_code,
+                'conflict_reason': conflict_reason,
+                'matching_analysis_detail_ids': matching_ids,
+            })
+
+        return Response({
+            'revision': revision.revision,
+            'categories': category_payload,
+            'legacy_baselines': legacy_payload,
+        })
 
 
 class JobSearchView(APIView):

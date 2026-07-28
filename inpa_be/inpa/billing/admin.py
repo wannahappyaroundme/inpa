@@ -8,14 +8,19 @@
 from django.contrib import admin
 
 from .models import (
+    BenefitGrantException,
+    BenefitGrantLedger,
     BillingAdminAction,
     ClaudeApiLog,
     Coupon,
     CouponRedemption,
+    ManualBenefitReview,
+    PhoneVerificationChallenge,
     Plan,
     RuntimeConfig,
     Subscription,
     UsageMeter,
+    VerifiedPhoneIdentity,
 )
 
 
@@ -180,3 +185,150 @@ class ClaudeApiLogAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+class _ReadOnlyPhoneBenefitAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PhoneVerificationChallenge)
+class PhoneVerificationChallengeAdmin(_ReadOnlyPhoneBenefitAdmin):
+    fields = (
+        'id',
+        'user',
+        'phone_last4',
+        'key_version',
+        'attempt_count',
+        'max_attempts',
+        'expires_at',
+        'verified_at',
+        'consumed_at',
+        'created_at',
+    )
+    readonly_fields = fields
+    list_display = (
+        'id',
+        'user',
+        'phone_last4',
+        'attempt_count',
+        'expires_at',
+        'verified_at',
+    )
+    search_fields = ('user__email',)
+    ordering = ('-created_at',)
+
+
+@admin.register(VerifiedPhoneIdentity)
+class VerifiedPhoneIdentityAdmin(_ReadOnlyPhoneBenefitAdmin):
+    fields = (
+        'id',
+        'user',
+        'phone_last4',
+        'key_version',
+        'provider',
+        'verified_at',
+        'created_at',
+        'updated_at',
+    )
+    readonly_fields = fields
+    list_display = (
+        'user',
+        'phone_last4',
+        'key_version',
+        'provider',
+        'verified_at',
+    )
+    search_fields = ('user__email',)
+    ordering = ('-verified_at',)
+
+
+@admin.register(BenefitGrantLedger)
+class BenefitGrantLedgerAdmin(_ReadOnlyPhoneBenefitAdmin):
+    fields = (
+        'id',
+        'user',
+        'key_version',
+        'benefit_code',
+        'granted_at',
+        'granted_until',
+        'created_at',
+    )
+    readonly_fields = fields
+    list_display = (
+        'id',
+        'user',
+        'key_version',
+        'benefit_code',
+        'granted_at',
+        'granted_until',
+    )
+    search_fields = ('user__email',)
+    list_filter = ('benefit_code', 'key_version')
+    ordering = ('-granted_at',)
+
+
+@admin.register(ManualBenefitReview)
+class ManualBenefitReviewAdmin(_ReadOnlyPhoneBenefitAdmin):
+    fields = (
+        'id',
+        'user',
+        'phone_last4',
+        'key_version',
+        'benefit_code',
+        'contact_email',
+        'reason',
+        'status',
+        'reviewer',
+        'decision_reason',
+        'decided_at',
+        'consumed_at',
+        'created_at',
+    )
+    readonly_fields = fields
+    list_display = (
+        'id',
+        'phone_last4',
+        'contact_email',
+        'status',
+        'reviewer',
+        'created_at',
+        'decided_at',
+    )
+    search_fields = ('contact_email', 'user__email')
+    list_filter = ('status', 'benefit_code', 'key_version')
+    ordering = ('-created_at',)
+
+
+@admin.register(BenefitGrantException)
+class BenefitGrantExceptionAdmin(_ReadOnlyPhoneBenefitAdmin):
+    fields = (
+        'id',
+        'original_ledger',
+        'review',
+        'user',
+        'key_version',
+        'benefit_code',
+        'granted_at',
+        'granted_until',
+        'created_at',
+    )
+    readonly_fields = fields
+    list_display = (
+        'id',
+        'original_ledger',
+        'review',
+        'user',
+        'benefit_code',
+        'granted_at',
+        'granted_until',
+    )
+    search_fields = ('user__email',)
+    list_filter = ('benefit_code', 'key_version')
+    ordering = ('-granted_at',)

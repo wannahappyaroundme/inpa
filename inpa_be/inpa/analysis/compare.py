@@ -38,6 +38,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from inpa.analysis.switch_verdict import compute_switch_warnings
+from inpa.analysis.baselines import (
+    baseline_candidates_for_detail,
+    select_baseline,
+)
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer, PlannerBaseline
@@ -239,17 +243,40 @@ def _build_rows(current_amounts, proposed_amounts):
     return rows
 
 
-def _mode_for_customer(customer):
-    """히트맵과 동일 neutral/graded 게이트. 살아있는 baseline 있으면 graded."""
+def _mode_for_customer(customer, insurance_list):
+    """히트맵과 동일 게이트로 비교 대상 담보에 적용 가능한 기준이 있을 때 graded."""
     if not getattr(settings, 'HEATMAP_GRADING_ENABLED', False):
         return 'neutral'
-    has_live_baseline = (
+
+    baselines = list(
         PlannerBaseline.objects
         .filter(owner=customer.owner, is_active=True)
         .exclude(baseline_source__isnull=True)
-        .exists()
     )
-    return 'graded' if has_live_baseline else 'neutral'
+    if not baselines:
+        return 'neutral'
+
+    details = {}
+    for insurance in insurance_list:
+        for case in insurance.case_list.all():
+            for detail in case.effective_analysis_details():
+                details[detail.pk] = detail
+
+    from inpa.analysis.views import _age_band
+    age_band = _age_band(customer.birth_day)
+    for detail in details.values():
+        candidates = baseline_candidates_for_detail(
+            baselines,
+            analysis_detail_id=detail.id,
+            coverage_key=detail.name,
+        )
+        if select_baseline(
+                candidates,
+                insurance_type=detail.sub_category.category.insurance_type,
+                age_band=age_band,
+                gender=customer.gender) is not None:
+            return 'graded'
+    return 'neutral'
 
 
 def _generate_guide_draft(customer, current_summary, proposed_summary, rows, meta=None):
@@ -398,8 +425,8 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
             customer.customer_insurance_list
             .analysis_ready()
             .prefetch_related(
-                'case_list__detail__analysis_detail',
-                'case_list__analysis_detail_override',
+                'case_list__detail__analysis_detail__sub_category__category',
+                'case_list__analysis_detail_override__sub_category__category',
                 'case_list__detail__chart_detail')
         )
         all_list = list(base_qs)
@@ -446,7 +473,8 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
         proposed_summary['insurances'] = InsuranceFeeSerializer(proposed_list, many=True).data
 
         rows = _build_rows(current_amounts, proposed_amounts)
-        mode = _mode_for_customer(customer)
+        mode = _mode_for_customer(
+            customer, [*current_list, *proposed_list])
 
         # ── 확인해야 할 사항 (★ 설계사 내부면 전용 — 고객 공유뷰엔 절대 미노출) ──────
         # 판정(KEEP/SWITCH)이 아니라 중립 사실(해지환급 손실 추정·면책 리셋·이율 변동)만

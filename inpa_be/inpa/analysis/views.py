@@ -36,7 +36,11 @@ from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer, PlannerBaseline
 from inpa.insurances.serializers import InsuranceFeeSerializer
 
-from .baselines import normalize_money, select_baseline
+from .baselines import (
+    baseline_candidates_for_detail,
+    normalize_money,
+    select_baseline,
+)
 from .calculate import calculate_total_analysis
 
 def _credit_exhausted_response(exc: LimitExceeded, user) -> Response:
@@ -199,16 +203,15 @@ class CustomerHeatmapView(APIView):
         )
         band = _age_band(customer.birth_day)
 
-        # coverage_key 별 baseline 조회 인덱스 (성별/연령 우선, 없으면 공통으로 완화)
-        baseline_index = {}
-        for b in baselines:
-            baseline_index.setdefault(b.coverage_key, []).append(b)
-
-        def _grade(detail_name, held_amount, insurance_type):
+        def _grade(detail_id, detail_name, held_amount, insurance_type):
             """담보 한 칸의 status 판정. graded 모드 + 매칭 baseline 있을 때만 비교."""
             if mode != 'graded':
                 return 'neutral', None
-            candidates = baseline_index.get(detail_name)
+            candidates = baseline_candidates_for_detail(
+                baselines,
+                analysis_detail_id=detail_id,
+                coverage_key=detail_name,
+            )
             if not candidates:
                 return 'neutral', None  # ★ baseline 없는 담보는 단정 금지
             chosen = select_baseline(
@@ -262,7 +265,8 @@ class CustomerHeatmapView(APIView):
                             for row in contributions) != held:
                         raise AssertionError(
                             'heatmap contribution amount mismatch')
-                    status, baseline = _grade(det.name, held, cat.insurance_type)
+                    status, baseline = _grade(
+                        det.id, det.name, held, cat.insurance_type)
                     detail_nodes.append({
                         'detail_id': det.id,
                         'name': det.name,

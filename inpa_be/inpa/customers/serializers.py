@@ -6,6 +6,8 @@ request.user를 주입한다. 하위 라우트(태그/가족/병력/동의)도 �
 from django.db import transaction
 from rest_framework import serializers
 
+from inpa.analysis.models import AnalysisDetail
+
 from .models import (
     ConsentLog, ContactLog, ContractChecklistItem, Customer, CustomerMedicalHistory,
     CustomerMemo, CustomerTag, FamilyMember, JobRiskCode, PlannerBaseline, compute_insurance_age,
@@ -103,7 +105,39 @@ class ConsentLogSerializer(serializers.ModelSerializer):
 
 
 class PlannerBaselineSerializer(serializers.ModelSerializer):
+    product_group = serializers.ChoiceField(
+        choices=PlannerBaseline.PRODUCT_GROUP_CHOICES)
+    age_band = serializers.ChoiceField(choices=(
+        PlannerBaseline.AGE_ALL,
+        '20s',
+        '30s',
+        '40s',
+        '50s',
+        '60s+',
+    ))
+    gender = serializers.ChoiceField(
+        choices=(1, 2),
+        allow_null=True,
+    )
+    analysis_detail = serializers.PrimaryKeyRelatedField(
+        queryset=AnalysisDetail.objects.filter(
+            sub_category__category__name__startswith='[표준]'),
+    )
+
     def validate(self, attrs):
+        detail = attrs.get(
+            'analysis_detail',
+            getattr(self.instance, 'analysis_detail', None),
+        )
+        if detail is None:
+            raise serializers.ValidationError({
+                'analysis_detail': '표준 담보를 선택해 주세요.',
+            })
+        if not detail.sub_category.category.name.startswith('[표준]'):
+            raise serializers.ValidationError({
+                'analysis_detail': '표준 담보를 선택해 주세요.',
+            })
+
         values = {
             field: attrs.get(field, getattr(self.instance, field, None))
             for field in ('recommend_min', 'recommend_max')
@@ -115,18 +149,148 @@ class PlannerBaselineSerializer(serializers.ModelSerializer):
         }
         minimum = values['recommend_min']
         maximum = values['recommend_max']
+        if minimum is None and maximum is None:
+            errors['recommend_min'] = (
+                '기준 금액을 입력하거나 이 항목을 삭제해 주세요.')
         if not errors and minimum is not None and maximum is not None and minimum > maximum:
             errors['recommend_max'] = '최댓값은 최솟값 이상으로 입력해 주세요.'
+
+        request = self.context.get('request')
+        owner = (
+            self.instance.owner
+            if self.instance is not None
+            else getattr(request, 'user', None)
+        )
+        scope = {
+            'owner': owner,
+            'analysis_detail': detail,
+            'product_group': attrs.get(
+                'product_group',
+                getattr(self.instance, 'product_group', None),
+            ),
+            'age_band': attrs.get(
+                'age_band',
+                getattr(self.instance, 'age_band', None),
+            ),
+            'gender': attrs.get(
+                'gender',
+                getattr(self.instance, 'gender', None),
+            ),
+        }
+        if owner is not None and all(
+                value is not None
+                for key, value in scope.items()
+                if key != 'gender'):
+            duplicates = PlannerBaseline.objects.filter(**scope)
+            if self.instance is not None:
+                duplicates = duplicates.exclude(pk=self.instance.pk)
+            if duplicates.exists():
+                errors['non_field_errors'] = (
+                    '같은 범위의 기준이 이미 있어요. 기존 항목을 수정해 주세요.')
         if errors:
             raise serializers.ValidationError(errors)
+        attrs['coverage_key'] = detail.name
+        attrs['baseline_source'] = 'planner'
+        attrs['preset_origin'] = None
         return attrs
 
     class Meta:
         model = PlannerBaseline
-        fields = ('id', 'coverage_key', 'product_group', 'age_band', 'gender',
+        fields = ('id', 'analysis_detail', 'coverage_key', 'product_group',
+                  'age_band', 'gender',
                   'recommend_min', 'recommend_max', 'unit', 'baseline_source',
                   'preset_origin', 'is_active', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'created_at', 'updated_at')
+        read_only_fields = (
+            'id', 'coverage_key', 'baseline_source', 'preset_origin',
+            'created_at', 'updated_at',
+        )
+
+
+class PlannerBaselineBatchChangeSerializer(serializers.Serializer):
+    analysis_detail_id = serializers.IntegerField(min_value=1)
+    product_group = serializers.ChoiceField(
+        choices=PlannerBaseline.PRODUCT_GROUP_CHOICES)
+    age_band = serializers.ChoiceField(choices=(
+        PlannerBaseline.AGE_ALL,
+        '20s',
+        '30s',
+        '40s',
+        '50s',
+        '60s+',
+    ))
+    gender = serializers.ChoiceField(
+        choices=(1, 2),
+        allow_null=True,
+    )
+    recommend_min = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        allow_null=True,
+    )
+    recommend_max = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        allow_null=True,
+    )
+    unit = serializers.ChoiceField(choices=PlannerBaseline.UNIT_CHOICES)
+
+    def validate(self, attrs):
+        minimum = attrs['recommend_min']
+        maximum = attrs['recommend_max']
+        errors = {}
+        if minimum is not None and minimum < 0:
+            errors['recommend_min'] = '0 이상을 입력해 주세요.'
+        if maximum is not None and maximum < 0:
+            errors['recommend_max'] = '0 이상을 입력해 주세요.'
+        if (
+                minimum is not None
+                and maximum is not None
+                and minimum > maximum):
+            errors['recommend_max'] = (
+                '최댓값은 최솟값 이상으로 입력해 주세요.')
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
+class PlannerBaselineBatchSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(min_value=0)
+    changes = PlannerBaselineBatchChangeSerializer(
+        many=True,
+        allow_empty=False,
+    )
+
+    def validate_changes(self, changes):
+        detail_ids = {change['analysis_detail_id'] for change in changes}
+        details = (
+            AnalysisDetail.objects
+            .filter(
+                pk__in=detail_ids,
+                sub_category__category__name__startswith='[표준]',
+            )
+            .select_related('sub_category__category')
+            .in_bulk()
+        )
+        missing = sorted(detail_ids - details.keys())
+        if missing:
+            raise serializers.ValidationError(
+                '표준 담보를 다시 선택해 주세요.')
+
+        scopes = set()
+        for change in changes:
+            detail = details[change['analysis_detail_id']]
+            change['analysis_detail'] = detail
+            scope = (
+                detail.pk,
+                change['product_group'],
+                change['age_band'],
+                change['gender'],
+            )
+            if scope in scopes:
+                raise serializers.ValidationError(
+                    '같은 범위의 변경은 한 번만 보내 주세요.')
+            scopes.add(scope)
+        return changes
 
 
 class _CustomerComputedMethods:

@@ -1,8 +1,13 @@
+import os
+from pathlib import Path
+import subprocess
+import sys
 import uuid
 from datetime import timedelta
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from inpa.consultations.gates import recording_feature_enabled
@@ -17,6 +22,39 @@ from inpa.customers.models import Customer
 User = get_user_model()
 
 
+class ConsultationRetentionSettingsTests(SimpleTestCase):
+    def test_production_recording_gate_rejects_non_720_hour_policy(self):
+        environment = os.environ.copy()
+        environment.update({
+            'DJANGO_SETTINGS_MODULE': 'config.settings.prod',
+            'SECRET_KEY': 'test-' + 'only-settings-value',
+            'DATABASE_URL': 'sqlite:///:memory:',
+            'CONSULTATION_RECORDING_ENABLED': 'True',
+            'CONSULTATION_RETENTION_HOURS': '719',
+        })
+        result = subprocess.run(
+            [
+                sys.executable,
+                '-c',
+                'import django; django.setup()',
+            ],
+            cwd=Path(settings.BASE_DIR),
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        output = f'{result.stdout}\n{result.stderr}'
+        self.assertIn(
+            'CONSULTATION_RETENTION_HOURS must be exactly 720',
+            output,
+        )
+        self.assertNotIn('test-only-settings-value', output)
+
+
 class ConsultationRecordingModelTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(
@@ -28,7 +66,7 @@ class ConsultationRecordingModelTests(TestCase):
             name='상담 고객',
         )
 
-    def test_ready_recording_expiry_is_server_stamped_inside_seven_days(self):
+    def test_ready_recording_expiry_uses_its_legacy_snapshot_exactly(self):
         ended_at = timezone.now()
         recording = ConsultationRecording.objects.create(
             owner=self.user,
@@ -44,15 +82,16 @@ class ConsultationRecordingModelTests(TestCase):
             byte_size=8_000_000,
             duration_ms=3_600_000,
             checksum='sha256:abc',
+            actual_container='webm',
         )
 
         self.assertEqual(recording.status, ConsultationRecording.STATUS_READY)
-        self.assertLessEqual(recording.expires_at, ended_at + timedelta(days=7))
-        self.assertGreater(
-            recording.expires_at,
-            ended_at + timedelta(days=6, hours=23),
+        self.assertEqual(
+            recording.expires_at - recording.ready_at,
+            timedelta(days=7),
         )
         self.assertEqual(recording.multipart_upload_id, '')
+        self.assertEqual(recording.verified_container, 'webm')
 
     def test_mark_ready_rejects_a_second_transition(self):
         recording = ConsultationRecording.objects.create(
@@ -69,6 +108,7 @@ class ConsultationRecordingModelTests(TestCase):
                 byte_size=1,
                 duration_ms=1,
                 checksum='sha256:x',
+                actual_container='webm',
             )
 
     @override_settings(CONSULTATION_RECORDING_ENABLED=False)

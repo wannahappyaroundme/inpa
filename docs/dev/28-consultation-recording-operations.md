@@ -7,6 +7,9 @@
   - `CONSULTATION_AI_SUMMARY_ENABLED=false`
 - Runtime switches and per-user pilot access are additional gates. All gates must
   be open for a planner to use the corresponding feature.
+- The current `v2-30d` policy is exactly 720 hours and 30 days. A different
+  `CONSULTATION_RETENTION_HOURS` value is a startup error while the recording
+  environment gate is open. Existing `v1-7d` rows keep their stamped expiry.
 - Recording objects contain no planner or customer identity in their key:
   `consultation-recordings/<recording_uuid>/source`.
 - Application rows are scoped by owner, customer, and recording UUID. Object
@@ -25,7 +28,7 @@ AllowedMethods: PUT, GET, HEAD
 AllowedHeaders: content-type
 ExposeHeaders: ETag
 Multipart abort: 1 day
-Object lifecycle: consultation-recordings/ after 6 days, secondary maximum-7-day guard
+Object lifecycle: consultation-recordings/ after at least 31 days
 ```
 
 Keep public access disabled. Add CORS for the exact production origin above.
@@ -37,7 +40,8 @@ Success signal:
 2. A presigned play `GET` works before expiry.
 3. Direct bucket URLs remain inaccessible.
 4. An unfinished multipart upload is removed after one day.
-5. The lifecycle rule removes an object before the stated seven-day maximum.
+5. Application cleanup removes a v2 object after its exact 30-day expiry, and
+   the bucket lifecycle remains a later fallback rather than deleting it early.
 
 ## Environment variables
 
@@ -47,12 +51,13 @@ service that touches recordings:
 ```text
 CONSULTATION_RECORDING_ENABLED=false
 CONSULTATION_AI_SUMMARY_ENABLED=false
+CONSULTATION_PRESIGN_TTL_SECONDS=600
 CONSULTATION_STORAGE_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 CONSULTATION_STORAGE_ACCESS_KEY_ID=<R2_ACCESS_KEY_ID>
 CONSULTATION_STORAGE_SECRET_ACCESS_KEY=<R2_SECRET_ACCESS_KEY>
 CONSULTATION_STORAGE_BUCKET=inpa-consultation-recordings
 CONSULTATION_STORAGE_REGION=auto
-CONSULTATION_RETENTION_HOURS=168
+CONSULTATION_RETENTION_HOURS=720
 CONSULTATION_RETENTION_SAFETY_MINUTES=30
 CONSULTATION_MAX_DURATION_SECONDS=3600
 CONSULTATION_MAX_BYTES=104857600
@@ -66,6 +71,58 @@ BACKEND_BASE_URL=https://inpa-be.onrender.com
 
 Secrets belong in Render secret environment values. Never place them in Git,
 Vercel public variables, browser code, logs, or support tickets.
+
+## v2 retention preflight
+
+Before applying the migration or opening the recording gate, run this read-only
+query against production PostgreSQL:
+
+```sql
+BEGIN TRANSACTION READ ONLY;
+
+SELECT
+    retention_hours_snapshot,
+    retention_days_snapshot,
+    COUNT(*) AS row_count
+FROM consultation_recording
+WHERE retention_policy_version = 'v2-30d'
+  AND (
+      retention_hours_snapshot IS DISTINCT FROM 720
+      OR retention_days_snapshot IS DISTINCT FROM 30
+  )
+GROUP BY retention_hours_snapshot, retention_days_snapshot
+ORDER BY retention_hours_snapshot, retention_days_snapshot;
+
+ROLLBACK;
+```
+
+Success signal: zero rows. This query does not change live data.
+
+If any row is returned, keep `CONSULTATION_RECORDING_ENABLED=false` and stop
+the rollout. Do not silently rewrite its policy version, snapshot, or
+`expires_at`; the stamped expiry remains the deletion authority for that
+existing row. Record only the affected recording UUIDs and timestamps in the
+restricted incident log, identify how they were created, and agree on customer
+notice or other remediation with the PM/privacy owner before reopening the
+gate. A corrected deploy may issue only new, exact 720-hour v2 rows.
+
+After a customer withdrawal commits, the API issues no new play, download, or
+multipart part URL and will not complete an existing upload. Encountering a
+stale upload attempts an immediate multipart abort and exact-key deletion;
+storage failure leaves the row in `deleting/retry_required` for retry.
+
+A play or download URL issued before withdrawal can remain usable only until
+its existing 300-second signature expires. This bounded window is the accepted
+current policy; immediate revocation would require a separately designed
+authenticated media proxy.
+
+A multipart part URL issued before withdrawal can accept a `PUT` until the
+withdrawal worker aborts that upload or the configured signature expires
+(600 seconds by default). The server completion endpoint remains closed after
+withdrawal, so those bytes cannot become a completed recording through the
+application. Before opening the gate, verify abort behavior and the one-day
+unfinished-multipart lifecycle in the real R2 bucket, then explicitly accept
+this bounded window or lower the configured TTL.
 
 ## Deployment order
 
@@ -129,6 +186,11 @@ a second AI summary.
 The application cleanup selects rows only with server-stamped `expires_at`, a
 source-present status, and a non-null exact UUID key. It never uses user-editable
 memo or date fields.
+
+Rows stamped `deleting/retry_required` are retried by the 15-minute cleanup
+before their original expiry. A remaining multipart upload ID is aborted on
+every retry, the first server-stamped deletion reason is preserved, and a late
+failure cannot change a source already verified as deleted.
 
 Run:
 

@@ -39,10 +39,18 @@ def _split_tags(raw):
 
 
 def _author_display(author):
-    """작성자 표시명 — 탈퇴/미지정이면 '인파 운영팀'."""
+    """작성자 성명 — 탈퇴·미입력 상태를 안전하게 표시한다."""
     if author is None:
-        return '인파 운영팀'
-    return author.email.split('@')[0]
+        return '탈퇴한 사용자'
+    name = (getattr(getattr(author, 'profile', None), 'name', '') or '').strip()
+    return name or '이름 미입력'
+
+
+def _can_manage(obj, request):
+    if request is None or not request.user.is_authenticated:
+        return False
+    from inpa.core.permissions import _is_admin
+    return obj.author_id == request.user.id or _is_admin(request.user)
 
 
 # ─── 공통 헬퍼 ─────────────────────────────────────────────────────
@@ -54,9 +62,7 @@ class _AuthorField(serializers.SerializerMethodField):
         author = value.author
         if author is None:
             return {'id': None, 'display_name': '탈퇴한 사용자'}
-        email = author.email
-        display = email.split('@')[0]  # 임시 display: 이메일 앞부분
-        return {'id': author.id, 'display_name': display}
+        return {'id': author.id, 'display_name': _author_display(author)}
 
 
 # ─── Post ──────────────────────────────────────────────────────────
@@ -74,6 +80,7 @@ class PostFeedSerializer(serializers.ModelSerializer):
     body_preview = serializers.SerializerMethodField()
     thumbnail_url = serializers.SerializerMethodField()
     is_edited = serializers.SerializerMethodField()
+    can_manage = serializers.SerializerMethodField()
 
     class Meta:
         model = Post
@@ -91,6 +98,7 @@ class PostFeedSerializer(serializers.ModelSerializer):
             'is_edited',
             'category',
             'thumbnail_url',
+            'can_manage',
         ]
         read_only_fields = fields
 
@@ -112,6 +120,9 @@ class PostFeedSerializer(serializers.ModelSerializer):
         delta = obj.updated_at - obj.created_at
         return delta.total_seconds() > 2
 
+    def get_can_manage(self, obj):
+        return _can_manage(obj, self.context.get('request'))
+
 
 class PostDetailSerializer(serializers.ModelSerializer):
     """게시글 상세 — 첨부 인라인, 본문 전체 포함."""
@@ -119,6 +130,7 @@ class PostDetailSerializer(serializers.ModelSerializer):
     attachments = AttachmentInlineSerializer(many=True, read_only=True)
     is_pinned = serializers.BooleanField(source='pinned', read_only=True)
     is_edited = serializers.SerializerMethodField()
+    can_manage = serializers.SerializerMethodField()
 
     class Meta:
         model = Post
@@ -138,12 +150,16 @@ class PostDetailSerializer(serializers.ModelSerializer):
             'is_edited',
             'category',
             'attachments',
+            'can_manage',
         ]
         read_only_fields = fields
 
     def get_is_edited(self, obj):
         delta = obj.updated_at - obj.created_at
         return delta.total_seconds() > 2
+
+    def get_can_manage(self, obj):
+        return _can_manage(obj, self.context.get('request'))
 
 
 class PostWriteSerializer(serializers.ModelSerializer):
@@ -173,6 +189,7 @@ class CommentSerializer(serializers.ModelSerializer):
     author = _AuthorField()
     # 응답에 replies(자식 대댓글) 인라인 — 1단계만
     replies = serializers.SerializerMethodField()
+    can_manage = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
@@ -187,6 +204,7 @@ class CommentSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'replies',
+            'can_manage',
         ]
         read_only_fields = ['id', 'author', 'is_deleted', 'is_hidden', 'created_at', 'updated_at']
         extra_kwargs = {
@@ -197,8 +215,15 @@ class CommentSerializer(serializers.ModelSerializer):
     def get_replies(self, obj):
         if obj.parent_id is not None:
             return []  # 대댓글에는 또 대댓글 없음
-        qs = obj.replies.filter(is_deleted=False, is_hidden=False).order_by('created_at')
+        qs = getattr(obj, 'visible_replies', None)
+        if qs is None:
+            qs = obj.replies.filter(
+                is_deleted=False, is_hidden=False,
+            ).select_related('author__profile').order_by('created_at')
         return CommentSerializer(qs, many=True, context=self.context).data
+
+    def get_can_manage(self, obj):
+        return _can_manage(obj, self.context.get('request'))
 
     def validate_parent(self, value):
         if value is not None and value.parent_id is not None:

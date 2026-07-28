@@ -6,11 +6,35 @@ import {
   ApiError,
   deleteRecordingSource,
   getConsultationRecording,
+  getRecordingDownloadUrl,
   getRecordingPlayUrl,
   summarizeConsultationRecording,
   type ConsultationRecording,
   type ConsultationSummaryStatus,
 } from "@/lib/api";
+
+export function navigateToRecordingDownload(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (!["https:", "http:"].includes(url.protocol)) return false;
+    const link = document.createElement("a");
+    link.href = url.href;
+    link.download = "";
+    link.rel = "noopener";
+    link.referrerPolicy = "no-referrer";
+    link.hidden = true;
+    document.body.append(link);
+    try {
+      link.click();
+      return true;
+    } finally {
+      link.removeAttribute("href");
+      link.remove();
+    }
+  } catch {
+    return false;
+  }
+}
 
 function messageFrom(error: unknown, fallback: string): string {
   return error instanceof ApiError && error.message ? error.message : fallback;
@@ -52,6 +76,10 @@ export function RecordingCard({
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadUnavailable, setDownloadUnavailable] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -59,6 +87,8 @@ export function RecordingCard({
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const summaryBusyRef = useRef(false);
+  const downloadBusyRef = useRef(false);
+  const downloadUnavailableRef = useRef<HTMLParagraphElement>(null);
   const onChangedRef = useRef(onChanged);
   const onSummaryReadyRef = useRef(onSummaryReady);
 
@@ -66,6 +96,11 @@ export function RecordingCard({
     onChangedRef.current = onChanged;
     onSummaryReadyRef.current = onSummaryReady;
   }, [onChanged, onSummaryReady]);
+
+  useEffect(() => {
+    if (!downloadUnavailable) return;
+    downloadUnavailableRef.current?.focus();
+  }, [downloadUnavailable]);
 
   useEffect(() => {
     const active = ["queued", "transcribing", "summarizing"].includes(
@@ -121,6 +156,41 @@ export function RecordingCard({
     }
   }
 
+  async function downloadSource() {
+    if (downloadBusyRef.current) return;
+    downloadBusyRef.current = true;
+    setDownloading(true);
+    setDownloadMessage(null);
+    setDownloadError(null);
+    try {
+      const result = await getRecordingDownloadUrl(customerId, recording.id);
+      if (!navigateToRecordingDownload(result.url)) {
+        setDownloadError("다운로드 주소를 다시 받으면 원본을 내려받을 수 있어요.");
+        return;
+      }
+      setDownloadMessage("다운로드를 시작했어요.");
+    } catch (error) {
+      if (
+        error instanceof ApiError
+        && (
+          error.status === 410
+          || error.code === "recording_download_unavailable"
+        )
+      ) {
+        setDownloadUnavailable(true);
+        setDownloadMessage("녹음이 정리되어 상담 메모를 확인할 수 있어요");
+        return;
+      }
+      setDownloadError(messageFrom(
+        error,
+        "다운로드 준비를 다시 누르면 원본을 내려받을 수 있어요.",
+      ));
+    } finally {
+      downloadBusyRef.current = false;
+      setDownloading(false);
+    }
+  }
+
   async function confirmDelete() {
     if (deleting) return;
     setDeleting(true);
@@ -167,6 +237,11 @@ export function RecordingCard({
   const summaryActive = ["queued", "transcribing", "summarizing"].includes(
     summaryStatus ?? "",
   );
+  const canDownload = (
+    recording.source_available
+    && ["ready", "completed"].includes(recording.status)
+    && !downloadUnavailable
+  );
 
   return (
     <article className="rounded-2xl border border-line bg-surface p-4">
@@ -180,22 +255,33 @@ export function RecordingCard({
             {formatDate(recording.expires_at)}까지 보관 후 자동 삭제
           </p>
         </div>
-        {recording.source_available && !audioUrl && (
-          <button
-            type="button"
-            onClick={() => void loadAudio()}
-            disabled={loadingAudio}
-            className="min-h-11 rounded-xl border border-line px-3 text-[13px] font-bold text-brand disabled:opacity-60"
-          >
-            {loadingAudio ? "녹음 주소 받는 중" : "녹음 듣기"}
-          </button>
-        )}
+        <div className="flex flex-wrap justify-end gap-2">
+          {recording.source_available && !audioUrl && (
+            <button
+              type="button"
+              onClick={() => void loadAudio()}
+              disabled={loadingAudio}
+              className="min-h-11 rounded-xl border border-line px-3 text-[13px] font-bold text-brand disabled:opacity-60"
+            >
+              {loadingAudio ? "녹음 주소 받는 중" : "녹음 듣기"}
+            </button>
+          )}
+          {canDownload && (
+            <button
+              type="button"
+              onClick={() => void downloadSource()}
+              disabled={downloading}
+              className="min-h-11 rounded-xl border border-line px-3 text-[13px] font-bold text-brand disabled:opacity-60"
+            >
+              {downloading ? "다운로드 연결 중" : "원본 녹음 다운로드"}
+            </button>
+          )}
+        </div>
       </div>
 
       {recording.source_available && audioUrl && (
         <audio
           controls
-          controlsList="nodownload"
           preload="none"
           src={audioUrl}
           className="mt-3 w-full"
@@ -206,6 +292,22 @@ export function RecordingCard({
       {audioError && (
         <p role="alert" className="mt-3 rounded-xl bg-danger-tint px-3 py-2 text-[12px] text-danger-ink">
           {audioError}
+        </p>
+      )}
+      {downloadMessage && (
+        <p
+          ref={downloadUnavailable ? downloadUnavailableRef : undefined}
+          role="status"
+          aria-live="polite"
+          tabIndex={downloadUnavailable ? -1 : undefined}
+          className="mt-3 text-[12px] font-semibold text-ink2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          {downloadMessage}
+        </p>
+      )}
+      {downloadError && (
+        <p role="alert" className="mt-3 rounded-xl bg-danger-tint px-3 py-2 text-[12px] leading-5 text-danger-ink">
+          {downloadError}
         </p>
       )}
 

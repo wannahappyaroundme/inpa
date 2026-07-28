@@ -10,7 +10,11 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from inpa.accounts.models import Profile, User
-from inpa.consultations.cleanup import cleanup_expired_recordings
+from inpa.consultations.cleanup import (
+    cleanup_expired_recordings,
+    delete_recording_source,
+    mark_source_deleted,
+)
 from inpa.consultations.models import (
     ConsultationRecording,
     ConsultationRuntimeConfig,
@@ -89,6 +93,36 @@ class ConsultationRecordingCleanupTests(TestCase):
             self.recording.last_delete_error_type,
             'RecordingDeleteVerificationFailed',
         )
+
+    def test_late_failure_cannot_resurrect_concurrently_deleted_source(self):
+        deleted_at = timezone.now()
+
+        def delete_after_parallel_success(_key):
+            mark_source_deleted(
+                self.recording.id,
+                reason='user_requested',
+                now=deleted_at,
+            )
+            raise RuntimeError('slower overlapping delete failed')
+
+        self.storage.delete.side_effect = delete_after_parallel_success
+
+        outcome = delete_recording_source(
+            self.recording.id,
+            reason='user_requested',
+            storage=self.storage,
+            now=deleted_at,
+        )
+
+        self.assertEqual(outcome, 'deleted')
+        self.recording.refresh_from_db()
+        self.assertEqual(
+            self.recording.status,
+            ConsultationRecording.STATUS_DELETED,
+        )
+        self.assertIsNone(self.recording.storage_key)
+        self.assertEqual(self.recording.delete_result, 'verified_absent')
+        self.assertEqual(self.recording.delete_attempts, 0)
 
     @mock.patch('inpa.consultations.cleanup.get_recording_storage')
     def test_no_candidates_do_not_require_storage_credentials(self, storage_factory):

@@ -27,6 +27,7 @@ from .consent_texts import (
     consent_version_for_scope,
     consent_lines,
     has_current_overseas_consent,
+    lock_customer_consent_state,
 )
 from .models import ConsentLog, Customer
 from .tokens import read_consent_token
@@ -54,7 +55,7 @@ _SCOPE_META = {
     ConsentLog.SCOPE_CONSULTATION_RECORDING: {
         'required': True,
         'purpose': '상담 녹음과 원본 보관 동의(고객 본인)',
-        'notice': '녹음 파일은 상담 종료 후 최대 7일 안에 자동 삭제됩니다.',
+        'notice': '녹음 파일은 상담을 마치고 30일 동안 보관한 뒤 자동 삭제됩니다.',
     },
     ConsentLog.SCOPE_CONSULTATION_SENSITIVE: {
         'required': True,
@@ -230,39 +231,67 @@ class PublicConsentView(_NoIndexMixin, APIView):
             revoked = []
         revoked = [s for s in revoked if s in scopes and s not in agreed]
 
-        # 필수 미동의 412는 '동의 제출'에만 적용. 철회 전용 요청(agreed 없음)은
-        # 통과시켜야 정보주체가 필수 항목도 철회할 수 있다(PIPA 철회권).
         pure_revoke = bool(revoked) and not agreed
-        if not pure_revoke:
-            required = [s for s in scopes if _SCOPE_META[s]['required']]
-            missing = [s for s in required
-                       if s not in agreed and not self._already(customer, s)]
-            if missing:
-                return Response(
-                    {'code': 'CONSENT_REQUIRED', 'detail': '필수 동의 항목에 동의가 필요합니다.'},
-                    status=status.HTTP_412_PRECONDITION_FAILED)
 
         ip = request.META.get('REMOTE_ADDR')
-        results = []
         with transaction.atomic():
-            revoked_results = self._apply_revocations(customer, revoked, ip)
+            locked_customer = lock_customer_consent_state(
+                customer_id=customer.id,
+            )
+            if locked_customer is None:
+                return Response(
+                    {
+                        'code': 'LINK_INVALID',
+                        'detail': '유효하지 않은 링크입니다.',
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # 필수 미동의 412는 '동의 제출'에만 적용. 철회 전용 요청은
+            # 필수 항목도 철회할 수 있어야 하므로 통과시킨다.
+            if not pure_revoke:
+                required = [
+                    scope for scope in scopes
+                    if _SCOPE_META[scope]['required']
+                ]
+                missing = [
+                    scope for scope in required
+                    if scope not in agreed
+                    and not self._already(locked_customer, scope)
+                ]
+                if missing:
+                    return Response(
+                        {
+                            'code': 'CONSENT_REQUIRED',
+                            'detail': '필수 동의 항목에 동의가 필요합니다.',
+                        },
+                        status=status.HTTP_412_PRECONDITION_FAILED,
+                    )
+
+            results = []
+            revoked_results = self._apply_revocations(
+                locked_customer,
+                revoked,
+                ip,
+            )
             for sc in agreed:
-                if self._already(customer, sc):
+                if self._already(locked_customer, sc):
                     results.append({'scope': sc, 'consented': True, 'agreed_at': None})
                     continue
                 log = ConsentLog.objects.create(
-                    customer=customer, scope=sc,
+                    customer=locked_customer, scope=sc,
                     subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
                     purpose=_SCOPE_META[sc]['purpose'],
                     doc_version=consent_version_for_scope(sc), ip=ip)
                 if (sc == ConsentLog.SCOPE_OVERSEAS_MEDICAL
-                        and customer.consent_overseas_at is None):
-                    customer.consent_overseas_at = log.agreed_at
-                    customer.save(update_fields=['consent_overseas_at'])
+                        and locked_customer.consent_overseas_at is None):
+                    locked_customer.consent_overseas_at = log.agreed_at
+                    locked_customer.save(update_fields=['consent_overseas_at'])
                 results.append({'scope': sc, 'consented': True, 'agreed_at': log.agreed_at})
-        all_required_done = all(
-            self._already(customer, s)
-            for s in scopes if _SCOPE_META[s]['required'])
+            all_required_done = all(
+                self._already(locked_customer, scope)
+                for scope in scopes if _SCOPE_META[scope]['required']
+            )
         return Response(
             {'results': results, 'revoked': revoked_results,
              'all_required_done': all_required_done},

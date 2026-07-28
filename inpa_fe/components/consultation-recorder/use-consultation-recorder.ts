@@ -34,6 +34,7 @@ const EMPTY_STATE: RecorderState = {
   uploadedBytes: 0,
   notice: null,
   error: null,
+  errorCode: null,
   recording: null,
 };
 
@@ -69,6 +70,12 @@ function stopTracks(stream: MediaStream | null): void {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new DOMException("Recording start cancelled", "AbortError");
+  }
+}
+
 export function useGlobalRecorderSession(): RecorderSessionContextValue {
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [state, setState] = useState<RecorderState>(EMPTY_STATE);
@@ -80,6 +87,7 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
   const bufferRef = useRef<MultipartBuffer | null>(null);
   const discardRequestedRef = useRef(false);
   const finalizingRef = useRef(false);
+  const retentionDaysRef = useRef<number | null>(null);
 
   const updateState = useCallback((
     updater: RecorderState | ((current: RecorderState) => RecorderState),
@@ -112,6 +120,7 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
         buffer.clear();
         await deleteRecordingSource(activeCustomerId, upload.id);
         uploadRef.current = null;
+        retentionDaysRef.current = null;
         setCustomerId(null);
         customerIdRef.current = null;
         updateState(EMPTY_STATE);
@@ -122,6 +131,7 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
         kind: "uploading",
         notice: "녹음 파일을 안전하게 마무리하고 있어요.",
         error: null,
+        errorCode: null,
       }));
       const parts = await buffer.finish();
       if (parts.length === 0) {
@@ -137,8 +147,11 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
       updateState((current) => ({
         ...current,
         kind: "ready",
-        notice: "녹음을 저장했어요. 원본은 최대 7일 뒤 자동 삭제됩니다.",
+        notice: retentionDaysRef.current === null
+          ? "녹음을 저장했어요. 보관 기한은 상담 기록에서 확인할 수 있어요."
+          : `녹음을 저장했어요. 원본은 최대 ${retentionDaysRef.current}일 뒤 자동 삭제됩니다.`,
         error: null,
+        errorCode: null,
         recording: completed,
       }));
     } catch (error) {
@@ -146,6 +159,7 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
         ...current,
         kind: "error",
         error: messageFrom(error),
+        errorCode: error instanceof ApiError ? error.code : null,
         notice: null,
       }));
     } finally {
@@ -155,7 +169,14 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
     }
   }, [releaseBrowserMedia, updateState]);
 
-  const start = useCallback(async (nextCustomerId: number) => {
+  const start = useCallback(async (
+    nextCustomerId: number,
+    options: {
+      noticeVersion: string;
+      retentionDays: number;
+      signal?: AbortSignal;
+    },
+  ) => {
     if (
       recorderRef.current
       || ["requesting_permission", "recording", "paused", "stopping", "uploading"]
@@ -181,6 +202,7 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
       return;
     }
 
+    discardRequestedRef.current = false;
     setCustomerId(nextCustomerId);
     customerIdRef.current = nextCustomerId;
     updateState({
@@ -199,6 +221,7 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
           autoGainControl: true,
         },
       });
+      throwIfAborted(options.signal);
       streamRef.current = stream;
       const clientSessionId = newClientSessionId();
       const startedAt = new Date().toISOString();
@@ -207,8 +230,11 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
         clientSessionId,
         mimeType,
         startedAt,
+        options.noticeVersion,
       ));
+      throwIfAborted(options.signal);
       uploadRef.current = upload;
+      retentionDaysRef.current = options.retentionDays;
       bufferRef.current = new MultipartBuffer(
         upload.part_bytes,
         createRecordingPartUploader(
@@ -249,7 +275,7 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
           }
         };
       });
-      discardRequestedRef.current = false;
+      throwIfAborted(options.signal);
       recorder.start(5000);
       updateState({
         ...EMPTY_STATE,
@@ -267,10 +293,20 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
       }
       releaseBrowserMedia();
       uploadRef.current = null;
+      retentionDaysRef.current = null;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        if (customerIdRef.current === nextCustomerId) {
+          setCustomerId(null);
+          customerIdRef.current = null;
+          updateState(EMPTY_STATE);
+        }
+        return;
+      }
       updateState({
         ...EMPTY_STATE,
         kind: "error",
         error: messageFrom(error),
+        errorCode: error instanceof ApiError ? error.code : null,
       });
     }
   }, [finishRecording, releaseBrowserMedia, updateState]);
@@ -327,6 +363,7 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
         await deleteRecordingSource(activeCustomerId, upload.id);
       } finally {
         uploadRef.current = null;
+        retentionDaysRef.current = null;
         setCustomerId(null);
         customerIdRef.current = null;
         updateState(EMPTY_STATE);
@@ -338,6 +375,7 @@ export function useGlobalRecorderSession(): RecorderSessionContextValue {
     if (["ready", "error"].includes(stateRef.current.kind)) {
       setCustomerId(null);
       customerIdRef.current = null;
+      retentionDaysRef.current = null;
       updateState(EMPTY_STATE);
     }
   }, [updateState]);

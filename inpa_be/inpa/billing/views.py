@@ -16,6 +16,7 @@
 """
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from datetime import date
 import hashlib
 import hmac
@@ -24,6 +25,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 from django.shortcuts import redirect
 
@@ -53,14 +55,37 @@ from .notices import (
     notice_payload,
 )
 from .credit import LimitExceeded  # noqa: F401 — 뷰 사용 예시용 (실제 뷰에서 직접 catch)
-from .models import BillingAgreement, Plan, Subscription, UsageMeter
+from .models import (
+    BenefitGrantLedger,
+    BillingAgreement,
+    ManualBenefitReview,
+    Plan,
+    Subscription,
+    UsageMeter,
+    VerifiedPhoneIdentity,
+)
+from .phone_verification import (
+    OTP_TTL_SECONDS,
+    PhoneVerificationError,
+    create_manual_benefit_review,
+    mask_kr_mobile,
+    normalize_kr_mobile,
+    request_phone_verification,
+    verify_otp_challenge,
+)
+from .sms import SolapiProviderError
 from .serializers import (
+    AdminBenefitReviewDecisionSerializer,
     AdminSubscriptionPatchSerializer,
     CardRegistrationCompleteSerializer,
     CardRegistrationStartSerializer,
     BillingNoticeDeviceSerializer,
     CouponRedeemSerializer,
     FirstChargeReconfirmationSerializer,
+    ManualBenefitReviewRequestSerializer,
+    ManualBenefitReviewSerializer,
+    PhoneVerificationConfirmSerializer,
+    PhoneVerificationRequestSerializer,
     PlanSerializer,
     RecurringCouponPreflightSerializer,
 )
@@ -217,6 +242,254 @@ class CouponRedeemView(APIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
+def _phone_verification_error_response(exc):
+    status_map = {
+        'invalid_phone': status.HTTP_400_BAD_REQUEST,
+        'phone_verification_failed': status.HTTP_400_BAD_REQUEST,
+        'phone_verification_required': status.HTTP_409_CONFLICT,
+        'manual_benefit_review_not_required':
+            status.HTTP_409_CONFLICT,
+        'phone_identity_key_rotation_required':
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        'phone_request_cooldown': status.HTTP_429_TOO_MANY_REQUESTS,
+        'phone_request_limited': status.HTTP_429_TOO_MANY_REQUESTS,
+        'phone_rate_limit_unavailable':
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        'phone_verification_setup_required':
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+    }
+    payload = {
+        'code': exc.code,
+        'detail': exc.detail,
+    }
+    return Response(
+        payload,
+        status=status_map.get(
+            exc.code,
+            status.HTTP_400_BAD_REQUEST,
+        ),
+    )
+
+
+def _phone_provider_error_response():
+    return Response(
+        {
+            'code': 'phone_verification_temporarily_unavailable',
+            'detail': '인증번호 발송을 다시 준비하고 있어요. 잠시 뒤 시도해 주세요.',
+        },
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+
+
+class FreeTrialPhoneRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = PhoneVerificationRequestSerializer(
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            challenge = request_phone_verification(
+                user=request.user,
+                raw_phone=serializer.validated_data['phone'],
+                ip_address=BaseThrottle().get_ident(request),
+            )
+        except PhoneVerificationError as exc:
+            return _phone_verification_error_response(exc)
+        except SolapiProviderError:
+            return _phone_provider_error_response()
+        return Response({
+            'challenge_id': str(challenge.pk),
+            'expires_in_seconds': OTP_TTL_SECONDS,
+            'phone_masked': (
+                f'010-****-{challenge.phone_last4}'
+            ),
+        })
+
+
+class FreeTrialPhoneVerifyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not getattr(
+            settings,
+            'FREE_TRIAL_PHONE_VERIFICATION_ENABLED',
+            False,
+        ):
+            return _phone_verification_error_response(
+                PhoneVerificationError(
+                    'phone_verification_setup_required',
+                    '휴대전화 인증 설정을 확인하고 있어요. 잠시 뒤 다시 시도해 주세요.',
+                ),
+            )
+        serializer = PhoneVerificationConfirmSerializer(
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            canonical = normalize_kr_mobile(
+                serializer.validated_data['phone'],
+            )
+            verify_otp_challenge(
+                user=request.user,
+                challenge_id=serializer.validated_data[
+                    'challenge_id'
+                ],
+                canonical_phone=canonical,
+                code=serializer.validated_data['code'],
+            )
+        except PhoneVerificationError as exc:
+            return _phone_verification_error_response(exc)
+        return Response({
+            'verified': True,
+            'phone_masked': mask_kr_mobile(canonical),
+        })
+
+
+class ManualBenefitReviewRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not getattr(
+            settings,
+            'FREE_TRIAL_PHONE_VERIFICATION_ENABLED',
+            False,
+        ):
+            return Response(
+                {'code': 'manual_benefit_review_not_found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        identity = VerifiedPhoneIdentity.objects.filter(
+            user=request.user,
+            key_version=getattr(
+                settings,
+                'PHONE_IDENTITY_HMAC_KEY_VERSION',
+                'v1',
+            ),
+        ).first()
+        if identity is None:
+            return Response(
+                {'code': 'manual_benefit_review_not_found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        review = ManualBenefitReview.objects.filter(
+            user=request.user,
+            identity_hmac=identity.phone_hmac,
+            key_version=identity.key_version,
+            benefit_code=BenefitGrantLedger.BENEFIT_PLUS_TRIAL_MONTH,
+        ).order_by('-created_at', '-pk').first()
+        if review is None:
+            return Response(
+                {'code': 'manual_benefit_review_not_found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(ManualBenefitReviewSerializer(review).data)
+
+    def post(self, request):
+        serializer = ManualBenefitReviewRequestSerializer(
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            review, created = create_manual_benefit_review(
+                user=request.user,
+                contact_email=serializer.validated_data[
+                    'contact_email'
+                ],
+                reason=serializer.validated_data['reason'],
+            )
+        except PhoneVerificationError as exc:
+            return _phone_verification_error_response(exc)
+        return Response(
+            ManualBenefitReviewSerializer(review).data,
+            status=(
+                status.HTTP_201_CREATED
+                if created
+                else status.HTTP_200_OK
+            ),
+        )
+
+
+class AdminBenefitReviewListView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        queryset = ManualBenefitReview.objects.order_by(
+            '-created_at',
+            '-pk',
+        )
+        status_filter = request.query_params.get('status', '').strip()
+        if status_filter:
+            allowed = {
+                choice
+                for choice, _label
+                in ManualBenefitReview.STATUS_CHOICES
+            }
+            if status_filter not in allowed:
+                return Response(
+                    {
+                        'code': 'invalid_review_status',
+                        'detail': '처리 상태를 다시 확인해 주세요.',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(status=status_filter)
+        return Response({
+            'results': ManualBenefitReviewSerializer(
+                queryset,
+                many=True,
+            ).data,
+        })
+
+
+class AdminBenefitReviewDetailView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request, review_id):
+        review = get_object_or_404(
+            ManualBenefitReview,
+            pk=review_id,
+        )
+        return Response(ManualBenefitReviewSerializer(review).data)
+
+
+class AdminBenefitReviewDecisionView(APIView):
+    permission_classes = [IsAdmin]
+
+    def post(self, request, review_id):
+        serializer = AdminBenefitReviewDecisionSerializer(
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            review = get_object_or_404(
+                ManualBenefitReview.objects.select_for_update(),
+                pk=review_id,
+            )
+            if review.status != ManualBenefitReview.STATUS_PENDING:
+                return Response(
+                    {
+                        'code': 'benefit_review_already_decided',
+                        'detail': '이미 처리한 확인 요청이에요.',
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            review.status = serializer.validated_data['decision']
+            review.reviewer = request.user
+            review.decision_reason = serializer.validated_data[
+                'reason'
+            ]
+            review.decided_at = timezone.now()
+            review.save(update_fields=[
+                'status',
+                'reviewer',
+                'decision_reason',
+                'decided_at',
+            ])
+        return Response(ManualBenefitReviewSerializer(review).data)
+
+
 def _billing_error_response(exc):
     if isinstance(exc, BillingFlowError):
         return Response(
@@ -227,6 +500,11 @@ def _billing_error_response(exc):
         'not_found': status.HTTP_404_NOT_FOUND,
         'already': status.HTTP_409_CONFLICT,
         'active_plan': status.HTTP_409_CONFLICT,
+        'phone_verification_required': status.HTTP_409_CONFLICT,
+        'manual_benefit_review_required':
+            status.HTTP_409_CONFLICT,
+        'phone_identity_key_rotation_required':
+            status.HTTP_503_SERVICE_UNAVAILABLE,
     }
     return Response(
         {'code': exc.code, 'detail': str(exc)},

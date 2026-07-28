@@ -78,6 +78,7 @@ from inpa.consultations.models import (
     ConsultationRuntimeConfig,
     ConsultationSummaryRun,
 )
+from inpa.consultations.recording_policy import current_retention_snapshot
 from inpa.consultations.services import get_recording_storage
 from inpa.notifications.models import Notification, NotifType
 from inpa.promotion.models import PromotionOrder
@@ -2712,6 +2713,7 @@ class AdminConsultationSettingsView(APIView):
             'ai_environment_gate_open': bool(
                 django_settings.CONSULTATION_AI_SUMMARY_ENABLED
             ),
+            'retention_days': current_retention_snapshot()['days'],
             'settings': AdminConsultationConfigSerializer(config).data,
             'status': consultation_status_snapshot(),
             'pilot_users': AdminConsultationPilotSerializer(

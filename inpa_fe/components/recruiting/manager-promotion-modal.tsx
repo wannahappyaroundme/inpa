@@ -19,10 +19,12 @@ function focusIfConnected(target: HTMLElement | null): void {
 export function ManagerPromotionModal({
   open,
   recruitingEnabled,
+  onBeforeNavigate,
   onAcknowledged,
 }: {
   open: boolean;
   recruitingEnabled: boolean;
+  onBeforeNavigate?: () => boolean;
   onAcknowledged: () => void;
 }) {
   const router = useRouter();
@@ -37,14 +39,15 @@ export function ManagerPromotionModal({
   const complete = useCallback(
     (intent: ManagerPromotionIntent) => {
       if (busyRef.current) return;
+      const destination = getManagerPromotionDestination(intent, recruitingEnabled);
+      if (destination && onBeforeNavigate && !onBeforeNavigate()) return;
       busyRef.current = true;
       onAcknowledged();
-      const destination = getManagerPromotionDestination(intent, recruitingEnabled);
       if (destination) router.push(destination);
       // 안내 확인 기록은 화면 이동을 막지 않는다. 실패하면 다음 로그인에서 다시 안내한다.
       void acknowledgeManagerPromotion().catch(() => undefined);
     },
-    [onAcknowledged, recruitingEnabled, router],
+    [onAcknowledged, onBeforeNavigate, recruitingEnabled, router],
   );
 
   useEffect(() => {

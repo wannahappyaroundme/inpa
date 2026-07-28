@@ -85,6 +85,9 @@ class R2RecordingStorage:
         r'([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})'
         r'/source$',
     )
+    _download_filename_pattern = re.compile(
+        r'^consultation-recording-[0-9]{8}\.(webm|ogg|m4a)$',
+    )
 
     def __init__(self, *, client, bucket):
         if not bucket:
@@ -137,14 +140,27 @@ class R2RecordingStorage:
         if not upload_id or len(upload_id) > 512 or '\r' in upload_id or '\n' in upload_id:
             raise ValueError('INVALID_MULTIPART_UPLOAD_ID')
 
-    def create(self, recording_id, mime_type):
+    def create(
+        self,
+        recording_id,
+        mime_type,
+        *,
+        retention_hours,
+        retention_days,
+        retention_policy_version,
+    ):
         recording_uuid = uuid.UUID(str(recording_id))
         key = f'{self.prefix}/{recording_uuid}/source'
         response = self.client.create_multipart_upload(
             Bucket=self.bucket,
             Key=key,
             ContentType=mime_type,
-            Metadata={'retention': '7-days'},
+            Metadata={
+                'retention': f'{retention_days}-days',
+                'retention-hours': str(retention_hours),
+                'retention-days': str(retention_days),
+                'retention-policy': retention_policy_version,
+            },
         )
         upload_id = response.get('UploadId', '')
         self._validate_upload_id(upload_id)
@@ -243,6 +259,22 @@ class R2RecordingStorage:
                 'Bucket': self.bucket,
                 'Key': key,
                 'ResponseContentDisposition': 'inline',
+            },
+            ExpiresIn=300,
+        )
+
+    def presign_download(self, key, filename):
+        self._validate_key(key)
+        if self._download_filename_pattern.fullmatch(filename or '') is None:
+            raise ValueError('INVALID_RECORDING_DOWNLOAD_FILENAME')
+        return self.client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': self.bucket,
+                'Key': key,
+                'ResponseContentDisposition': (
+                    f'attachment; filename="{filename}"'
+                ),
             },
             ExpiresIn=300,
         )

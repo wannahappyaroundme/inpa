@@ -8,7 +8,12 @@ AdminSubscriptionPatchSerializer — PATCH /api/v1/admin/billing/subscription/<u
 """
 from rest_framework import serializers
 
-from .models import Plan, Subscription, UsageMeter
+from .models import (
+    ManualBenefitReview,
+    Plan,
+    Subscription,
+    UsageMeter,
+)
 
 
 class PlanSerializer(serializers.ModelSerializer):
@@ -79,6 +84,79 @@ class CouponRedeemSerializer(serializers.Serializer):
 
 class RecurringCouponPreflightSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=32, trim_whitespace=True)
+
+
+class PhoneVerificationRequestSerializer(serializers.Serializer):
+    phone = serializers.CharField(
+        max_length=40,
+        trim_whitespace=True,
+    )
+
+
+class PhoneVerificationConfirmSerializer(serializers.Serializer):
+    challenge_id = serializers.UUIDField()
+    phone = serializers.CharField(
+        max_length=40,
+        trim_whitespace=True,
+    )
+    code = serializers.RegexField(
+        regex=r'^\d{6}$',
+        max_length=6,
+        min_length=6,
+    )
+
+
+class ManualBenefitReviewRequestSerializer(serializers.Serializer):
+    contact_email = serializers.EmailField(max_length=254)
+    reason = serializers.CharField(
+        max_length=500,
+        trim_whitespace=True,
+        min_length=1,
+    )
+
+    def validate(self, attrs):
+        unknown = set(self.initial_data) - {
+            'contact_email',
+            'reason',
+        }
+        if unknown:
+            raise serializers.ValidationError(
+                '연락 이메일과 확인 사유만 입력해 주세요.',
+            )
+        return attrs
+
+
+class ManualBenefitReviewSerializer(serializers.ModelSerializer):
+    phone_masked = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ManualBenefitReview
+        fields = [
+            'id',
+            'phone_masked',
+            'contact_email',
+            'reason',
+            'status',
+            'decision_reason',
+            'created_at',
+            'decided_at',
+            'consumed_at',
+        ]
+        read_only_fields = fields
+
+    def get_phone_masked(self, obj):
+        return f'010-****-{obj.phone_last4}'
+
+
+class AdminBenefitReviewDecisionSerializer(serializers.Serializer):
+    decision = serializers.ChoiceField(
+        choices=['approved', 'rejected'],
+    )
+    reason = serializers.CharField(
+        max_length=500,
+        trim_whitespace=True,
+        min_length=1,
+    )
 
 
 class CardRegistrationStartSerializer(serializers.Serializer):

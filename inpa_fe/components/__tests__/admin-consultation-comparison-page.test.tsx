@@ -562,6 +562,7 @@ describe("상담 녹음 운영 화면의 비교 진입점", () => {
     vi.spyOn(adminApi, "adminGetConsultationSettings").mockResolvedValue({
       environment_gate_open: true,
       ai_environment_gate_open: true,
+      retention_days: 30,
       settings: {
         recording_enabled: false,
         ai_summary_enabled: false,

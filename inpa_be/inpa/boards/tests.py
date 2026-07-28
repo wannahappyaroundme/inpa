@@ -172,6 +172,11 @@ class PostCreateTests(TestCase):
         )
         self.assertEqual(r.status_code, 400)
 
+    def test_create_response_exposes_manage_permission(self):
+        r = self.client.post('/api/v1/board/posts/', {'body': '새 글'}, format='json')
+        self.assertEqual(r.status_code, 201)
+        self.assertTrue(r.json()['can_manage'])
+
 
 # ─── S4·S5·S6: 수정·삭제·숨김 ─────────────────────────────────────
 
@@ -242,6 +247,45 @@ class PostEditDeleteTests(TestCase):
         r = self.client_b.delete(f'/api/v1/board/posts/{self.post_a.id}/')
         self.assertEqual(r.status_code, 403)
 
+    def test_feed_and_detail_expose_server_owned_manage_permission(self):
+        """피드·상세는 성명과 서버가 계산한 관리 권한을 함께 제공한다."""
+        self.user_a.profile.name = '황예진'
+        self.user_a.profile.save(update_fields=['name'])
+
+        own = self.client_a.get('/api/v1/board/posts/').json()['results'][0]
+        other = self.client_b.get('/api/v1/board/posts/').json()['results'][0]
+        admin = self.client_admin.get('/api/v1/board/posts/').json()['results'][0]
+        own_detail = self.client_a.get(f'/api/v1/board/posts/{self.post_a.id}/').json()
+        other_detail = self.client_b.get(f'/api/v1/board/posts/{self.post_a.id}/').json()
+        admin_detail = self.client_admin.get(f'/api/v1/board/posts/{self.post_a.id}/').json()
+
+        self.assertEqual(own['author']['display_name'], '황예진')
+        self.assertTrue(own['can_manage'])
+        self.assertFalse(other['can_manage'])
+        self.assertTrue(admin['can_manage'])
+        self.assertTrue(own_detail['can_manage'])
+        self.assertFalse(other_detail['can_manage'])
+        self.assertTrue(admin_detail['can_manage'])
+
+    def test_blank_and_deleted_author_have_safe_display_fallbacks(self):
+        self.user_a.profile.name = '   '
+        self.user_a.profile.save(update_fields=['name'])
+        self.assertEqual(
+            self.client_a.get(f'/api/v1/board/posts/{self.post_a.id}/').json()['author']['display_name'],
+            '이름 미입력',
+        )
+        self.post_a.author = None
+        self.post_a.save(update_fields=['author'])
+        self.assertEqual(
+            self.client_admin.get(f'/api/v1/board/posts/{self.post_a.id}/').json()['author']['display_name'],
+            '탈퇴한 사용자',
+        )
+
+    def test_update_response_exposes_manage_permission(self):
+        r = self.client_a.patch(f'/api/v1/board/posts/{self.post_a.id}/', {'body': '수정'}, format='json')
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()['can_manage'])
+
 
 # ─── S7: 좋아요 토글 ────────────────────────────────────────────────
 
@@ -298,6 +342,18 @@ class CommentTests(TestCase):
         self.post.refresh_from_db()
         self.assertEqual(self.post.comment_count, 1)
 
+    def test_comment_create_and_update_responses_expose_manage_permission(self):
+        created = self.client_b.post(
+            f'/api/v1/board/posts/{self.post.id}/comments/', {'body': '댓글'}, format='json',
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertTrue(created.json()['can_manage'])
+        updated = self.client_b.patch(
+            f"/api/v1/board/comments/{created.json()['id']}/", {'body': '수정 댓글'}, format='json',
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertTrue(updated.json()['can_manage'])
+
     def test_reply_to_comment_allowed(self):
         """S8: 1단계 대댓글 허용."""
         parent = Comment.objects.create(post=self.post, author=self.user_a, body='부모 댓글')
@@ -307,6 +363,24 @@ class CommentTests(TestCase):
             format='json',
         )
         self.assertEqual(r.status_code, 201)
+
+    def test_reply_create_and_update_responses_keep_request_context_and_name(self):
+        self.user_b.profile.name = '이답글'
+        self.user_b.profile.save(update_fields=['name'])
+        parent = Comment.objects.create(post=self.post, author=self.user_a, body='부모')
+        created = self.client_b.post(
+            f'/api/v1/board/posts/{self.post.id}/comments/',
+            {'body': '대댓글', 'parent': parent.id}, format='json',
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertTrue(created.json()['can_manage'])
+        self.assertEqual(created.json()['author']['display_name'], '이답글')
+        updated = self.client_b.patch(
+            f"/api/v1/board/comments/{created.json()['id']}/", {'body': '수정 대댓글'}, format='json',
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertTrue(updated.json()['can_manage'])
+        self.assertEqual(updated.json()['author']['display_name'], '이답글')
 
     def test_2depth_reply_rejected(self):
         """S8: 2단계 대댓글 → 400 (부모의 부모가 있음)."""
@@ -353,6 +427,37 @@ class CommentTests(TestCase):
         c = Comment.objects.create(post=self.post, author=self.user_a, body='삭제 대상')
         r = self.client_admin.delete(f'/api/v1/board/comments/{c.id}/')
         self.assertEqual(r.status_code, 204)
+
+    def test_comments_and_replies_expose_server_owned_manage_permission(self):
+        """댓글과 대댓글 모두 요청자 기준의 관리 권한과 성명을 제공한다."""
+        self.user_a.profile.name = '황예진'
+        self.user_a.profile.save(update_fields=['name'])
+        parent = Comment.objects.create(post=self.post, author=self.user_a, body='부모 댓글')
+        Comment.objects.create(post=self.post, author=self.user_b, parent=parent, body='대댓글')
+
+        own = self.client_a.get(f'/api/v1/board/posts/{self.post.id}/comments/').json()[0]
+        other = self.client_b.get(f'/api/v1/board/posts/{self.post.id}/comments/').json()[0]
+        admin = self.client_admin.get(f'/api/v1/board/posts/{self.post.id}/comments/').json()[0]
+
+        self.assertEqual(own['author']['display_name'], '황예진')
+        self.assertTrue(own['can_manage'])
+        self.assertFalse(other['can_manage'])
+        self.assertTrue(admin['can_manage'])
+        self.assertFalse(own['replies'][0]['can_manage'])
+        self.assertTrue(other['replies'][0]['can_manage'])
+        self.assertTrue(admin['replies'][0]['can_manage'])
+
+    def test_comment_and_reply_list_author_fallbacks(self):
+        self.user_a.profile.name = ' '
+        self.user_a.profile.save(update_fields=['name'])
+        parent = Comment.objects.create(post=self.post, author=self.user_a, body='부모')
+        reply = Comment.objects.create(post=self.post, author=self.user_b, parent=parent, body='대댓글')
+        reply.author = None
+        reply.save(update_fields=['author'])
+
+        item = self.client_admin.get(f'/api/v1/board/posts/{self.post.id}/comments/').json()[0]
+        self.assertEqual(item['author']['display_name'], '이름 미입력')
+        self.assertEqual(item['replies'][0]['author']['display_name'], '탈퇴한 사용자')
 
 
 # ─── S10: 신고 ──────────────────────────────────────────────────────

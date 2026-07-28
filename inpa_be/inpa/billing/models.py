@@ -16,11 +16,12 @@
 """
 import secrets
 import string
+import uuid
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 
@@ -544,6 +545,219 @@ class CouponRedemption(models.Model):
 
     def __str__(self):
         return f'{self.user.email} / {self.coupon.code} / ~{self.granted_until:%Y-%m-%d}'
+
+
+class PhoneVerificationChallenge(models.Model):
+    """원문 번호와 인증번호를 보관하지 않는 SMS 인증 시도."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='phone_verification_challenges',
+    )
+    phone_hmac = models.CharField(max_length=64)
+    key_version = models.CharField(max_length=20)
+    phone_last4 = models.CharField(max_length=4)
+    otp_hash = models.CharField(max_length=256)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=5)
+    expires_at = models.DateTimeField()
+    verified_at = models.DateTimeField(null=True, blank=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    provider_transaction_ref = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'billing_phone_verification_challenge'
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['phone_hmac', '-created_at']),
+            models.Index(fields=['expires_at']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(max_attempts__gte=1),
+                name='billing_phone_challenge_max_attempts_positive',
+            ),
+            models.CheckConstraint(
+                condition=Q(attempt_count__lte=F('max_attempts')),
+                name='billing_phone_challenge_attempts_within_limit',
+            ),
+        ]
+
+
+class VerifiedPhoneIdentity(models.Model):
+    """현재 계정이 SMS로 통제 확인한 번호의 비가역 식별값."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='verified_phone_identity',
+    )
+    phone_hmac = models.CharField(max_length=64)
+    key_version = models.CharField(max_length=20)
+    phone_last4 = models.CharField(max_length=4)
+    provider = models.CharField(max_length=30, default='solapi_sms')
+    verified_at = models.DateTimeField()
+    provider_transaction_ref = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'billing_verified_phone_identity'
+        indexes = [
+            models.Index(fields=['phone_hmac', 'key_version']),
+        ]
+
+
+class BenefitGrantLedger(models.Model):
+    """휴대전화 식별값별 최초 혜택 지급 원장. 기존 행은 수정하거나 교체하지 않는다."""
+
+    BENEFIT_PLUS_TRIAL_MONTH = 'plus_trial_month'
+
+    identity_hmac = models.CharField(max_length=64)
+    key_version = models.CharField(max_length=20)
+    benefit_code = models.CharField(
+        max_length=40,
+        default=BENEFIT_PLUS_TRIAL_MONTH,
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='benefit_grant_ledgers',
+    )
+    granted_at = models.DateTimeField()
+    granted_until = models.DateTimeField()
+    coupon_snapshot = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'billing_benefit_grant_ledger'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['identity_hmac', 'benefit_code'],
+                name='uniq_billing_phone_benefit',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['benefit_code', '-granted_at']),
+        ]
+
+
+class ManualBenefitReview(models.Model):
+    """동일 번호 재사용 사유를 관리자가 명시적으로 심사한 감사 기록."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CONSUMED = 'consumed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, '접수'),
+        (STATUS_APPROVED, '승인'),
+        (STATUS_REJECTED, '반려'),
+        (STATUS_CONSUMED, '지급 완료'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='manual_benefit_reviews',
+    )
+    identity_hmac = models.CharField(max_length=64)
+    key_version = models.CharField(max_length=20)
+    phone_last4 = models.CharField(max_length=4)
+    benefit_code = models.CharField(
+        max_length=40,
+        default=BenefitGrantLedger.BENEFIT_PLUS_TRIAL_MONTH,
+    )
+    contact_email = models.EmailField(max_length=254)
+    reason = models.CharField(max_length=500)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+    )
+    reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_benefit_requests',
+    )
+    decision_reason = models.CharField(max_length=500, blank=True, default='')
+    decided_at = models.DateTimeField(null=True, blank=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'billing_manual_benefit_review'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'identity_hmac', 'benefit_code'],
+                condition=Q(status__in=('pending', 'approved')),
+                name='uniq_billing_active_benefit_review',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['status', '-created_at']),
+            models.Index(fields=['identity_hmac', 'benefit_code']),
+        ]
+
+
+class BenefitGrantException(models.Model):
+    """승인된 수동심사 한 건으로 허용한 예외 지급.
+
+    최초 원장을 그대로 두고 별도 행에 두 번째 지급을 기록한다. review OneToOne과
+    원장 FK가 관리자 승인 한 건을 한 번만 사용할 수 있게 한다.
+    """
+
+    original_ledger = models.ForeignKey(
+        BenefitGrantLedger,
+        on_delete=models.PROTECT,
+        related_name='approved_exceptions',
+    )
+    review = models.OneToOneField(
+        ManualBenefitReview,
+        on_delete=models.PROTECT,
+        related_name='grant_exception',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='benefit_grant_exceptions',
+    )
+    identity_hmac = models.CharField(max_length=64)
+    key_version = models.CharField(max_length=20)
+    benefit_code = models.CharField(max_length=40)
+    granted_at = models.DateTimeField()
+    granted_until = models.DateTimeField()
+    coupon_snapshot = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'billing_benefit_grant_exception'
+        indexes = [
+            models.Index(fields=['benefit_code', '-granted_at']),
+        ]
 
 
 from .payment_models import (  # noqa: E402,F401

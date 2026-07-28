@@ -33,3 +33,9 @@ Symptom: `test_patch_cancel_race_has_only_ordered_contract_outcomes` passed when
 Cause: The PATCH-wins branch compared the stored draft with a hand-built expected payload that omitted server-owned `planner_confirmed` and legitimate validation recomputation. The transaction behavior was correct; the assertion encoded an incomplete internal representation.
 Fix: Assert the durable contract instead: version increment, manual confirmed product value, cleared evidence/review reasons, unchanged coverage rows, completed command, and canceled terminal state.
 Prevention: Race tests must validate the allowed externally meaningful outcomes for every winner, not reconstruct a full mutable JSON payload. Re-run both observed orderings before accepting a concurrency gate fix.
+
+### 2026-07-28 Import-list patch leaves valid bare expressions at EOF
+Symptom: Incremental import edits left names such as `ManualBenefitReview,` as valid bare tuple expressions at the ends of three billing modules. Django imports and checks still succeeded, so the mechanical residue was easy to miss.
+Cause: Patch hunks added import names in the correct block but also retained the added lines at the file-end context. Python accepts a trailing comma expression, so syntax and runtime tests did not reject it.
+Fix: Remove every file-end expression and inspect the complete diff, not only the import block.
+Prevention: After mechanical import edits, search changed Python files for unexpected top-level expressions at EOF and run a linter that flags useless expressions. Keep `git diff --check`, but do not treat it as sufficient for syntactically valid residue.

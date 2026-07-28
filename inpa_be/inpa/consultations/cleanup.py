@@ -7,6 +7,7 @@ keys. User-editable dates and memo text never participate.
 import logging
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from .models import ConsultationRecording, ConsultationRuntimeConfig
@@ -64,6 +65,8 @@ def record_delete_failure(recording_id, *, error_type, now):
         recording = ConsultationRecording.objects.select_for_update().get(
             pk=recording_id,
         )
+        if recording.status == ConsultationRecording.STATUS_DELETED:
+            return None
         recording.status = ConsultationRecording.STATUS_DELETING
         recording.delete_attempts += 1
         recording.delete_result = 'retry_required'
@@ -108,13 +111,25 @@ def delete_recording_source(recording_id, *, reason, storage=None, now=None):
             recording.id,
             reason='RECORDING_SOURCE_DELETED',
         )
+        effective_reason = (
+            recording.delete_reason
+            if (
+                recording.status == ConsultationRecording.STATUS_DELETING
+                and recording.delete_reason
+            )
+            else reason
+        )
         exact_key = recording.storage_key
         upload_id = recording.multipart_upload_id
         if not exact_key:
-            mark_source_deleted(recording_id, reason=reason, now=now)
+            mark_source_deleted(
+                recording_id,
+                reason=effective_reason,
+                now=now,
+            )
             return 'deleted'
         recording.status = ConsultationRecording.STATUS_DELETING
-        recording.delete_reason = reason
+        recording.delete_reason = effective_reason
         recording.delete_result = 'pending'
         recording.version += 1
         recording.save(update_fields=[
@@ -129,26 +144,39 @@ def delete_recording_source(recording_id, *, reason, storage=None, now=None):
             storage.abort(exact_key, upload_id)
         storage.delete(exact_key)
     except Exception as exc:
-        record_delete_failure(
+        attempts = record_delete_failure(
             recording_id,
             error_type=type(exc).__name__,
             now=now,
         )
+        if attempts is None:
+            return 'deleted'
         return 'failed'
-    mark_source_deleted(recording_id, reason=reason, now=now)
+    mark_source_deleted(
+        recording_id,
+        reason=effective_reason,
+        now=now,
+    )
     return 'deleted'
 
 
 def cleanup_expired_recordings(*, now=None, limit=200, storage=None):
     now = now or timezone.now()
     safe_limit = max(1, min(int(limit), 1000))
+    expired = Q(
+        expires_at__isnull=False,
+        expires_at__lte=now,
+        status__in=SOURCE_PRESENT_STATUSES,
+    )
+    retry_required = Q(
+        status=ConsultationRecording.STATUS_DELETING,
+        delete_result='retry_required',
+    )
     ids = list(
         ConsultationRecording.objects.filter(
-            expires_at__isnull=False,
-            expires_at__lte=now,
             storage_key__isnull=False,
-            status__in=SOURCE_PRESENT_STATUSES,
         )
+        .filter(expired | retry_required)
         .order_by('expires_at')
         .values_list('id', flat=True)[:safe_limit]
     )
@@ -166,12 +194,16 @@ def cleanup_expired_recordings(*, now=None, limit=200, storage=None):
             recording = ConsultationRecording.objects.select_for_update().get(
                 pk=recording_id,
             )
-            if (
-                recording.expires_at is None
-                or recording.expires_at > now
-                or not recording.storage_key
-                or recording.status not in SOURCE_PRESENT_STATUSES
-            ):
+            is_expired = (
+                recording.expires_at is not None
+                and recording.expires_at <= now
+                and recording.status in SOURCE_PRESENT_STATUSES
+            )
+            needs_retry = (
+                recording.status == ConsultationRecording.STATUS_DELETING
+                and recording.delete_result == 'retry_required'
+            )
+            if not recording.storage_key or not (is_expired or needs_retry):
                 result['skipped'] += 1
                 continue
         outcome = delete_recording_source(

@@ -8,6 +8,8 @@
 import datetime
 import importlib
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 from unittest import mock, skipUnless
 
@@ -15,14 +17,19 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core import signing
 from django.core.cache import cache
-from django.db import IntegrityError, OperationalError, connection, transaction
+from django.db import (
+    IntegrityError, OperationalError, close_old_connections, connection,
+    transaction,
+)
 from django.db.migrations.executor import MigrationExecutor
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from rest_framework.test import APIClient
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from inpa.accounts.models import Profile, User
+from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory
 from inpa.billing.models import Plan, Subscription, UsageMeter
 from inpa.insurances.models import CustomerInsurance
 
@@ -34,11 +41,25 @@ from .consent_texts import (
 )
 from .models import (
     ConsentLog, Customer, CustomerMedicalHistory, CustomerMemo, CustomerTag, JobRiskCode,
-    PlannerBaseline,
+    PlannerBaseline, PlannerBaselineRevision,
 )
 from .presets import PRESET_ORIGIN_V0, PRESET_V0, iter_preset_rows
 from .serializers import CustomerListSerializer, CustomerSerializer
 from .tokens import make_consent_token, read_consent_token
+
+
+POSTGRES_ONLY = skipUnless(
+    connection.vendor == 'postgresql',
+    'PostgreSQL row-lock and partial-unique test',
+)
+
+
+def _thread_database_call(callback):
+    close_old_connections()
+    try:
+        return callback()
+    finally:
+        close_old_connections()
 
 
 def _grant_overseas(customer, version=CONSENT_TEXTS_VERSION):
@@ -1024,20 +1045,61 @@ class ApplyPresetTests(TestCase):
 
 class PlannerBaselineValidationTests(TestCase):
     URL = '/api/v1/planner-baselines/'
+    BATCH_URL = '/api/v1/planner-baselines/batch/'
+    CATALOG_URL = '/api/v1/baseline-catalog/'
 
     def setUp(self):
         self.user, self.client = _make_planner('baseline-validation@test.com')
+        category = AnalysisCategory.objects.create(
+            insurance_type=0, name='[표준]직접 저장', order=1)
+        sub_category = AnalysisSubCategory.objects.create(
+            insurance_type=0, category=category, name='저장', order=1)
+        self.detail = AnalysisDetail.objects.create(
+            sub_category=sub_category, name='일반사망', order=1)
+        nonstandard_category = AnalysisCategory.objects.create(
+            insurance_type=0, name='촬영용', order=2)
+        nonstandard_sub = AnalysisSubCategory.objects.create(
+            insurance_type=0, category=nonstandard_category, name='저장', order=1)
+        self.nonstandard_detail = AnalysisDetail.objects.create(
+            sub_category=nonstandard_sub, name='촬영 담보', order=1)
         self.valid = {
-            'coverage_key': '일반사망',
+            'analysis_detail': self.detail.id,
+            'coverage_key': '클라이언트가 바꾼 이름',
             'product_group': PlannerBaseline.PRODUCT_GROUP_NONLIFE,
             'age_band': '30s',
             'gender': 1,
             'recommend_min': '10000000',
             'recommend_max': '30000000',
             'unit': PlannerBaseline.UNIT_WON,
-            'baseline_source': 'planner',
+            'baseline_source': 'preset:forged',
+            'preset_origin': 'forged',
             'is_active': True,
         }
+
+    def _batch_change(self, **overrides):
+        change = {
+            'analysis_detail_id': self.detail.id,
+            'product_group': PlannerBaseline.PRODUCT_GROUP_ALL,
+            'age_band': PlannerBaseline.AGE_ALL,
+            'gender': 2,
+            'recommend_min': '5000',
+            'recommend_max': None,
+            'unit': PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+        }
+        change.update(overrides)
+        return change
+
+    def _assert_revision_and_stale_batch(self):
+        self.assertEqual(
+            PlannerBaselineRevision.objects.get(owner=self.user).revision, 1)
+        response = self.client.post(
+            self.BATCH_URL,
+            {'revision': 0, 'changes': [self._batch_change()]},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(
+            response.json()['code'], 'baseline_revision_conflict')
 
     def test_negative_recommendation_bounds_are_rejected(self):
         for field in ('recommend_min', 'recommend_max'):
@@ -1059,6 +1121,1242 @@ class PlannerBaselineValidationTests(TestCase):
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn('recommend_max', response.json())
         self.assertFalse(PlannerBaseline.objects.filter(owner=self.user).exists())
+
+    def test_create_requires_a_standard_detail_and_forces_server_fields(self):
+        response = self.client.post(self.URL, self.valid, format='json')
+
+        self.assertEqual(response.status_code, 201, response.content)
+        baseline = PlannerBaseline.objects.get()
+        self.assertEqual(baseline.owner_id, self.user.id)
+        self.assertEqual(baseline.analysis_detail_id, self.detail.id)
+        self.assertEqual(baseline.coverage_key, self.detail.name)
+        self.assertEqual(baseline.baseline_source, 'planner')
+        self.assertIsNone(baseline.preset_origin)
+
+        for detail_value in (None, self.nonstandard_detail.id, 999999):
+            with self.subTest(detail_value=detail_value):
+                payload = {**self.valid, 'gender': 2}
+                if detail_value is None:
+                    payload.pop('analysis_detail')
+                else:
+                    payload['analysis_detail'] = detail_value
+                rejected = self.client.post(self.URL, payload, format='json')
+                self.assertEqual(rejected.status_code, 400, rejected.content)
+
+    def test_direct_create_accepts_every_product_group(self):
+        for product_group in (
+                PlannerBaseline.PRODUCT_GROUP_ALL,
+                PlannerBaseline.PRODUCT_GROUP_LIFE,
+                PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+                PlannerBaseline.PRODUCT_GROUP_INDEMNITY,
+                PlannerBaseline.PRODUCT_GROUP_ANNUITY):
+            with self.subTest(product_group=product_group):
+                response = self.client.post(
+                    self.URL,
+                    {**self.valid, 'product_group': product_group},
+                    format='json',
+                )
+                self.assertEqual(response.status_code, 201, response.content)
+                self.assertEqual(response.json()['product_group'], product_group)
+
+    def test_direct_create_increments_revision_and_invalidates_stale_batch(self):
+        self.assertEqual(
+            self.client.get(self.CATALOG_URL).json()['revision'], 0)
+
+        response = self.client.post(self.URL, self.valid, format='json')
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self._assert_revision_and_stale_batch()
+
+    def test_direct_patch_increments_revision_and_invalidates_stale_batch(self):
+        baseline = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.detail,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=1000,
+            unit=PlannerBaseline.UNIT_WON,
+            baseline_source='planner',
+        )
+        self.assertEqual(
+            self.client.get(self.CATALOG_URL).json()['revision'], 0)
+
+        response = self.client.patch(
+            f'{self.URL}{baseline.id}/',
+            {'recommend_min': '2000'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self._assert_revision_and_stale_batch()
+
+    def test_direct_delete_increments_revision_and_invalidates_stale_batch(self):
+        baseline = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.detail,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=1000,
+            unit=PlannerBaseline.UNIT_WON,
+            baseline_source='planner',
+        )
+        self.assertEqual(
+            self.client.get(self.CATALOG_URL).json()['revision'], 0)
+
+        response = self.client.delete(f'{self.URL}{baseline.id}/')
+
+        self.assertEqual(response.status_code, 204, response.content)
+        self._assert_revision_and_stale_batch()
+
+    def test_direct_write_rejects_empty_amounts_and_unsupported_scopes(self):
+        invalid_payloads = (
+            {**self.valid, 'recommend_min': None, 'recommend_max': None},
+            {**self.valid, 'product_group': 5},
+            {**self.valid, 'age_band': 'bogus'},
+            {**self.valid, 'gender': 3},
+        )
+
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                response = self.client.post(
+                    self.URL, payload, format='json')
+                self.assertEqual(response.status_code, 400, response.content)
+
+        self.assertFalse(
+            PlannerBaseline.objects.filter(owner=self.user).exists())
+
+    def test_direct_patch_rejects_clearing_both_amounts(self):
+        baseline = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.detail,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=1000,
+            baseline_source='planner',
+        )
+
+        response = self.client.patch(
+            f'{self.URL}{baseline.id}/',
+            {'recommend_min': None, 'recommend_max': None},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        baseline.refresh_from_db()
+        self.assertEqual(baseline.recommend_min, 1000)
+
+    def test_direct_duplicate_scope_returns_400_instead_of_integrity_error(self):
+        first = self.client.post(self.URL, self.valid, format='json')
+        self.assertEqual(first.status_code, 201, first.content)
+
+        duplicate = self.client.post(self.URL, self.valid, format='json')
+
+        self.assertEqual(duplicate.status_code, 400, duplicate.content)
+        self.assertEqual(
+            PlannerBaseline.objects.filter(owner=self.user).count(), 1)
+
+    def test_direct_integrity_race_returns_stable_conflict(self):
+        with mock.patch(
+                'inpa.customers.serializers.PlannerBaselineSerializer.create',
+                side_effect=IntegrityError('simulated final unique race')):
+            response = self.client.post(self.URL, self.valid, format='json')
+
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(response.json()['code'], 'baseline_scope_conflict')
+        self.assertFalse(
+            PlannerBaseline.objects.filter(owner=self.user).exists())
+        self.assertFalse(
+            PlannerBaselineRevision.objects.filter(owner=self.user).exists())
+
+    def test_direct_create_preserves_legacy_rows_until_explicit_resolution(self):
+        exact = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=800,
+            baseline_source='planner',
+        )
+        unrelated = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='40s',
+            gender=1,
+            recommend_min=900,
+            baseline_source='planner',
+        )
+
+        response = self.client.post(self.URL, self.valid, format='json')
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertTrue(
+            PlannerBaseline.objects.filter(pk=exact.pk).exists())
+        self.assertTrue(
+            PlannerBaseline.objects.filter(pk=unrelated.pk).exists())
+
+    def test_direct_patch_preserves_legacy_rows_until_explicit_resolution(self):
+        baseline = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.detail,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=1000,
+            baseline_source='planner',
+        )
+        old_legacy = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=800,
+            baseline_source='planner',
+        )
+        new_legacy = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='40s',
+            gender=1,
+            recommend_min=900,
+            baseline_source='planner',
+        )
+        unrelated = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='50s',
+            gender=1,
+            recommend_min=700,
+            baseline_source='planner',
+        )
+
+        response = self.client.patch(
+            f'{self.URL}{baseline.id}/',
+            {'age_band': '40s'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            PlannerBaseline.objects.filter(
+                pk__in=[old_legacy.pk, new_legacy.pk]).count(),
+            2,
+        )
+        self.assertTrue(
+            PlannerBaseline.objects.filter(pk=unrelated.pk).exists())
+
+    def test_direct_delete_preserves_legacy_rows_until_explicit_resolution(self):
+        baseline = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.detail,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=1000,
+            baseline_source='planner',
+        )
+        exact = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=800,
+            baseline_source='planner',
+        )
+        unrelated = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=2,
+            recommend_min=900,
+            baseline_source='planner',
+        )
+
+        response = self.client.delete(f'{self.URL}{baseline.id}/')
+
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertTrue(
+            PlannerBaseline.objects.filter(pk=exact.pk).exists())
+        self.assertTrue(
+            PlannerBaseline.objects.filter(pk=unrelated.pk).exists())
+
+
+class PlannerBaselineDisappearanceConcurrencyTests(TransactionTestCase):
+    reset_sequences = True
+    URL = '/api/v1/planner-baselines/'
+
+    def setUp(self):
+        self.user, self.client = _make_planner(
+            'baseline-disappearance@test.com')
+        category = AnalysisCategory.objects.create(
+            insurance_type=0, name='[표준]삭제 경합', order=1)
+        sub_category = AnalysisSubCategory.objects.create(
+            insurance_type=0, category=category, name='삭제 경합', order=1)
+        self.detail = AnalysisDetail.objects.create(
+            sub_category=sub_category, name='삭제 경합 담보', order=1)
+        self.baseline = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.detail,
+            coverage_key=self.detail.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=1000,
+            baseline_source='planner',
+        )
+        self.client.raise_request_exception = False
+
+    def _request_after_competing_delete(self, method):
+        from .views import PlannerBaselineViewSet
+
+        original_lock_revision = PlannerBaselineViewSet._lock_revision
+        requesting_thread = threading.get_ident()
+        winner_responses = []
+
+        def lock_after_competing_delete(owner_id):
+            if threading.get_ident() == requesting_thread:
+                def competing_delete():
+                    client = APIClient()
+                    client.force_authenticate(user=self.user)
+                    return client.delete(f'{self.URL}{self.baseline.pk}/')
+
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    winner_responses.append(
+                        executor.submit(
+                            _thread_database_call,
+                            competing_delete,
+                        ).result(timeout=10)
+                    )
+            return original_lock_revision(owner_id)
+
+        with mock.patch.object(
+                PlannerBaselineViewSet,
+                '_lock_revision',
+                side_effect=lock_after_competing_delete):
+            if method == 'patch':
+                loser = self.client.patch(
+                    f'{self.URL}{self.baseline.pk}/',
+                    {'recommend_min': '2000'},
+                    format='json',
+                )
+            else:
+                loser = self.client.delete(
+                    f'{self.URL}{self.baseline.pk}/')
+
+        self.assertEqual(winner_responses[0].status_code, 204)
+        return loser
+
+    def test_patch_returns_404_when_delete_wins_before_locked_refetch(self):
+        response = self._request_after_competing_delete('patch')
+
+        self.assertEqual(response.status_code, 404, response.content)
+        self.assertFalse(
+            PlannerBaseline.objects.filter(pk=self.baseline.pk).exists())
+        self.assertEqual(
+            PlannerBaselineRevision.objects.get(owner=self.user).revision, 1)
+
+    def test_delete_returns_404_when_another_delete_wins_before_locked_refetch(self):
+        response = self._request_after_competing_delete('delete')
+
+        self.assertEqual(response.status_code, 404, response.content)
+        self.assertFalse(
+            PlannerBaseline.objects.filter(pk=self.baseline.pk).exists())
+        self.assertEqual(
+            PlannerBaselineRevision.objects.get(owner=self.user).revision, 1)
+
+
+class PlannerBaselineCatalogTests(TestCase):
+    CATALOG_URL = '/api/v1/baseline-catalog/'
+    BATCH_URL = '/api/v1/planner-baselines/batch/'
+
+    def setUp(self):
+        self.user, self.client = _make_planner('baseline-catalog@test.com')
+        self.other_user, self.other_client = _make_planner(
+            'baseline-catalog-other@test.com')
+
+        category_later = AnalysisCategory.objects.create(
+            insurance_type=2, name='[표준]수술비', order=2)
+        category_first = AnalysisCategory.objects.create(
+            insurance_type=0, name='[표준]진단비', order=1)
+        sub_later = AnalysisSubCategory.objects.create(
+            insurance_type=2, category=category_later, name='상해', order=1)
+        sub_later_in_first = AnalysisSubCategory.objects.create(
+            insurance_type=0, category=category_first, name='뇌', order=2)
+        sub_first = AnalysisSubCategory.objects.create(
+            insurance_type=0, category=category_first, name='암', order=1)
+        self.detail_later_category = AnalysisDetail.objects.create(
+            sub_category=sub_later, name='골절 수술비', order=1)
+        self.detail_later = AnalysisDetail.objects.create(
+            sub_category=sub_later_in_first, name='뇌혈관 진단비', order=1)
+        self.detail_first = AnalysisDetail.objects.create(
+            sub_category=sub_first, name='일반암 진단비', order=1,
+            chart_based_amount=9999)
+
+        nonstandard_category = AnalysisCategory.objects.create(
+            insurance_type=0, name='[촬영]진단비', order=0)
+        nonstandard_sub = AnalysisSubCategory.objects.create(
+            insurance_type=0, category=nonstandard_category, name='암', order=1)
+        self.nonstandard_detail = AnalysisDetail.objects.create(
+            sub_category=nonstandard_sub, name='촬영용 담보', order=1)
+
+        self.owner_baseline = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.detail_first,
+            coverage_key=self.detail_first.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=5000,
+            recommend_max=None,
+            unit=PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            baseline_source='planner',
+        )
+        PlannerBaseline.objects.create(
+            owner=self.other_user,
+            analysis_detail=self.detail_first,
+            coverage_key=self.detail_first.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=1,
+            recommend_min=9000,
+            unit=PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            baseline_source='planner',
+        )
+
+    @staticmethod
+    def _change(detail, **overrides):
+        values = {
+            'analysis_detail_id': detail.id,
+            'product_group': PlannerBaseline.PRODUCT_GROUP_ALL,
+            'age_band': PlannerBaseline.AGE_ALL,
+            'gender': None,
+            'recommend_min': '5000',
+            'recommend_max': None,
+            'unit': PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+        }
+        values.update(overrides)
+        return values
+
+    def test_catalog_is_ordered_owner_scoped_and_contains_no_guessed_amounts(self):
+        response = self.client.get(self.CATALOG_URL)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body['revision'], 0)
+        self.assertEqual(
+            [category['name'] for category in body['categories']],
+            ['진단비', '수술비'],
+        )
+        self.assertEqual(
+            [sub['name'] for sub in body['categories'][0]['subcategories']],
+            ['암', '뇌'],
+        )
+        detail = body['categories'][0]['subcategories'][0]['details'][0]
+        self.assertEqual(detail['id'], self.detail_first.id)
+        self.assertEqual(detail['name'], self.detail_first.name)
+        self.assertEqual(detail['unit'], PlannerBaseline.UNIT_TEN_THOUSAND_WON)
+        self.assertEqual(len(detail['baselines']), 1)
+        self.assertEqual(detail['baselines'][0]['id'], self.owner_baseline.id)
+        self.assertEqual(detail['baselines'][0]['recommend_min'], '5000.00')
+        serialized = json.dumps(body, ensure_ascii=False)
+        self.assertNotIn('chart_based_amount', serialized)
+        self.assertNotIn('9999', serialized)
+        self.assertNotIn('9000', serialized)
+        self.assertNotIn('촬영용 담보', serialized)
+        self.assertTrue(
+            PlannerBaselineRevision.objects.filter(owner=self.user).exists())
+
+    def test_ambiguous_legacy_row_is_visible_with_applied_status_and_reason(self):
+        duplicate = AnalysisDetail.objects.create(
+            sub_category=self.detail_first.sub_category,
+            name=self.detail_later.name,
+            order=9,
+        )
+        legacy = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail_later.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=2500,
+            recommend_max=5000,
+            unit=PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            baseline_source='planner',
+            is_active=True,
+        )
+        other_legacy = PlannerBaseline.objects.create(
+            owner=self.other_user,
+            analysis_detail=None,
+            coverage_key=self.detail_later.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=9000,
+            baseline_source='planner',
+        )
+
+        response = self.client.get(self.CATALOG_URL)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['legacy_baselines'], [{
+            'id': legacy.id,
+            'coverage_key': self.detail_later.name,
+            'product_group': PlannerBaseline.PRODUCT_GROUP_ALL,
+            'age_band': PlannerBaseline.AGE_ALL,
+            'gender': None,
+            'recommend_min': '2500.00',
+            'recommend_max': '5000.00',
+            'unit': PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            'is_applied': True,
+            'conflict_code': 'multiple_standard_matches',
+            'conflict_reason': (
+                '같은 이름의 표준 담보가 여러 곳에 있어 연결할 항목을 확인해 주세요.'
+            ),
+            'matching_analysis_detail_ids': sorted([
+                self.detail_later.id,
+                duplicate.id,
+            ]),
+        }])
+        self.assertNotIn(
+            other_legacy.id,
+            [
+                row['id']
+                for row in response.json()['legacy_baselines']
+            ],
+        )
+
+    def test_ambiguous_legacy_row_can_be_explicitly_linked_or_deleted(self):
+        duplicate = AnalysisDetail.objects.create(
+            sub_category=self.detail_first.sub_category,
+            name=self.detail_later.name,
+            order=9,
+        )
+        linked = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail_later.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=2500,
+            baseline_source='planner',
+        )
+        deleted = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key='연결하지 않을 기존 값',
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=1500,
+            baseline_source='planner',
+        )
+
+        foreign_response = self.other_client.post(
+            f'/api/v1/planner-baselines/{linked.id}/link/',
+            {'analysis_detail_id': duplicate.id},
+            format='json',
+        )
+        self.assertEqual(foreign_response.status_code, 404)
+        linked.refresh_from_db()
+        self.assertIsNone(linked.analysis_detail_id)
+
+        link_response = self.client.post(
+            f'/api/v1/planner-baselines/{linked.id}/link/',
+            {'analysis_detail_id': duplicate.id},
+            format='json',
+        )
+        self.assertEqual(link_response.status_code, 200, link_response.content)
+        self.assertEqual(link_response.json()['revision'], 1)
+        linked.refresh_from_db()
+        self.assertEqual(linked.analysis_detail_id, duplicate.id)
+        self.assertEqual(linked.coverage_key, duplicate.name)
+
+        delete_response = self.client.delete(
+            f'/api/v1/planner-baselines/{deleted.id}/')
+        self.assertEqual(delete_response.status_code, 204)
+        self.assertFalse(
+            PlannerBaseline.objects.filter(pk=deleted.pk).exists())
+        self.assertEqual(
+            PlannerBaselineRevision.objects.get(owner=self.user).revision,
+            2,
+        )
+
+    def test_batch_saves_multiple_changes_and_increments_revision_once(self):
+        response = self.client.post(
+            self.BATCH_URL,
+            {
+                'revision': 0,
+                'changes': [
+                    self._change(
+                        self.detail_first,
+                        recommend_min='7000',
+                        recommend_max='10000',
+                        owner_id=self.other_user.id,
+                    ),
+                    self._change(
+                        self.detail_later,
+                        age_band='30s',
+                        gender=1,
+                        recommend_min='3000',
+                        unit=PlannerBaseline.UNIT_WON,
+                    ),
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['revision'], 1)
+        rows = list(
+            PlannerBaseline.objects.filter(owner=self.user)
+            .order_by('analysis_detail_id'))
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(row.baseline_source == 'planner' for row in rows))
+        self.assertTrue(all(row.owner_id == self.user.id for row in rows))
+        self.assertEqual(
+            {row.coverage_key for row in rows},
+            {self.detail_first.name, self.detail_later.name},
+        )
+        self.assertEqual(
+            PlannerBaselineRevision.objects.get(owner=self.user).revision, 1)
+        self.assertEqual(
+            PlannerBaseline.objects.filter(owner=self.other_user).count(), 1)
+
+    def test_batch_creates_updates_and_deletes_indemnity_and_annuity_scopes(self):
+        annuity = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.detail_later,
+            coverage_key=self.detail_later.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ANNUITY,
+            age_band='40s',
+            gender=2,
+            recommend_min=9000,
+            unit=PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            baseline_source='planner',
+        )
+
+        response = self.client.post(
+            self.BATCH_URL,
+            {
+                'revision': 0,
+                'changes': [
+                    self._change(
+                        self.detail_first,
+                        product_group=PlannerBaseline.PRODUCT_GROUP_INDEMNITY,
+                        age_band='30s',
+                        gender=1,
+                        recommend_min='7000',
+                    ),
+                    self._change(
+                        self.detail_later,
+                        product_group=PlannerBaseline.PRODUCT_GROUP_ANNUITY,
+                        age_band='40s',
+                        gender=2,
+                        recommend_min=None,
+                        recommend_max=None,
+                    ),
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(PlannerBaseline.objects.filter(
+            owner=self.user,
+            analysis_detail=self.detail_first,
+            product_group=PlannerBaseline.PRODUCT_GROUP_INDEMNITY,
+            recommend_min=7000,
+        ).exists())
+        self.assertFalse(
+            PlannerBaseline.objects.filter(pk=annuity.pk).exists())
+
+    def test_both_null_amounts_delete_linked_scope_and_preserve_legacy_row(self):
+        exact_legacy = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail_first.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=4000,
+            baseline_source='planner',
+        )
+        unrelated_legacy = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail_first.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band='30s',
+            gender=None,
+            recommend_min=4000,
+            baseline_source='planner',
+        )
+        response = self.client.post(
+            self.BATCH_URL,
+            {
+                'revision': 0,
+                'changes': [
+                    self._change(
+                        self.detail_first,
+                        recommend_min=None,
+                        recommend_max=None,
+                    ),
+                    self._change(
+                        self.detail_later,
+                        recommend_min=None,
+                        recommend_max=None,
+                    ),
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['revision'], 1)
+        self.assertFalse(
+            PlannerBaseline.objects.filter(pk=self.owner_baseline.pk).exists())
+        self.assertTrue(
+            PlannerBaseline.objects.filter(pk=exact_legacy.pk).exists())
+        self.assertTrue(
+            PlannerBaseline.objects.filter(pk=unrelated_legacy.pk).exists())
+
+    def test_batch_create_preserves_same_scope_legacy_rows(self):
+        exact_legacy = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail_later.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band='30s',
+            gender=1,
+            recommend_min=2000,
+            baseline_source='planner',
+        )
+        unrelated_legacy = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail_later.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band='40s',
+            gender=1,
+            recommend_min=2000,
+            baseline_source='planner',
+        )
+
+        response = self.client.post(
+            self.BATCH_URL,
+            {
+                'revision': 0,
+                'changes': [self._change(
+                    self.detail_later,
+                    age_band='30s',
+                    gender=1,
+                    recommend_min='3000',
+                )],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(
+            PlannerBaseline.objects.filter(pk=exact_legacy.pk).exists())
+        self.assertTrue(
+            PlannerBaseline.objects.filter(pk=unrelated_legacy.pk).exists())
+        self.assertTrue(PlannerBaseline.objects.filter(
+            owner=self.user,
+            analysis_detail=self.detail_later,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band='30s',
+            gender=1,
+        ).exists())
+
+    def test_batch_update_preserves_same_scope_legacy_rows(self):
+        exact_legacy = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail_first.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=4000,
+            baseline_source='planner',
+        )
+
+        response = self.client.post(
+            self.BATCH_URL,
+            {
+                'revision': 0,
+                'changes': [self._change(
+                    self.detail_first,
+                    recommend_min='7000',
+                )],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(
+            PlannerBaseline.objects.filter(pk=exact_legacy.pk).exists())
+        self.owner_baseline.refresh_from_db()
+        self.assertEqual(self.owner_baseline.recommend_min, 7000)
+
+    def test_ten_change_batch_stays_within_query_ceiling(self):
+        details = [
+            AnalysisDetail.objects.create(
+                sub_category=self.detail_first.sub_category,
+                name=f'대량 저장 담보 {index}',
+                order=10 + index,
+            )
+            for index in range(10)
+        ]
+        PlannerBaselineRevision.objects.create(owner=self.user, revision=0)
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post(
+                self.BATCH_URL,
+                {
+                    'revision': 0,
+                    'changes': [
+                        self._change(detail, recommend_min=str(1000 + index))
+                        for index, detail in enumerate(details)
+                    ],
+                },
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertLessEqual(
+            len(queries),
+            12,
+            '\n'.join(query['sql'] for query in queries.captured_queries),
+        )
+        self.assertEqual(
+            PlannerBaseline.objects.filter(
+                owner=self.user,
+                analysis_detail__in=details,
+            ).count(),
+            10,
+        )
+
+    def test_stale_revision_returns_conflict_without_writing(self):
+        PlannerBaselineRevision.objects.create(owner=self.user, revision=3)
+
+        response = self.client.post(
+            self.BATCH_URL,
+            {
+                'revision': 2,
+                'changes': [
+                    self._change(self.detail_later, recommend_min='3000'),
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(
+            response.json()['code'], 'baseline_revision_conflict')
+        self.assertEqual(
+            PlannerBaselineRevision.objects.get(owner=self.user).revision, 3)
+        self.assertFalse(
+            PlannerBaseline.objects.filter(
+                owner=self.user, analysis_detail=self.detail_later).exists())
+
+    def test_missing_or_nonstandard_detail_rejects_the_whole_batch(self):
+        for detail_id in (999999, self.nonstandard_detail.id):
+            with self.subTest(detail_id=detail_id):
+                response = self.client.post(
+                    self.BATCH_URL,
+                    {
+                        'revision': 0,
+                        'changes': [
+                            self._change(
+                                self.detail_later,
+                                recommend_min='3000',
+                            ),
+                            {
+                                **self._change(
+                                    self.detail_first,
+                                    recommend_min='4000',
+                                ),
+                                'analysis_detail_id': detail_id,
+                            },
+                        ],
+                    },
+                    format='json',
+                )
+
+                self.assertEqual(response.status_code, 400, response.content)
+                self.assertFalse(
+                    PlannerBaseline.objects.filter(
+                        owner=self.user,
+                        analysis_detail=self.detail_later,
+                    ).exists())
+                revision = PlannerBaselineRevision.objects.filter(
+                    owner=self.user).first()
+                self.assertTrue(revision is None or revision.revision == 0)
+
+    def test_invalid_later_change_rolls_back_all_rows(self):
+        response = self.client.post(
+            self.BATCH_URL,
+            {
+                'revision': 0,
+                'changes': [
+                    self._change(self.detail_later, recommend_min='3000'),
+                    self._change(
+                        self.detail_later_category,
+                        recommend_min='9000',
+                        recommend_max='8000',
+                    ),
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertFalse(
+            PlannerBaseline.objects.filter(
+                owner=self.user,
+                analysis_detail__in=[
+                    self.detail_later,
+                    self.detail_later_category,
+                ],
+            ).exists())
+
+    def test_unauthenticated_requests_are_blocked(self):
+        client = APIClient()
+
+        self.assertEqual(client.get(self.CATALOG_URL).status_code, 401)
+        self.assertEqual(
+            client.post(
+                self.BATCH_URL,
+                {'revision': 0, 'changes': []},
+                format='json',
+            ).status_code,
+            401,
+        )
+
+
+class PlannerBaselineCatalogModelTests(TestCase):
+    def setUp(self):
+        self.user, _client = _make_planner('baseline-model@test.com')
+        category = AnalysisCategory.objects.create(
+            insurance_type=0, name='기준 대분류', order=1)
+        sub_category = AnalysisSubCategory.objects.create(
+            insurance_type=0, category=category, name='기준 중분류', order=1)
+        self.detail = AnalysisDetail.objects.create(
+            sub_category=sub_category, name='기준 담보', order=1)
+
+    def _create(self, **overrides):
+        values = {
+            'owner': self.user,
+            'analysis_detail': self.detail,
+            'coverage_key': self.detail.name,
+            'product_group': PlannerBaseline.PRODUCT_GROUP_ALL,
+            'age_band': PlannerBaseline.AGE_ALL,
+            'gender': None,
+            'recommend_min': 5000,
+            'unit': PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            'baseline_source': 'planner',
+        }
+        values.update(overrides)
+        return PlannerBaseline.objects.create(**values)
+
+    def test_linked_detail_is_protected_from_deletion(self):
+        self._create()
+
+        with self.assertRaises(ProtectedError):
+            self.detail.delete()
+
+    def test_common_and_specific_gender_scopes_are_each_unique(self):
+        self._create()
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self._create()
+
+        self._create(gender=1)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self._create(gender=1)
+
+    def test_unlinked_legacy_rows_remain_compatible(self):
+        values = {
+            'owner': self.user,
+            'analysis_detail': None,
+            'coverage_key': '기존 직접 입력',
+            'product_group': PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            'age_band': '30s',
+            'gender': None,
+            'recommend_min': 1000,
+            'baseline_source': 'planner',
+        }
+
+        PlannerBaseline.objects.create(**values)
+        PlannerBaseline.objects.create(**values)
+
+        self.assertEqual(
+            PlannerBaseline.objects.filter(
+                owner=self.user, analysis_detail__isnull=True).count(),
+            2,
+        )
+
+    def test_revision_is_one_per_owner_and_starts_at_zero(self):
+        from inpa.customers.models import PlannerBaselineRevision
+
+        revision = PlannerBaselineRevision.objects.create(owner=self.user)
+
+        self.assertEqual(revision.revision, 0)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                PlannerBaselineRevision.objects.create(owner=self.user)
+
+
+class PlannerBaselineBackfillTests(TestCase):
+    def setUp(self):
+        self.user, _client = _make_planner('baseline-backfill@test.com')
+        category = AnalysisCategory.objects.create(
+            insurance_type=0, name='[표준]이관 대분류', order=1)
+        sub_category = AnalysisSubCategory.objects.create(
+            insurance_type=0, category=category, name='이관 중분류', order=1)
+        self.unique_detail = AnalysisDetail.objects.create(
+            sub_category=sub_category, name='유일 담보', order=1)
+        self.ambiguous_details = [
+            AnalysisDetail.objects.create(
+                sub_category=sub_category, name='동명 담보', order=order)
+            for order in (2, 3)
+        ]
+        nonstandard_category = AnalysisCategory.objects.create(
+            insurance_type=0, name='[촬영]이관 대분류', order=2)
+        self.nonstandard_sub_category = AnalysisSubCategory.objects.create(
+            insurance_type=0,
+            category=nonstandard_category,
+            name='이관 중분류',
+            order=1,
+        )
+
+    def _legacy_row(self, coverage_key, **overrides):
+        values = {
+            'owner': self.user,
+            'analysis_detail': None,
+            'coverage_key': coverage_key,
+            'product_group': PlannerBaseline.PRODUCT_GROUP_ALL,
+            'age_band': PlannerBaseline.AGE_ALL,
+            'gender': None,
+            'recommend_min': 5000,
+            'recommend_max': None,
+            'unit': PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            'baseline_source': 'planner',
+            'preset_origin': None,
+            'is_active': True,
+        }
+        values.update(overrides)
+        return PlannerBaseline.objects.create(**values)
+
+    def _run_backfill(self):
+        migration = importlib.import_module(
+            'inpa.customers.migrations.0023_baseline_catalog_scope')
+        from django.apps import apps
+
+        migration.backfill_baseline_details(apps, None)
+
+    def test_unique_names_link_ambiguous_names_stay_null_and_identical_duplicates_collapse(self):
+        oldest = self._legacy_row('유일 담보')
+        duplicate = self._legacy_row('유일 담보')
+        ambiguous = self._legacy_row('동명 담보')
+        unmatched = self._legacy_row('매칭 없는 담보')
+
+        self._run_backfill()
+
+        oldest.refresh_from_db()
+        ambiguous.refresh_from_db()
+        unmatched.refresh_from_db()
+        self.assertEqual(oldest.analysis_detail_id, self.unique_detail.id)
+        self.assertFalse(PlannerBaseline.objects.filter(pk=duplicate.pk).exists())
+        self.assertIsNone(ambiguous.analysis_detail_id)
+        self.assertIsNone(unmatched.analysis_detail_id)
+
+    def test_conflicting_common_duplicates_fail_without_partial_backfill(self):
+        first = self._legacy_row('유일 담보', recommend_min=5000)
+        second = self._legacy_row('유일 담보', recommend_min=7000)
+
+        with self.assertRaises(RuntimeError), transaction.atomic():
+            self._run_backfill()
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertIsNone(first.analysis_detail_id)
+        self.assertIsNone(second.analysis_detail_id)
+
+    def test_nonstandard_only_exact_name_stays_unlinked(self):
+        AnalysisDetail.objects.create(
+            sub_category=self.nonstandard_sub_category,
+            name='촬영 전용 담보',
+            order=1,
+        )
+        legacy = self._legacy_row('촬영 전용 담보')
+
+        self._run_backfill()
+
+        legacy.refresh_from_db()
+        self.assertIsNone(legacy.analysis_detail_id)
+
+    def test_one_standard_and_one_nonstandard_name_links_standard_detail(self):
+        AnalysisDetail.objects.create(
+            sub_category=self.nonstandard_sub_category,
+            name=self.unique_detail.name,
+            order=1,
+        )
+        legacy = self._legacy_row(self.unique_detail.name)
+
+        self._run_backfill()
+
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.analysis_detail_id, self.unique_detail.id)
+
+    def test_duplicate_name_within_standard_tree_stays_unlinked(self):
+        legacy = self._legacy_row('동명 담보')
+
+        self._run_backfill()
+
+        legacy.refresh_from_db()
+        self.assertIsNone(legacy.analysis_detail_id)
+
+
+@POSTGRES_ONLY
+class PlannerBaselinePostgresConcurrencyTests(TransactionTestCase):
+    reset_sequences = True
+
+    def setUp(self):
+        self.user, _client = _make_planner('baseline-pg-race@test.com')
+        category = AnalysisCategory.objects.create(
+            insurance_type=0, name='[표준]경합', order=1)
+        sub_category = AnalysisSubCategory.objects.create(
+            insurance_type=0, category=category, name='경합', order=1)
+        self.details = [
+            AnalysisDetail.objects.create(
+                sub_category=sub_category,
+                name=f'경합 담보 {index}',
+                order=index,
+            )
+            for index in (1, 2)
+        ]
+
+    @staticmethod
+    def _change(detail_id):
+        return {
+            'analysis_detail_id': detail_id,
+            'product_group': PlannerBaseline.PRODUCT_GROUP_ALL,
+            'age_band': PlannerBaseline.AGE_ALL,
+            'gender': None,
+            'recommend_min': '5000',
+            'recommend_max': None,
+            'unit': PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+        }
+
+    def test_two_first_batch_requests_serialize_to_success_and_stale_conflict(self):
+        barrier = threading.Barrier(2)
+
+        def post(detail_id):
+            def request():
+                barrier.wait(timeout=5)
+                client = APIClient()
+                client.force_authenticate(user=self.user)
+                return client.post(
+                    '/api/v1/planner-baselines/batch/',
+                    {
+                        'revision': 0,
+                        'changes': [self._change(detail_id)],
+                    },
+                    format='json',
+                )
+
+            return _thread_database_call(request)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(
+                post,
+                [detail.id for detail in self.details],
+            ))
+
+        self.assertEqual(
+            sorted(response.status_code for response in responses),
+            [200, 409],
+        )
+        conflict = next(
+            response for response in responses
+            if response.status_code == 409)
+        self.assertEqual(
+            conflict.json()['code'], 'baseline_revision_conflict')
+        self.assertEqual(
+            PlannerBaselineRevision.objects.get(owner=self.user).revision, 1)
+        self.assertEqual(
+            PlannerBaseline.objects.filter(owner=self.user).count(), 1)
+
+    def _assert_partial_unique_allows_only_one_concurrent_insert(self, gender):
+        barrier = threading.Barrier(2)
+
+        def insert(amount):
+            def write():
+                barrier.wait(timeout=5)
+                try:
+                    with transaction.atomic():
+                        PlannerBaseline.objects.create(
+                            owner_id=self.user.id,
+                            analysis_detail_id=self.details[0].id,
+                            coverage_key=self.details[0].name,
+                            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+                            age_band=PlannerBaseline.AGE_ALL,
+                            gender=gender,
+                            recommend_min=amount,
+                            baseline_source='planner',
+                        )
+                    return 'created'
+                except IntegrityError:
+                    return 'conflict'
+
+            return _thread_database_call(write)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes = list(executor.map(insert, (5000, 7000)))
+
+        self.assertEqual(sorted(outcomes), ['conflict', 'created'])
+        self.assertEqual(
+            PlannerBaseline.objects.filter(
+                owner=self.user,
+                analysis_detail=self.details[0],
+                product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+                age_band=PlannerBaseline.AGE_ALL,
+                gender=gender,
+            ).count(),
+            1,
+        )
+
+    def test_common_gender_partial_unique_allows_only_one_concurrent_insert(self):
+        self._assert_partial_unique_allows_only_one_concurrent_insert(None)
+
+    def test_specific_gender_partial_unique_allows_only_one_concurrent_insert(self):
+        self._assert_partial_unique_allows_only_one_concurrent_insert(1)
 
 
 class SalesStageTests(TestCase):
@@ -1201,7 +2499,7 @@ class ConsultationRecordingConsentTests(TestCase):
             ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
         ]
 
-    def test_public_disclosure_marks_both_required_and_explains_seven_day_retention(self):
+    def test_public_disclosure_marks_both_required_and_explains_thirty_day_retention(self):
         token = make_consent_token(self.customer, scopes=self.scopes)
 
         response = self.anon.get(f'/api/v1/c/{token}/')
@@ -1211,7 +2509,98 @@ class ConsultationRecordingConsentTests(TestCase):
         self.assertEqual([item['scope'] for item in items], self.scopes)
         self.assertTrue(all(item['required'] for item in items))
         recording = items[0]
-        self.assertIn('최대 7일', ' '.join(recording['lines']))
+        self.assertIn('30일', ' '.join(recording['lines']))
+
+    def test_old_recording_consent_is_immutable_and_cannot_open_new_gate(self):
+        old_recording = ConsentLog.objects.create(
+            customer=self.customer,
+            scope=ConsentLog.SCOPE_CONSULTATION_RECORDING,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+            doc_version='v1-2026-07-22',
+        )
+        ConsentLog.objects.create(
+            customer=self.customer,
+            scope=ConsentLog.SCOPE_CONSULTATION_SENSITIVE,
+            subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+            doc_version=CONSULTATION_CONSENT_VERSIONS[
+                ConsentLog.SCOPE_CONSULTATION_SENSITIVE
+            ],
+        )
+
+        self.assertFalse(has_current_consultation_recording_consent(self.customer))
+        token = make_consent_token(
+            self.customer,
+            scopes=[ConsentLog.SCOPE_CONSULTATION_RECORDING],
+        )
+        response = self.anon.post(
+            f'/api/v1/c/{token}/',
+            {'agreed': [ConsentLog.SCOPE_CONSULTATION_RECORDING]},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        old_recording.refresh_from_db()
+        self.assertEqual(old_recording.doc_version, 'v1-2026-07-22')
+        self.assertIsNone(old_recording.revoked_at)
+        self.assertTrue(has_current_consultation_recording_consent(self.customer))
+        self.assertEqual(
+            ConsentLog.objects.filter(
+                customer=self.customer,
+                scope=ConsentLog.SCOPE_CONSULTATION_RECORDING,
+            ).count(),
+            2,
+        )
+
+    def test_public_revocation_locks_customer_before_mutating_consents(self):
+        for scope in self.scopes:
+            ConsentLog.objects.create(
+                customer=self.customer,
+                scope=scope,
+                subject=ConsentLog.SUBJECT_CUSTOMER_SELF,
+                doc_version=CONSULTATION_CONSENT_VERSIONS[scope],
+            )
+        token = make_consent_token(
+            self.customer,
+            scopes=[ConsentLog.SCOPE_CONSULTATION_RECORDING],
+        )
+        order = []
+
+        select_for_update = Customer.objects.select_for_update
+
+        def lock_customer():
+            order.append('customer_lock_requested')
+            return select_for_update()
+
+        from .public_consent import PublicConsentView
+        apply_revocations = PublicConsentView._apply_revocations
+
+        def apply_after_lock(view, *args, **kwargs):
+            order.append('consents_mutated')
+            return apply_revocations(view, *args, **kwargs)
+
+        with (
+            mock.patch(
+                'inpa.customers.consent_texts.Customer.objects.select_for_update',
+                side_effect=lock_customer,
+            ) as customer_lock,
+            mock.patch.object(
+                PublicConsentView,
+                '_apply_revocations',
+                new=apply_after_lock,
+            ),
+        ):
+            response = self.anon.post(
+                f'/api/v1/c/{token}/',
+                {'revoked': [ConsentLog.SCOPE_CONSULTATION_RECORDING]},
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(order, ['customer_lock_requested', 'consents_mutated'])
+        customer_lock.assert_called_once_with()
+        self.assertFalse(
+            has_current_consultation_recording_consent(self.customer),
+        )
 
     def test_customer_self_consent_to_both_scopes_opens_gate_with_current_version(self):
         token = make_consent_token(self.customer, scopes=self.scopes)

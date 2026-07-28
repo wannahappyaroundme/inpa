@@ -5,6 +5,7 @@ from .views import (
     ClovaCallbackView,
     RecordingCapabilityView,
     RecordingDetailView,
+    RecordingDownloadURLView,
     RecordingListView,
     RecordingPartURLView,
     RecordingPlayURLView,
@@ -62,6 +63,12 @@ urlpatterns = [
         'customers/<int:customer_pk>/recordings/<uuid:recording_id>/play-url/',
         RecordingPlayURLView.as_view(),
         name='recording-play-url',
+    ),
+    path(
+        'customers/<int:customer_pk>/recordings/<uuid:recording_id>/'
+        'download-url/',
+        RecordingDownloadURLView.as_view(),
+        name='recording-download-url',
     ),
     path(
         'customers/<int:customer_pk>/recordings/<uuid:recording_id>/source/',

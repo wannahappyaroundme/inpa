@@ -16,6 +16,8 @@ import {
   type PromotionOrderStatus,
   type PromotionOrderDetail,
   type BlogCategory,
+  type ManualBenefitReview,
+  type ManualBenefitReviewStatus,
 } from "@/lib/api";
 import { normalizeAdminApiError } from "@/lib/admin-api-error";
 
@@ -244,6 +246,34 @@ export async function adminQueueBillingTokenRevocation(
     `/admin/billing/tokens/${tokenId}/revoke/`,
     {},
     { "Idempotency-Key": idempotencyKey },
+  );
+}
+
+export interface AdminBenefitReviewList {
+  results: ManualBenefitReview[];
+}
+
+export async function adminListBenefitReviews(
+  status?: ManualBenefitReviewStatus,
+): Promise<AdminBenefitReviewList> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return req("GET", `/admin/billing/benefit-reviews/${query}`);
+}
+
+export async function adminGetBenefitReview(
+  reviewId: number,
+): Promise<ManualBenefitReview> {
+  return req("GET", `/admin/billing/benefit-reviews/${reviewId}/`);
+}
+
+export async function adminDecideBenefitReview(
+  reviewId: number,
+  payload: { decision: "approved" | "rejected"; reason: string },
+): Promise<ManualBenefitReview> {
+  return req(
+    "POST",
+    `/admin/billing/benefit-reviews/${reviewId}/decision/`,
+    payload,
   );
 }
 
@@ -1410,6 +1440,7 @@ export interface AdminConsultationPilot {
 export interface AdminConsultationResponse {
   environment_gate_open: boolean;
   ai_environment_gate_open: boolean;
+  retention_days: number;
   settings: AdminConsultationSettings;
   status: AdminConsultationStatus;
   pilot_users: AdminConsultationPilot[];

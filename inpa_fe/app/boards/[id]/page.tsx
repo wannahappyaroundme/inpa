@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
+import { BoardItemMenu } from "@/components/board-item-menu";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   getPost,
@@ -15,7 +16,6 @@ import {
   toggleLike,
   reportContent,
   deletePost,
-  getProfile,
   type PostDetail,
   type CommentItem,
   type ReportReason,
@@ -118,21 +118,22 @@ function ReportModal({
 function CommentCard({
   comment,
   depth,
-  currentUserId,
   onReply,
   onEdit,
   onDelete,
   onReport,
+  deletingCommentId,
+  deleteErrors,
 }: {
   comment: CommentItem;
   depth: number;
-  currentUserId: number | null;
   onReply: (parentId: number, parentAuthor: string) => void;
   onEdit: (id: number, body: string) => void;
   onDelete: (id: number) => void;
   onReport: (id: number) => void;
+  deletingCommentId: number | null;
+  deleteErrors: Record<number, string>;
 }) {
-  const isOwn = currentUserId !== null && comment.author.id === currentUserId;
   const deleted = comment.is_deleted;
 
   return (
@@ -152,21 +153,22 @@ function CommentCard({
                 <span className="text-[11px] text-ink3">· 수정됨</span>
               )}
             </div>
+            {deleteErrors[comment.id] && <p role="alert" className="ml-9 mt-1 text-[12px] text-danger">{deleteErrors[comment.id]}</p>}
             <p className="text-[13px] text-ink leading-5 ml-9">{comment.body}</p>
-            <div className="flex gap-3 ml-9 mt-1.5 text-[12px] text-ink3">
+            <div className="flex items-center gap-3 ml-9 mt-1.5 text-[12px] text-ink3">
               {depth === 0 && (
                 <button onClick={() => onReply(comment.id, comment.author.display_name)} className="hover:text-brand transition">
                   답글
                 </button>
               )}
-              {isOwn ? (
-                <>
-                  <button onClick={() => onEdit(comment.id, comment.body)} className="hover:text-brand transition">수정</button>
-                  <button onClick={() => onDelete(comment.id)} className="hover:text-danger transition">삭제</button>
-                </>
-              ) : (
-                <button onClick={() => onReport(comment.id)} className="hover:text-danger transition">신고</button>
-              )}
+              <BoardItemMenu
+                canManage={comment.can_manage}
+                onEdit={() => onEdit(comment.id, comment.body)}
+                onDelete={() => onDelete(comment.id)}
+                onReport={() => onReport(comment.id)}
+                deleteDisabled={deletingCommentId === comment.id}
+                menuLabel="댓글 메뉴"
+              />
             </div>
           </>
         )}
@@ -177,11 +179,12 @@ function CommentCard({
           key={reply.id}
           comment={reply}
           depth={depth + 1}
-          currentUserId={currentUserId}
           onReply={onReply}
           onEdit={onEdit}
           onDelete={onDelete}
           onReport={onReport}
+          deletingCommentId={deletingCommentId}
+          deleteErrors={deleteErrors}
         />
       ))}
     </div>
@@ -210,17 +213,11 @@ export default function PostDetailPage() {
   const [editingComment, setEditingComment] = useState<{ id: number; body: string } | null>(null);
   const [submittingComment, setSubmittingComment] = useState(false);
 
-  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [reportTarget, setReportTarget] = useState<{ contentType: "post" | "comment"; objectId: number } | null>(null);
-
-  useEffect(() => {
-    if (!ready) return;
-    getProfile().then((p) => {
-      // email을 id로 쓸 수 없으므로 author.id 비교용 — 실제로는 BE에서 user.id를 반환해야 함
-      // 현재 ProfileResponse에 id 필드 없음 → null 유지 (본인 여부 판단 불가 — graceful)
-      setCurrentUserId(null);
-    }).catch(() => {});
-  }, [ready]);
+  const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
+  const [deletingPost, setDeletingPost] = useState(false);
+  const [postDeleteError, setPostDeleteError] = useState<string | null>(null);
+  const [commentDeleteErrors, setCommentDeleteErrors] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (!ready || !postId) return;
@@ -284,6 +281,9 @@ export default function PostDetailPage() {
 
   async function handleDeleteComment(id: number) {
     if (!confirm("댓글을 삭제할까요?")) return;
+    const isTopLevel = comments.some((comment) => comment.id === id);
+    setDeletingCommentId(id);
+    setCommentDeleteErrors((prev) => { const { [id]: _, ...rest } = prev; return rest; });
     try {
       await deleteComment(id);
       setComments((prev) => prev.map((c) => {
@@ -291,18 +291,27 @@ export default function PostDetailPage() {
         const replies = c.replies?.map((r) => r.id === id ? { ...r, is_deleted: true, body: "" } : r);
         return { ...c, replies: replies ?? c.replies };
       }));
+      setPost((prev) => prev && isTopLevel
+        ? { ...prev, comment_count: Math.max(0, prev.comment_count - 1) }
+        : prev);
     } catch {
-      alert("삭제 중 오류가 발생했어요.");
+      setCommentDeleteErrors((prev) => ({ ...prev, [id]: "내용을 그대로 두었어요. 다시 시도해 주세요." }));
+    } finally {
+      setDeletingCommentId(null);
     }
   }
 
   async function handleDeletePost() {
     if (!confirm("이 게시글을 삭제할까요?")) return;
+    setDeletingPost(true);
+    setPostDeleteError(null);
     try {
       await deletePost(postId);
       router.replace("/boards");
     } catch {
-      alert("삭제 중 오류가 발생했어요.");
+      setPostDeleteError("내용을 그대로 두었어요. 다시 시도해 주세요.");
+    } finally {
+      setDeletingPost(false);
     }
   }
 
@@ -334,8 +343,6 @@ export default function PostDetailPage() {
     );
   }
 
-  const isOwn = currentUserId !== null && post.author.id === currentUserId;
-
   return (
     <div className="min-h-dvh">
       <AppNav active="board" />
@@ -345,15 +352,16 @@ export default function PostDetailPage() {
           <button onClick={() => router.back()} className="text-[13px] text-ink3 flex items-center gap-1 hover:text-ink transition">
             ‹ 뒤로
           </button>
-          {isOwn ? (
-            <div className="flex gap-2 text-[13px]">
-              <Link href={`/boards/${post.id}/edit`} className="text-brand font-semibold">수정</Link>
-              <button onClick={handleDeletePost} className="text-danger font-semibold">삭제</button>
-            </div>
-          ) : (
-            <button onClick={() => setReportTarget({ contentType: "post", objectId: post.id })} className="text-[13px] text-ink3 hover:text-danger transition">신고</button>
-          )}
+          <BoardItemMenu
+            canManage={post.can_manage}
+            editHref={`/boards/${post.id}/edit`}
+            onDelete={handleDeletePost}
+            onReport={() => setReportTarget({ contentType: "post", objectId: post.id })}
+            deleteDisabled={deletingPost}
+            menuLabel="게시글 메뉴"
+          />
         </div>
+        {postDeleteError && <p role="alert" className="mb-3 text-[13px] text-danger">{postDeleteError}</p>}
 
         {/* 게시글 본문 */}
         <Card className="p-5 mb-4">
@@ -429,11 +437,12 @@ export default function PostDetailPage() {
                 key={c.id}
                 comment={c}
                 depth={0}
-                currentUserId={currentUserId}
                 onReply={(id, author) => { setReplyTo({ id, author }); setEditingComment(null); setCommentBody(""); }}
                 onEdit={(id, body) => { setEditingComment({ id, body }); setCommentBody(body); setReplyTo(null); }}
                 onDelete={handleDeleteComment}
                 onReport={(id) => setReportTarget({ contentType: "comment", objectId: id })}
+                deletingCommentId={deletingCommentId}
+                deleteErrors={commentDeleteErrors}
               />
             ))}
           </div>

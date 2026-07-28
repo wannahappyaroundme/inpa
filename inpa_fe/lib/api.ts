@@ -91,11 +91,32 @@ function handleUnauthorized(status: number): void {
  *  ({field: ["메시지", ...]})의 첫 메시지를 그대로 노출한다.
  *  (2026-07-07: 가입 400이 '오류가 발생했습니다'로만 보이던 문제 — 실제 사유
  *   예: '이미 가입된 이메일입니다'가 사용자에게 전달되지 않았음) */
+function findFirstErrorString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const match = findFirstErrorString(item);
+      if (match) return match;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      const match = findFirstErrorString(item);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
 function extractErrorDetail(data: Record<string, unknown>, statusText: string): string {
-  const direct = (data["detail"] as string) ?? (data["message"] as string);
+  const direct = findFirstErrorString(data["detail"])
+    ?? findFirstErrorString(data["message"]);
   if (direct) return direct;
-  for (const v of Object.values(data)) {
-    if (Array.isArray(v) && typeof v[0] === "string") return v[0];
+  for (const [key, value] of Object.entries(data)) {
+    if (key === "code" || key === "error") continue;
+    const nested = findFirstErrorString(value);
+    if (nested) return nested;
   }
   return statusText;
 }
@@ -105,7 +126,8 @@ async function request<T>(
   path: string,
   body?: unknown,
   auth = false,
-  extraHeaders: Record<string, string> = {}
+  extraHeaders: Record<string, string> = {},
+  onSuccessStatus?: (status: number) => void,
 ): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -150,6 +172,8 @@ async function request<T>(
     if (auth) handleUnauthorized(res.status);
     throw new ApiError(res.status, code, detail, creditBody, undefined, data);
   }
+
+  onSuccessStatus?.(res.status);
 
   return data as T;
 }
@@ -379,6 +403,102 @@ export interface ProfileUpdatePayload {
 }
 export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
   return request<ProfileResponse>("PATCH", "/auth/profile/", payload, true);
+}
+
+// ─── Talk templates ─────────────────────────────────────────────────────────
+
+export type TalkTemplateChannel = "message" | "call";
+
+export interface PersonalTalkTemplate {
+  id: number;
+  owner: number;
+  source_key: string | null;
+  title: string;
+  body: string;
+  category: string;
+  channel: TalkTemplateChannel;
+  sort_order: number;
+  is_active: boolean;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalTalkTemplatePayload {
+  source_key?: string | null;
+  title: string;
+  body: string;
+  category: string;
+  channel: TalkTemplateChannel;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export type PersonalTalkTemplatePatch =
+  Partial<PersonalTalkTemplatePayload>;
+
+export interface PersonalTalkTemplateListResponse {
+  results: PersonalTalkTemplate[];
+  hidden_source_keys: string[];
+}
+
+export interface TalkTemplatePreferencePayload {
+  source_key: string;
+  is_hidden: boolean;
+}
+
+export async function listPersonalTalkTemplates(): Promise<
+  PersonalTalkTemplateListResponse
+> {
+  return request<PersonalTalkTemplateListResponse>(
+    "GET",
+    "/talk-templates/",
+    undefined,
+    true,
+  );
+}
+
+export async function createPersonalTalkTemplate(
+  payload: PersonalTalkTemplatePayload,
+): Promise<PersonalTalkTemplate> {
+  return request<PersonalTalkTemplate>(
+    "POST",
+    "/talk-templates/",
+    payload,
+    true,
+  );
+}
+
+export async function updatePersonalTalkTemplate(
+  id: number,
+  payload: PersonalTalkTemplatePatch,
+): Promise<PersonalTalkTemplate> {
+  return request<PersonalTalkTemplate>(
+    "PATCH",
+    `/talk-templates/${id}/`,
+    payload,
+    true,
+  );
+}
+
+export async function deletePersonalTalkTemplate(id: number): Promise<void> {
+  await request<void>(
+    "DELETE",
+    `/talk-templates/${id}/`,
+    undefined,
+    true,
+  );
+}
+
+export async function putTalkTemplatePreference(
+  payload: TalkTemplatePreferencePayload,
+): Promise<TalkTemplatePreferencePayload> {
+  return request<TalkTemplatePreferencePayload>(
+    "PUT",
+    "/talk-template-preferences/",
+    payload,
+    true,
+  );
 }
 
 /** POST /api/v1/auth/tour/complete/ — 첫 로그인 화면 안내(투어) 완료 기록(멱등) */
@@ -1132,7 +1252,13 @@ export async function createCoverageFlag(
 // 필드 출처: customers/serializers.py PlannerBaselineSerializer + models.py PlannerBaseline.
 
 /** 상품군 (PlannerBaseline.PRODUCT_GROUP_CHOICES) */
-export type ProductGroup = 1 | 2 | 3 | 4; // 1=생명 2=손해 3=실손 4=연금저축
+export type ProductGroup = 0 | 1 | 2 | 3 | 4; // 0=전체 1=생명 2=손해 3=실손 4=연금저축
+
+/** 전체 담보 기준표에서 지원하는 상품 범위. */
+export type BaselineProductGroup = ProductGroup;
+
+/** 전연령과 연령대별 상세 기준. */
+export type BaselineAgeBand = "all" | "20s" | "30s" | "40s" | "50s" | "60s+";
 
 /** 성별 (PlannerBaseline.GENDER_TYPE) — null=성별 무관 공통 밴드 */
 export type BaselineGender = 1 | 2 | null; // 1=남 2=여
@@ -1147,9 +1273,10 @@ export type BaselineUnit = 1 | 2 | 3; // 1=만원 2=원 3=구좌
  */
 export interface PlannerBaseline {
   id: number;
+  analysis_detail?: number | null;
   coverage_key: string;
   product_group: ProductGroup;
-  age_band: string; // '20s'|'30s'|'40s'|'50s'|'60s+'
+  age_band: BaselineAgeBand;
   gender: BaselineGender;
   recommend_min: string | null;
   recommend_max: string | null;
@@ -1163,15 +1290,13 @@ export interface PlannerBaseline {
 
 /** 생성/수정 payload — read_only(id/created_at/updated_at) 제외 */
 export interface PlannerBaselineWritePayload {
-  coverage_key: string;
+  analysis_detail: number;
   product_group: ProductGroup;
-  age_band: string;
+  age_band: BaselineAgeBand;
   gender?: BaselineGender;
   recommend_min?: string | number | null;
   recommend_max?: string | number | null;
   unit?: BaselineUnit;
-  baseline_source?: string | null;
-  preset_origin?: string | null;
   is_active?: boolean;
 }
 
@@ -1186,7 +1311,9 @@ export async function listBaselines(
 ): Promise<PaginatedResult<PlannerBaseline>> {
   const qs = new URLSearchParams();
   if (params.page) qs.set("page", String(params.page));
-  if (params.product_group) qs.set("product_group", String(params.product_group));
+  if (params.product_group !== undefined) {
+    qs.set("product_group", String(params.product_group));
+  }
   if (params.age_band) qs.set("age_band", params.age_band);
   if (params.gender !== undefined && params.gender !== null) {
     qs.set("gender", String(params.gender));
@@ -1200,7 +1327,7 @@ export async function listBaselines(
   );
 }
 
-/** POST /api/v1/planner-baselines/ — 직접 입력은 baseline_source='planner' 로 보냄 */
+/** POST /api/v1/planner-baselines/ — analysis_detail 필수, 출처 필드는 서버가 지정. */
 export async function createBaseline(
   payload: PlannerBaselineWritePayload
 ): Promise<PlannerBaseline> {
@@ -1218,6 +1345,125 @@ export async function updateBaseline(
 /** DELETE /api/v1/planner-baselines/{id}/ — 204 No Content → void */
 export async function deleteBaseline(id: number): Promise<void> {
   return requestVoid("DELETE", `/planner-baselines/${id}/`);
+}
+
+export interface BaselineCatalogStoredScope {
+  analysis_detail: number | null;
+  product_group: BaselineProductGroup;
+  age_band: BaselineAgeBand;
+  gender: BaselineGender;
+  recommend_min: string | null;
+  recommend_max: string | null;
+  unit: BaselineUnit;
+}
+
+export interface BaselineCatalogDetail {
+  id: number;
+  name: string;
+  order: number;
+  unit: BaselineUnit;
+  baselines: BaselineCatalogStoredScope[];
+}
+
+export interface BaselineCatalogSubcategory {
+  id: number;
+  name: string;
+  insurance_type: number;
+  order: number;
+  details: BaselineCatalogDetail[];
+}
+
+export interface BaselineCatalogCategory {
+  id: number;
+  name: string;
+  insurance_type: number;
+  order: number;
+  subcategories: BaselineCatalogSubcategory[];
+}
+
+export type LegacyBaselineConflictCode =
+  | "no_standard_match"
+  | "multiple_standard_matches"
+  | "link_confirmation_required";
+
+export interface LegacyPlannerBaseline {
+  id: number;
+  coverage_key: string;
+  product_group: BaselineProductGroup;
+  age_band: BaselineAgeBand;
+  gender: BaselineGender;
+  recommend_min: string | null;
+  recommend_max: string | null;
+  unit: BaselineUnit;
+  is_applied: boolean;
+  conflict_code: LegacyBaselineConflictCode;
+  conflict_reason: string;
+  matching_analysis_detail_ids: number[];
+}
+
+export interface BaselineCatalogResponse {
+  revision: number;
+  categories: BaselineCatalogCategory[];
+  legacy_baselines: LegacyPlannerBaseline[];
+}
+
+export interface PlannerBaselineBatchChange {
+  analysis_detail_id: number;
+  product_group: BaselineProductGroup;
+  age_band: BaselineAgeBand;
+  gender: BaselineGender;
+  recommend_min: string | null;
+  recommend_max: string | null;
+  unit: BaselineUnit;
+}
+
+export interface PlannerBaselineBatchPayload {
+  revision: number;
+  changes: PlannerBaselineBatchChange[];
+}
+
+export interface PlannerBaselineBatchResponse {
+  revision: number;
+}
+
+export interface LegacyBaselineLinkResponse {
+  revision: number;
+  baseline: PlannerBaseline;
+}
+
+/** GET /api/v1/baseline-catalog/ — 전체 표준 담보와 현재 사용자의 기준. */
+export async function getBaselineCatalog(): Promise<BaselineCatalogResponse> {
+  return request<BaselineCatalogResponse>(
+    "GET",
+    "/baseline-catalog/",
+    undefined,
+    true,
+  );
+}
+
+/** POST /api/v1/planner-baselines/batch/ — 변경 범위를 revision 기준으로 원자 저장. */
+export async function savePlannerBaselineBatch(
+  payload: PlannerBaselineBatchPayload,
+): Promise<PlannerBaselineBatchResponse> {
+  return request<PlannerBaselineBatchResponse>(
+    "POST",
+    "/planner-baselines/batch/",
+    payload,
+    true,
+  );
+}
+
+/** POST /api/v1/planner-baselines/{id}/link/ — 기존 직접 입력을 선택한 표준 담보에 연결. */
+export async function linkLegacyBaseline(
+  id: number,
+  analysisDetailId: number,
+): Promise<LegacyBaselineLinkResponse> {
+  return request<LegacyBaselineLinkResponse>(
+    "POST",
+    `/planner-baselines/${id}/link/`,
+    { analysis_detail_id: analysisDetailId },
+    true,
+  );
 }
 
 // ─── DELETE helper (204 No Content → void) ─────────────────────────────────────
@@ -1271,6 +1517,7 @@ export interface PostFeedItem {
   is_edited: boolean;
   category: PostCategory;
   thumbnail_url: string | null;
+  can_manage: boolean;
 }
 
 export interface PostAttachment {
@@ -1298,6 +1545,7 @@ export interface PostDetail {
   is_edited: boolean;
   category: PostCategory;
   attachments: PostAttachment[];
+  can_manage: boolean;
 }
 
 export interface PostWritePayload {
@@ -1367,6 +1615,7 @@ export interface CommentItem {
   created_at: string;
   updated_at: string;
   replies: CommentItem[];
+  can_manage: boolean;
 }
 
 /** GET /api/v1/board/posts/{postId}/comments/ — 평면 배열 반환 */
@@ -2029,6 +2278,37 @@ export interface RecurringCouponPreflight {
   initial_consent_version: string;
 }
 
+export interface FreeTrialPhoneChallenge {
+  challenge_id: string;
+  expires_in_seconds: number;
+  phone_masked: string;
+}
+
+export interface FreeTrialPhoneVerification {
+  verified: true;
+  phone_masked: string;
+}
+
+export type ManualBenefitReviewStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "consumed";
+
+export interface ManualBenefitReview {
+  id: number;
+  phone_masked: string;
+  contact_email: string;
+  reason: string;
+  status: ManualBenefitReviewStatus;
+  decision_reason: string;
+  created_at: string;
+  decided_at: string | null;
+  consumed_at: string | null;
+  /** FE-only: true for the server's HTTP 201 create response. */
+  created?: boolean;
+}
+
 export interface CardRegistrationStart {
   auth_page_url: string;
   state: string;
@@ -2069,6 +2349,60 @@ export async function preflightRecurringCoupon(
     { code },
     true,
   );
+}
+
+export async function requestFreeTrialPhoneVerification(
+  phone: string,
+): Promise<FreeTrialPhoneChallenge> {
+  return request<FreeTrialPhoneChallenge>(
+    "POST",
+    "/billing/free-trial/phone/request/",
+    { phone },
+    true,
+  );
+}
+
+export async function verifyFreeTrialPhone(payload: {
+  challenge_id: string;
+  phone: string;
+  code: string;
+}): Promise<FreeTrialPhoneVerification> {
+  return request<FreeTrialPhoneVerification>(
+    "POST",
+    "/billing/free-trial/phone/verify/",
+    payload,
+    true,
+  );
+}
+
+export async function submitManualBenefitReview(payload: {
+  contact_email: string;
+  reason: string;
+}): Promise<ManualBenefitReview> {
+  let created = false;
+  const review = await request<ManualBenefitReview>(
+    "POST",
+    "/billing/free-trial/manual-reviews/",
+    payload,
+    true,
+    {},
+    (status) => { created = status === 201; },
+  );
+  return { ...review, created };
+}
+
+export async function getCurrentManualBenefitReview(): Promise<ManualBenefitReview | null> {
+  try {
+    return await request<ManualBenefitReview>(
+      "GET",
+      "/billing/free-trial/manual-reviews/",
+      undefined,
+      true,
+    );
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
 }
 
 export async function startCardRegistration(
@@ -4557,7 +4891,7 @@ export async function acceptRecruitingJoin(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 상담 녹음: 고객별 비공개 원본, 분할 업로드, 최대 7일 보관
+// 상담 녹음: 고객별 비공개 원본, 분할 업로드, 서버 보관기간 적용
 // ════════════════════════════════════════════════════════════════════════════
 
 export type ConsultationRecordingStatus =
@@ -4619,6 +4953,8 @@ export interface RecordingCapability {
   } | null;
   customer_free_summary_used: boolean;
   retention_days: number;
+  planner_notice_version: string;
+  planner_notice_text: string;
   max_duration_seconds: number;
   max_bytes: number;
   part_bytes: number;
@@ -4658,6 +4994,7 @@ export async function createRecordingUpload(
   clientSessionId: string,
   mimeType: string,
   startedAt: string,
+  noticeVersion: string,
 ): Promise<RecordingUploadSession> {
   return request<RecordingUploadSession>(
     "POST",
@@ -4666,6 +5003,8 @@ export async function createRecordingUpload(
       client_session_id: clientSessionId,
       mime_type: mimeType,
       started_at: startedAt,
+      notice_attested: true,
+      notice_version: noticeVersion,
     },
     true,
   );
@@ -4717,6 +5056,18 @@ export async function getRecordingPlayUrl(
   return request<{ url: string; expires_in_seconds: number }>(
     "POST",
     `/customers/${customerId}/recordings/${recordingId}/play-url/`,
+    {},
+    true,
+  );
+}
+
+export async function getRecordingDownloadUrl(
+  customerId: number,
+  recordingId: string,
+): Promise<{ url: string; expires_in_seconds: 300 }> {
+  return request<{ url: string; expires_in_seconds: 300 }>(
+    "POST",
+    `/customers/${customerId}/recordings/${recordingId}/download-url/`,
     {},
     true,
   );

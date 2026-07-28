@@ -11,6 +11,9 @@ config/urls.py에서 /api/v1/ 로 마운트.
 from django.urls import path
 
 from .views import (
+    AdminBenefitReviewDecisionView,
+    AdminBenefitReviewDetailView,
+    AdminBenefitReviewListView,
     AdminBillingModeView,
     AdminBillingUsageView,
     AdminSubscriptionPatchView,
@@ -26,6 +29,9 @@ from .views import (
     CardRegistrationStartView,
     CouponRedeemView,
     FirstChargeReconfirmationView,
+    FreeTrialPhoneRequestView,
+    FreeTrialPhoneVerifyView,
+    ManualBenefitReviewRequestView,
     PlanListView,
     RecurringCouponPreflightView,
 )
@@ -38,6 +44,21 @@ urlpatterns = [
     path('billing/event/', BillingEventView.as_view(), name='billing-event'),
     path('billing/usage/', BillingUsageView.as_view(), name='billing-usage'),
     path('billing/coupons/redeem/', CouponRedeemView.as_view(), name='coupon-redeem'),
+    path(
+        'billing/free-trial/phone/request/',
+        FreeTrialPhoneRequestView.as_view(),
+        name='free-trial-phone-request',
+    ),
+    path(
+        'billing/free-trial/phone/verify/',
+        FreeTrialPhoneVerifyView.as_view(),
+        name='free-trial-phone-verify',
+    ),
+    path(
+        'billing/free-trial/manual-reviews/',
+        ManualBenefitReviewRequestView.as_view(),
+        name='free-trial-manual-review',
+    ),
     path(
         'billing/coupons/preflight/',
         RecurringCouponPreflightView.as_view(),
@@ -87,6 +108,21 @@ urlpatterns = [
 
     # 관리자 전용
     path('admin/billing/mode/', AdminBillingModeView.as_view(), name='admin-billing-mode'),
+    path(
+        'admin/billing/benefit-reviews/',
+        AdminBenefitReviewListView.as_view(),
+        name='admin-benefit-review-list',
+    ),
+    path(
+        'admin/billing/benefit-reviews/<int:review_id>/',
+        AdminBenefitReviewDetailView.as_view(),
+        name='admin-benefit-review-detail',
+    ),
+    path(
+        'admin/billing/benefit-reviews/<int:review_id>/decision/',
+        AdminBenefitReviewDecisionView.as_view(),
+        name='admin-benefit-review-decision',
+    ),
     path('admin/billing/usage/', AdminBillingUsageView.as_view(), name='admin-billing-usage'),
     path(
         'admin/billing/subscription/<int:user_id>/',
