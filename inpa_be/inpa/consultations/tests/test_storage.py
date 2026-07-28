@@ -75,7 +75,13 @@ class R2RecordingStorageTests(SimpleTestCase):
         recording_id = uuid.uuid4()
         self.client.create_multipart_upload.return_value = {'UploadId': 'upload-1'}
 
-        result = self.storage.create(recording_id, 'audio/webm')
+        result = self.storage.create(
+            recording_id,
+            'audio/webm',
+            retention_hours=720,
+            retention_days=30,
+            retention_policy_version='v2-30d',
+        )
 
         self.assertEqual(
             result,
@@ -89,7 +95,12 @@ class R2RecordingStorageTests(SimpleTestCase):
             Bucket='private-audio',
             Key=result.key,
             ContentType='audio/webm',
-            Metadata={'retention': '7-days'},
+            Metadata={
+                'retention': '30-days',
+                'retention-hours': '720',
+                'retention-days': '30',
+                'retention-policy': 'v2-30d',
+            },
         )
 
     def test_presign_part_uses_short_ttl_and_scoped_parameters(self):
@@ -170,3 +181,39 @@ class R2RecordingStorageTests(SimpleTestCase):
     def test_rejects_key_outside_recording_namespace(self):
         with self.assertRaises(ValueError):
             self.storage.presign_get('customer-name/audio.webm')
+
+    def test_download_url_is_a_three_hundred_second_attachment(self):
+        key = f'consultation-recordings/{uuid.uuid4()}/source'
+        self.client.generate_presigned_url.return_value = (
+            'https://download.example/signed'
+        )
+
+        url = self.storage.presign_download(
+            key,
+            'consultation-recording-20260728.webm',
+        )
+
+        self.assertEqual(url, 'https://download.example/signed')
+        self.client.generate_presigned_url.assert_called_once_with(
+            'get_object',
+            Params={
+                'Bucket': 'private-audio',
+                'Key': key,
+                'ResponseContentDisposition': (
+                    'attachment; '
+                    'filename="consultation-recording-20260728.webm"'
+                ),
+            },
+            ExpiresIn=300,
+        )
+
+    def test_download_url_rejects_unsafe_filename(self):
+        key = f'consultation-recordings/{uuid.uuid4()}/source'
+
+        for filename in (
+            '../../secret.webm',
+            'consultation.webm\r\nX-Unsafe: yes',
+            '고객이름.webm',
+        ):
+            with self.subTest(filename=filename), self.assertRaises(ValueError):
+                self.storage.presign_download(key, filename)

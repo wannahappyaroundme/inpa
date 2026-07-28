@@ -11,13 +11,15 @@
 버전이 바뀌면 CONSENT_TEXTS_VERSION 을 올린다. 게이트(has_current_overseas_consent)는
 이 버전과 일치하는 고객 본인 국외이전 동의가 있어야만 새 Claude 호출을 연다.
 """
-from .models import ConsentLog
+from django.db import transaction
+
+from .models import ConsentLog, Customer
 
 # 문구가 실질적으로 바뀔 때마다 올린다(YYYY-MM-DD). ConsentLog.doc_version(max_length=30)에 스탬프.
 CONSENT_TEXTS_VERSION = 'v2-2026-07-04'
 
 CONSULTATION_CONSENT_VERSIONS = {
-    ConsentLog.SCOPE_CONSULTATION_RECORDING: 'v1-2026-07-22',
+    ConsentLog.SCOPE_CONSULTATION_RECORDING: 'v2-2026-07-28',
     ConsentLog.SCOPE_CONSULTATION_SENSITIVE: 'v1-2026-07-22',
 }
 CONSULTATION_SUMMARY_CONSENT_VERSION = 'v1-2026-07-22'
@@ -26,10 +28,11 @@ CONSULTATION_CONSENT_TEXTS = {
     ConsentLog.SCOPE_CONSULTATION_RECORDING: {
         'title': '상담 녹음과 원본 보관',
         'body': [
-            '상담 내용을 메모로 정리하기 위해 녹음합니다. '
-            '원본 녹음은 인파에서 최대 7일 보관한 뒤 자동 삭제됩니다.',
+            '상담 내용을 정확히 기록하고, 향후 상담 내용과 보험금 청구 관련 안내를 '
+            '확인하는 참고자료로 활용하기 위해 녹음합니다. '
+            '원본 녹음은 인파에서 30일 동안 보관한 뒤 자동 삭제됩니다.',
         ],
-        'retention': '보유 기간: 원본 녹음은 최대 7일',
+        'retention': '보유 기간: 원본 녹음은 30일',
     },
     ConsentLog.SCOPE_CONSULTATION_SENSITIVE: {
         'title': '상담 중 민감정보 처리',
@@ -121,6 +124,16 @@ def consent_version_for_scope(scope):
     if scope == ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY:
         return CONSULTATION_SUMMARY_CONSENT_VERSION
     return CONSULTATION_CONSENT_VERSIONS.get(scope, CONSENT_TEXTS_VERSION)
+
+
+def lock_customer_consent_state(*, customer_id, owner_id=None):
+    """Serialize consent mutation and source issuance on one Customer row."""
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError('CUSTOMER_CONSENT_LOCK_REQUIRES_ATOMIC')
+    queryset = Customer.objects.select_for_update().filter(pk=customer_id)
+    if owner_id is not None:
+        queryset = queryset.filter(owner_id=owner_id)
+    return queryset.first()
 
 
 def has_current_consultation_recording_consent(customer):

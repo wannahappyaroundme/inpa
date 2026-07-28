@@ -116,7 +116,9 @@ export function useConsultationRecorder(customerId: number) {
   const session = useRecorderContext();
   return useMemo(() => ({
     ...session,
-    start: () => session.start(customerId),
+    start: (options: Parameters<RecorderSessionContextValue["start"]>[1]) => (
+      session.start(customerId, options)
+    ),
     belongsToCustomer: session.customerId === customerId,
   }), [customerId, session]);
 }

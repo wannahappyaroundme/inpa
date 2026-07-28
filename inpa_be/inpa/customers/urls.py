@@ -40,6 +40,8 @@ _contactlog = _nested(views.ContactLogViewSet)
 _memo = _nested(views.CustomerMemoViewSet)
 
 urlpatterns = router.urls + [
+    path('baseline-catalog/', views.BaselineCatalogView.as_view(),
+         name='baseline-catalog'),
     path('customers/<int:customer_pk>/family/', _family['list'], name='family-list'),
     path('customers/<int:customer_pk>/family/<int:pk>/', _family['detail'], name='family-detail'),
     path('customers/<int:customer_pk>/medical/', _medical['list'], name='medical-list'),

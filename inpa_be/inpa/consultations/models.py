@@ -5,6 +5,17 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from .recording_policy import (
+    CURRENT_RETENTION_DAYS,
+    CURRENT_RETENTION_HOURS,
+    CURRENT_RETENTION_POLICY_VERSION,
+    LEGACY_RETENTION_DAYS,
+    LEGACY_RETENTION_HOURS,
+    LEGACY_RETENTION_POLICY_VERSION,
+    PLANNER_NOTICE_TEXT_HASH,
+    PLANNER_NOTICE_VERSION,
+)
+
 
 class ConsultationRecording(models.Model):
     STATUS_UPLOADING = 'uploading'
@@ -53,6 +64,7 @@ class ConsultationRecording(models.Model):
     multipart_upload_id = models.CharField(max_length=512, blank=True, default='')
     mime_type = models.CharField(max_length=80)
     codec = models.CharField(max_length=80, blank=True, default='')
+    verified_container = models.CharField(max_length=16, blank=True, default='')
     byte_size = models.PositiveBigIntegerField(default=0)
     duration_ms = models.PositiveBigIntegerField(default=0)
     checksum = models.CharField(max_length=100, blank=True, default='')
@@ -60,6 +72,19 @@ class ConsultationRecording(models.Model):
     ended_at = models.DateTimeField(null=True, blank=True)
     uploaded_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    notice_version = models.CharField(max_length=40, blank=True, default='')
+    notice_attested_at = models.DateTimeField(null=True, blank=True)
+    notice_text_hash = models.CharField(max_length=64, blank=True, default='')
+    retention_hours_snapshot = models.PositiveSmallIntegerField(
+        default=LEGACY_RETENTION_HOURS,
+    )
+    retention_days_snapshot = models.PositiveSmallIntegerField(
+        default=LEGACY_RETENTION_DAYS,
+    )
+    retention_policy_version = models.CharField(
+        max_length=40,
+        default=LEGACY_RETENTION_POLICY_VERSION,
+    )
     deleted_at = models.DateTimeField(null=True, blank=True)
     delete_reason = models.CharField(max_length=40, blank=True, default='')
     delete_result = models.CharField(max_length=40, blank=True, default='')
@@ -88,7 +113,30 @@ class ConsultationRecording(models.Model):
                 condition=models.Q(client_session_id__isnull=False),
                 name='uniq_consultation_client_session',
             ),
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(
+                        retention_policy_version=CURRENT_RETENTION_POLICY_VERSION,
+                    )
+                    | (
+                        models.Q(notice_version=PLANNER_NOTICE_VERSION)
+                        & models.Q(notice_attested_at__isnull=False)
+                        & models.Q(notice_text_hash=PLANNER_NOTICE_TEXT_HASH)
+                        & models.Q(
+                            retention_hours_snapshot=CURRENT_RETENTION_HOURS,
+                        )
+                        & models.Q(
+                            retention_days_snapshot=CURRENT_RETENTION_DAYS,
+                        )
+                    )
+                ),
+                name='v2_recording_notice_evidence_required',
+            ),
         ]
+
+    @property
+    def ready_at(self):
+        return self.uploaded_at
 
     def mark_ready(
         self,
@@ -97,24 +145,21 @@ class ConsultationRecording(models.Model):
         byte_size,
         duration_ms,
         checksum,
+        actual_container,
         codec='',
     ):
         if self.status != self.STATUS_UPLOADING:
             raise ValueError('INVALID_RECORDING_TRANSITION')
-        retention = timedelta(
-            hours=max(1, min(settings.CONSULTATION_RETENTION_HOURS, 168)),
-        )
-        requested_safety = timedelta(
-            minutes=max(settings.CONSULTATION_RETENTION_SAFETY_MINUTES, 15),
-        )
-        safety = min(requested_safety, retention - timedelta(minutes=1))
+        retention = timedelta(hours=self.retention_hours_snapshot)
+        uploaded_at = timezone.now()
         self.status = self.STATUS_READY
         self.ended_at = ended_at
-        self.uploaded_at = timezone.now()
-        self.expires_at = ended_at + retention - safety
+        self.uploaded_at = uploaded_at
+        self.expires_at = uploaded_at + retention
         self.byte_size = byte_size
         self.duration_ms = duration_ms
         self.codec = codec
+        self.verified_container = actual_container
         self.checksum = checksum
         self.multipart_upload_id = ''
         self.version += 1
@@ -126,6 +171,7 @@ class ConsultationRecording(models.Model):
             'byte_size',
             'duration_ms',
             'codec',
+            'verified_container',
             'checksum',
             'multipart_upload_id',
             'version',

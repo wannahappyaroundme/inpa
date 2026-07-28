@@ -2095,6 +2095,13 @@ class AdminConsultationSettingsTest(TestCase):
         )
         self.client_admin = _auth_client(self.admin)
 
+    @override_settings(CONSULTATION_RETENTION_HOURS=720)
+    def test_response_uses_shared_exact_retention_days(self):
+        response = self.client_admin.get('/api/v1/admin/consultations/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['retention_days'], 30)
+
     @override_settings(CONSULTATION_RECORDING_ENABLED=True)
     def test_response_has_operating_counts_without_recording_content(self):
         runtime = ConsultationRuntimeConfig.solo()

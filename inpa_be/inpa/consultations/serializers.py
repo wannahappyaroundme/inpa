@@ -83,6 +83,13 @@ class UploadSessionRequestSerializer(serializers.Serializer):
     client_session_id = serializers.UUIDField()
     mime_type = serializers.ChoiceField(choices=sorted(ALLOWED_RECORDING_MIME_TYPES))
     started_at = serializers.DateTimeField(required=False)
+    notice_attested = serializers.BooleanField(required=False, write_only=True)
+    notice_version = serializers.CharField(
+        required=False,
+        max_length=40,
+        trim_whitespace=False,
+        write_only=True,
+    )
 
     def validate_started_at(self, value):
         now = timezone.now()

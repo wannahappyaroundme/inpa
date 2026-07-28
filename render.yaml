@@ -108,10 +108,24 @@ services:
         sync: false                  # Fernet 키. 분실 시 기존 결제키를 복호화할 수 없음
       - key: PAYMENT_TOKEN_KEY_VERSION
         value: "v1"
+      - key: FREE_TRIAL_PHONE_VERIFICATION_ENABLED
+        value: "False"               # SMS·개인정보 고지·실번호 검증과 PM 승인 전까지 닫힘
+      - key: SOLAPI_API_KEY
+        sync: false
+      - key: SOLAPI_API_SECRET
+        sync: false
+      - key: SOLAPI_SENDER_NUMBER
+        sync: false                  # SOLAPI에 등록된 숫자 전용 발신번호
+      - key: PHONE_IDENTITY_HMAC_KEY
+        sync: false                  # 원문 번호를 저장하지 않는 무작위 32-byte 이상 HMAC 키
+      - key: PHONE_IDENTITY_HMAC_KEY_VERSION
+        value: "v1"                  # 원장 재키잉 전에는 변경 금지
       - key: CONSULTATION_SUMMARY_ACTIVE_LIMIT
         value: "1"                   # 여러 서버·워커에서도 DB 잠금으로 동시에 한 건만 처리
       - key: CONSULTATION_SUMMARY_MODEL
         sync: false                  # 요약 모델 ID는 운영 환경에서만 주입
+      - key: CONSULTATION_RETENTION_HOURS
+        value: "720"                 # 신규 원본은 준비 완료 시각부터 정확히 30일 보관
       - key: CLOVA_SPEECH_INVOKE_URL
         sync: false
       - key: CLOVA_SPEECH_SECRET_KEY
@@ -145,7 +159,7 @@ services:
         sync: false                  # [A] 시크릿 키
       - key: AWS_S3_ENDPOINT_URL
         sync: false                  # [A] R2/B2/Supabase 엔드포인트(AWS S3면 비움)
-      # ── 상담 녹음 전용 비공개 R2. 일반 미디어 버킷과 분리하고 lifecycle 6일 적용 ──
+      # ── 상담 녹음 전용 비공개 R2. 앱의 30일보다 긴 lifecycle(31일 이상) 적용 ──
       - key: CONSULTATION_STORAGE_BUCKET
         sync: false
       - key: CONSULTATION_STORAGE_ENDPOINT
@@ -273,6 +287,11 @@ services:
           type: web
           name: inpa-be
           envVarKey: CONSULTATION_SUMMARY_MODEL
+      - key: CONSULTATION_RETENTION_HOURS
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_RETENTION_HOURS
       - key: CLOVA_SPEECH_INVOKE_URL
         fromService:
           type: web
@@ -422,6 +441,11 @@ services:
           type: web
           name: inpa-be
           envVarKey: DATABASE_URL
+      - key: CONSULTATION_RETENTION_HOURS
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_RETENTION_HOURS
       - key: CONSULTATION_STORAGE_BUCKET
         fromService:
           type: web

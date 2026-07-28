@@ -19,6 +19,41 @@ if SECRET_KEY == 'dev-insecure-change-me':  # noqa: F405
         "(생성: python3 -c \"import secrets; print(secrets.token_urlsafe(64))\")"
     )
 
+if FREE_TRIAL_PHONE_VERIFICATION_ENABLED:  # noqa: F405
+    _phone_verification_required = {
+        'SOLAPI_API_KEY': SOLAPI_API_KEY,  # noqa: F405
+        'SOLAPI_API_SECRET': SOLAPI_API_SECRET,  # noqa: F405
+        'SOLAPI_SENDER_NUMBER': SOLAPI_SENDER_NUMBER,  # noqa: F405
+        'PHONE_IDENTITY_HMAC_KEY': PHONE_IDENTITY_HMAC_KEY,  # noqa: F405
+    }
+    _phone_verification_missing = [
+        name
+        for name, value in _phone_verification_required.items()
+        if not value
+    ]
+    if _phone_verification_missing:
+        raise ImproperlyConfigured(
+            'FREE_TRIAL_PHONE_VERIFICATION_ENABLED 를 열려면 '
+            f"{', '.join(_phone_verification_missing)} 설정이 필요합니다."
+        )
+    if (
+        len(PHONE_IDENTITY_HMAC_KEY.encode('utf-8'))  # noqa: F405
+        < PHONE_IDENTITY_HMAC_KEY_MIN_BYTES  # noqa: F405
+    ):
+        raise ImproperlyConfigured(
+            'FREE_TRIAL_PHONE_VERIFICATION_ENABLED 를 열려면 '
+            'PHONE_IDENTITY_HMAC_KEY must be at least 32 bytes.'
+        )
+
+if (
+    CONSULTATION_RECORDING_ENABLED  # noqa: F405
+    and CONSULTATION_RETENTION_HOURS != 720  # noqa: F405
+):
+    raise ImproperlyConfigured(
+        'CONSULTATION_RECORDING_ENABLED 를 열려면 '
+        'CONSULTATION_RETENTION_HOURS must be exactly 720.'
+    )
+
 # ── 보안 하드닝 (보안 감사 2026-06-28) ─────────────────────────────
 # (1) DRF NUM_PROXIES — Render 역방향 프록시 1단 뒤. throttle/감사 IP가 X-Forwarded-For의
 #     '끝에서 1번째'(실 클라이언트)만 신뢰 → XFF 위조로 throttle 우회하는 공격 차단.

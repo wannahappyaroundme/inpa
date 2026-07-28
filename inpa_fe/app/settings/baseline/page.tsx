@@ -1,624 +1,1160 @@
 "use client";
 
-// ════════════════════════════════════════════════════════════════════════════
-// 설계사 기준 설정 (Planner Baseline) — docs/dev/10-planner-criteria.md
-//
-// ★ 컴플라이언스 심장부:
-//  - 기준선의 소유자·결정자·책임자 = 설계사. 인파는 저장·연산·표시만(판정 권위 없음).
-//  - baseline_source 미설정(null)이면 분석은 neutral 강제(부족/충분 안 함).
-//    → 기준을 설정하면(source='planner') 비로소 부족·적정·넉넉 판정이 켜진다.
-//  - 직접 입력만 허용(source='planner'). 프리셋(금감원 등 외부 시드)은
-//    출처·권위 미확정(dev/10 B-1)이라 비활성. 출처 라벨은 디스클레이머 표시용으로만 입력.
-//  - 디스클레이머 상시 노출(접기 불가): "판정 권위·최종책임은 설계사".
-// ════════════════════════════════════════════════════════════════════════════
-
-import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
-import { AppNav } from "@/components/app-nav";
-import { Card } from "@/components/ui";
-import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
-  listBaselines,
-  createBaseline,
-  updateBaseline,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import Link from "next/link";
+import {
+  ChevronDown,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
+import { AppNav } from "@/components/app-nav";
+import { BaselineDetailDrawer } from "@/components/baseline-detail-drawer";
+import {
+  ApiError,
   deleteBaseline,
-  type PlannerBaseline,
-  type PlannerBaselineWritePayload,
-  type ProductGroup,
-  type BaselineGender,
+  getBaselineCatalog,
+  linkLegacyBaseline,
+  savePlannerBaselineBatch,
   type BaselineUnit,
+  type LegacyPlannerBaseline,
 } from "@/lib/api";
+import {
+  buildBaselineChanges,
+  baselineScopeKey,
+  catalogToDraft,
+  countChangedScopes,
+  filterBaselineCatalog,
+  mapBaselineBatchFieldErrors,
+  validateBaselineChanges,
+  type BaselineDraftCatalog,
+  type BaselineDraftDetail,
+  type BaselineDraftScope,
+  type BaselineFieldErrors,
+} from "@/lib/baseline-editor";
+import { useAuthGuard } from "@/lib/useAuthGuard";
 
-// ── 메타 (BE enum 매핑) ───────────────────────────────────────────────────
-const PRODUCT_GROUPS: { value: ProductGroup; label: string }[] = [
-  { value: 1, label: "생명" },
-  { value: 2, label: "손해" },
-  { value: 3, label: "실손" },
-  { value: 4, label: "연금저축" },
-];
-const AGE_BANDS = ["20s", "30s", "40s", "50s", "60s+"] as const;
-const AGE_BAND_LABEL: Record<string, string> = {
-  "20s": "20대",
-  "30s": "30대",
-  "40s": "40대",
-  "50s": "50대",
-  "60s+": "60대+",
-};
-const GENDERS: { value: BaselineGender; label: string }[] = [
-  { value: null, label: "공통" },
-  { value: 1, label: "남" },
-  { value: 2, label: "여" },
-];
-const UNITS: { value: BaselineUnit; label: string }[] = [
-  { value: 1, label: "만원" },
-  { value: 2, label: "원" },
-  { value: 3, label: "구좌" },
-];
-// 출처 라벨(디스클레이머 표시용) — 프리셋 시드 비활성이므로 '자체'가 기본
-const SOURCE_LABELS = ["자체 기준", "금융감독원 참고", "보험연구원 참고", "기타"];
+const REVISION_CONFLICT_COPY =
+  "다른 화면에서 기준이 변경됐어요. 최신 내용을 확인한 뒤 다시 저장해 주세요.";
+const NAVIGATION_CONFIRM_COPY =
+  "저장하기 전에 이동하면 입력한 변경 내용이 사라져요. 이동할까요?";
 
-function productGroupLabel(v: ProductGroup): string {
-  return PRODUCT_GROUPS.find((p) => p.value === v)?.label ?? String(v);
-}
-function genderLabel(v: BaselineGender): string {
-  return GENDERS.find((g) => g.value === v)?.label ?? "공통";
-}
-function unitLabel(v: BaselineUnit): string {
-  return UNITS.find((u) => u.value === v)?.label ?? "";
-}
-function fmtDecimal(v: string | null): string {
-  if (v === null || v === "") return "-";
-  const n = Number(v);
-  if (Number.isNaN(n)) return v;
-  return new Intl.NumberFormat("ko-KR").format(n);
+type PageMessage =
+  | { kind: "success"; text: string }
+  | { kind: "error"; text: string }
+  | { kind: "conflict"; text: string };
+
+function unitLabel(unit: BaselineUnit): string {
+  if (unit === 1) return "만원";
+  if (unit === 2) return "원";
+  return "구좌";
 }
 
-// ── 폼 상태 타입 ──────────────────────────────────────────────────────────
-interface FormState {
-  coverage_key: string;
-  product_group: ProductGroup;
-  age_band: string;
-  gender: BaselineGender;
-  recommend_min: string;
-  recommend_max: string;
-  unit: BaselineUnit;
-  preset_origin: string; // 출처 라벨(디스클레이머용)
-  is_active: boolean;
+function productGroupLabel(productGroup: number): string {
+  return (
+    {
+      0: "전체 상품",
+      1: "생명",
+      2: "손해",
+      3: "실손",
+      4: "연금저축",
+    }[productGroup] ?? "상품 범위 확인"
+  );
 }
 
-const EMPTY_FORM: FormState = {
-  coverage_key: "",
-  product_group: 1,
-  age_band: "30s",
-  gender: null,
-  recommend_min: "",
-  recommend_max: "",
-  unit: 1,
-  preset_origin: SOURCE_LABELS[0],
-  is_active: true,
-};
+function ageBandLabel(ageBand: string): string {
+  return (
+    {
+      all: "전연령",
+      "20s": "20대",
+      "30s": "30대",
+      "40s": "40대",
+      "50s": "50대",
+      "60s+": "60대 이상",
+    }[ageBand] ?? "연령 확인"
+  );
+}
 
-// ════════════════════════════════════════════════════════════════════════════
+function genderLabel(gender: number | null): string {
+  if (gender === 1) return "남성";
+  if (gender === 2) return "여성";
+  return "성별 공통";
+}
+
+function legacyScopeLabel(baseline: LegacyPlannerBaseline): string {
+  return [
+    productGroupLabel(baseline.product_group),
+    ageBandLabel(baseline.age_band),
+    genderLabel(baseline.gender),
+  ].join(" · ");
+}
+
+function amountLabel(value: string | null, unit: BaselineUnit): string {
+  if (value === null) return "-";
+  const normalized = value.replace(/\.00$/, "");
+  return `${normalized}${unitLabel(unit)}`;
+}
+
+function scopeIdentity(scope: BaselineDraftScope): string {
+  return `${scope.product_group}:${scope.age_band}:${scope.gender ?? "common"}`;
+}
+
+function hasAmount(scope: BaselineDraftScope): boolean {
+  return (
+    (scope.recommend_min !== null && scope.recommend_min.trim() !== "") ||
+    (scope.recommend_max !== null && scope.recommend_max.trim() !== "")
+  );
+}
+
+function findDetail(
+  catalog: BaselineDraftCatalog,
+  detailId: number,
+): BaselineDraftDetail | null {
+  for (const category of catalog.categories) {
+    for (const subcategory of category.subcategories) {
+      const detail = subcategory.details.find((item) => item.id === detailId);
+      if (detail) return detail;
+    }
+  }
+  return null;
+}
+
+function replaceDetailScopes(
+  catalog: BaselineDraftCatalog,
+  detailId: number,
+  scopes: BaselineDraftScope[],
+): BaselineDraftCatalog {
+  return {
+    ...catalog,
+    categories: catalog.categories.map((category) => ({
+      ...category,
+      subcategories: category.subcategories.map((subcategory) => ({
+        ...subcategory,
+        details: subcategory.details.map((detail) =>
+          detail.id === detailId ? { ...detail, baselines: scopes } : detail,
+        ),
+      })),
+    })),
+  };
+}
+
+function LoadingSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="담보 기준 불러오는 중"
+      className="mt-5 space-y-4"
+    >
+      <span className="sr-only">담보 기준을 불러오고 있어요.</span>
+      {[0, 1, 2].map((category) => (
+        <div
+          key={category}
+          className="overflow-hidden rounded-2xl border border-line bg-surface"
+        >
+          <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+            <div className="h-5 w-24 animate-pulse rounded-md bg-brand-soft" />
+            <div className="ml-auto h-4 w-12 animate-pulse rounded bg-surface2" />
+          </div>
+          <div className="space-y-3 p-4">
+            {[0, 1].map((row) => (
+              <div
+                key={row}
+                className="grid grid-cols-[1fr_160px] gap-5 rounded-xl bg-canvas px-4 py-4"
+              >
+                <div className="h-4 animate-pulse rounded bg-line" />
+                <div className="h-10 animate-pulse rounded-xl bg-line" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CoverageTable({
+  details,
+  disabled,
+  errors,
+  onMinimumChange,
+  onOpenDetail,
+}: {
+  details: BaselineDraftDetail[];
+  disabled: boolean;
+  errors: BaselineFieldErrors;
+  onMinimumChange: (detail: BaselineDraftDetail, value: string) => void;
+  onOpenDetail: (detailId: number) => void;
+}) {
+  return (
+    <table className="block w-full border-separate border-spacing-0 lg:table">
+      <thead className="hidden bg-canvas lg:table-header-group">
+        <tr>
+          <th
+            scope="col"
+            className="w-full px-5 py-3 text-left text-xs font-semibold text-ink3"
+          >
+            담보명
+          </th>
+          <th
+            scope="col"
+            className="min-w-56 px-5 py-3 text-right text-xs font-semibold text-ink3"
+          >
+            기준금액
+          </th>
+          <th
+            scope="col"
+            className="w-32 px-5 py-3 text-center text-xs font-semibold text-ink3"
+          >
+            조건별 설정
+          </th>
+        </tr>
+      </thead>
+      <tbody className="block space-y-3 p-3 lg:table-row-group lg:space-y-0 lg:p-0">
+        {details.map((detail) => {
+          const base = detail.baselines[0];
+          const minimumError =
+            errors[baselineScopeKey(base)]?.recommend_min;
+          const minimumErrorId = `baseline-main-${detail.id}-minimum-error`;
+          const exceptionCount = detail.baselines.filter(
+            (scope) =>
+              !(
+                scope.product_group === 0 &&
+                scope.age_band === "all" &&
+                scope.gender === null
+              ) && hasAmount(scope),
+          ).length;
+          return (
+            <tr
+              key={detail.id}
+              className="block rounded-2xl border border-line bg-surface px-4 py-4 lg:table-row lg:rounded-none lg:border-0 lg:px-0 lg:py-0"
+            >
+              <td className="block lg:table-cell lg:border-t lg:border-line lg:px-5 lg:py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-bold text-ink">
+                      {detail.name}
+                    </div>
+                    <div className="mt-1 text-xs text-ink3 lg:hidden">
+                      전체 상품 · 전연령 · 성별 공통
+                    </div>
+                  </div>
+                  {exceptionCount > 0 && (
+                    <span className="shrink-0 rounded-full bg-brand-soft px-2 py-1 text-[11px] font-bold text-brand">
+                      상세 {exceptionCount}
+                    </span>
+                  )}
+                </div>
+              </td>
+              <td className="mt-4 block lg:mt-0 lg:table-cell lg:border-t lg:border-line lg:px-5 lg:py-4">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold text-ink2 lg:sr-only">
+                    기준금액
+                  </span>
+                  <span className="relative block">
+                    <input
+                      aria-label={`${detail.name} 기준금액`}
+                      aria-invalid={minimumError ? "true" : undefined}
+                      aria-describedby={
+                        minimumError ? minimumErrorId : undefined
+                      }
+                      inputMode="decimal"
+                      value={base.recommend_min ?? ""}
+                      onChange={(event) =>
+                        onMinimumChange(detail, event.target.value)
+                      }
+                      disabled={disabled}
+                      placeholder="금액 입력"
+                      className="min-h-11 w-full rounded-xl border border-line bg-surface py-2.5 pl-3 pr-12 text-right text-sm font-bold text-ink placeholder:font-normal placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:bg-surface2"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink3">
+                      {unitLabel(base.unit)}
+                    </span>
+                  </span>
+                  {minimumError && (
+                    <span
+                      id={minimumErrorId}
+                      className="mt-1.5 block text-xs font-semibold text-danger"
+                    >
+                      {minimumError}
+                    </span>
+                  )}
+                </label>
+              </td>
+              <td className="mt-3 block lg:mt-0 lg:table-cell lg:border-t lg:border-line lg:px-5 lg:py-4 lg:text-center">
+                <button
+                  type="button"
+                  onClick={() => onOpenDetail(detail.id)}
+                  disabled={disabled}
+                  aria-label={`${detail.name} 상세 설정`}
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 text-xs font-bold text-ink2 transition hover:border-brand/30 hover:bg-brand-soft hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto"
+                >
+                  <SlidersHorizontal aria-hidden="true" size={15} />
+                  상세 설정
+                </button>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
 
 export default function BaselineSettingsPage() {
   const ready = useAuthGuard();
-
-  const [items, setItems] = useState<PlannerBaseline[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // 필터 (상품군 탭)
-  const [tab, setTab] = useState<ProductGroup>(1);
-
-  // 폼 (추가/수정)
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const requestGeneration = useRef(0);
+  const [server, setServer] = useState<BaselineDraftCatalog | null>(null);
+  const [draft, setDraft] = useState<BaselineDraftCatalog | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [message, setMessage] = useState<PageMessage | null>(null);
+  const [query, setQuery] = useState("");
+  const [configuredOnly, setConfiguredOnly] = useState(false);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [selectedDetailId, setSelectedDetailId] = useState<number | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<BaselineFieldErrors>({});
+  const [legacySelections, setLegacySelections] = useState<
+    Record<number, string>
+  >({});
+  const [legacyActionId, setLegacyActionId] = useState<number | null>(null);
 
-  const fetchItems = useCallback(async () => {
+  const loadCatalog = useCallback(async () => {
+    const generation = ++requestGeneration.current;
     setLoading(true);
-    setError(null);
+    setLoadError(false);
+    setMessage(null);
     try {
-      // 전체 로드 후 클라이언트에서 상품군 탭 필터(목록 규모 작음)
-      const res = await listBaselines({ page: 1 });
-      setItems(res.results);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "기준을 불러오지 못했어요.");
-      setItems([]);
+      const response = await getBaselineCatalog();
+      if (generation !== requestGeneration.current) return;
+      const next = catalogToDraft(response);
+      setServer(next);
+      setDraft(structuredClone(next));
+      setExpanded(new Set(next.categories.map((category) => category.id)));
+      setSelectedDetailId(null);
+      setFieldErrors({});
+      setLegacySelections(
+        Object.fromEntries(
+          next.legacy_baselines.map((baseline) => [
+            baseline.id,
+            baseline.matching_analysis_detail_ids.length === 1
+              ? String(baseline.matching_analysis_detail_ids[0])
+              : "",
+          ]),
+        ),
+      );
+      return true;
+    } catch {
+      if (generation !== requestGeneration.current) return;
+      setLoadError(true);
+      return false;
     } finally {
-      setLoading(false);
+      if (generation === requestGeneration.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (!ready) return;
-    void fetchItems();
-  }, [ready, fetchItems]);
+    void loadCatalog();
+    return () => {
+      requestGeneration.current += 1;
+    };
+  }, [ready, loadCatalog]);
 
-  if (!ready) return null;
+  const changedCount = useMemo(
+    () => (server && draft ? countChangedScopes(server, draft) : 0),
+    [server, draft],
+  );
+  const dirty = changedCount > 0;
 
-  const visible = items.filter((b) => b.product_group === tab);
+  const confirmDiscard = useCallback(
+    (message: string) => !dirty || window.confirm(message),
+    [dirty],
+  );
+  const confirmProgrammaticNavigation = useCallback(
+    () => confirmDiscard(NAVIGATION_CONFIRM_COPY),
+    [confirmDiscard],
+  );
 
-  function openCreate() {
-    setEditingId(null);
-    setForm({ ...EMPTY_FORM, product_group: tab });
-    setFormError(null);
-    setFormOpen(true);
-  }
+  useEffect(() => {
+    if (!dirty) return;
+    const guardedHref = window.location.href;
+    const guardedHistoryState = window.history.state;
+    let allowConfirmedUnload = false;
+    let resetConfirmedUnload: ReturnType<typeof setTimeout> | null = null;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (allowConfirmedUnload) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const guardInternalAnchor = (event: globalThis.MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      const target =
+        event.target instanceof Element
+          ? event.target.closest<HTMLAnchorElement>("a[href]")
+          : null;
+      if (!target || target.target === "_blank" || target.hasAttribute("download")) {
+        return;
+      }
+      const destination = new URL(target.href, guardedHref);
+      if (
+        destination.origin !== window.location.origin ||
+        destination.href === guardedHref
+      ) {
+        return;
+      }
+      const confirmed = window.confirm(
+        NAVIGATION_CONFIRM_COPY,
+      );
+      if (!confirmed) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      allowConfirmedUnload = true;
+      resetConfirmedUnload = setTimeout(() => {
+        allowConfirmedUnload = false;
+        resetConfirmedUnload = null;
+      }, 0);
+    };
+    const guardHistoryNavigation = (event: PopStateEvent) => {
+      if (
+        window.confirm(
+          NAVIGATION_CONFIRM_COPY,
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.history.pushState(guardedHistoryState, "", guardedHref);
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    document.addEventListener("click", guardInternalAnchor, true);
+    window.addEventListener("popstate", guardHistoryNavigation, true);
+    return () => {
+      window.removeEventListener("beforeunload", warnBeforeUnload);
+      document.removeEventListener("click", guardInternalAnchor, true);
+      window.removeEventListener("popstate", guardHistoryNavigation, true);
+      if (resetConfirmedUnload !== null) {
+        clearTimeout(resetConfirmedUnload);
+      }
+    };
+  }, [dirty]);
 
-  function openEdit(b: PlannerBaseline) {
-    setEditingId(b.id);
-    setForm({
-      coverage_key: b.coverage_key,
-      product_group: b.product_group,
-      age_band: b.age_band,
-      gender: b.gender,
-      recommend_min: b.recommend_min ?? "",
-      recommend_max: b.recommend_max ?? "",
-      unit: b.unit,
-      preset_origin: b.preset_origin ?? SOURCE_LABELS[0],
-      is_active: b.is_active,
+  const filtered = useMemo(
+    () =>
+      draft
+        ? filterBaselineCatalog(draft, query, configuredOnly)
+        : null,
+    [draft, query, configuredOnly],
+  );
+
+  useEffect(() => {
+    if (!query.trim() || !filtered) return;
+    setExpanded((current) => {
+      const next = new Set(current);
+      filtered.categories.forEach((category) => next.add(category.id));
+      return next;
     });
-    setFormError(null);
-    setFormOpen(true);
+  }, [query, filtered]);
+
+  const selectedDetail =
+    draft && selectedDetailId !== null
+      ? findDetail(draft, selectedDetailId)
+      : null;
+  const standardDetailOptions = useMemo(
+    () =>
+      draft
+        ? draft.categories.flatMap((category) =>
+            category.subcategories.flatMap((subcategory) =>
+              subcategory.details.map((detail) => ({
+                id: detail.id,
+                label: `${category.name} · ${subcategory.name} · ${detail.name}`,
+              })),
+            ),
+          )
+        : [],
+    [draft],
+  );
+
+  function clearScopeErrors(...scopes: BaselineDraftScope[]) {
+    setFieldErrors((current) => {
+      const keys = scopes.map(baselineScopeKey);
+      if (!keys.some((key) => current[key])) return current;
+      const next = { ...current };
+      keys.forEach((key) => delete next[key]);
+      return next;
+    });
   }
 
-  function closeForm() {
-    setFormOpen(false);
-    setEditingId(null);
-    setFormError(null);
-  }
-
-  async function handleSave() {
-    // 최소 검증
-    if (!form.coverage_key.trim()) {
-      setFormError("담보명(표준 담보 키)을 입력하세요.");
+  function setScope(
+    detailId: number,
+    original: BaselineDraftScope,
+    next: BaselineDraftScope | null,
+  ) {
+    if (!draft) return;
+    const detail = findDetail(draft, detailId);
+    if (!detail) return;
+    if (
+      next &&
+      scopeIdentity(next) !== scopeIdentity(original) &&
+      detail.baselines.some(
+        (scope) =>
+          scope !== original &&
+          scopeIdentity(scope) === scopeIdentity(next),
+      )
+    ) {
+      setMessage({
+        kind: "error",
+        text: "같은 상품·연령·성별 기준이 이미 있어요. 다른 조건을 선택해 주세요.",
+      });
       return;
     }
-    if (!form.recommend_min.trim() && !form.recommend_max.trim()) {
-      setFormError("권장 하한 또는 상한 중 하나는 입력하세요.");
+    const scopes = next
+      ? detail.baselines.map((scope) => (scope === original ? next : scope))
+      : detail.baselines.filter((scope) => scope !== original);
+    setDraft(replaceDetailScopes(draft, detailId, scopes));
+    clearScopeErrors(original, ...(next ? [next] : []));
+    setMessage(null);
+  }
+
+  function addScope(detailId: number, scope: BaselineDraftScope) {
+    if (!draft) return;
+    const detail = findDetail(draft, detailId);
+    if (!detail) return;
+    if (
+      detail.baselines.some(
+        (current) => scopeIdentity(current) === scopeIdentity(scope),
+      )
+    ) {
+      setMessage({
+        kind: "error",
+        text: "같은 상품·연령·성별 기준이 이미 있어요. 다른 조건을 선택해 주세요.",
+      });
+      return;
+    }
+    setDraft(
+      replaceDetailScopes(draft, detailId, [...detail.baselines, scope]),
+    );
+    clearScopeErrors(scope);
+    setMessage(null);
+  }
+
+  function changeMinimum(detail: BaselineDraftDetail, value: string) {
+    const base = detail.baselines[0];
+    setScope(detail.id, base, { ...base, recommend_min: value });
+  }
+
+  async function saveChanges() {
+    if (!server || !draft || changedCount === 0 || saving) return;
+    const changes = buildBaselineChanges(server, draft);
+    const clientErrors = validateBaselineChanges(changes);
+    if (Object.keys(clientErrors).length > 0) {
+      setFieldErrors(clientErrors);
+      setMessage({
+        kind: "error",
+        text: "입력한 금액을 확인해 주세요.",
+      });
       return;
     }
     setSaving(true);
-    setFormError(null);
-
-    // ★ 직접 입력 = baseline_source='planner' (판정 권위·책임 = 설계사)
-    const payload: PlannerBaselineWritePayload = {
-      coverage_key: form.coverage_key.trim(),
-      product_group: form.product_group,
-      age_band: form.age_band,
-      gender: form.gender,
-      recommend_min: form.recommend_min.trim() === "" ? null : form.recommend_min.trim(),
-      recommend_max: form.recommend_max.trim() === "" ? null : form.recommend_max.trim(),
-      unit: form.unit,
-      baseline_source: "planner",
-      preset_origin: form.preset_origin || null,
-      is_active: form.is_active,
-    };
-
+    setFieldErrors({});
+    setMessage(null);
     try {
-      if (editingId !== null) {
-        await updateBaseline(editingId, payload);
+      const response = await savePlannerBaselineBatch({
+        revision: server.revision,
+        changes,
+      });
+      const saved = { ...structuredClone(draft), revision: response.revision };
+      setServer(saved);
+      setDraft(structuredClone(saved));
+      setFieldErrors({});
+      setMessage({ kind: "success", text: "변경 내용을 저장했어요." });
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.code === "baseline_revision_conflict"
+      ) {
+        setMessage({ kind: "conflict", text: REVISION_CONFLICT_COPY });
       } else {
-        await createBaseline(payload);
+        if (error instanceof ApiError) {
+          setFieldErrors(mapBaselineBatchFieldErrors(changes, error.data));
+        }
+        setMessage({
+          kind: "error",
+          text:
+            error instanceof ApiError && error.message
+              ? error.message
+              : "저장에 실패했어요. 입력 내용을 확인하고 다시 시도해 주세요.",
+        });
       }
-      closeForm();
-      await fetchItems();
-    } catch (e: unknown) {
-      setFormError(
-        e instanceof Error
-          ? e.message
-          : "저장 중 오류가 발생했어요. (동일 담보×연령×성별 조합 중복 여부 확인)"
-      );
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleDelete(id: number) {
-    if (!window.confirm("이 기준을 삭제할까요? 해당 담보 셀은 다시 중립으로 돌아가요.")) {
+  function refreshCatalog() {
+    if (!confirmDiscard(
+      "새로 불러오면 지금 입력한 변경 내용이 사라져요. 계속할까요?",
+    )) {
       return;
     }
+    void loadCatalog();
+  }
+
+  async function linkLegacy(
+    baseline: LegacyPlannerBaseline,
+  ) {
+    const selected = Number(legacySelections[baseline.id]);
+    if (!Number.isInteger(selected) || selected <= 0 || dirty) return;
+    setLegacyActionId(baseline.id);
+    setMessage(null);
     try {
-      await deleteBaseline(id);
-      await fetchItems();
-    } catch {
-      setError("삭제 중 오류가 발생했어요. 잠시 후 다시 시도하세요.");
+      await linkLegacyBaseline(baseline.id, selected);
+      if (await loadCatalog()) {
+        setMessage({
+          kind: "success",
+          text: "기존 값을 선택한 표준 담보에 연결했어요.",
+        });
+      }
+    } catch (error) {
+      setMessage({
+        kind: "error",
+        text:
+          error instanceof ApiError && error.message
+            ? error.message
+            : "연결할 담보를 다시 확인하고 시도해 주세요.",
+      });
+    } finally {
+      setLegacyActionId(null);
     }
   }
 
+  async function removeLegacy(
+    baseline: LegacyPlannerBaseline,
+  ) {
+    if (
+      dirty ||
+      !window.confirm(
+        `'${baseline.coverage_key}' 기존 값을 삭제할까요?`,
+      )
+    ) {
+      return;
+    }
+    setLegacyActionId(baseline.id);
+    setMessage(null);
+    try {
+      await deleteBaseline(baseline.id);
+      if (await loadCatalog()) {
+        setMessage({ kind: "success", text: "선택한 기존 값을 삭제했어요." });
+      }
+    } catch (error) {
+      setMessage({
+        kind: "error",
+        text:
+          error instanceof ApiError && error.message
+            ? error.message
+            : "기존 값을 다시 확인하고 시도해 주세요.",
+      });
+    } finally {
+      setLegacyActionId(null);
+    }
+  }
+
+  if (!ready) return null;
+
   return (
-    <div className="min-h-dvh">
-      <AppNav active="settings" />
-      <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
-        {/* 뒤로 */}
+    <div className="min-h-dvh bg-canvas">
+      <AppNav
+        active="settings"
+        onBeforeNavigate={confirmProgrammaticNavigation}
+      />
+      <main
+        className="mx-auto max-w-[1440px] px-4 pb-36 pt-5 sm:px-6 sm:pb-32 sm:pt-7"
+        aria-busy={saving}
+      >
         <Link
           href="/analysis"
-          className="inline-flex items-center gap-1 text-[13px] font-semibold text-ink3 hover:text-ink2"
+          className="inline-flex min-h-10 items-center rounded-lg px-1 text-xs font-bold text-ink3 transition hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
           ‹ 분석으로
         </Link>
 
-        {/* 헤더 */}
-        <div className="mt-3 flex items-start justify-between gap-3">
+        <header className="mt-2 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <div className="text-[13px] text-ink3">설계사 도구 · 설정</div>
-            <h1 className="text-[22px] font-extrabold text-ink">보장 기준 설정</h1>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={openCreate}
-              className="rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2.5"
-            >
-              + 기준 추가
-            </button>
-          </div>
-        </div>
-
-        {/* ★ 상시 디스클레이머 (접기 불가) — 판정 권위·책임 = 설계사 */}
-        <div className="mt-4 rounded-xl border border-line bg-surface2 px-4 py-3">
-          <p className="text-[13px] leading-6 text-ink2">
-            <b className="font-semibold text-ink">기준을 설정하기 전에는 분석이 ‘중립’으로만 표시</b>
-            돼요(부족·충분을 단정하지 않음). 기준을 한 번 이상 설정하면 부족·적정·넉넉
-            판정이 켜집니다.
-            <br />
-            여기서 정한 기준은 <b className="font-semibold text-ink">설계사 본인이 결정·소유</b>합니다.
-            이 판정은 설정한 기준에 따른 결과예요. 보장 충분 여부의 최종 판단은 설계사님 몫입니다.
-            인파는 값을 저장·계산·표시만 합니다.
-          </p>
-        </div>
-
-        {/* 프리셋 비활성 안내 (dev/10 B-1: 출처·권위 미확정) */}
-        <p className="mt-2 text-[12px] text-muted leading-5">
-          외부 프리셋(금감원 등 시드값) 불러오기는 출처·권위 확정 전까지 비활성이에요.
-          지금은 설계사 직접 입력만 가능하며, 아래 ‘출처’는 설계사가 참고한 근거를
-          밝히는 표시용 라벨입니다.
-        </p>
-
-        {/* 상품군 탭 */}
-        <div className="mt-5 flex gap-1 border-b border-line overflow-x-auto">
-          {PRODUCT_GROUPS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => setTab(p.value)}
-              className={`relative px-4 py-2.5 text-[14px] font-semibold whitespace-nowrap transition ${
-                tab === p.value ? "text-brand" : "text-ink3 hover:text-ink2"
-              }`}
-            >
-              {p.label}
-              {tab === p.value && (
-                <span className="absolute left-2 right-2 -bottom-px h-0.5 rounded-full bg-brand" />
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* 에러 */}
-        {error && (
-          <div className="mt-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
-            {error}
-          </div>
-        )}
-
-        {/* 목록 */}
-        {loading ? (
-          <div className="mt-5 space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-16 rounded-xl bg-line animate-pulse" />
-            ))}
-          </div>
-        ) : visible.length === 0 ? (
-          <div className="mt-5 rounded-xl border border-dashed border-line px-4 py-12 text-center">
-            <p className="text-[15px] font-semibold text-ink2">
-              {productGroupLabel(tab)} 기준이 아직 없어요
+            <p className="text-xs font-semibold text-brand">분석 설정</p>
+            <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-ink sm:text-[28px]">
+              보장 기준 설정
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-ink3">
+              설계사님이 사용하는 기준금액을 전체 담보에 빠르게 입력하세요.
+              입력한 값만 저장하고 분석에 반영해요.
             </p>
-            <p className="mt-1 text-[13px] text-ink3">
-              기준을 추가하면 이 상품군의 분석이 ‘중립’에서 판정 모드로 켜져요.
-            </p>
-            <button
-              onClick={openCreate}
-              className="mt-3 text-[13px] font-semibold text-brand"
-            >
-              + 기준 추가
-            </button>
           </div>
-        ) : (
-          <div className="mt-5 space-y-2">
-            {visible.map((b) => (
-              <Card key={b.id} className="p-4 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[15px] font-bold text-ink">
-                      {b.coverage_key}
-                    </span>
-                    <span className="text-[11px] font-semibold rounded-full bg-surface2 border border-line px-2 py-0.5 text-ink3">
-                      {AGE_BAND_LABEL[b.age_band] ?? b.age_band} · {genderLabel(b.gender)}
-                    </span>
-                    {!b.is_active && (
-                      <span className="text-[11px] font-semibold rounded-full bg-surface2 border border-line px-2 py-0.5 text-ink3">
-                        비활성
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 text-[13px] text-ink2 tnum">
-                    하한 {fmtDecimal(b.recommend_min)}
-                    {" · "}
-                    상한 {fmtDecimal(b.recommend_max)}
-                    <span className="text-ink3"> {unitLabel(b.unit)}</span>
-                    {b.preset_origin && (
-                      <span className="ml-2 text-[11px] text-muted">
-                        출처: {b.preset_origin}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => openEdit(b)}
-                    className="text-[13px] font-semibold text-brand"
-                  >
-                    수정
-                  </button>
-                  <button
-                    onClick={() => handleDelete(b.id)}
-                    className="text-[13px] font-semibold text-ink3 hover:text-danger"
-                  >
-                    삭제
-                  </button>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        {/* ── 추가/수정 모달 ── */}
-        {formOpen && (
-          <BaselineForm
-            form={form}
-            setForm={setForm}
-            editing={editingId !== null}
-            saving={saving}
-            error={formError}
-            onSave={handleSave}
-            onClose={closeForm}
-          />
-        )}
-
-      </main>
-    </div>
-  );
-}
-
-// ── 추가/수정 폼 모달 ──────────────────────────────────────────────────────
-function BaselineForm({
-  form,
-  setForm,
-  editing,
-  saving,
-  error,
-  onSave,
-  onClose,
-}: {
-  form: FormState;
-  setForm: React.Dispatch<React.SetStateAction<FormState>>;
-  editing: boolean;
-  saving: boolean;
-  error: string | null;
-  onSave: () => void;
-  onClose: () => void;
-}) {
-  const inputCls =
-    "w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand";
-  const labelCls = "text-[12px] font-semibold text-ink2";
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="baseline-form-title"
-    >
-      <div className="w-full sm:max-w-lg max-h-[90dvh] overflow-y-auto bg-surface rounded-t-3xl sm:rounded-2xl px-6 pt-6 pb-8 shadow-xl">
-        <h2 id="baseline-form-title" className="text-[18px] font-extrabold text-ink">
-          {editing ? "기준 수정" : "기준 추가"}
-        </h2>
-
-        <div className="mt-4 space-y-4">
-          {/* 담보명 */}
-          <div>
-            <label className={labelCls}>담보명 (표준 담보 키)</label>
-            <input
-              value={form.coverage_key}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, coverage_key: e.target.value }))
-              }
-              placeholder="예: 암진단비, 뇌혈관진단비"
-              className={`mt-1 ${inputCls}`}
+          <button
+            type="button"
+            onClick={refreshCatalog}
+            disabled={loading || saving}
+            aria-label="새로 고침"
+            className="inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-xl border border-line bg-surface px-4 text-xs font-bold text-ink2 transition hover:border-brand/30 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw
+              aria-hidden="true"
+              size={15}
+              className={loading ? "animate-spin" : ""}
             />
-          </div>
+            새로 고침
+          </button>
+        </header>
 
-          {/* 상품군 / 연령대 */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>상품군</label>
-              <select
-                value={form.product_group}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    product_group: Number(e.target.value) as ProductGroup,
-                  }))
-                }
-                className={`mt-1 ${inputCls}`}
-              >
-                {PRODUCT_GROUPS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>연령대</label>
-              <select
-                value={form.age_band}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, age_band: e.target.value }))
-                }
-                className={`mt-1 ${inputCls}`}
-              >
-                {AGE_BANDS.map((a) => (
-                  <option key={a} value={a}>
-                    {AGE_BAND_LABEL[a]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+        <section className="mt-5 rounded-2xl border border-brand/15 bg-brand-soft/40 px-4 py-4 sm:px-5">
+          <h2 className="text-sm font-bold text-ink">기준금액 입력 방법</h2>
+          <p className="mt-1 text-xs leading-5 text-ink2 sm:text-sm sm:leading-6">
+            기준금액은 적정으로 보는 시작 금액이에요. 넉넉 기준금액과
+            상품·연령·성별에 따른 값은 각 담보의 상세 설정에서 입력할 수
+            있어요. 비워 둔 담보는 금액에 따른 상태를 표시하지 않아요.
+          </p>
+        </section>
 
-          {/* 성별 */}
-          <div>
-            <label className={labelCls}>성별</label>
-            <div className="mt-1 inline-flex gap-1 rounded-xl bg-line p-1 text-[13px] font-semibold">
-              {GENDERS.map((g) => (
-                <button
-                  key={String(g.value)}
-                  type="button"
-                  onClick={() => setForm((f) => ({ ...f, gender: g.value }))}
-                  className={`px-3 py-1.5 rounded-lg transition ${
-                    form.gender === g.value
-                      ? "bg-surface text-ink shadow-sm"
-                      : "text-ink3"
-                  }`}
+        {draft && draft.legacy_baselines.length > 0 && (
+          <section
+            aria-labelledby="legacy-baseline-title"
+            className="mt-5 rounded-2xl border border-warn/30 bg-surface p-4 shadow-card sm:p-5"
+          >
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2
+                  id="legacy-baseline-title"
+                  className="text-base font-extrabold text-ink"
                 >
-                  {g.label}
-                </button>
-              ))}
-            </div>
-            <p className="mt-1 text-[11px] text-muted">
-              ‘공통’은 성별 무관 기준이에요(성별 지정 기준이 없을 때 적용).
-            </p>
-          </div>
-
-          {/* 권장 하한 / 상한 / 단위 */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className={labelCls}>권장 하한</label>
-              <input
-                type="number"
-                inputMode="decimal"
-                value={form.recommend_min}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, recommend_min: e.target.value }))
-                }
-                placeholder="3000"
-                className={`mt-1 ${inputCls} tnum`}
-              />
-            </div>
-            <div>
-              <label className={labelCls}>권장 상한</label>
-              <input
-                type="number"
-                inputMode="decimal"
-                value={form.recommend_max}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, recommend_max: e.target.value }))
-                }
-                placeholder="(선택)"
-                className={`mt-1 ${inputCls} tnum`}
-              />
-            </div>
-            <div>
-              <label className={labelCls}>단위</label>
-              <select
-                value={form.unit}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, unit: Number(e.target.value) as BaselineUnit }))
-                }
-                className={`mt-1 ${inputCls}`}
-              >
-                {UNITS.map((u) => (
-                  <option key={u.value} value={u.value}>
-                    {u.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <p className="-mt-1 text-[11px] text-muted">
-            상한을 비우면 ‘넉넉(과보장)’은 판정하지 않고, 하한 미달만 ‘부족’으로 표시해요.
-          </p>
-
-          {/* 출처 라벨 (디스클레이머 표시용) */}
-          <div>
-            <label className={labelCls}>출처 (표시용)</label>
-            <select
-              value={form.preset_origin}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, preset_origin: e.target.value }))
-              }
-              className={`mt-1 ${inputCls}`}
-            >
-              {SOURCE_LABELS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-[11px] text-muted">
-              참고한 근거를 밝히는 표시용 라벨이에요.
-            </p>
-          </div>
-
-          {/* 활성 토글 */}
-          <label className="flex items-center justify-between rounded-xl border border-line bg-surface2 px-4 py-3 cursor-pointer">
-            <span className="text-[13px] font-semibold text-ink2">
-              이 기준 활성화
-              <span className="block text-[11px] font-normal text-ink3">
-                끄면 해당 담보 셀은 중립으로 돌아가요.
+                  기존 직접 입력
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-ink3">
+                  이전에 입력한 기준을 확인하고 알맞은 표준 담보에 연결해
+                  주세요. 연결할 값이 아니라면 선택해서 삭제할 수 있어요.
+                </p>
+              </div>
+              <span className="self-start rounded-full bg-warn-soft px-3 py-1 text-xs font-bold text-warn-ink">
+                확인 {draft.legacy_baselines.length}개
               </span>
-            </span>
-            <input
-              type="checkbox"
-              checked={form.is_active}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, is_active: e.target.checked }))
-              }
-              className="w-5 h-5 accent-brand"
-            />
-          </label>
+            </div>
+
+            {dirty && (
+              <p
+                role="status"
+                className="mt-4 rounded-xl bg-brand-soft px-3 py-2 text-xs font-semibold text-brand"
+              >
+                변경 내용을 먼저 저장하면 기존 값을 이어서 정리할 수 있어요.
+              </p>
+            )}
+
+            <div className="mt-4 space-y-3">
+              {draft.legacy_baselines.map((baseline) => {
+                const exactOptions = new Set(
+                  baseline.matching_analysis_detail_ids,
+                );
+                const orderedOptions = [
+                  ...standardDetailOptions.filter((option) =>
+                    exactOptions.has(option.id),
+                  ),
+                  ...standardDetailOptions.filter(
+                    (option) => !exactOptions.has(option.id),
+                  ),
+                ];
+                const actionPending = legacyActionId === baseline.id;
+                return (
+                  <article
+                    key={baseline.id}
+                    className="rounded-2xl border border-line bg-canvas p-4"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-sm font-extrabold text-ink">
+                            {baseline.coverage_key}
+                          </h3>
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                              baseline.is_applied
+                                ? "bg-success-tint text-success"
+                                : "bg-surface2 text-ink2"
+                            }`}
+                          >
+                            {baseline.is_applied
+                              ? "분석에 적용 중"
+                              : "연결 후 분석에 적용"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-ink3">
+                          {legacyScopeLabel(baseline)}
+                        </p>
+                        <p className="mt-2 text-sm font-bold text-ink2">
+                          기준금액 {amountLabel(
+                            baseline.recommend_min,
+                            baseline.unit,
+                          )}
+                          {baseline.recommend_max !== null &&
+                            ` · 넉넉 기준금액 ${amountLabel(
+                              baseline.recommend_max,
+                              baseline.unit,
+                            )}`}
+                        </p>
+                        <p className="mt-2 text-xs leading-5 text-warn-ink">
+                          {baseline.conflict_reason}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                      <label className="block">
+                        <span className="sr-only">
+                          {baseline.coverage_key} 연결할 표준 담보
+                        </span>
+                        <select
+                          aria-label={`${baseline.coverage_key} 연결할 표준 담보`}
+                          value={legacySelections[baseline.id] ?? ""}
+                          onChange={(event) =>
+                            setLegacySelections((current) => ({
+                              ...current,
+                              [baseline.id]: event.target.value,
+                            }))
+                          }
+                          disabled={dirty || actionPending}
+                          className="min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:bg-surface2"
+                        >
+                          <option value="">표준 담보 선택</option>
+                          {orderedOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        aria-label={`${baseline.coverage_key} 표준 담보에 연결`}
+                        onClick={() => void linkLegacy(baseline)}
+                        disabled={
+                          dirty ||
+                          actionPending ||
+                          !(legacySelections[baseline.id] ?? "")
+                        }
+                        className="min-h-11 rounded-xl bg-ink px-4 text-xs font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:bg-line disabled:text-ink3"
+                      >
+                        {actionPending ? "처리 중..." : "표준 담보에 연결"}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`${baseline.coverage_key} 기존 값 삭제`}
+                        onClick={() => void removeLegacy(baseline)}
+                        disabled={dirty || actionPending}
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-line bg-surface px-4 text-xs font-bold text-ink2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Trash2 aria-hidden="true" size={15} />
+                        삭제
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        <div className="mt-5 rounded-2xl border border-line bg-surface p-3 shadow-card sm:p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <label className="relative block flex-1">
+              <span className="sr-only">담보 검색</span>
+              <Search
+                aria-hidden="true"
+                size={18}
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink3"
+              />
+              <input
+                type="search"
+                aria-label="담보 검색"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                disabled={loading || saving || !draft}
+                placeholder="담보명이나 분류 이름 검색"
+                className="min-h-12 w-full rounded-xl border border-line bg-surface pl-11 pr-4 text-sm text-ink placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:bg-surface2"
+              />
+            </label>
+            <label className="inline-flex min-h-12 cursor-pointer items-center justify-between gap-3 rounded-xl border border-line px-4 text-sm font-bold text-ink2 focus-within:ring-2 focus-within:ring-brand sm:justify-start">
+              입력한 담보만
+              <span className="relative inline-flex h-6 w-11 shrink-0">
+                <input
+                  type="checkbox"
+                  aria-label="입력한 담보만"
+                  checked={configuredOnly}
+                  onChange={(event) => setConfiguredOnly(event.target.checked)}
+                  disabled={loading || saving || !draft}
+                  className="peer sr-only"
+                />
+                <span className="absolute inset-0 rounded-full bg-line transition peer-checked:bg-brand peer-disabled:opacity-50" />
+                <span className="absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow transition peer-checked:translate-x-5" />
+              </span>
+            </label>
+          </div>
         </div>
 
-        {error && (
-          <div className="mt-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger">
-            {error}
+        {message?.kind === "success" && (
+          <div
+            role="status"
+            className="mt-4 rounded-2xl border border-success/20 bg-success-tint px-4 py-3 text-sm font-semibold text-success"
+          >
+            {message.text}
+          </div>
+        )}
+        {message?.kind === "error" && (
+          <div
+            role="alert"
+            className="mt-4 rounded-2xl border border-danger/20 bg-danger-tint px-4 py-3 text-sm font-semibold text-danger"
+          >
+            {message.text}
+          </div>
+        )}
+        {message?.kind === "conflict" && (
+          <div
+            role="alert"
+            className="mt-4 flex flex-col gap-3 rounded-2xl border border-warn/30 bg-warn-soft px-4 py-4 text-sm text-ink2 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span className="font-semibold">{message.text}</span>
+            <button
+              type="button"
+              onClick={() => void loadCatalog()}
+              disabled={loading || saving}
+              className="min-h-11 shrink-0 rounded-xl bg-ink px-4 text-xs font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+            >
+              새로 불러오기
+            </button>
           </div>
         )}
 
-        {/* 폼 내 면책 고정 */}
-        <p className="mt-3 text-[11px] text-muted leading-5">
-          저장하면 이 기준은 ‘설계사 직접 설정(planner)’으로 기록돼요.
-        </p>
+        {loading && !draft && <LoadingSkeleton />}
 
-        <div className="mt-5 flex flex-col gap-2.5">
-          <button
-            onClick={onSave}
-            disabled={saving}
-            className="w-full rounded-2xl bg-brand text-white text-[15px] font-bold py-3.5 disabled:opacity-60 transition"
+        {loadError && !draft && (
+          <section
+            role="alert"
+            className="mt-5 rounded-2xl border border-danger/20 bg-surface px-5 py-10 text-center shadow-card"
           >
-            {saving ? "저장 중…" : "저장"}
-          </button>
-          <button
-            onClick={onClose}
-            disabled={saving}
-            className="w-full rounded-2xl border border-line bg-surface text-[14px] font-semibold text-ink2 py-3 disabled:opacity-60 transition"
+            <h2 className="text-base font-extrabold text-ink">
+              담보 기준을 불러오지 못했어요.
+            </h2>
+            <p className="mt-2 text-sm text-ink3">
+              연결을 확인한 뒤 다시 불러와 주세요.
+            </p>
+            <button
+              type="button"
+              onClick={refreshCatalog}
+              className="mt-5 min-h-11 rounded-xl bg-brand px-5 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            >
+              다시 불러오기
+            </button>
+          </section>
+        )}
+
+        {loadError && draft && (
+          <div
+            role="alert"
+            className="mt-4 flex flex-col gap-3 rounded-2xl border border-warn/30 bg-warn-soft px-4 py-4 text-sm text-ink2 sm:flex-row sm:items-center sm:justify-between"
           >
-            취소
-          </button>
+            <span className="font-semibold">
+              최신 담보 기준을 불러오지 못했어요. 현재 입력 내용은 그대로
+              두었어요.
+            </span>
+            <button
+              type="button"
+              onClick={refreshCatalog}
+              disabled={loading || saving}
+              className="min-h-11 shrink-0 rounded-xl border border-ink/15 bg-surface px-4 text-xs font-bold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+            >
+              다시 불러오기
+            </button>
+          </div>
+        )}
+
+        {filtered && filtered.categories.length === 0 && (
+          <section className="mt-5 rounded-2xl border border-dashed border-line bg-surface px-5 py-12 text-center">
+            {query.trim() ? (
+              <>
+                <h2 className="text-base font-extrabold text-ink">
+                  검색 결과가 없어요.
+                </h2>
+                <p className="mt-2 text-sm text-ink3">
+                  담보명이나 분류 이름을 다시 확인해 보세요.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  disabled={saving}
+                  className="mt-5 min-h-11 rounded-xl border border-line px-5 text-sm font-bold text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+                >
+                  검색어 지우기
+                </button>
+              </>
+            ) : configuredOnly ? (
+              <>
+                <h2 className="text-base font-extrabold text-ink">
+                  입력한 담보가 없어요.
+                </h2>
+                <p className="mt-2 text-sm text-ink3">
+                  전체 담보를 보고 필요한 기준금액부터 입력해 보세요.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setConfiguredOnly(false)}
+                  disabled={saving}
+                  className="mt-5 min-h-11 rounded-xl bg-brand px-5 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:opacity-50"
+                >
+                  전체 담보 보기
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 className="text-base font-extrabold text-ink">
+                  담보 목록을 다시 불러와 주세요.
+                </h2>
+                <p className="mt-2 text-sm text-ink3">
+                  새로 고침을 누르면 최신 담보 목록을 확인할 수 있어요.
+                </p>
+              </>
+            )}
+          </section>
+        )}
+
+        {filtered && filtered.categories.length > 0 && (
+          <div className="mt-5 space-y-4">
+            {filtered.categories.map((category) => {
+              const open = expanded.has(category.id);
+              const detailCount = category.subcategories.reduce(
+                (sum, subcategory) => sum + subcategory.details.length,
+                0,
+              );
+              return (
+                <section
+                  key={category.id}
+                  className="overflow-hidden rounded-2xl border border-line bg-surface shadow-card"
+                >
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-controls={`baseline-category-${category.id}`}
+                    onClick={() =>
+                      setExpanded((current) => {
+                        const next = new Set(current);
+                        if (next.has(category.id)) next.delete(category.id);
+                        else next.add(category.id);
+                        return next;
+                      })
+                    }
+                    disabled={saving}
+                    className="flex min-h-16 w-full items-center gap-3 px-4 text-left transition hover:bg-surface2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-60 sm:px-5"
+                  >
+                    <span className="text-base font-extrabold text-ink">
+                      {category.name}
+                    </span>
+                    <span className="rounded-full bg-surface2 px-2.5 py-1 text-xs font-bold text-ink3">
+                      {detailCount}개
+                    </span>
+                    <ChevronDown
+                      aria-hidden="true"
+                      size={19}
+                      className={`ml-auto text-ink3 transition-transform ${
+                        open ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+                  {open && (
+                    <div
+                      id={`baseline-category-${category.id}`}
+                      className="border-t border-line"
+                    >
+                      {category.subcategories.map((subcategory) => (
+                        <section
+                          key={subcategory.id}
+                          aria-labelledby={`baseline-subcategory-${subcategory.id}`}
+                          className="border-b border-line last:border-b-0"
+                        >
+                          <h3
+                            id={`baseline-subcategory-${subcategory.id}`}
+                            className="bg-canvas px-4 py-3 text-xs font-extrabold text-ink2 sm:px-5"
+                          >
+                            {subcategory.name}
+                          </h3>
+                          <CoverageTable
+                            details={subcategory.details}
+                            disabled={saving}
+                            errors={fieldErrors}
+                            onMinimumChange={changeMinimum}
+                            onOpenDetail={setSelectedDetailId}
+                          />
+                        </section>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        )}
+      </main>
+
+      {server && draft && (
+        <div className="fixed bottom-16 left-0 right-0 z-40 border-t border-line bg-surface/95 px-4 py-3 shadow-[0_-10px_30px_rgba(23,34,55,0.08)] backdrop-blur sm:bottom-0 sm:left-60 sm:px-6">
+          <div className="mx-auto flex max-w-[1168px] items-center justify-between gap-4">
+            <div>
+              <div className="text-sm font-extrabold text-ink">
+                변경 {changedCount}개
+              </div>
+              <p className="mt-0.5 hidden text-xs text-ink3 sm:block">
+                바뀐 항목만 한 번에 저장해요.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void saveChanges()}
+              disabled={saving || changedCount === 0}
+              aria-label={saving ? "저장 중" : "변경 내용 저장"}
+              className="min-h-12 min-w-40 rounded-xl bg-brand px-5 text-sm font-extrabold text-white transition hover:bg-brand/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-line disabled:text-ink3"
+            >
+              {saving ? "저장 중..." : "변경 내용 저장"}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {selectedDetail && (
+        <BaselineDetailDrawer
+          open
+          detail={selectedDetail}
+          disabled={saving}
+          errors={fieldErrors}
+          onClose={() => setSelectedDetailId(null)}
+          onScopeChange={(original, next) =>
+            setScope(selectedDetail.id, original, next)
+          }
+          onAddScope={(scope) => addScope(selectedDetail.id, scope)}
+        />
+      )}
     </div>
   );
 }

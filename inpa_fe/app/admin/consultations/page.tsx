@@ -176,6 +176,11 @@ export default function AdminConsultationsPage() {
   }
 
   const status = data.status;
+  const retentionDays = (
+    Number.isInteger(data.retention_days) && data.retention_days > 0
+      ? data.retention_days
+      : null
+  );
   return (
     <div className="max-w-5xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -231,6 +236,20 @@ export default function AdminConsultationsPage() {
       )}
       {message && <p aria-live="polite" className="mt-4 text-[13px] text-success-ink">{message}</p>}
       {error && <p role="alert" className="mt-4 text-[13px] text-danger-ink">{error}</p>}
+      {retentionDays === null && (
+        <div role="alert" className="mt-4 rounded-2xl bg-surface p-4">
+          <p className="text-[13px] leading-6 text-ink2">
+            서버 보관 기간을 다시 불러오면 자동 삭제 일정을 확인할 수 있어요.
+          </p>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="mt-2 min-h-11 rounded-xl border border-line px-3 text-[12px] font-bold text-brand"
+          >
+            보관 기간 다시 불러오기
+          </button>
+        </div>
+      )}
 
       <section className="mt-6" aria-labelledby="consultation-status-title">
         <h2 id="consultation-status-title" className="text-[16px] font-extrabold text-ink">
@@ -238,7 +257,13 @@ export default function AdminConsultationsPage() {
         </h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <CountCard label="진행 중 업로드" value={status.active_upload_count} note="분할 업로드를 이어가는 녹음" />
-          <CountCard label="보관 중 원본" value={status.ready_source_count} note="7일 이내 자동 삭제 대상" />
+          <CountCard
+            label="보관 중 원본"
+            value={status.ready_source_count}
+            note={retentionDays === null
+              ? "서버 보관 기간 확인 후 자동 삭제 대상"
+              : `${retentionDays}일 이내 자동 삭제 대상`}
+          />
           <CountCard label="삭제 완료" value={status.deleted_count} note="원본 부재 확인까지 마친 건" />
           <CountCard label="만료 시각 지난 원본" value={status.overdue_source_count} note="삭제 작업이 우선 처리할 건" />
           <CountCard label="삭제 재확인" value={status.delete_failure_count} note="다음 삭제 작업에서 다시 확인할 건" />

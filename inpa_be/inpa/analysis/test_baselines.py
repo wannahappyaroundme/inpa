@@ -18,12 +18,16 @@ from inpa.insurances.models import (
 )
 
 
-def _baseline(product_group, age_band, gender, label):
+def _baseline(
+        product_group, age_band, gender, label, *,
+        is_active=True, baseline_source='planner'):
     return SimpleNamespace(
         product_group=product_group,
         age_band=age_band,
         gender=gender,
         label=label,
+        is_active=is_active,
+        baseline_source=baseline_source,
     )
 
 
@@ -56,6 +60,52 @@ class BaselineSelectionTests(SimpleTestCase):
             _baseline(PlannerBaseline.PRODUCT_GROUP_INDEMNITY, '30s', 1, 'indemnity-30s-male'),
         ]
 
+    def test_select_baseline_falls_back_by_product_age_and_gender(self):
+        candidates = [
+            _baseline(
+                PlannerBaseline.PRODUCT_GROUP_ALL,
+                PlannerBaseline.AGE_ALL,
+                None,
+                'all-default',
+            ),
+            _baseline(
+                PlannerBaseline.PRODUCT_GROUP_ALL,
+                '30s',
+                None,
+                'all-30-common',
+            ),
+            _baseline(
+                PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+                PlannerBaseline.AGE_ALL,
+                1,
+                'nonlife-all-male',
+            ),
+            _baseline(
+                PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+                '30s',
+                1,
+                'nonlife-30-male',
+            ),
+        ]
+
+        expected_fallbacks = (
+            'nonlife-30-male',
+            'nonlife-all-male',
+            'all-30-common',
+            'all-default',
+        )
+        remaining = list(candidates)
+        for expected in expected_fallbacks:
+            with self.subTest(expected=expected):
+                chosen = select_baseline(
+                    remaining,
+                    insurance_type=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+                    age_band='30s',
+                    gender=1,
+                )
+                self.assertEqual(chosen.label, expected)
+            remaining = [row for row in remaining if row.label != expected]
+
     def test_exact_age_and_gender_win(self):
         chosen = select_baseline(
             self.candidates, insurance_type=1, age_band='30s', gender=1)
@@ -72,9 +122,30 @@ class BaselineSelectionTests(SimpleTestCase):
 
         self.assertEqual(chosen.label, 'life-30s-common')
 
-    def test_wrong_age_never_falls_back(self):
-        self.assertIsNone(select_baseline(
-            self.candidates, insurance_type=1, age_band='40s', gender=1))
+    def test_common_coverage_uses_all_product_default(self):
+        candidates = [
+            _baseline(
+                PlannerBaseline.PRODUCT_GROUP_ALL,
+                PlannerBaseline.AGE_ALL,
+                None,
+                'all-default',
+            ),
+            _baseline(
+                PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+                PlannerBaseline.AGE_ALL,
+                None,
+                'nonlife-default',
+            ),
+        ]
+
+        chosen = select_baseline(
+            candidates,
+            insurance_type=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band='40s',
+            gender=2,
+        )
+
+        self.assertEqual(chosen.label, 'all-default')
 
     def test_life_never_uses_nonlife(self):
         candidates = [
@@ -84,13 +155,34 @@ class BaselineSelectionTests(SimpleTestCase):
         self.assertIsNone(select_baseline(
             candidates, insurance_type=1, age_band='30s', gender=1))
 
-    def test_ambiguous_indemnity_and_annuity_are_neutral(self):
-        for insurance_type in (0, PlannerBaseline.PRODUCT_GROUP_INDEMNITY,
-                               PlannerBaseline.PRODUCT_GROUP_ANNUITY):
-            with self.subTest(insurance_type=insurance_type):
-                self.assertIsNone(select_baseline(
-                    self.candidates, insurance_type=insurance_type,
-                    age_band='30s', gender=1))
+    def test_inactive_and_source_less_rows_are_excluded(self):
+        candidates = [
+            _baseline(
+                PlannerBaseline.PRODUCT_GROUP_LIFE,
+                '30s',
+                1,
+                'inactive',
+                is_active=False,
+            ),
+            _baseline(
+                PlannerBaseline.PRODUCT_GROUP_LIFE,
+                '30s',
+                1,
+                'source-less',
+                baseline_source=None,
+            ),
+            _baseline(
+                PlannerBaseline.PRODUCT_GROUP_ALL,
+                PlannerBaseline.AGE_ALL,
+                None,
+                'live-default',
+            ),
+        ]
+
+        chosen = select_baseline(
+            candidates, insurance_type=1, age_band='30s', gender=1)
+
+        self.assertEqual(chosen.label, 'live-default')
 
     def test_multiple_equally_specific_rows_are_neutral(self):
         candidates = self.candidates + [

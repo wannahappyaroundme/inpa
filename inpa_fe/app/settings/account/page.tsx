@@ -3,7 +3,7 @@
 // 계정·모드 설정 — 위촉 형태(전속/GA), 관리직 KPI 공유, 익명 코호트 동의.
 // updateProfile(PATCH /auth/profile/) 로 저장. 동의는 모두 기본 거부(opt-in).
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
@@ -19,41 +19,109 @@ export default function AccountSettingsPage() {
   const ready = useAuthGuard();
   const router = useRouter();
   const [p, setP] = useState<ProfileResponse | null>(null);
+  const [profileState, setProfileState] = useState<
+    "auth" | "loading" | "error" | "ready"
+  >("auth");
   const [managerEmail, setManagerEmail] = useState("");
   const [introText, setIntroText] = useState("");
+  const [name, setName] = useState("");
+  const [affiliation, setAffiliation] = useState("");
+  const [title, setTitle] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [pendingManagerSwitch, setPendingManagerSwitch] = useState<{ manager_email: string } | null>(null);
+  const profileRequestRef = useRef(0);
+  const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const messageGenerationRef = useRef(0);
 
-  useEffect(() => {
+  const clearMessage = useCallback(() => {
+    messageGenerationRef.current += 1;
+    if (messageTimerRef.current !== null) {
+      clearTimeout(messageTimerRef.current);
+      messageTimerRef.current = null;
+    }
+    setMessage(null);
+  }, []);
+
+  const showMessage = useCallback((
+    kind: "success" | "error",
+    text: string,
+    clearAfter?: number,
+  ) => {
+    const generation = ++messageGenerationRef.current;
+    if (messageTimerRef.current !== null) {
+      clearTimeout(messageTimerRef.current);
+      messageTimerRef.current = null;
+    }
+    setMessage({ kind, text });
+    if (clearAfter) {
+      messageTimerRef.current = setTimeout(() => {
+        if (messageGenerationRef.current !== generation) return;
+        messageTimerRef.current = null;
+        setMessage(null);
+      }, clearAfter);
+    }
+  }, []);
+
+  const loadProfile = useCallback(async () => {
     if (!ready) return;
-    getProfile().then((res) => {
+    const requestId = ++profileRequestRef.current;
+    setProfileState("loading");
+    try {
+      const res = await getProfile();
+      if (requestId !== profileRequestRef.current) return;
       setP(res);
       setManagerEmail(res.manager_email ?? "");
       setIntroText(res.intro_text ?? "");
+      setName(res.name ?? "");
+      setAffiliation(res.affiliation ?? "");
+      setTitle(res.title ?? "");
       setPhone(res.phone ?? "");
-    }).catch(() => { /* useAuthGuard 처리 */ });
+      setProfileState("ready");
+    } catch {
+      if (requestId !== profileRequestRef.current) return;
+      setProfileState("error");
+    }
   }, [ready]);
+
+  useEffect(() => {
+    if (!ready) {
+      profileRequestRef.current += 1;
+      setProfileState("auth");
+      return;
+    }
+    void loadProfile();
+    return () => {
+      profileRequestRef.current += 1;
+    };
+  }, [loadProfile, ready]);
+
+  useEffect(() => () => {
+    messageGenerationRef.current += 1;
+    if (messageTimerRef.current !== null) {
+      clearTimeout(messageTimerRef.current);
+      messageTimerRef.current = null;
+    }
+  }, []);
 
   // 구글 캘린더 연동 콜백 결과(?gcal=) 배너 처리 후 URL 정리.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const g = new URLSearchParams(window.location.search).get("gcal");
     if (!g) return;
-    if (g === "connected") setMsg("구글 캘린더가 연동되었어요");
-    else if (g === "denied") setMsg("구글 연동을 취소했어요");
-    else setMsg("구글 캘린더 연동에 실패했어요. 다시 시도해 주세요.");
+    if (g === "connected") showMessage("success", "구글 캘린더가 연동되었어요", 2500);
+    else if (g === "denied") showMessage("success", "구글 연동을 취소했어요", 2500);
+    else showMessage("error", "구글 캘린더 연동에 실패했어요. 다시 시도해 주세요.", 2500);
     window.history.replaceState({}, "", "/settings/account");
-    setTimeout(() => setMsg(null), 2500);
-  }, []);
+  }, [showMessage]);
 
   async function connectGoogleCalendar() {
     try {
       const { auth_url } = await getGoogleCalendarConnectUrl();
       window.location.href = auth_url;
     } catch {
-      setMsg("연동 시작에 실패했어요.");
+      showMessage("error", "연동 시작에 실패했어요.");
     }
   }
 
@@ -63,10 +131,9 @@ export default function AccountSettingsPage() {
       await disconnectGoogleCalendar();
       const res = await getProfile();
       setP(res);
-      setMsg("구글 캘린더 연동을 해제했어요");
-      setTimeout(() => setMsg(null), 1800);
+      showMessage("success", "구글 캘린더 연동을 해제했어요", 1800);
     } catch {
-      setMsg("해제 실패");
+      showMessage("error", "해제에 실패했어요. 다시 시도해 주세요.");
     } finally {
       setSaving(false);
     }
@@ -74,13 +141,16 @@ export default function AccountSettingsPage() {
 
   async function patch(payload: Parameters<typeof updateProfile>[0], note: string) {
     setSaving(true);
-    setMsg(null);
+    clearMessage();
     try {
       const res = await updateProfile(payload);
       setP(res);
       setManagerEmail(res.manager_email ?? "");
-      setMsg(note);
-      setTimeout(() => setMsg(null), 1800);
+      setName(res.name ?? "");
+      setAffiliation(res.affiliation ?? "");
+      setTitle(res.title ?? "");
+      setPhone(res.phone ?? "");
+      showMessage("success", note, 1800);
     } catch (error) {
       if (
         error instanceof ApiError &&
@@ -90,7 +160,7 @@ export default function AccountSettingsPage() {
       ) {
         setPendingManagerSwitch({ manager_email: payload.manager_email });
       } else {
-        setMsg(error instanceof ApiError ? error.message : "저장에 실패했어요. 다시 시도해 주세요.");
+        showMessage("error", error instanceof ApiError ? error.message : "저장에 실패했어요. 다시 시도해 주세요.");
       }
     } finally {
       setSaving(false);
@@ -100,7 +170,7 @@ export default function AccountSettingsPage() {
   async function confirmManagerSwitch() {
     if (!pendingManagerSwitch) return;
     setSaving(true);
-    setMsg(null);
+    clearMessage();
     try {
       const res = await updateProfile({
         ...pendingManagerSwitch,
@@ -109,11 +179,10 @@ export default function AccountSettingsPage() {
       setP(res);
       setManagerEmail(res.manager_email ?? "");
       setPendingManagerSwitch(null);
-      setMsg("관리직을 연결했어요");
-      setTimeout(() => setMsg(null), 1800);
+      showMessage("success", "관리직을 연결했어요", 1800);
     } catch (error) {
       setPendingManagerSwitch(null);
-      setMsg(error instanceof ApiError ? error.message : "저장에 실패했어요. 다시 시도해 주세요.");
+      showMessage("error", error instanceof ApiError ? error.message : "저장에 실패했어요. 다시 시도해 주세요.");
     } finally {
       setSaving(false);
     }
@@ -129,28 +198,86 @@ export default function AccountSettingsPage() {
     e.target.value = "";  // 같은 파일 재선택 허용
     if (!file) return;
     setSaving(true);
-    setMsg(null);
+    clearMessage();
     try {
       const res = await uploadProfileImage(file);
       setP(res);
-      setMsg("프로필 사진을 저장했어요");
-      setTimeout(() => setMsg(null), 1800);
+      showMessage("success", "프로필 사진을 저장했어요", 1800);
     } catch {
-      setMsg("사진 업로드에 실패했어요. 다시 시도해 주세요.");
+      showMessage("error", "사진 업로드에 실패했어요. 다시 시도해 주세요.");
     } finally {
       setSaving(false);
     }
   }
 
-  if (!ready || !p) return null;
+  if (!ready || profileState === "auth") {
+    return (
+      <div className="min-h-dvh">
+        <AppNav active="settings" />
+        <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6">
+          <h1 className="text-[22px] font-extrabold text-ink">계정 · 모드 설정</h1>
+          <div role="status" className="mt-4 rounded-2xl bg-surface2 p-5 text-[13px] text-ink2">
+            로그인 정보를 확인하는 중이에요.
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (profileState === "loading" && !p) {
+    return (
+      <div className="min-h-dvh">
+        <AppNav active="settings" />
+        <main
+          aria-busy="true"
+          className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6"
+        >
+          <h1 className="text-[22px] font-extrabold text-ink">계정 · 모드 설정</h1>
+          <div
+            role="status"
+            className="mt-4 rounded-2xl bg-surface2 p-5 text-[13px] text-ink2"
+          >
+            계정 설정을 불러오는 중이에요.
+          </div>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2" aria-hidden="true">
+            <div className="h-40 animate-pulse rounded-2xl bg-surface2" />
+            <div className="h-40 animate-pulse rounded-2xl bg-surface2" />
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (profileState === "error" || !p) {
+    return (
+      <div className="min-h-dvh">
+        <AppNav active="settings" />
+        <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6">
+          <h1 className="text-[22px] font-extrabold text-ink">계정 · 모드 설정</h1>
+          <div className="mt-4 rounded-2xl bg-surface2 p-5">
+            <p role="alert" className="text-[13px] leading-6 text-ink2">
+              계정 설정을 다시 불러오면 이어서 입력할 수 있어요.
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadProfile()}
+              className="mt-3 min-h-11 rounded-xl bg-brand px-4 text-[13px] font-bold text-white"
+            >
+              다시 불러오기
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh">
       <AppNav active="settings" />
       <main className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6">
         <h1 className="text-[22px] font-extrabold text-ink">계정 · 모드 설정</h1>
-        {msg && (
-          <div className="mt-4 rounded-xl border border-line bg-success-tint px-4 py-2 text-[13px] text-success">{msg}</div>
+        {message && (
+          <div role={message.kind === "success" ? "status" : "alert"} className={`mt-4 rounded-xl border border-line px-4 py-2 text-[13px] ${message.kind === "success" ? "bg-success-tint text-success" : "bg-danger-tint text-danger"}`}>{message.text}</div>
         )}
 
         <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
@@ -176,23 +303,63 @@ export default function AccountSettingsPage() {
           </div>
         </Card>
 
-        {/* 전화번호 — /s 전화·문자 버튼 + 판촉물 인쇄 정보 프리필 */}
+        {/* 기본 프로필 — 공개 안내·판촉물에 쓰이는 설계사 정보 */}
         <Card className="px-5 py-4">
-          <div className="text-[15px] font-bold text-ink">전화번호</div>
+          <div className="text-[15px] font-bold text-ink">기본 프로필</div>
           <p className="mt-1 text-[12px] text-ink3 leading-5">
-            고객이 보는 보장 안내 화면의 <b>전화하기·문자하기</b> 버튼과 판촉물 인쇄 정보에 쓰여요. 숫자와 하이픈(-)으로 입력해 주세요.
+            고객이 보는 안내와 판촉물에 쓰여요. 휴대전화는 숫자와 하이픈(-)으로 입력해 주세요.
           </p>
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value.replace(/[^0-9-]/g, ""))}
-            maxLength={20}
-            inputMode="tel"
-            placeholder="예: 010-1234-5678"
-            className="mt-3 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
-          />
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label>
+              <span className="text-[12px] text-ink3">성명</span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={30}
+                placeholder="예: 황예진"
+                className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+              />
+            </label>
+            <label>
+              <span className="text-[12px] text-ink3">소속</span>
+              <input
+                value={affiliation}
+                onChange={(e) => setAffiliation(e.target.value)}
+                maxLength={100}
+                placeholder="예: 인파보험대리점"
+                className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+              />
+            </label>
+            <label>
+              <span className="text-[12px] text-ink3">직책</span>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={40}
+                placeholder="예: 보험설계사"
+                className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+              />
+            </label>
+            <label>
+              <span className="text-[12px] text-ink3">휴대전화</span>
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/[^0-9-]/g, ""))}
+                maxLength={20}
+                inputMode="tel"
+                placeholder="예: 010-1234-5678"
+                className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink placeholder:text-muted outline-none focus:border-brand"
+              />
+            </label>
+          </div>
           <button
             disabled={saving}
-            onClick={() => patch({ phone: phone.trim() }, "전화번호를 저장했어요")}
+            onClick={() => patch({
+              name: name.trim(),
+              affiliation: affiliation.trim(),
+              title: title.trim(),
+              phone: phone.trim(),
+            }, "기본 프로필을 저장했어요")}
             className="mt-2 rounded-xl bg-brand text-white text-[13px] font-bold px-4 py-2 disabled:opacity-60"
           >
             저장

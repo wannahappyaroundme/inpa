@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ApiError,
+  getCurrentManualBenefitReview,
   preflightRecurringCoupon,
   startCardRegistration,
+  type ManualBenefitReview,
   type RecurringCouponPreflight,
 } from "@/lib/api";
 import { formatCalendarDate, formatWon } from "./date-format";
+import { FreeTrialPhoneVerification, type CouponRetryResult } from "./free-trial-phone-verification";
 
 export function CardRegistration() {
   const [code, setCode] = useState("");
@@ -15,23 +18,69 @@ export function CardRegistration() {
   const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [verificationStep, setVerificationStep] = useState<"phone" | "manual-review" | null>(null);
+  const [verificationKey, setVerificationKey] = useState(0);
+  const [couponSnapshot, setCouponSnapshot] = useState<string | null>(null);
+  const [submittedReview, setSubmittedReview] = useState<ManualBenefitReview | null>(null);
+  const couponOperationRef = useRef(0);
+  const couponInputRef = useRef<HTMLInputElement>(null);
 
-  async function checkCoupon() {
-    if (!code.trim()) return;
+  async function checkCoupon(
+    afterPhoneVerification = false,
+    couponCodeOverride?: string,
+  ): Promise<CouponRetryResult> {
+    const couponCode = afterPhoneVerification
+      ? couponSnapshot
+      : couponCodeOverride ?? code.trim();
+    if (!couponCode) return { state: "complete" };
+    const operation = couponOperationRef.current + 1;
+    couponOperationRef.current = operation;
+    if (!afterPhoneVerification) setCouponSnapshot(couponCode);
     setBusy(true);
     setMessage(null);
     try {
-      setPreview(await preflightRecurringCoupon(code.trim()));
+      const nextPreview = await preflightRecurringCoupon(couponCode);
+      if (operation !== couponOperationRef.current) return { state: "complete" };
+      setPreview(nextPreview);
       setAccepted(false);
+      setSubmittedReview(null);
+      setVerificationStep(null);
+      return { state: "complete" };
     } catch (error) {
+      if (operation !== couponOperationRef.current) return { state: "complete" };
       setPreview(null);
-      setMessage(
-        error instanceof ApiError
-          ? error.message
-          : "쿠폰을 다시 확인해 주세요.",
-      );
+      if (!afterPhoneVerification && error instanceof ApiError && error.code === "phone_verification_required") {
+        setVerificationStep("phone");
+        setVerificationKey((current) => current + 1);
+        return { state: "complete" };
+      }
+      if (error instanceof ApiError && error.code === "manual_benefit_review_required") {
+        try {
+          const currentReview = await getCurrentManualBenefitReview();
+          if (operation !== couponOperationRef.current) return { state: "complete" };
+          setSubmittedReview(currentReview);
+        } catch (reviewError) {
+          if (operation !== couponOperationRef.current) return { state: "complete" };
+          const nextMessage = reviewError instanceof ApiError
+            ? reviewError.message
+            : "처리 상태를 다시 확인해 주세요.";
+          setMessage(nextMessage);
+          return afterPhoneVerification
+            ? { state: "recoverable-error", message: nextMessage }
+            : { state: "complete" };
+        }
+        setVerificationStep("manual-review");
+        setVerificationKey((current) => current + 1);
+        return { state: "manual-review" };
+      }
+      const nextMessage = error instanceof ApiError ? error.message : "쿠폰을 다시 확인해 주세요.";
+      if (afterPhoneVerification) {
+        return { state: "recoverable-error", message: nextMessage };
+      }
+      setMessage(nextMessage);
+      return { state: "complete" };
     } finally {
-      setBusy(false);
+      if (operation === couponOperationRef.current) setBusy(false);
     }
   }
 
@@ -64,6 +113,7 @@ export function CardRegistration() {
 
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         <input
+          ref={couponInputRef}
           value={code}
           onChange={(event) => setCode(event.target.value.toUpperCase())}
           placeholder="쿠폰 코드를 입력해 주세요"
@@ -73,7 +123,7 @@ export function CardRegistration() {
         <button
           type="button"
           disabled={busy || !code.trim()}
-          onClick={checkCoupon}
+          onClick={() => void checkCoupon()}
           className="rounded-xl bg-brand px-4 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
         >
           {busy && !preview ? "확인 중..." : "쿠폰 확인"}
@@ -81,9 +131,29 @@ export function CardRegistration() {
       </div>
 
       {message && (
-        <p className="mt-3 rounded-xl bg-surface2 px-3 py-2 text-[13px] leading-5 text-ink2">
+        <p role="alert" className="mt-3 rounded-xl bg-surface2 px-3 py-2 text-[13px] leading-5 text-ink2">
           {message}
         </p>
+      )}
+
+      {verificationStep && (
+        <FreeTrialPhoneVerification
+          key={verificationKey}
+          initialStep={verificationStep}
+          initialSubmittedReview={verificationStep === "manual-review" && submittedReview
+            ? { ...submittedReview, created: false }
+            : null}
+          onVerified={() => checkCoupon(true)}
+          onSubmitted={setSubmittedReview}
+          onRefresh={() => checkCoupon(false, couponSnapshot ?? undefined).then(() => undefined)}
+          onBack={() => {
+            couponOperationRef.current += 1;
+            setVerificationStep(null);
+            setMessage(null);
+            couponInputRef.current?.focus();
+            requestAnimationFrame(() => couponInputRef.current?.focus());
+          }}
+        />
       )}
 
       {preview && (

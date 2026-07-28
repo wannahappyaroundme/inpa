@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import tempfile
 from dataclasses import dataclass
 from datetime import timedelta
@@ -10,11 +11,19 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from inpa.customers.consent_texts import (
+    has_current_consultation_recording_consent,
+)
 from inpa.customers.models import Customer
 
 from .models import (
     ConsultationRecording,
     ConsultationRuntimeConfig,
+)
+from .recording_policy import (
+    PLANNER_NOTICE_TEXT_HASH,
+    PLANNER_NOTICE_VERSION,
+    current_retention_snapshot,
 )
 from .storage import (
     InvalidMultipartParts,
@@ -31,6 +40,18 @@ ALLOWED_RECORDING_MIME_TYPES = {
     'audio/webm',
     'audio/webm;codecs=opus',
 }
+CONTAINER_BY_MIME_TYPE = {
+    'audio/mp4': 'mp4',
+    'audio/ogg': 'ogg',
+    'audio/webm': 'webm',
+}
+DOWNLOAD_EXTENSION_BY_CONTAINER = {
+    'mp4': 'm4a',
+    'ogg': 'ogg',
+    'webm': 'webm',
+}
+DOWNLOAD_URL_TTL_SECONDS = 300
+logger = logging.getLogger(__name__)
 
 
 class ConsultationServiceError(RuntimeError):
@@ -46,12 +67,17 @@ class InvalidRecording(ConsultationServiceError):
         super().__init__(code, detail, 400)
 
 
+class _UploadConsentUnavailable(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class AudioInspection:
     byte_size: int
     duration_ms: int
     codec: str
     checksum: str
+    container: str
 
 
 def get_recording_storage():
@@ -64,6 +90,36 @@ def max_part_number():
         + settings.CONSULTATION_UPLOAD_PART_BYTES
         - 1
     ) // settings.CONSULTATION_UPLOAD_PART_BYTES
+
+
+def validate_recording_notice_attestation(*, notice_attested, notice_version):
+    if notice_attested is not True:
+        raise ConsultationServiceError(
+            'recording_notice_required',
+            '안내 문구를 읽고 녹음 동의를 확인해 주세요.',
+            400,
+        )
+    if notice_version != PLANNER_NOTICE_VERSION:
+        raise ConsultationServiceError(
+            'recording_notice_changed',
+            '최신 안내 문구를 확인하면 녹음을 시작할 수 있어요.',
+            409,
+        )
+
+
+def normalize_actual_container(format_name):
+    aliases = {
+        part.strip().lower()
+        for part in (format_name or '').split(',')
+        if part.strip()
+    }
+    if 'webm' in aliases:
+        return 'webm'
+    if 'ogg' in aliases:
+        return 'ogg'
+    if aliases.intersection({'mov', 'mp4', 'm4a', '3gp', '3g2', 'mj2'}):
+        return 'mp4'
+    raise InvalidRecording('RECORDING_CONTAINER_INVALID')
 
 
 def inspect_audio(chunks):
@@ -100,6 +156,9 @@ def inspect_audio(chunks):
                 elif stream.duration is not None and stream.time_base is not None:
                     duration_seconds = float(stream.duration * stream.time_base)
                 codec = stream.codec_context.name or ''
+                actual_container = normalize_actual_container(
+                    container.format.name,
+                )
         except InvalidRecording:
             raise
         except (FFmpegError, ValueError, EOFError) as exc:
@@ -116,6 +175,7 @@ def inspect_audio(chunks):
             duration_ms=duration_ms,
             codec=codec,
             checksum=f'sha256:{hasher.hexdigest()}',
+            container=actual_container,
         )
 
 
@@ -126,16 +186,31 @@ def create_upload_session(
     client_session_id,
     mime_type,
     started_at,
+    notice_attested,
+    notice_version,
 ):
-    storage = get_recording_storage()
+    validate_recording_notice_attestation(
+        notice_attested=notice_attested,
+        notice_version=notice_version,
+    )
+    retention = current_retention_snapshot()
+    storage = None
     session = None
     try:
         with transaction.atomic():
             config = ConsultationRuntimeConfig.objects.select_for_update().get(pk=1)
             locked_customer = Customer.objects.select_for_update().get(
                 pk=customer.pk,
-                owner=customer.owner,
+                owner=owner,
             )
+            if not has_current_consultation_recording_consent(
+                locked_customer,
+            ):
+                raise ConsultationServiceError(
+                    'CONSULTATION_CONSENT_REQUIRED',
+                    '고객 동의를 먼저 받으면 상담 녹음을 시작할 수 있어요.',
+                    412,
+                )
             existing = ConsultationRecording.objects.filter(
                 owner=owner,
                 client_session_id=client_session_id,
@@ -145,6 +220,20 @@ def create_upload_session(
                     raise ConsultationServiceError(
                         'SESSION_CUSTOMER_MISMATCH',
                         '이 고객의 녹음 화면에서 새로 시작해 주세요.',
+                        409,
+                    )
+                if (
+                    existing.notice_version != PLANNER_NOTICE_VERSION
+                    or existing.notice_attested_at is None
+                    or existing.notice_text_hash != PLANNER_NOTICE_TEXT_HASH
+                    or existing.retention_hours_snapshot != retention['hours']
+                    or existing.retention_days_snapshot != retention['days']
+                    or existing.retention_policy_version
+                    != retention['policy_version']
+                ):
+                    raise ConsultationServiceError(
+                        'recording_session_policy_mismatch',
+                        '최신 안내를 확인하고 새 녹음을 시작해 주세요.',
                         409,
                     )
                 return existing, False
@@ -166,15 +255,29 @@ def create_upload_session(
                     '잠시 후 다시 시작하면 바로 녹음할 수 있어요.',
                     503,
                 )
+            now = timezone.now()
+            storage = get_recording_storage()
             recording = ConsultationRecording.objects.create(
                 owner=owner,
                 customer=locked_customer,
                 client_session_id=client_session_id,
                 mime_type=mime_type,
-                started_at=started_at or timezone.now(),
-                expires_at=timezone.now() + timedelta(hours=24),
+                started_at=started_at or now,
+                expires_at=now + timedelta(hours=24),
+                notice_version=PLANNER_NOTICE_VERSION,
+                notice_attested_at=now,
+                notice_text_hash=PLANNER_NOTICE_TEXT_HASH,
+                retention_hours_snapshot=retention['hours'],
+                retention_days_snapshot=retention['days'],
+                retention_policy_version=retention['policy_version'],
             )
-            session = storage.create(recording.id, mime_type)
+            session = storage.create(
+                recording.id,
+                mime_type,
+                retention_hours=retention['hours'],
+                retention_days=retention['days'],
+                retention_policy_version=retention['policy_version'],
+            )
             recording.storage_key = session.key
             recording.multipart_upload_id = session.upload_id
             recording.save(update_fields=[
@@ -184,7 +287,7 @@ def create_upload_session(
             ])
             return recording, True
     except IntegrityError as exc:
-        if session is not None:
+        if session is not None and storage is not None:
             try:
                 storage.abort(session.key, session.upload_id)
             except Exception:
@@ -195,7 +298,7 @@ def create_upload_session(
             409,
         ) from exc
     except Exception:
-        if session is not None:
+        if session is not None and storage is not None:
             try:
                 storage.abort(session.key, session.upload_id)
             except Exception:
@@ -203,24 +306,79 @@ def create_upload_session(
         raise
 
 
-def create_part_url(*, recording, part_number):
-    if recording.status != ConsultationRecording.STATUS_UPLOADING:
-        raise ConsultationServiceError(
-            'RECORDING_UPLOAD_FINISHED',
-            '업로드를 마친 녹음이에요.',
-            409,
+def _retire_upload_without_current_consent(recording_id):
+    """Best-effort source retirement after the consent lock rejects an upload."""
+    from .cleanup import delete_recording_source
+
+    try:
+        outcome = delete_recording_source(
+            recording_id,
+            reason='consent_unavailable',
+            storage=get_recording_storage(),
         )
-    if not 1 <= part_number <= max_part_number():
-        raise ConsultationServiceError(
-            'INVALID_PART_NUMBER',
-            '녹음 파일 크기를 확인해 주세요.',
-            400,
+    except Exception as exc:
+        logger.exception(
+            'consultation stale upload retirement failed '
+            'recording_id=%s error_type=%s',
+            recording_id,
+            type(exc).__name__,
         )
-    return get_recording_storage().presign_part(
-        recording.storage_key,
-        recording.multipart_upload_id,
-        part_number,
+        return
+    if outcome != 'deleted':
+        logger.warning(
+            'consultation stale upload retirement queued for retry '
+            'recording_id=%s outcome=%s',
+            recording_id,
+            outcome,
+        )
+
+
+def _upload_consent_unavailable_error():
+    return ConsultationServiceError(
+        'recording_upload_unavailable',
+        '고객 동의를 다시 확인하면 새 녹음을 시작할 수 있어요.',
+        410,
     )
+
+
+def create_part_url(*, recording_id, owner, customer, part_number):
+    try:
+        with transaction.atomic():
+            locked_customer = Customer.objects.select_for_update().get(
+                pk=customer.pk,
+                owner=owner,
+            )
+            recording = (
+                ConsultationRecording.objects.select_for_update().get(
+                    pk=recording_id,
+                    owner=owner,
+                    customer=locked_customer,
+                )
+            )
+            if not has_current_consultation_recording_consent(
+                locked_customer,
+            ):
+                raise _UploadConsentUnavailable
+            if recording.status != ConsultationRecording.STATUS_UPLOADING:
+                raise ConsultationServiceError(
+                    'RECORDING_UPLOAD_FINISHED',
+                    '업로드를 마친 녹음이에요.',
+                    409,
+                )
+            if not 1 <= part_number <= max_part_number():
+                raise ConsultationServiceError(
+                    'INVALID_PART_NUMBER',
+                    '녹음 파일 크기를 확인해 주세요.',
+                    400,
+                )
+            return get_recording_storage().presign_part(
+                recording.storage_key,
+                recording.multipart_upload_id,
+                part_number,
+            )
+    except _UploadConsentUnavailable:
+        _retire_upload_without_current_consent(recording_id)
+        raise _upload_consent_unavailable_error()
 
 
 def _delete_invalid_completed_source(recording, storage, reason):
@@ -268,62 +426,88 @@ def complete_upload(*, recording_id, owner, customer, parts, ended_at):
     except InvalidMultipartParts as exc:
         raise InvalidRecording(str(exc)) from exc
 
-    storage = get_recording_storage()
     validation_error = None
-    with transaction.atomic():
-        recording = ConsultationRecording.objects.select_for_update().get(
-            pk=recording_id,
-            owner=owner,
-            customer=customer,
-        )
-        if recording.status != ConsultationRecording.STATUS_UPLOADING:
-            return recording
-
-        expected_size = sum(part.byte_size for part in ordered)
-        try:
-            storage.complete(
-                recording.storage_key,
-                recording.multipart_upload_id,
-                ordered,
+    try:
+        with transaction.atomic():
+            locked_customer = Customer.objects.select_for_update().get(
+                pk=customer.pk,
+                owner=owner,
             )
-        except ClientError:
+            recording = (
+                ConsultationRecording.objects.select_for_update().get(
+                    pk=recording_id,
+                    owner=owner,
+                    customer=locked_customer,
+                )
+            )
+            if not has_current_consultation_recording_consent(
+                locked_customer,
+            ):
+                raise _UploadConsentUnavailable
+            if recording.status != ConsultationRecording.STATUS_UPLOADING:
+                return recording
+
+            storage = get_recording_storage()
+            expected_size = sum(part.byte_size for part in ordered)
+            try:
+                storage.complete(
+                    recording.storage_key,
+                    recording.multipart_upload_id,
+                    ordered,
+                )
+            except ClientError:
+                try:
+                    head = storage.head(recording.storage_key)
+                except ClientError:
+                    raise
+                if head.get('ContentLength') != expected_size:
+                    raise
+
             try:
                 head = storage.head(recording.storage_key)
-            except ClientError:
-                raise
-            if head.get('ContentLength') != expected_size:
-                raise
-
-        try:
-            head = storage.head(recording.storage_key)
-            if head.get('ContentLength') != expected_size:
-                raise InvalidRecording('RECORDING_SIZE_MISMATCH')
-            inspection = inspect_audio(
-                storage.iter_object(recording.storage_key),
-            )
-            if inspection.byte_size != expected_size:
-                raise InvalidRecording('RECORDING_SIZE_MISMATCH')
-        except InvalidRecording as exc:
-            _delete_invalid_completed_source(
-                recording,
-                storage,
-                reason='validation_failed',
-            )
-            validation_error = exc
-        else:
-            actual_end = min(ended_at or timezone.now(), timezone.now())
-            if recording.started_at and actual_end < recording.started_at:
-                actual_end = recording.started_at + timedelta(
-                    milliseconds=inspection.duration_ms,
+                if head.get('ContentLength') != expected_size:
+                    raise InvalidRecording('RECORDING_SIZE_MISMATCH')
+                inspection = inspect_audio(
+                    storage.iter_object(recording.storage_key),
                 )
-                actual_end = min(actual_end, timezone.now())
-            recording.mark_ready(
-                ended_at=actual_end,
-                byte_size=inspection.byte_size,
-                duration_ms=inspection.duration_ms,
-                codec=inspection.codec,
-                checksum=inspection.checksum,
-            )
+                if inspection.byte_size != expected_size:
+                    raise InvalidRecording('RECORDING_SIZE_MISMATCH')
+                declared_mime = (
+                    (recording.mime_type or '')
+                    .split(';', 1)[0]
+                    .strip()
+                    .lower()
+                )
+                if (
+                    CONTAINER_BY_MIME_TYPE.get(declared_mime)
+                    != inspection.container
+                ):
+                    raise InvalidRecording('RECORDING_CONTAINER_MISMATCH')
+            except InvalidRecording as exc:
+                _delete_invalid_completed_source(
+                    recording,
+                    storage,
+                    reason='validation_failed',
+                )
+                validation_error = exc
+            else:
+                actual_end = min(ended_at or timezone.now(), timezone.now())
+                if recording.started_at and actual_end < recording.started_at:
+                    actual_end = recording.started_at + timedelta(
+                        milliseconds=inspection.duration_ms,
+                    )
+                    actual_end = min(actual_end, timezone.now())
+                recording.mark_ready(
+                    ended_at=actual_end,
+                    byte_size=inspection.byte_size,
+                    duration_ms=inspection.duration_ms,
+                    codec=inspection.codec,
+                    checksum=inspection.checksum,
+                    actual_container=inspection.container,
+                )
+    except _UploadConsentUnavailable:
+        _retire_upload_without_current_consent(recording_id)
+        raise _upload_consent_unavailable_error()
     if validation_error is not None:
         raise validation_error
     return recording
@@ -352,8 +536,44 @@ def create_play_url(*, recording):
     return get_recording_storage().presign_get(recording.storage_key)
 
 
+def create_download_url(*, recording):
+    if (
+        recording.status not in {
+            ConsultationRecording.STATUS_READY,
+            ConsultationRecording.STATUS_COMPLETED,
+        }
+        or not recording.storage_key
+        or recording.expires_at is None
+        or recording.expires_at <= timezone.now()
+    ):
+        raise ConsultationServiceError(
+            'recording_download_unavailable',
+            '원본 녹음 보관을 마쳤어요. 정리된 상담 메모를 확인해 주세요.',
+            410,
+        )
+    extension = DOWNLOAD_EXTENSION_BY_CONTAINER.get(
+        recording.verified_container,
+    )
+    if extension is None:
+        raise ConsultationServiceError(
+            'recording_download_unavailable',
+            '원본 녹음 보관을 마쳤어요. 정리된 상담 메모를 확인해 주세요.',
+            410,
+        )
+    ready_at = recording.ready_at or recording.created_at
+    filename = (
+        f'consultation-recording-'
+        f'{timezone.localtime(ready_at):%Y%m%d}.{extension}'
+    )
+    return get_recording_storage().presign_download(
+        recording.storage_key,
+        filename,
+    )
+
+
 def delete_source(*, recording_id, owner, customer, reason):
-    storage = get_recording_storage()
+    from .cleanup import delete_recording_source
+
     with transaction.atomic():
         recording = ConsultationRecording.objects.select_for_update().get(
             pk=recording_id,
@@ -362,59 +582,17 @@ def delete_source(*, recording_id, owner, customer, reason):
         )
         if recording.status == ConsultationRecording.STATUS_DELETED:
             return recording
-        from .summary_worker import cancel_recording_summary
-        cancel_recording_summary(
-            recording.id,
-            reason='RECORDING_SOURCE_DELETED',
-        )
-        key = recording.storage_key
-        upload_id = recording.multipart_upload_id
-        was_uploading = recording.status == ConsultationRecording.STATUS_UPLOADING
-        recording.status = ConsultationRecording.STATUS_DELETING
-        recording.delete_reason = reason
-        recording.delete_result = 'pending'
-        recording.version += 1
-        recording.save(update_fields=[
-            'status',
-            'delete_reason',
-            'delete_result',
-            'version',
-            'updated_at',
-        ])
 
-    try:
-        if was_uploading and upload_id:
-            storage.abort(key, upload_id)
-        if key:
-            storage.delete(key)
-    except Exception as exc:
+    outcome = delete_recording_source(
+        recording_id,
+        reason=reason,
+        storage=get_recording_storage(),
+    )
+    recording.refresh_from_db()
+    if outcome != 'deleted':
         raise ConsultationServiceError(
             'RECORDING_DELETE_RETRY',
             '삭제 요청을 접수했어요. 원본 확인이 끝나면 자동으로 반영됩니다.',
             503,
-        ) from exc
-
-    with transaction.atomic():
-        recording = ConsultationRecording.objects.select_for_update().get(
-            pk=recording_id,
-            owner=owner,
-            customer=customer,
         )
-        recording.status = ConsultationRecording.STATUS_DELETED
-        recording.storage_key = None
-        recording.multipart_upload_id = ''
-        recording.checksum = ''
-        recording.deleted_at = timezone.now()
-        recording.delete_result = 'verified'
-        recording.version += 1
-        recording.save(update_fields=[
-            'status',
-            'storage_key',
-            'multipart_upload_id',
-            'checksum',
-            'deleted_at',
-            'delete_result',
-            'version',
-            'updated_at',
-        ])
     return recording

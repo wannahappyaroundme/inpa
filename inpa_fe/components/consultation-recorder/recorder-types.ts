@@ -20,6 +20,7 @@ export interface RecorderState {
   uploadedBytes: number;
   notice: string | null;
   error: string | null;
+  errorCode: string | null;
   recording: ConsultationRecording | null;
 }
 export type UploadPart = (
@@ -31,7 +32,14 @@ export interface RecorderSessionContextValue {
   customerId: number | null;
   state: RecorderState;
   isActive: boolean;
-  start: (customerId: number) => Promise<void>;
+  start: (
+    customerId: number,
+    options: {
+      noticeVersion: string;
+      retentionDays: number;
+      signal?: AbortSignal;
+    },
+  ) => Promise<void>;
   pause: () => void;
   resume: () => void;
   stop: () => void;

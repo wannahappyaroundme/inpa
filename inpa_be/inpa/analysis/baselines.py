@@ -3,7 +3,30 @@ from decimal import Decimal
 
 from inpa.customers.models import PlannerBaseline
 
-__all__ = ['normalize_money', 'select_baseline']
+__all__ = [
+    'baseline_candidates_for_detail',
+    'normalize_money',
+    'select_baseline',
+]
+
+
+def baseline_candidates_for_detail(
+        candidates, *, analysis_detail_id, coverage_key):
+    linked = [
+        row
+        for row in candidates
+        if row.analysis_detail_id == analysis_detail_id
+    ]
+    if linked:
+        return linked
+    return [
+        row
+        for row in candidates
+        if (
+            row.analysis_detail_id is None
+            and row.coverage_key == coverage_key
+        )
+    ]
 
 
 def normalize_money(value, unit):
@@ -18,15 +41,37 @@ def normalize_money(value, unit):
 
 
 def select_baseline(candidates, *, insurance_type, age_band, gender):
-    product_group = {
-        1: PlannerBaseline.PRODUCT_GROUP_LIFE,
-        2: PlannerBaseline.PRODUCT_GROUP_NONLIFE,
-    }.get(insurance_type)
+    product_group = (
+        insurance_type
+        if insurance_type in dict(PlannerBaseline.PRODUCT_GROUP_CHOICES)
+        else None
+    )
     if product_group is None or age_band is None:
         return None
-    scoped = [row for row in candidates
-              if row.product_group == product_group and row.age_band == age_band]
-    exact = [row for row in scoped if row.gender == gender]
-    common = [row for row in scoped if row.gender is None]
-    chosen = exact or common
-    return chosen[0] if len(chosen) == 1 else None
+
+    allowed_products = {product_group, PlannerBaseline.PRODUCT_GROUP_ALL}
+    allowed_ages = {age_band, PlannerBaseline.AGE_ALL}
+    ranked = []
+    for row in candidates:
+        if not getattr(row, 'is_active', True):
+            continue
+        if not getattr(row, 'baseline_source', 'planner'):
+            continue
+        if row.product_group not in allowed_products:
+            continue
+        if row.age_band not in allowed_ages:
+            continue
+        if row.gender not in {gender, None}:
+            continue
+        rank = (
+            0 if row.product_group == product_group else 1,
+            0 if row.age_band == age_band else 1,
+            0 if row.gender == gender else 1,
+        )
+        ranked.append((rank, row))
+
+    if not ranked:
+        return None
+    best_rank = min(rank for rank, _row in ranked)
+    best = [row for rank, row in ranked if rank == best_rank]
+    return best[0] if len(best) == 1 else None

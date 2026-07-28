@@ -20,6 +20,7 @@ vi.mock("@/lib/adminApi", () => adminApi);
 const response = {
   environment_gate_open: true,
   ai_environment_gate_open: true,
+  retention_days: 30,
   settings: {
     recording_enabled: false,
     ai_summary_enabled: false,
@@ -73,6 +74,22 @@ describe("상담 녹음 관리자 화면", () => {
     expect(screen.getAllByText("1").length).toBeGreaterThan(0);
     expect(screen.queryByText(/재생/)).not.toBeInTheDocument();
     expect(screen.queryByText(/고객명/)).not.toBeInTheDocument();
+    expect(screen.getByText("30일 이내 자동 삭제 대상")).toBeInTheDocument();
+  });
+
+  it("서버 보관기간이 없으면 숫자를 추정하지 않고 운영 상태 재확인을 제공한다", async () => {
+    const { retention_days: _missing, ...withoutRetention } = response;
+    adminApi.adminGetConsultationSettings.mockResolvedValue(withoutRetention);
+    render(<AdminConsultationsPage />);
+
+    const retry = await screen.findByRole("button", {
+      name: "보관 기간 다시 불러오기",
+    });
+    expect(screen.queryByText(/7일 이내|30일 이내/)).toBeNull();
+    fireEvent.click(retry);
+    await waitFor(() => {
+      expect(adminApi.adminGetConsultationSettings).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("운영 스위치를 저장하고 새 상태를 반영한다", async () => {

@@ -74,7 +74,13 @@ function SideItem({
   );
 }
 
-export function AppNav({ active }: { active?: NavKey }) {
+export function AppNav({
+  active,
+  onBeforeNavigate,
+}: {
+  active?: NavKey;
+  onBeforeNavigate?: () => boolean;
+}) {
   const [unread, setUnread] = useState(0);
   const [custUnread, setCustUnread] = useState(0);     // 고객 관련 미읽음(네비 배지)
   const [schedUnread, setSchedUnread] = useState(0);   // 일정 관련 미읽음(네비 배지)
@@ -236,6 +242,7 @@ export function AppNav({ active }: { active?: NavKey }) {
       <ManagerPromotionModal
         open={managerPromotionOpen}
         recruitingEnabled={recruitingEnabled}
+        onBeforeNavigate={onBeforeNavigate}
         onAcknowledged={() => setManagerPromotionOpen(false)}
       />
     </>

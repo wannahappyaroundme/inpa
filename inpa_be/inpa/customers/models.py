@@ -510,16 +510,19 @@ class PlannerBaseline(models.Model):
     ★ neutral 강제: 해당 coverage_key의 baseline이 없거나 source가 null이면 분석은 neutral 강제
       (이번 라운드는 모델만 — 판정 로직은 다음 라운드).
     """
+    PRODUCT_GROUP_ALL = 0
     PRODUCT_GROUP_LIFE = 1
     PRODUCT_GROUP_NONLIFE = 2
     PRODUCT_GROUP_INDEMNITY = 3
     PRODUCT_GROUP_ANNUITY = 4
     PRODUCT_GROUP_CHOICES = (
+        (PRODUCT_GROUP_ALL, '전체 상품'),
         (PRODUCT_GROUP_LIFE, '생명'),
         (PRODUCT_GROUP_NONLIFE, '손해'),
         (PRODUCT_GROUP_INDEMNITY, '실손'),
         (PRODUCT_GROUP_ANNUITY, '연금저축'),
     )
+    AGE_ALL = 'all'
     GENDER_TYPE = (
         (1, '남'),
         (2, '여'),
@@ -535,6 +538,13 @@ class PlannerBaseline(models.Model):
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                               related_name='planner_baselines')
+    analysis_detail = models.ForeignKey(
+        'analysis.AnalysisDetail',
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='planner_baselines',
+    )
     coverage_key = models.CharField('표준 담보 키', max_length=120, db_index=True)
     product_group = models.SmallIntegerField('상품군', choices=PRODUCT_GROUP_CHOICES)
     age_band = models.CharField('연령대', max_length=10)  # '20s'|'30s'|'40s'|'50s'|'60s+'
@@ -559,9 +569,40 @@ class PlannerBaseline(models.Model):
         verbose_name_plural = '설계사 기준선'
         constraints = [
             models.UniqueConstraint(
-                fields=['owner', 'coverage_key', 'product_group', 'age_band', 'gender'],
-                name='uniq_baseline_scope'),
+                fields=['owner', 'analysis_detail', 'product_group', 'age_band'],
+                condition=models.Q(
+                    gender__isnull=True,
+                    analysis_detail__isnull=False,
+                ),
+                name='uniq_baseline_common_gender',
+            ),
+            models.UniqueConstraint(
+                fields=[
+                    'owner', 'analysis_detail', 'product_group', 'age_band',
+                    'gender',
+                ],
+                condition=models.Q(
+                    gender__isnull=False,
+                    analysis_detail__isnull=False,
+                ),
+                name='uniq_baseline_specific_gender',
+            ),
         ]
 
     def __str__(self):
         return f'{self.coverage_key}/{self.age_band} (src={self.baseline_source})'
+
+
+class PlannerBaselineRevision(models.Model):
+    owner = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='planner_baseline_revision',
+    )
+    revision = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'planner_baseline_revision'
+        verbose_name = '설계사 기준표 변경 번호'
+        verbose_name_plural = '설계사 기준표 변경 번호'

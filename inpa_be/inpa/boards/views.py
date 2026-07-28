@@ -20,7 +20,7 @@
 """
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db.models import F, Prefetch, Q
 from django.utils import timezone
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -127,7 +127,7 @@ class PostViewSet(viewsets.GenericViewSet):
 
     def get_queryset(self):
         from inpa.core.permissions import _is_admin
-        qs = Post.objects.select_related('author').prefetch_related('attachments')
+        qs = Post.objects.select_related('author__profile').prefetch_related('attachments')
         if not _is_admin(self.request.user):
             # 일반 설계사: 삭제·숨김 제외
             qs = qs.filter(is_deleted=False, is_hidden=False)
@@ -173,7 +173,10 @@ class PostViewSet(viewsets.GenericViewSet):
         serializer = PostWriteSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         post = serializer.save(author=request.user)
-        return Response(PostDetailSerializer(post).data, status=status.HTTP_201_CREATED)
+        return Response(
+            PostDetailSerializer(post, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     # ── GET /board/posts/:id/ ───────────────────────────────────
     def retrieve(self, request, pk=None):
@@ -244,7 +247,7 @@ class PostViewSet(viewsets.GenericViewSet):
         """숨김·삭제 게시글: 관리자만 접근, 일반 설계사 404."""
         from inpa.core.permissions import _is_admin
         from django.shortcuts import get_object_or_404
-        qs = Post.objects.select_related('author').prefetch_related('attachments')
+        qs = Post.objects.select_related('author__profile').prefetch_related('attachments')
         if _is_admin(self.request.user):
             return get_object_or_404(qs, pk=pk)
         return get_object_or_404(qs, pk=pk, is_deleted=False, is_hidden=False)
@@ -270,7 +273,7 @@ class CommentViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, IsEmailVerified]
 
     def get_queryset(self):
-        return Comment.objects.select_related('author', 'parent').filter(
+        return Comment.objects.select_related('author__profile', 'parent').filter(
             is_hidden=False
         )
 
@@ -282,8 +285,15 @@ class CommentViewSet(viewsets.GenericViewSet):
         # 최상위 댓글만 가져옴 (replies는 serializer에서 인라인)
         qs = Comment.objects.filter(
             post=post, parent__isnull=True, is_hidden=False
-        ).select_related('author').prefetch_related(
-            'replies__author'
+        ).select_related('author__profile').prefetch_related(
+            Prefetch(
+                'replies',
+                queryset=Comment.objects.filter(
+                    is_deleted=False,
+                    is_hidden=False,
+                ).select_related('author__profile').order_by('created_at'),
+                to_attr='visible_replies',
+            )
         ).order_by('created_at')
         serializer = CommentSerializer(qs, many=True, context={'request': request})
         return Response(serializer.data)

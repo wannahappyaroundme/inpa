@@ -43,7 +43,8 @@ LOCAL_APPS = [
     'inpa.dashboard',      # 대시보드 월별 목표 (수동 설정 + 실적 계산, owner 전용)
     'inpa.schedule',       # 개인 일정/할일/고정 차단 (캘린더, owner 전용 — 예약과 별도)
     'inpa.recruiting',     # 설계사 영입 페이지·지원자·정착 관리 (고객 도메인과 완전 분리)
-    'inpa.consultations',  # 상담 녹음 원본·7일 보관·AI 요약 (기본 닫힘)
+    'inpa.consultations',  # 상담 녹음 원본·30일 보관·AI 요약 (기본 닫힘)
+    'inpa.talks',          # 개인 화법 템플릿 + 기본 화법 사용자별 숨김
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -298,9 +299,7 @@ CONSULTATION_COMPARISON_WRITE_TIMEOUT_SECONDS = env.float(
 CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS = env.float(
     'CONSULTATION_COMPARISON_POOL_TIMEOUT_SECONDS', default=1.0)
 CONSULTATION_RETENTION_HOURS = env.int(
-    'CONSULTATION_RETENTION_HOURS', default=168)
-CONSULTATION_RETENTION_SAFETY_MINUTES = env.int(
-    'CONSULTATION_RETENTION_SAFETY_MINUTES', default=15)
+    'CONSULTATION_RETENTION_HOURS', default=720)
 CONSULTATION_MAX_DURATION_SECONDS = env.int(
     'CONSULTATION_MAX_DURATION_SECONDS', default=3600)
 CONSULTATION_MAX_BYTES = env.int(
@@ -446,6 +445,25 @@ PAYMENT_TOKEN_KEY_VERSION = env(
     'PAYMENT_TOKEN_KEY_VERSION', default='v1')
 BILLING_NOTICE_DEVICE_HMAC_KEY = env(
     'BILLING_NOTICE_DEVICE_HMAC_KEY', default='')
+
+# ── 무료 1개월 휴대전화 인증 (기본 닫힘) ─────────────────────────────
+# 번호 원문은 저장하지 않고 PHONE_IDENTITY_HMAC_KEY로 만든 식별값만 원장에 남긴다.
+FREE_TRIAL_PHONE_VERIFICATION_ENABLED = env.bool(
+    'FREE_TRIAL_PHONE_VERIFICATION_ENABLED',
+    default=False,
+)
+SOLAPI_API_KEY = env('SOLAPI_API_KEY', default='')
+SOLAPI_API_SECRET = env('SOLAPI_API_SECRET', default='')
+SOLAPI_SENDER_NUMBER = env('SOLAPI_SENDER_NUMBER', default='')
+PHONE_IDENTITY_HMAC_KEY = env(
+    'PHONE_IDENTITY_HMAC_KEY',
+    default='',
+)
+PHONE_IDENTITY_HMAC_KEY_VERSION = env(
+    'PHONE_IDENTITY_HMAC_KEY_VERSION',
+    default='v1',
+)
+PHONE_IDENTITY_HMAC_KEY_MIN_BYTES = 32
 
 # ── 팀 기능 capability 게이트 (Plus + legacy Manager/Super) ──────────────────
 # ★ 기본 False(dormant) — 유료 전환 전에 켜면 capability 없는 구독자의 팀 기능이 잠긴다.

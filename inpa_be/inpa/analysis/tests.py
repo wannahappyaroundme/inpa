@@ -342,9 +342,13 @@ class HeatmapGradedTests(TestCase):
         product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
         age_band='30s',
         gender=1,
+        analysis_detail=None,
+        coverage_key='사망보장',
     ):
         return PlannerBaseline.objects.create(
-            owner=self.user, coverage_key='사망보장',
+            owner=self.user,
+            analysis_detail=analysis_detail,
+            coverage_key=coverage_key,
             product_group=product_group,
             age_band=age_band, gender=gender,
             recommend_min=lo, recommend_max=hi,
@@ -379,6 +383,67 @@ class HeatmapGradedTests(TestCase):
         ci.calculate(); ci.save()
         det = self._heatmap_detail_status()
         self.assertEqual(det['status'], 'over')
+
+    def test_linked_baseline_matches_by_fk_even_with_stale_coverage_key(self):
+        self._baseline(
+            lo=100000000,
+            hi=300000000,
+            analysis_detail=self.det,
+            coverage_key='이전 담보명',
+        )
+        ci = _make_portfolio(
+            self.customer, self.idet, assurance_amount=200000000)
+        ci.calculate()
+        ci.save()
+
+        detail = self._heatmap_detail_status()
+
+        self.assertEqual(detail['status'], 'adequate')
+
+    def test_linked_baseline_never_falls_back_to_its_coverage_key(self):
+        other_detail = AnalysisDetail.objects.create(
+            sub_category=self.det.sub_category,
+            name='다른 담보',
+            order=2,
+        )
+        self._baseline(
+            lo=100000000,
+            hi=300000000,
+            analysis_detail=other_detail,
+            coverage_key=self.det.name,
+        )
+        ci = _make_portfolio(
+            self.customer, self.idet, assurance_amount=200000000)
+        ci.calculate()
+        ci.save()
+
+        detail = self._heatmap_detail_status()
+
+        self.assertEqual(detail['status'], 'neutral')
+        self.assertIsNone(detail['baseline'])
+
+    def test_linked_baseline_wins_when_same_scope_legacy_row_coexists(self):
+        self._baseline(
+            lo=100000000,
+            hi=300000000,
+            analysis_detail=self.det,
+            coverage_key='이전 담보명',
+        )
+        self._baseline(
+            lo=300000000,
+            hi=500000000,
+            analysis_detail=None,
+            coverage_key=self.det.name,
+        )
+        ci = _make_portfolio(
+            self.customer, self.idet, assurance_amount=200000000)
+        ci.calculate()
+        ci.save()
+
+        detail = self._heatmap_detail_status()
+
+        self.assertEqual(detail['status'], 'adequate')
+        self.assertEqual(detail['baseline']['min'], 100000000)
 
     def test_invalid_persisted_bounds_fail_closed_to_neutral(self):
         ci = _make_portfolio(self.customer, self.idet, assurance_amount=200000000)
@@ -518,6 +583,28 @@ class HeatmapGradedTests(TestCase):
 
         self.assertEqual(detail['status'], 'neutral')
         self.assertIsNone(detail['baseline'])
+
+    def test_common_category_uses_all_product_and_all_age_default(self):
+        category = self.det.sub_category.category
+        category.insurance_type = 0
+        category.save(update_fields=['insurance_type'])
+        self._baseline(
+            lo=30000000,
+            hi=50000000,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            analysis_detail=self.det,
+            coverage_key='이전 공통 담보명',
+        )
+        ci = _make_portfolio(
+            self.customer, self.idet, assurance_amount=50000000)
+        ci.calculate()
+        ci.save()
+
+        detail = self._heatmap_detail_status()
+
+        self.assertEqual(detail['status'], 'adequate')
 
 
 class HeatmapOwnerIsolationTests(TestCase):
@@ -705,6 +792,91 @@ class CompareFactsTests(TestCase):
         self.assertIn('AI', body['disclaimer'])
         # ★ 2026-07-09 재정의: 인파는 KEEP/SWITCH 판정을 산출하지 않는다 → verdict 키 부재.
         self.assertNotIn('verdict', body)
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_mode_ignores_matching_coverage_key_on_a_different_linked_detail(self):
+        _make_portfolio_typed(
+            self.customer, self.idet, 50000000, portfolio_type=1)
+        other_detail = AnalysisDetail.objects.create(
+            sub_category=self.det.sub_category,
+            name='다른 담보',
+            order=2,
+        )
+        PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=other_detail,
+            coverage_key=self.det.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=100000000,
+            unit=PlannerBaseline.UNIT_WON,
+            baseline_source='planner',
+        )
+
+        self.assertEqual(self._get().json()['mode'], 'neutral')
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_mode_uses_linked_detail_even_when_coverage_key_is_stale(self):
+        _make_portfolio_typed(
+            self.customer, self.idet, 50000000, portfolio_type=1)
+        PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.det,
+            coverage_key='이전 담보명',
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=100000000,
+            unit=PlannerBaseline.UNIT_WON,
+            baseline_source='planner',
+        )
+
+        self.assertEqual(self._get().json()['mode'], 'graded')
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_mode_keeps_exact_coverage_key_fallback_for_unlinked_legacy_row(self):
+        _make_portfolio_typed(
+            self.customer, self.idet, 50000000, portfolio_type=1)
+        PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.det.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=100000000,
+            unit=PlannerBaseline.UNIT_WON,
+            baseline_source='planner',
+        )
+
+        self.assertEqual(self._get().json()['mode'], 'graded')
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_mode_prefers_linked_baseline_when_legacy_row_coexists(self):
+        _make_portfolio_typed(
+            self.customer, self.idet, 50000000, portfolio_type=1)
+        common = {
+            'owner': self.user,
+            'product_group': PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            'age_band': '30s',
+            'gender': 1,
+            'recommend_min': 100000000,
+            'unit': PlannerBaseline.UNIT_WON,
+            'baseline_source': 'planner',
+        }
+        PlannerBaseline.objects.create(
+            **common,
+            analysis_detail=self.det,
+            coverage_key='이전 담보명',
+        )
+        PlannerBaseline.objects.create(
+            **common,
+            analysis_detail=None,
+            coverage_key=self.det.name,
+        )
+
+        self.assertEqual(self._get().json()['mode'], 'graded')
 
     @override_settings(HEATMAP_GRADING_ENABLED=False)
     def test_mode_stays_neutral_while_heatmap_grading_gate_is_closed(self):

@@ -1,10 +1,12 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
   useRef,
   useState,
+  type Ref,
 } from "react";
 
 import {
@@ -19,7 +21,46 @@ import {
 
 import { ConsentQr } from "./consent-qr";
 import { RecordingCard } from "./recording-card";
+import { RecordingNotice } from "./recording-notice";
 import { useOptionalRecorderContext } from "./recorder-provider";
+
+function RecordingNoticeWithMemoRoute({
+  customerId,
+  noticeText,
+  checked,
+  onCheckedChange,
+  onBeforeMemo,
+  onStart,
+  startBlocked,
+  checkboxRef,
+}: {
+  customerId: number;
+  noticeText: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  onBeforeMemo: () => void;
+  onStart: () => void;
+  startBlocked: boolean;
+  checkboxRef: Ref<HTMLInputElement>;
+}) {
+  const router = useRouter();
+  return (
+    <RecordingNotice
+      noticeText={noticeText}
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+      onDecline={() => {
+        onBeforeMemo();
+        router.push(
+          `/customer/${customerId}?tab=history&view=memos#customer-history-panel-memos`,
+        );
+      }}
+      onStart={onStart}
+      startBlocked={startBlocked}
+      checkboxRef={checkboxRef}
+    />
+  );
+}
 
 function messageFrom(error: unknown, fallback: string): string {
   return error instanceof ApiError && error.message ? error.message : fallback;
@@ -31,6 +72,16 @@ function elapsedLabel(seconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
+const DIALOG_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+  "[contenteditable='true']",
+].join(",");
+
 export function ConsultationRecorder({ customerId }: { customerId: number }) {
   const session = useOptionalRecorderContext();
   const hasSession = Boolean(session);
@@ -41,56 +92,244 @@ export function ConsultationRecorder({ customerId }: { customerId: number }) {
   const [consentUrl, setConsentUrl] = useState<string | null>(null);
   const [consentBusy, setConsentBusy] = useState(false);
   const [consentMessage, setConsentMessage] = useState<string | null>(null);
+  const [noticeAttested, setNoticeAttested] = useState(false);
+  const [noticeRefreshState, setNoticeRefreshState] = useState<
+    "idle" | "loading" | "error" | "ready"
+  >("idle");
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const noticeCheckboxRef = useRef<HTMLInputElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const capabilityRequestRef = useRef(0);
+  const capabilityIdentityRef = useRef<string | null>(null);
+  const startAbortRef = useRef<AbortController | null>(null);
+  const noticeRefreshHandledRef = useRef(false);
 
-  const loadCapability = useCallback(async () => {
-    if (!hasSession) return;
+  const loadCapability = useCallback(async (resetAttestation = false) => {
+    if (!hasSession) return null;
+    const requestId = ++capabilityRequestRef.current;
+    if (resetAttestation) setNoticeAttested(false);
     setLoading(true);
     setLoadError(null);
     try {
-      setCapability(await getRecordingCapability(customerId));
+      const result = await getRecordingCapability(customerId);
+      if (requestId !== capabilityRequestRef.current) return null;
+      const identity = `${customerId}:${result.planner_notice_version}`;
+      if (capabilityIdentityRef.current !== identity) {
+        setNoticeAttested(false);
+      }
+      capabilityIdentityRef.current = identity;
+      setCapability(result);
+      return true;
     } catch (error) {
+      if (requestId !== capabilityRequestRef.current) return null;
       setLoadError(messageFrom(error, "녹음 연결을 다시 확인해 주세요."));
+      return false;
     } finally {
-      setLoading(false);
+      if (requestId === capabilityRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, [customerId, hasSession]);
 
-  useEffect(() => {
-    void loadCapability();
+  const refreshLatestNotice = useCallback(async () => {
+    setNoticeRefreshState("loading");
+    setCapability(null);
+    capabilityIdentityRef.current = null;
+    setNoticeAttested(false);
+    const success = await loadCapability(true);
+    if (success === null) return false;
+    setNoticeRefreshState(success ? "ready" : "error");
+    return success;
   }, [loadCapability]);
 
   useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+    noticeRefreshHandledRef.current = false;
+    setCapability(null);
+    setNoticeRefreshState("idle");
+    setNoticeAttested(false);
+    setConsentUrl(null);
+    setConsentMessage(null);
+    startAbortRef.current?.abort();
+    startAbortRef.current = null;
+    void loadCapability();
+    return () => {
+      capabilityRequestRef.current += 1;
+      startAbortRef.current?.abort();
+      startAbortRef.current = null;
     };
-    document.addEventListener("keydown", onKeyDown);
-    requestAnimationFrame(() => closeButtonRef.current?.focus());
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open]);
+  }, [loadCapability]);
+
+  const closeDialog = useCallback(() => {
+    const focusTarget = restoreFocusRef.current ?? triggerButtonRef.current;
+    startAbortRef.current?.abort();
+    startAbortRef.current = null;
+    setNoticeAttested(false);
+    setOpen(false);
+    requestAnimationFrame(() => {
+      focusTarget?.focus();
+      restoreFocusRef.current = null;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const dialog = dialogRef.current;
+    const overlay = overlayRef.current;
+    if (!dialog || !overlay) return;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const backgroundState = new Map<
+      HTMLElement,
+      { inert: string | null; ariaHidden: string | null }
+    >();
+    let current: HTMLElement | null = overlay;
+    while (current && current !== document.body) {
+      const parent: HTMLElement | null = current.parentElement;
+      if (!parent) break;
+      for (const sibling of Array.from(parent.children)) {
+        if (sibling === current || !(sibling instanceof HTMLElement)) continue;
+        if (!backgroundState.has(sibling)) {
+          backgroundState.set(sibling, {
+            inert: sibling.getAttribute("inert"),
+            ariaHidden: sibling.getAttribute("aria-hidden"),
+          });
+        }
+        sibling.setAttribute("inert", "");
+        sibling.setAttribute("aria-hidden", "true");
+      }
+      current = parent;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDialog();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR),
+      );
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    const focusFrame = requestAnimationFrame(() => closeButtonRef.current?.focus());
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      cancelAnimationFrame(focusFrame);
+      document.body.style.overflow = previousBodyOverflow;
+      for (const [element, state] of backgroundState) {
+        if (state.inert === null) element.removeAttribute("inert");
+        else element.setAttribute("inert", state.inert);
+        if (state.ariaHidden === null) element.removeAttribute("aria-hidden");
+        else element.setAttribute("aria-hidden", state.ariaHidden);
+      }
+    };
+  }, [closeDialog, open]);
+
+  useEffect(() => {
+    if (session?.state.kind === "ready") {
+      setNoticeAttested(false);
+    }
+  }, [session?.state.kind]);
+
+  useEffect(() => {
+    const noticeChangedForCustomer = (
+      session?.customerId === customerId
+      && session.state.errorCode === "recording_notice_changed"
+    );
+    if (!noticeChangedForCustomer) {
+      noticeRefreshHandledRef.current = false;
+      setNoticeRefreshState("idle");
+      return;
+    }
+    if (noticeRefreshHandledRef.current) return;
+    noticeRefreshHandledRef.current = true;
+    startAbortRef.current?.abort();
+    startAbortRef.current = null;
+    void refreshLatestNotice();
+  }, [
+    customerId,
+    refreshLatestNotice,
+    session?.customerId,
+    session?.state.errorCode,
+  ]);
+
+  useEffect(() => {
+    if (
+      noticeRefreshState !== "ready"
+      || !capability
+      || capabilityIdentityRef.current
+        !== `${customerId}:${capability.planner_notice_version}`
+    ) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => noticeCheckboxRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [capability, customerId, noticeRefreshState]);
 
   if (!session) return null;
-  if (loading && !capability) {
+  const recorderSession = session;
+  const noticeChanged = (
+    session.customerId === customerId
+    && session.state.errorCode === "recording_notice_changed"
+  );
+  const visibleCapability = (
+    noticeChanged && noticeRefreshState !== "ready"
+      ? null
+      : capability
+  );
+  const latestNoticeLoading = noticeChanged
+    && ["idle", "loading"].includes(noticeRefreshState);
+  if ((loading || latestNoticeLoading) && !visibleCapability) {
     return (
       <span
-        aria-label="상담 녹음 연결 확인 중"
+        aria-label={noticeChanged
+          ? "최신 녹음 안내 확인 중"
+          : "상담 녹음 연결 확인 중"}
         className="h-11 w-24 animate-pulse rounded-xl bg-surface2"
       />
     );
   }
-  if (loadError && !capability) {
+  if (
+    !visibleCapability
+    && (loadError || (noticeChanged && noticeRefreshState === "error"))
+  ) {
     return (
       <button
         type="button"
-        onClick={() => void loadCapability()}
+        onClick={() => {
+          if (noticeChanged) {
+            void refreshLatestNotice();
+          } else {
+            void loadCapability();
+          }
+        }}
         className="min-h-11 rounded-xl border border-line bg-surface px-3 text-[13px] font-bold text-brand"
       >
-        녹음 연결 다시 확인
+        {noticeChanged ? "최신 안내 다시 불러오기" : "녹음 연결 다시 확인"}
       </button>
     );
   }
-  if (!capability?.recording_enabled) return null;
+  if (!visibleCapability?.recording_enabled) return null;
+  const currentCapability = visibleCapability;
 
   async function copyConsentLink() {
     if (consentBusy) return;
@@ -116,11 +355,45 @@ export function ConsultationRecorder({ customerId }: { customerId: number }) {
   const belongsToCustomer = session.customerId === customerId;
   const activeForAnotherCustomer = session.isActive && !belongsToCustomer;
 
+  function startRecording() {
+    if (
+      !currentCapability
+      || !noticeAttested
+      || !currentCapability.recording_enabled
+      || !currentCapability.consent_ready
+      || activeForAnotherCustomer
+      || capabilityIdentityRef.current
+        !== `${customerId}:${currentCapability.planner_notice_version}`
+    ) {
+      return;
+    }
+    startAbortRef.current?.abort();
+    const controller = new AbortController();
+    startAbortRef.current = controller;
+    void recorderSession.start(customerId, {
+      noticeVersion: currentCapability.planner_notice_version,
+      retentionDays: currentCapability.retention_days,
+      signal: controller.signal,
+    }).finally(() => {
+      if (startAbortRef.current === controller) {
+        startAbortRef.current = null;
+      }
+    });
+  }
+
+  function prepareMemoNavigation() {
+    closeDialog();
+  }
+
   return (
     <>
       <button
+        ref={triggerButtonRef}
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={(event) => {
+          restoreFocusRef.current = event.currentTarget;
+          setOpen(true);
+        }}
         className="min-h-11 rounded-xl bg-brand px-4 text-[14px] font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
       >
         상담 녹음
@@ -128,15 +401,18 @@ export function ConsultationRecorder({ customerId }: { customerId: number }) {
 
       {open && (
         <div
+          ref={overlayRef}
           className="fixed inset-0 z-[90] grid place-items-end bg-black/35 p-0 sm:place-items-center sm:p-5"
           onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setOpen(false);
+            if (event.currentTarget === event.target) closeDialog();
           }}
         >
           <section
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="consultation-recording-title"
+            tabIndex={-1}
             className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-surface p-5 shadow-2xl sm:max-w-lg sm:rounded-3xl sm:p-6"
           >
             <div className="flex items-start justify-between gap-4">
@@ -152,7 +428,7 @@ export function ConsultationRecorder({ customerId }: { customerId: number }) {
                 ref={closeButtonRef}
                 type="button"
                 aria-label="상담 녹음 창 닫기"
-                onClick={() => setOpen(false)}
+                onClick={closeDialog}
                 className="min-h-11 min-w-11 rounded-xl text-[20px] text-ink3"
               >
                 ×
@@ -162,14 +438,14 @@ export function ConsultationRecorder({ customerId }: { customerId: number }) {
             <div className="mt-5 rounded-2xl bg-brand-soft p-4">
               <p className="text-[13px] font-bold text-ink">원본은 짧게, 메모는 계속</p>
               <p className="mt-2 text-[13px] leading-6 text-ink2">
-                원본 녹음은 인파에서 최대 7일 보관한 뒤 자동 삭제됩니다.
+                원본 녹음은 인파에서 최대 {currentCapability.retention_days}일 보관한 뒤 자동 삭제됩니다.
               </p>
               <p className="mt-1 text-[13px] leading-6 text-ink2">
                 녹음 파일 하나당 AI 요약은 한 번만 만들 수 있고, 이후에는 메모를 직접 수정할 수 있어요.
               </p>
             </div>
 
-            {!capability.consent_ready ? (
+            {!currentCapability.consent_ready ? (
               <div className="mt-5">
                 <h3 className="text-[15px] font-extrabold text-ink">고객 동의를 먼저 받아주세요</h3>
                 <p className="mt-2 text-[13px] leading-6 text-ink3">
@@ -211,9 +487,6 @@ export function ConsultationRecorder({ customerId }: { customerId: number }) {
                   </p>
                 ) : (
                   <>
-                    <p className="text-[13px] leading-6 text-ink3">
-                      시작 버튼을 누르면 마이크 사용을 확인합니다. 한 번에 최대 60분까지 녹음돼요.
-                    </p>
                     {belongsToCustomer && session.isActive ? (
                       <div className="mt-4 rounded-2xl bg-surface2 p-4">
                         <p className="text-[15px] font-extrabold text-ink">
@@ -238,19 +511,54 @@ export function ConsultationRecorder({ customerId }: { customerId: number }) {
                               녹음 마치기
                             </button>
                           )}
-                          <button type="button" onClick={() => void session.discard()} className="min-h-11 rounded-xl px-3 text-[13px] font-bold text-danger-ink">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              startAbortRef.current?.abort();
+                              startAbortRef.current = null;
+                              setNoticeAttested(false);
+                              void session.discard();
+                            }}
+                            className="min-h-11 rounded-xl px-3 text-[13px] font-bold text-danger-ink"
+                          >
                             이번 녹음 지우기
                           </button>
                         </div>
                       </div>
+                    ) : belongsToCustomer && session.state.kind === "ready" ? (
+                      <div className="rounded-2xl bg-success-tint p-4">
+                        <p className="text-[13px] font-bold text-ink">녹음을 저장했어요.</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            session.reset();
+                            closeDialog();
+                          }}
+                          className="mt-3 min-h-11 rounded-xl bg-brand px-4 text-[13px] font-bold text-white"
+                        >
+                          상담 기록 확인
+                        </button>
+                      </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => void session.start(customerId)}
-                        className="mt-4 min-h-12 w-full rounded-2xl bg-brand px-4 text-[15px] font-extrabold text-white"
-                      >
-                        녹음 시작
-                      </button>
+                      <>
+                        <p className="mb-4 text-[13px] leading-6 text-ink3">
+                          고지를 확인한 뒤 마이크 사용을 연결합니다. 한 번에 최대 60분까지 녹음돼요.
+                        </p>
+                        <RecordingNoticeWithMemoRoute
+                          customerId={customerId}
+                          noticeText={currentCapability.planner_notice_text}
+                          checked={noticeAttested}
+                          onCheckedChange={setNoticeAttested}
+                          onBeforeMemo={prepareMemoNavigation}
+                          onStart={startRecording}
+                          checkboxRef={noticeCheckboxRef}
+                          startBlocked={
+                            loading
+                            || !currentCapability.recording_enabled
+                            || !currentCapability.consent_ready
+                          }
+                        />
+                      </>
                     )}
                   </>
                 )}
@@ -258,14 +566,6 @@ export function ConsultationRecorder({ customerId }: { customerId: number }) {
                   <p role="alert" className="mt-3 rounded-xl bg-danger-tint px-3 py-2 text-[13px] text-danger-ink">
                     {session.state.error}
                   </p>
-                )}
-                {belongsToCustomer && session.state.kind === "ready" && (
-                  <div className="mt-4 rounded-2xl bg-success-tint p-4">
-                    <p className="text-[13px] font-bold text-ink">녹음을 저장했어요.</p>
-                    <button type="button" onClick={() => { session.reset(); setOpen(false); }} className="mt-3 min-h-11 rounded-xl bg-brand px-4 text-[13px] font-bold text-white">
-                      상담 기록 확인
-                    </button>
-                  </div>
                 )}
               </div>
             )}
@@ -287,12 +587,15 @@ export function ConsultationRecordingList({
   const hasSession = Boolean(session);
   const [data, setData] = useState<PaginatedResult<ConsultationRecording> | null>(null);
   const [capability, setCapability] = useState<RecordingCapability | null>(null);
+  const [capabilityLoading, setCapabilityLoading] = useState(hasSession);
+  const [capabilityError, setCapabilityError] = useState(false);
   const [loading, setLoading] = useState(hasSession);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summaryConsentBusy, setSummaryConsentBusy] = useState(false);
   const [summaryConsentMessage, setSummaryConsentMessage] = useState<string | null>(null);
   const generationRef = useRef(0);
+  const capabilityGenerationRef = useRef(0);
 
   const load = useCallback(async (page: number, append = false) => {
     if (!hasSession) return;
@@ -336,15 +639,29 @@ export function ConsultationRecordingList({
 
   const loadSummaryCapability = useCallback(async () => {
     if (!hasSession) return;
+    const generation = ++capabilityGenerationRef.current;
+    setCapabilityLoading(true);
+    setCapabilityError(false);
     try {
-      setCapability(await getRecordingCapability(customerId));
+      const result = await getRecordingCapability(customerId);
+      if (generation !== capabilityGenerationRef.current) return;
+      setCapability(result);
     } catch {
+      if (generation !== capabilityGenerationRef.current) return;
       setCapability(null);
+      setCapabilityError(true);
+    } finally {
+      if (generation === capabilityGenerationRef.current) {
+        setCapabilityLoading(false);
+      }
     }
   }, [customerId, hasSession]);
 
   useEffect(() => {
     void loadSummaryCapability();
+    return () => {
+      capabilityGenerationRef.current += 1;
+    };
   }, [loadSummaryCapability]);
 
   useEffect(() => {
@@ -384,7 +701,13 @@ export function ConsultationRecordingList({
       </div>
     );
   }
-  if (!data || data.count === 0) return null;
+  if (!data || data.count === 0) {
+    return (
+      <p className="mt-5 rounded-2xl bg-surface2 px-4 py-3 text-[13px] leading-6 text-ink3">
+        녹음을 마치면 이곳에서 원본과 상담 메모를 함께 확인할 수 있어요.
+      </p>
+    );
+  }
 
   async function copySummaryConsentLink() {
     if (summaryConsentBusy) return;
@@ -410,11 +733,31 @@ export function ConsultationRecordingList({
 
   return (
     <section className="mt-5 border-t border-line pt-5" aria-label="상담 녹음 목록">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-[15px] font-extrabold text-ink">
           상담 녹음 {data.count.toLocaleString("ko-KR")}개
         </h3>
-        <span className="text-[12px] text-ink3">원본은 최대 7일 보관</span>
+        {capability ? (
+          <span className="text-[12px] text-ink3">
+            새 원본은 최대 {capability.retention_days}일 보관
+          </span>
+        ) : capabilityLoading ? (
+          <span role="status" className="text-[12px] text-ink3">
+            새 원본 보관 기간 확인 중
+          </span>
+        ) : capabilityError ? (
+          <button
+            type="button"
+            onClick={() => void loadSummaryCapability()}
+            className="min-h-11 rounded-xl border border-line px-3 text-[12px] font-bold text-brand"
+          >
+            새 원본 보관 기간 다시 확인
+          </button>
+        ) : (
+          <span className="text-[12px] text-ink3">
+            새 원본 보관 기간을 확인해 주세요
+          </span>
+        )}
       </div>
       {capability?.summary_enabled && !capability.summary_consent_ready && (
         <div className="mt-3 rounded-2xl bg-brand-soft p-4">

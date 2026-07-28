@@ -17,6 +17,18 @@ function scanCustomerComparison(source) {
   }
 }
 
+function scanCopyLibrary(source) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "inpa-copy-"));
+  const file = path.join(root, "lib/copy-library.ts");
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, source);
+    return scanCopy(root).violations;
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 test("blocks retired rendered comparison labels", () => {
   for (const label of [
     "증권 A",
@@ -38,4 +50,40 @@ test("allows comments and compatibility keys", () => {
     export default function Page(){return <div>{payload.current}</div>}
   `);
   assert.equal(violations.length, 0);
+});
+
+test("blocks passive, unsupported, and fabricated talk-template claims", () => {
+  for (const phrase of [
+    "마음에 걸리는",
+    "편하실 때",
+    "천천히 생각",
+    "결정은 고객님 몫",
+    "보험료를 아낀 분도 많아요",
+    "받을 수 있는 돈",
+    "어느 쪽이 유리",
+    "예전 상품엔 약한",
+    "굳이 바꿀 필요 없어",
+    "뭘 권하려는 건 아니고",
+    "무료",
+    "객관적으로",
+    "정확히 봐",
+    "보장 공백",
+    "10분 안에",
+    "어제 인사드린",
+    "링크 전달",
+  ]) {
+    const violations = scanCopyLibrary(
+      `export const body = ${JSON.stringify(phrase)};`,
+    );
+    assert.equal(violations.length, 1, phrase);
+  }
+});
+
+test("blocks hard-coded phone and opt-out numbers in talk templates", () => {
+  for (const phone of ["010-1234-5678", "080-123-4567", "02-1234-5678"]) {
+    const violations = scanCopyLibrary(
+      `export const body = ${JSON.stringify(phone)};`,
+    );
+    assert.equal(violations.length, 1, phone);
+  }
 });

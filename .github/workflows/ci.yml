@@ -144,4 +144,5 @@ jobs:
           inpa.billing.test_recurring_concurrency
           inpa.insurances.test_import_concurrency
           inpa.analytics.test_share_snapshot_concurrency
+          inpa.consultations.tests.test_download_concurrency
           --settings=config.settings.test_postgres --parallel=1 -v 2

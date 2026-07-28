@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { Card } from "@/components/ui";
+import { BoardItemMenu } from "@/components/board-item-menu";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
   listPosts,
@@ -150,31 +151,19 @@ function ReportModal({
 
 function PostCard({
   post,
-  currentUserId,
   onLike,
   onReport,
   onDelete,
+  deleting,
+  deleteError,
 }: {
   post: PostFeedItem;
-  currentUserId: number | null;
   onLike: (id: number) => void;
   onReport: (contentType: "post", objectId: number) => void;
   onDelete: (id: number) => void;
+  deleting: boolean;
+  deleteError?: string;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const isOwn = currentUserId !== null && post.author.id === currentUserId;
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    if (menuOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [menuOpen]);
-
   return (
     <Card className="p-4">
       {/* 헤더 */}
@@ -190,45 +179,14 @@ function PostCard({
         </div>
 
         {/* 더보기 메뉴 */}
-        <div className="relative shrink-0" ref={menuRef}>
-          <button
-            onClick={() => setMenuOpen((v) => !v)}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-ink3 hover:bg-surface2 text-[18px]"
-            aria-label="더보기"
-            aria-expanded={menuOpen}
-            aria-haspopup="menu"
-          >
-            <span aria-hidden>⋯</span>
-          </button>
-          {menuOpen && (
-            <div className="absolute right-0 top-9 z-20 w-32 rounded-xl bg-surface border border-line shadow-lg py-1">
-              {isOwn ? (
-                <>
-                  <Link
-                    href={`/boards/${post.id}/edit`}
-                    className="block px-4 py-2 text-[13px] text-ink hover:bg-surface2"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    수정
-                  </Link>
-                  <button
-                    onClick={() => { setMenuOpen(false); onDelete(post.id); }}
-                    className="w-full text-left px-4 py-2 text-[13px] text-danger hover:bg-surface2"
-                  >
-                    삭제
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => { setMenuOpen(false); onReport("post", post.id); }}
-                  className="w-full text-left px-4 py-2 text-[13px] text-danger hover:bg-surface2"
-                >
-                  신고
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <BoardItemMenu
+          canManage={post.can_manage}
+          editHref={`/boards/${post.id}/edit`}
+          onDelete={() => onDelete(post.id)}
+          onReport={() => onReport("post", post.id)}
+          deleteDisabled={deleting}
+          menuLabel="게시글 메뉴"
+        />
       </div>
 
       {/* 본문 */}
@@ -273,6 +231,7 @@ function PostCard({
           </span>
         )}
       </div>
+      {deleteError && <p role="alert" className="mt-2 text-[12px] text-danger">{deleteError}</p>}
     </Card>
   );
 }
@@ -329,7 +288,8 @@ function BoardFeedContent() {
   const [searchInput, setSearchInput] = useState(search);
 
   const [reportTarget, setReportTarget] = useState<{ contentType: "post" | "comment"; objectId: number } | null>(null);
-  const [currentUserId] = useState<number | null>(null); // 실제 구현 시 getProfile에서 주입
+  const [deletingPostId, setDeletingPostId] = useState<number | null>(null);
+  const [deleteErrors, setDeleteErrors] = useState<Record<number, string>>({});
 
   // 피드 초기 로드
   const loadFeed = useCallback(async (cat: string, q: string) => {
@@ -400,11 +360,17 @@ function BoardFeedContent() {
 
   async function handleDelete(postId: number) {
     if (!confirm("이 게시글을 삭제할까요?")) return;
+    setDeletingPostId(postId);
+    setDeleteErrors((prev) => { const { [postId]: _, ...rest } = prev; return rest; });
     try {
       await deletePost(postId);
       setPosts((prev) => prev.filter((p) => p.id !== postId));
+      setPinnedPosts((prev) => prev.filter((p) => p.id !== postId));
+      setDeleteErrors((prev) => { const { [postId]: _, ...rest } = prev; return rest; });
     } catch {
-      alert("삭제 중 오류가 발생했어요. 잠시 후 다시 시도하세요.");
+      setDeleteErrors((prev) => ({ ...prev, [postId]: "내용을 그대로 두었어요. 다시 시도해 주세요." }));
+    } finally {
+      setDeletingPostId(null);
     }
   }
 
@@ -465,10 +431,11 @@ function BoardFeedContent() {
             <PostCard
               key={p.id}
               post={p}
-              currentUserId={currentUserId}
               onLike={handleLike}
               onReport={(ct, id) => setReportTarget({ contentType: ct, objectId: id })}
               onDelete={handleDelete}
+              deleting={deletingPostId === p.id}
+              deleteError={deleteErrors[p.id]}
             />
           ))}
         </div>
@@ -506,10 +473,11 @@ function BoardFeedContent() {
           <PostCard
             key={p.id}
             post={p}
-            currentUserId={currentUserId}
             onLike={handleLike}
             onReport={(ct, id) => setReportTarget({ contentType: ct, objectId: id })}
             onDelete={handleDelete}
+            deleting={deletingPostId === p.id}
+            deleteError={deleteErrors[p.id]}
           />
         ))}
       </div>

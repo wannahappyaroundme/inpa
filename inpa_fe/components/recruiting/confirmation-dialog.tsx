@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import { focusIfConnected } from "./public-recruiting-view-model";
@@ -12,7 +12,10 @@ interface ConfirmationDialogProps {
   confirmLabel: string;
   pendingLabel: string;
   pending: boolean;
+  confirmDisabled?: boolean;
   error?: string | null;
+  children?: ReactNode;
+  initialFocusRef?: RefObject<HTMLElement | null>;
   cancelLabel?: string;
   onConfirm: () => void;
   onClose: () => void;
@@ -25,7 +28,10 @@ export function ConfirmationDialog({
   confirmLabel,
   pendingLabel,
   pending,
+  confirmDisabled = false,
   error = null,
+  children,
+  initialFocusRef,
   cancelLabel = "그대로 둘게요",
   onConfirm,
   onClose,
@@ -46,7 +52,7 @@ export function ConfirmationDialog({
   useEffect(() => {
     if (!open) return;
     restoreFocusRef.current = document.activeElement as HTMLElement | null;
-    const frame = requestAnimationFrame(() => cancelRef.current?.focus());
+    const frame = requestAnimationFrame(() => (initialFocusRef?.current ?? cancelRef.current)?.focus());
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape" && !pendingRef.current) {
@@ -108,6 +114,7 @@ export function ConfirmationDialog({
         <p id={descriptionId} className="mt-3 text-[14px] leading-6 text-ink2">
           {description}
         </p>
+        {children}
         {error && (
           <p
             role="alert"
@@ -128,7 +135,7 @@ export function ConfirmationDialog({
           </button>
           <button
             type="button"
-            disabled={pending}
+            disabled={pending || confirmDisabled}
             onClick={onConfirm}
             className="min-h-12 flex-1 rounded-2xl bg-brand px-4 text-[14px] font-bold text-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >

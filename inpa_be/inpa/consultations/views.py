@@ -1,4 +1,7 @@
+import logging
+
 from django.conf import settings
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -14,6 +17,7 @@ from inpa.billing.credit import LimitExceeded
 from inpa.customers.consent_texts import (
     has_current_consultation_recording_consent,
     has_current_consultation_summary_consents,
+    lock_customer_consent_state,
 )
 from inpa.customers.models import Customer
 
@@ -25,6 +29,11 @@ from .models import (
     ConsultationSummaryRun,
 )
 from .quota import usage_snapshot
+from .recording_policy import (
+    PLANNER_NOTICE_TEXT,
+    PLANNER_NOTICE_VERSION,
+    current_retention_snapshot,
+)
 from .serializers import (
     CompleteUploadRequestSerializer,
     ConsultationRecordingSerializer,
@@ -33,21 +42,35 @@ from .serializers import (
 )
 from .services import (
     ConsultationServiceError,
+    DOWNLOAD_URL_TTL_SECONDS,
     complete_upload,
+    create_download_url,
     create_part_url,
     create_play_url,
     create_upload_session,
     delete_source,
     max_part_number,
+    validate_recording_notice_attestation,
 )
 from .tasks import process_consultation_summary
 from .summary_service import SummaryPrecondition, request_summary
+
+logger = logging.getLogger(__name__)
 
 
 def _service_error_response(exc):
     return Response(
         {'code': exc.code, 'detail': exc.detail},
         status=exc.status_code,
+    )
+
+
+def _audit_download(*, user_id, recording_id, result):
+    logger.info(
+        'consultation recording download user_id=%s recording_id=%s result=%s',
+        user_id,
+        recording_id,
+        result,
     )
 
 
@@ -61,12 +84,27 @@ class CustomerRecordingMixin:
             queryset = queryset.filter(owner=self.request.user)
         return get_object_or_404(queryset, pk=customer_pk)
 
+    def get_owned_customer(self, customer_pk):
+        return get_object_or_404(
+            Customer.objects.filter(owner=self.request.user),
+            pk=customer_pk,
+        )
+
     def get_recording(self, customer, recording_id):
         queryset = ConsultationRecording.objects.filter(customer=customer)
         profile = getattr(self.request.user, 'profile', None)
         if not bool(getattr(profile, 'is_admin', False)):
             queryset = queryset.filter(owner=self.request.user)
         return get_object_or_404(queryset, pk=recording_id)
+
+    def get_owned_recording(self, customer, recording_id):
+        return get_object_or_404(
+            ConsultationRecording.objects.filter(
+                customer=customer,
+                owner=self.request.user,
+            ),
+            pk=recording_id,
+        )
 
 
 class RecordingListView(CustomerRecordingMixin, APIView):
@@ -85,6 +123,7 @@ class RecordingListView(CustomerRecordingMixin, APIView):
 class RecordingCapabilityView(CustomerRecordingMixin, APIView):
     def get(self, request, customer_pk):
         customer = self.get_customer(customer_pk)
+        retention = current_retention_snapshot()
         summary_enabled = summary_feature_enabled(request.user)
         summary_usage = usage_snapshot(user=request.user) if summary_enabled else None
         return Response({
@@ -100,7 +139,9 @@ class RecordingCapabilityView(CustomerRecordingMixin, APIView):
                     customer=customer,
                     status=ConsultationCustomerBenefit.STATUS_CONSUMED,
                 ).exists(),
-            'retention_days': 7,
+            'retention_days': retention['days'],
+            'planner_notice_version': PLANNER_NOTICE_VERSION,
+            'planner_notice_text': PLANNER_NOTICE_TEXT,
             'max_duration_seconds': min(
                 settings.CONSULTATION_MAX_DURATION_SECONDS,
                 3600,
@@ -116,7 +157,7 @@ class UploadSessionView(CustomerRecordingMixin, APIView):
     throttle_scope = 'consultation_upload'
 
     def post(self, request, customer_pk):
-        customer = self.get_customer(customer_pk)
+        customer = self.get_owned_customer(customer_pk)
         if not recording_feature_enabled(request.user):
             return Response(
                 {
@@ -133,15 +174,24 @@ class UploadSessionView(CustomerRecordingMixin, APIView):
                 },
                 status=status.HTTP_412_PRECONDITION_FAILED,
             )
+        try:
+            validate_recording_notice_attestation(
+                notice_attested=request.data.get('notice_attested'),
+                notice_version=request.data.get('notice_version'),
+            )
+        except ConsultationServiceError as exc:
+            return _service_error_response(exc)
         serializer = UploadSessionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
             recording, created = create_upload_session(
-                owner=customer.owner,
+                owner=request.user,
                 customer=customer,
                 client_session_id=serializer.validated_data['client_session_id'],
                 mime_type=serializer.validated_data['mime_type'],
                 started_at=serializer.validated_data.get('started_at'),
+                notice_attested=serializer.validated_data.get('notice_attested'),
+                notice_version=serializer.validated_data.get('notice_version'),
             )
         except ConsultationServiceError as exc:
             return _service_error_response(exc)
@@ -215,13 +265,16 @@ class RecordingPartURLView(CustomerRecordingMixin, APIView):
     throttle_scope = 'consultation_upload'
 
     def post(self, request, customer_pk, recording_id, part_number):
-        customer = self.get_customer(customer_pk)
-        recording = self.get_recording(customer, recording_id)
+        customer = self.get_owned_customer(customer_pk)
         try:
             url = create_part_url(
-                recording=recording,
+                recording_id=recording_id,
+                owner=request.user,
+                customer=customer,
                 part_number=part_number,
             )
+        except (Customer.DoesNotExist, ConsultationRecording.DoesNotExist) as exc:
+            raise NotFound('녹음 기록을 찾을 수 없어요.') from exc
         except ConsultationServiceError as exc:
             return _service_error_response(exc)
         return Response({
@@ -236,19 +289,18 @@ class CompleteUploadView(CustomerRecordingMixin, APIView):
     throttle_scope = 'consultation_upload'
 
     def post(self, request, customer_pk, recording_id):
-        customer = self.get_customer(customer_pk)
-        self.get_recording(customer, recording_id)
+        customer = self.get_owned_customer(customer_pk)
         serializer = CompleteUploadRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
             recording = complete_upload(
                 recording_id=recording_id,
-                owner=customer.owner,
+                owner=request.user,
                 customer=customer,
                 parts=serializer.validated_data['parts'],
                 ended_at=serializer.validated_data.get('ended_at'),
             )
-        except ConsultationRecording.DoesNotExist as exc:
+        except (Customer.DoesNotExist, ConsultationRecording.DoesNotExist) as exc:
             raise NotFound('녹음 기록을 찾을 수 없어요.') from exc
         except ConsultationServiceError as exc:
             return _service_error_response(exc)
@@ -260,23 +312,127 @@ class RecordingPlayURLView(CustomerRecordingMixin, APIView):
     throttle_scope = 'consultation_play'
 
     def post(self, request, customer_pk, recording_id):
-        customer = self.get_customer(customer_pk)
-        recording = self.get_recording(customer, recording_id)
-        try:
-            url = create_play_url(recording=recording)
-        except ConsultationServiceError as exc:
-            return _service_error_response(exc)
-        return Response({'url': url, 'expires_in_seconds': 300})
+        with transaction.atomic():
+            customer = lock_customer_consent_state(
+                customer_id=customer_pk,
+                owner_id=request.user.id,
+            )
+            if customer is None:
+                raise NotFound('녹음 기록을 찾을 수 없어요.')
+            recording = (
+                ConsultationRecording.objects.select_for_update()
+                .filter(
+                    pk=recording_id,
+                    customer=customer,
+                    owner_id=request.user.id,
+                )
+                .first()
+            )
+            if recording is None:
+                raise NotFound('녹음 기록을 찾을 수 없어요.')
+            if not has_current_consultation_recording_consent(customer):
+                return Response(
+                    {
+                        'code': 'recording_play_unavailable',
+                        'detail': (
+                            '고객 동의를 다시 확인하면 원본을 재생할 수 있어요.'
+                        ),
+                    },
+                    status=status.HTTP_410_GONE,
+                )
+            try:
+                url = create_play_url(recording=recording)
+            except ConsultationServiceError as exc:
+                return _service_error_response(exc)
+            return Response({'url': url, 'expires_in_seconds': 300})
+
+
+class RecordingDownloadURLView(CustomerRecordingMixin, APIView):
+    def post(self, request, customer_pk, recording_id):
+        with transaction.atomic():
+            customer = lock_customer_consent_state(
+                customer_id=customer_pk,
+                owner_id=request.user.id,
+            )
+            if customer is None:
+                _audit_download(
+                    user_id=request.user.id,
+                    recording_id=recording_id,
+                    result='not_found',
+                )
+                raise NotFound('녹음 기록을 찾을 수 없어요.')
+            recording = (
+                ConsultationRecording.objects.select_for_update()
+                .filter(
+                    pk=recording_id,
+                    customer=customer,
+                    owner_id=request.user.id,
+                )
+                .first()
+            )
+            if recording is None:
+                _audit_download(
+                    user_id=request.user.id,
+                    recording_id=recording_id,
+                    result='not_found',
+                )
+                raise NotFound('녹음 기록을 찾을 수 없어요.')
+            if not has_current_consultation_recording_consent(customer):
+                _audit_download(
+                    user_id=request.user.id,
+                    recording_id=recording_id,
+                    result='consent_unavailable',
+                )
+                return Response(
+                    {
+                        'code': 'recording_download_unavailable',
+                        'detail': (
+                            '고객 동의를 다시 확인하면 원본을 내려받을 수 있어요.'
+                        ),
+                    },
+                    status=status.HTTP_410_GONE,
+                )
+            try:
+                url = create_download_url(recording=recording)
+            except ConsultationServiceError as exc:
+                _audit_download(
+                    user_id=request.user.id,
+                    recording_id=recording_id,
+                    result='source_unavailable',
+                )
+                return _service_error_response(exc)
+            except Exception:
+                _audit_download(
+                    user_id=request.user.id,
+                    recording_id=recording_id,
+                    result='signing_failed',
+                )
+                return Response(
+                    {
+                        'code': 'recording_download_retry',
+                        'detail': '잠시 후 다시 누르면 원본을 내려받을 수 있어요.',
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            _audit_download(
+                user_id=request.user.id,
+                recording_id=recording_id,
+                result='issued',
+            )
+            return Response({
+                'url': url,
+                'expires_in_seconds': DOWNLOAD_URL_TTL_SECONDS,
+            })
 
 
 class RecordingSourceDeleteView(CustomerRecordingMixin, APIView):
     def delete(self, request, customer_pk, recording_id):
-        customer = self.get_customer(customer_pk)
-        self.get_recording(customer, recording_id)
+        customer = self.get_owned_customer(customer_pk)
+        self.get_owned_recording(customer, recording_id)
         try:
             recording = delete_source(
                 recording_id=recording_id,
-                owner=customer.owner,
+                owner=request.user,
                 customer=customer,
                 reason='user_requested',
             )
