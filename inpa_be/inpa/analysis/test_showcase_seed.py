@@ -1179,6 +1179,26 @@ class ShowcaseApiIntegrationTests(TestCase):
             404,
         )
 
+    @staticmethod
+    def _isolation_state(customer, insurance, schedule, notification):
+        return {
+            'customer': (
+                customer.memo,
+                customer.sales_stage,
+                customer.updated_at,
+            ),
+            'insurance': (
+                insurance.name,
+                insurance.data_version,
+                insurance.updated_at,
+            ),
+            'schedule': (
+                schedule.title,
+                schedule.updated_at,
+            ),
+            'notification': notification.is_read,
+        }
+
     def test_showcase_and_ordinary_users_authenticate_and_admin_policy_holds(self):
         showcase = self._showcase_client()
         ordinary = self._ordinary_client()
@@ -1232,10 +1252,23 @@ class ShowcaseApiIntegrationTests(TestCase):
         showcase_notification = Notification.objects.filter(
             owner=self.showcase_user,
         ).order_by('pk').first()
+        showcase_before = self._isolation_state(
+            anchor,
+            showcase_insurance,
+            showcase_schedule,
+            showcase_notification,
+        )
+        ordinary_before = self._isolation_state(
+            self.ordinary_customer,
+            self.ordinary_insurance,
+            self.ordinary_schedule,
+            self.ordinary_notification,
+        )
 
         pairs = (
             (
                 ordinary,
+                self.ordinary_customer,
                 anchor,
                 showcase_insurance,
                 showcase_schedule,
@@ -1243,6 +1276,7 @@ class ShowcaseApiIntegrationTests(TestCase):
             ),
             (
                 showcase,
+                anchor,
                 self.ordinary_customer,
                 self.ordinary_insurance,
                 self.ordinary_schedule,
@@ -1251,6 +1285,7 @@ class ShowcaseApiIntegrationTests(TestCase):
         )
         for (
             actor,
+            actor_owned_customer,
             foreign_customer,
             foreign_insurance,
             foreign_schedule,
@@ -1284,6 +1319,23 @@ class ShowcaseApiIntegrationTests(TestCase):
                         'data_version': foreign_insurance.data_version,
                     },
                 )
+                mixed_insurance_path = (
+                    f'/api/v1/customers/{actor_owned_customer.pk}/'
+                    f'insurances/manual/{foreign_insurance.pk}/'
+                )
+                self._assert_foreign_row_hidden(
+                    client=actor,
+                    get_path=mixed_insurance_path,
+                    patch_path=mixed_insurance_path,
+                    patch_body={
+                        'name': '부모를 섞은 보험 수정',
+                        'data_version': foreign_insurance.data_version,
+                    },
+                    delete_path=mixed_insurance_path,
+                    delete_body={
+                        'data_version': foreign_insurance.data_version,
+                    },
+                )
                 schedule_path = (
                     f'/api/v1/schedule-items/{foreign_schedule.pk}/'
                 )
@@ -1308,33 +1360,31 @@ class ShowcaseApiIntegrationTests(TestCase):
                     delete_path=notification_path,
                 )
 
-        self.assertTrue(Customer.objects.filter(pk=anchor.pk).exists())
-        self.assertTrue(
-            CustomerInsurance.objects.filter(pk=showcase_insurance.pk).exists()
+        anchor.refresh_from_db()
+        showcase_insurance.refresh_from_db()
+        showcase_schedule.refresh_from_db()
+        showcase_notification.refresh_from_db()
+        self.ordinary_customer.refresh_from_db()
+        self.ordinary_insurance.refresh_from_db()
+        self.ordinary_schedule.refresh_from_db()
+        self.ordinary_notification.refresh_from_db()
+        self.assertEqual(
+            self._isolation_state(
+                anchor,
+                showcase_insurance,
+                showcase_schedule,
+                showcase_notification,
+            ),
+            showcase_before,
         )
-        self.assertTrue(
-            ScheduleItem.objects.filter(pk=showcase_schedule.pk).exists()
-        )
-        self.assertTrue(
-            Notification.objects.filter(pk=showcase_notification.pk).exists()
-        )
-        self.assertTrue(
-            Customer.objects.filter(pk=self.ordinary_customer.pk).exists()
-        )
-        self.assertTrue(
-            CustomerInsurance.objects.filter(
-                pk=self.ordinary_insurance.pk,
-            ).exists()
-        )
-        self.assertTrue(
-            ScheduleItem.objects.filter(
-                pk=self.ordinary_schedule.pk,
-            ).exists()
-        )
-        self.assertTrue(
-            Notification.objects.filter(
-                pk=self.ordinary_notification.pk,
-            ).exists()
+        self.assertEqual(
+            self._isolation_state(
+                self.ordinary_customer,
+                self.ordinary_insurance,
+                self.ordinary_schedule,
+                self.ordinary_notification,
+            ),
+            ordinary_before,
         )
 
     def test_seeded_account_serves_all_primary_screen_contracts(self):
