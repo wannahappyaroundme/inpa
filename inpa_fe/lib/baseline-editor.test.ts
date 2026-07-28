@@ -122,6 +122,7 @@ describe("담보 기준 편집 변환", () => {
         recommend_max: null,
         unit: 1,
         baseline_source: null,
+        is_stored: false,
       },
     ]);
     expect(draft.categories[0].subcategories[0].details[0].baselines[0]).toEqual({
@@ -133,6 +134,7 @@ describe("담보 기준 편집 변환", () => {
       recommend_max: null,
       unit: 1,
       baseline_source: "planner",
+      is_stored: true,
     });
   });
 

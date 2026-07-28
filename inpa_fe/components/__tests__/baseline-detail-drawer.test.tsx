@@ -17,6 +17,7 @@ const defaultScope: BaselineDraftScope = {
   recommend_max: null,
   unit: 1,
   baseline_source: "planner",
+  is_stored: true,
 };
 
 const exceptionScope: BaselineDraftScope = {
@@ -28,6 +29,7 @@ const exceptionScope: BaselineDraftScope = {
   recommend_max: "7000",
   unit: 1,
   baseline_source: "planner",
+  is_stored: true,
 };
 
 const detail: BaselineDraftDetail = {
@@ -153,6 +155,54 @@ describe("담보 상세 기준 드로어", () => {
       presetScope,
       expect.objectContaining({ baseline_source: "planner" }),
     );
+  });
+
+  it("출처 없는 저장 기준도 확인한 뒤 내 기준으로 사용하도록 전환한다", async () => {
+    const user = userEvent.setup();
+    const linkedScope = { ...defaultScope, baseline_source: null };
+    const onScopeChange = vi.fn();
+    render(
+      <BaselineDetailDrawer
+        open
+        detail={{ ...detail, baselines: [linkedScope, exceptionScope] }}
+        onClose={vi.fn()}
+        onScopeChange={onScopeChange}
+        onAddScope={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "이 금액을 확인한 뒤 내 기준으로 사용하면 분석에 반영돼요.",
+      ),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "내 기준으로 사용" }));
+    expect(onScopeChange).toHaveBeenCalledWith(
+      linkedScope,
+      expect.objectContaining({ baseline_source: "planner" }),
+    );
+  });
+
+  it("새 빈 기준은 직접 입력만 할 수 있다", () => {
+    const emptyScope = {
+      ...defaultScope,
+      recommend_min: null,
+      baseline_source: null,
+      is_stored: false,
+    };
+    render(
+      <BaselineDetailDrawer
+        open
+        detail={{ ...detail, baselines: [emptyScope, exceptionScope] }}
+        onClose={vi.fn()}
+        onScopeChange={vi.fn()}
+        onAddScope={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "내 기준으로 사용" }),
+    ).toBeNull();
   });
 
   it("실손과 연금저축 범위를 기존 값으로 표시하고 새 범위로 선택할 수 있다", async () => {

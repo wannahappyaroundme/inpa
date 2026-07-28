@@ -17,6 +17,7 @@ export interface BaselineDraftScope {
   recommend_max: string | null;
   unit: BaselineUnit;
   baseline_source: string | null;
+  is_stored: boolean;
 }
 
 export interface BaselineDraftDetail {
@@ -119,6 +120,7 @@ export function catalogToDraft(
             recommend_max: normalizeBaselineAmount(baseline.recommend_max),
             unit: baseline.unit,
             baseline_source: baseline.baseline_source,
+            is_stored: true,
           }));
           const defaultIndex = scopes.findIndex(
             (scope) =>
@@ -136,6 +138,7 @@ export function catalogToDraft(
                   recommend_max: null,
                   unit: detail.unit,
                   baseline_source: null,
+                  is_stored: false,
                 };
           return {
             ...detail,

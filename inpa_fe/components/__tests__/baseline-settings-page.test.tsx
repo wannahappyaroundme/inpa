@@ -297,7 +297,7 @@ describe("담보 전체 기준표 페이지 상태", () => {
     );
   });
 
-  it("확인한 이전 기준은 저장할 때 내 기준으로 적용하고 출처는 보내지 않는다", async () => {
+  it("출처 없는 이전 기준은 저장할 때 내 기준으로 적용하고 출처는 보내지 않는다", async () => {
     const user = userEvent.setup();
     apiGet.mockResolvedValue({
       ...structuredClone(catalog),
@@ -309,7 +309,7 @@ describe("담보 전체 기준표 페이지 상태", () => {
             ...structuredClone(catalog.categories[0].subcategories[0].details[0]),
             baselines: [{
               ...structuredClone(catalog.categories[0].subcategories[0].details[0].baselines[0]),
-              baseline_source: "preset",
+              baseline_source: null,
             }],
           }],
         }],

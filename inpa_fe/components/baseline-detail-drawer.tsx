@@ -88,6 +88,13 @@ function scopeIdentity(scope: BaselineDraftScope): string {
   return `${scope.product_group}:${scope.age_band}:${scope.gender ?? "common"}`;
 }
 
+function needsBaselineAdoption(scope: BaselineDraftScope): boolean {
+  return (
+    scope.is_stored &&
+    (scope.baseline_source === "preset" || scope.baseline_source === null)
+  );
+}
+
 function ScopeEditor({
   scope,
   base,
@@ -125,7 +132,7 @@ function ScopeEditor({
               ? "모든 상품과 연령에 먼저 적용되는 값이에요."
               : "해당 조건에는 이 값을 우선 적용해요."}
           </p>
-          {scope.baseline_source === "preset" && (
+          {needsBaselineAdoption(scope) && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <p className="text-xs leading-5 text-ink2">
                 이 금액을 확인한 뒤 내 기준으로 사용하면 분석에 반영돼요.
@@ -361,6 +368,7 @@ export function BaselineDetailDrawer({
       recommend_max: null,
       unit: detail.unit,
       baseline_source: null,
+      is_stored: false,
     } satisfies BaselineDraftScope);
   const exceptions = detail.baselines.filter((scope) => !isDefaultScope(scope));
   const occupied = new Set(detail.baselines.map(scopeIdentity));
@@ -378,6 +386,7 @@ export function BaselineDetailDrawer({
           recommend_max: null,
           unit: detail.unit,
           baseline_source: null,
+          is_stored: false,
         };
         if (!occupied.has(scopeIdentity(candidate))) {
           availableScope = candidate;
