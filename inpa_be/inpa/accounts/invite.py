@@ -20,6 +20,10 @@ from rest_framework.views import APIView
 
 from inpa.analytics.views import _NoIndexMixin
 from inpa.billing.credit import user_can_use_team
+from inpa.core.internal_accounts import (
+    block_showcase_external_action,
+    is_showcase_user,
+)
 from inpa.core.permissions import IsEmailVerified
 
 from .models import User
@@ -35,6 +39,7 @@ TEAM_INVITE_SALT = 'inpa-team-invite'
 
 
 def make_invite_token(user):
+    block_showcase_external_action(user)
     return signing.dumps(user.pk, salt=TEAM_INVITE_SALT)
 
 
@@ -50,7 +55,13 @@ def resolve_invite_manager(token):
         pk = read_invite_token(token)
     except signing.BadSignature:  # SignatureExpired 포함(서브클래스)
         return None
-    return User.objects.filter(pk=pk, is_active=True).select_related('profile').first()
+    manager = User.objects.filter(
+        pk=pk,
+        is_active=True,
+    ).select_related('profile').first()
+    if manager is None or is_showcase_user(manager):
+        return None
+    return manager
 
 
 class TeamInviteLinkView(APIView):

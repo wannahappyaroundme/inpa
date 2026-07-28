@@ -8,6 +8,7 @@ core.permissions._is_admin 헬퍼 재사용.
 """
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
+from inpa.core.internal_accounts import block_showcase_external_action
 from inpa.core.permissions import _is_admin
 
 
@@ -34,3 +35,12 @@ class IsAdminOnly(BasePermission):
             and request.user.is_authenticated
             and _is_admin(request.user)
         )
+
+
+class BlocksShowcaseSharedWrites(BasePermission):
+    """Keep showcase sessions read-only on globally shared board surfaces."""
+
+    def has_permission(self, request, view):
+        if request.method not in SAFE_METHODS:
+            block_showcase_external_action(request.user)
+        return True
