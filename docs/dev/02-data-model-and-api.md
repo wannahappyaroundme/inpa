@@ -331,9 +331,10 @@ class UnmatchedLog(models.Model):
 ```python
 class planner_baseline(models.Model):   # 표기상 소문자, 실 클래스명 PlannerBaseline
     owner          = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)  # ★ owner 스코프
-    coverage_key   = models.CharField(db_index=True)   # 표준 담보 키
-    product_group  = models.SmallIntegerField()        # 1=생명/2=손해 등
-    age_band       = models.CharField()                # 나이대 밴드
+    analysis_detail = models.ForeignKey('analysis.AnalysisDetail', null=True, on_delete=models.PROTECT)
+    coverage_key   = models.CharField(db_index=True)   # 표준 담보 이름 폴백
+    product_group  = models.SmallIntegerField()        # 0=전체/1=생명/2=손해/3=실손/4=연금저축
+    age_band       = models.CharField()                # all/20s/30s/40s/50s/60s+
     gender         = models.SmallIntegerField(null=True)
     recommend_min  = models.DecimalField(null=True)
     recommend_max  = models.DecimalField(null=True)
@@ -344,12 +345,10 @@ class planner_baseline(models.Model):   # 표기상 소문자, 실 클래스명 
     created_at     = models.DateTimeField(auto_now_add=True)
     updated_at     = models.DateTimeField(auto_now=True)
     class Meta:
-        constraints = [models.UniqueConstraint(
-            fields=['owner', 'coverage_key', 'product_group', 'age_band', 'gender'],
-            name='uniq_baseline_scope')]
+        constraints = [...]  # 연결 행의 owner+analysis_detail+상품+연령+성별 범위 조건부 UNIQUE
 ```
 
-> ★ **neutral 강제 규칙:** 히트맵·분석에서 해당 `coverage_key`에 `is_active=true`이면서 `source='planner'`인 기준이 없으면 그 담보는 **부족/충분으로 단정 금지 → neutral**(보유여부 0원만 회색 표기). `preset`, `null`, 비활성 `planner` 기준은 설계사가 화면에서 다시 확인·저장하기 전까지 판정에 쓰지 않는다. 상세는 `dev/10-planner-criteria.md`.
+> ★ **neutral 강제 규칙:** 한눈표·비교에서 해당 담보에 `is_active=true`이면서 `baseline_source='planner'`인 기준이 없으면 넉넉·적정·부족을 표시하지 않고 `neutral`로 둔다. `preset`, `null`, 비활성 `planner` 기준은 설계사가 화면에서 다시 확인·저장하기 전까지 판정에 쓰지 않는다. 상세는 `dev/10-planner-criteria.md`.
 
 ---
 
@@ -571,7 +570,7 @@ class NorthStarEvent(models.Model):
 | `POST /insurance/detect/` | foliio | `ocr` | **국외이전 미동의 412** |
 | `POST /insurance/detect_batch/` | ✦ | N×`ocr` | 동의 412 / 부분실패 허용 |
 | `GET /customer/:id/analysis/` | foliio | — | 본인/공유토큰 |
-| `GET /customer/:id/heatmap/` | ✦ | — | **planner_baseline 없으면 neutral 강제** |
+| `GET /api/v1/customers/:id/heatmap/` | ✦ | `analysis` | **맞는 활성 planner 기준이 없으면 neutral 강제** |
 | `GET /customer/:id/compare/` | foliio + ◑ | `ai_compare` | **§97 6항목 미완 시 발행 하드블록** |
 | `POST /ai/message/` | ✦ | `analysis` | 클립보드만 (자동발송 X) |
 | `POST /ai/guardrail_check/` | ✦ | — | 보험업법 룰셋 판정 |
@@ -634,35 +633,40 @@ N장 일괄 큐잉, **부분 실패 허용**. 야간 배치는 Claude Batches AP
 
 ---
 
-### 15.4 `GET /customer/:id/heatmap/` — 담보 한눈표 3색 (M3) ★ neutral 통제점
+### 15.4 `GET /api/v1/customers/:id/heatmap/` — 담보 한눈표 3색 ★ neutral 통제점
 
-15+ 카테고리 × 세부담보 그리드를 충분/부족/없음 3색으로. 실제 보장액 vs `planner_baseline`(설계사 소유) 비교.
+표준 카테고리 × 세부담보 그리드에서 보유 금액을 설계사 소유 `planner_baseline`과 비교한다. 판정 가능한 기준이 없으면 금액만 표시한다.
 
 **Response 200**:
 ```json
 {
-  "baseline_source": null,
   "mode": "neutral",
-  "categories": [
-    { "category": "진단비-암", "details": [
-        { "detail": "일반암진단비", "actual_amount": 30000000, "std_baseline": 50000000, "status": "neutral" },
-        { "detail": "고액암진단비", "actual_amount": 0, "std_baseline": 30000000, "status": "none" }
+  "baseline_present": true,
+  "grading_enabled": true,
+  "baseline_count": 2,
+  "applied_baseline_count": 0,
+  "unapplied_baseline_count": 2,
+  "tree": [
+    { "category_id": 1, "name": "진단비", "sub_categories": [
+      { "sub_category_id": 1, "name": "암", "details": [
+        { "detail_id": 1, "name": "일반암진단비", "held_amount": 30000000,
+          "status": "neutral", "baseline": null, "contributions": [] }
+      ] }
     ] }
   ]
 }
 ```
 
 **status 판정 (★ planner_baseline 게이트):**
-```python
-def heatmap_status(actual, baseline, baseline_source, is_active):
-    if not is_active or baseline_source != 'planner':
-        return "none" if actual == 0 else "neutral"   # 보유여부만 회색, 부족/충분 단정 금지
-    if actual == 0:                  return "none"     # 🔴 없음
-    if actual < baseline * 0.7:      return "short"    # 🟡 부족
-    return "enough"                                    # 🟢 충분
-```
 
-> ★ **중립 모드 = 준법 안전장치.** 활성 `planner_baseline`(설계사가 직접 소유·확인한 기준)이 없으면 `enough/short` 판정 보류, `none`(0원 보유여부)만 회색 중립. 인파는 기준을 제시하지 않는다 — 설계사가 소유한다. 상세 `dev/10`.
+| status | 화면 | 조건 |
+|---|---|---|
+| `shortage` | 부족, 빨강 | 보유 금액 < 기준금액 |
+| `adequate` | 적정, 노랑 | 기준금액 이상이고 설정된 넉넉 기준금액 이하 |
+| `over` | 넉넉, 초록 | 보유 금액 > 넉넉 기준금액 |
+| `neutral` | 판정 문구·색 없음 | 운영 판정이 닫혔거나 맞는 활성 `planner` 기준 없음 |
+
+> ★ **중립 모드 = 준법 안전장치.** 활성 `planner` 기준이 없으면 보유 금액만 표시한다. `baseline_count`는 출처가 있는 활성 행 수, 실제 적용 수는 `applied_baseline_count`다. 상세 `dev/10`.
 
 ---
 
@@ -773,7 +777,7 @@ python manage.py seed_policy_versions   # TOS/PP/OVERSEAS 초기 버전
 - [ ] `consent_overseas_at` 마이그레이션 + detect 412 게이트 동작
 - [ ] `ConsentLog` 6요건 + append-only + `PolicyVersion` 3종 시드
 - [ ] `NormalizationDict` UNIQUE(company, raw_name) + `hit_count` 증가 / `UnmatchedLog` → admin 매핑 루프
-- [ ] `planner_baseline` 없을 때 heatmap `neutral` 강제 단위테스트
+- [x] 활성 `planner_baseline`이 없을 때 한눈표·비교 `neutral` 강제 회귀테스트
 - [ ] `seed_taxonomy` 100+ 담보 적재(`AnalysisDetail.count() ≥ 100`)
 - [ ] foliio 8케이스 골든테스트 회귀 통과
 - [ ] 공유 엔티티(Post/Comment/Notice/Faq/PromotionSample) owner FK 부재 + 인증 읽기 검증
@@ -785,7 +789,7 @@ python manage.py seed_policy_versions   # TOS/PP/OVERSEAS 초기 버전
 
 | ID | 항목 | 막는 것 | 기본 가정(이번 통합에서 확정) |
 |---|---|---|---|
-| **Q1** | planner_baseline / 표준 기준선 출처·권위 | heatmap `graded` 모드 | 활성 `planner` 기준만 `graded`, 그 외 `neutral`(none만), 설계사 소유 원칙 |
+| **Q1** | planner_baseline / 표준 기준선 출처·권위 | heatmap `graded` 모드 | 활성 `planner` 기준만 `graded`, 그 외 `neutral`, 설계사 소유 원칙 |
 | **Q2** | 국외이전 동의 1탭 vs 별도 동의서 | **detect API 전체** | 별도 필드(`consent_overseas_at`)+ConsentLog 분리 |
 | **Q3** | §97 비교안내 6항목 법적 확정 | compare 발행 하드블록 | 6항목 미완 시 `publishable=false` |
 | **Q4** | 셀프진단 제3자 동의 충분성 | `consent_type=selfdiag` 동선 | share_token 만료·회수 정책 동반 |

@@ -13,6 +13,7 @@
 - `planner` is the only grading-eligible source in this release.
 - `preset` and `null` remain stored but never drive `부족·적정·넉넉`.
 - Saving or explicitly adopting a preset or source-less stored row converts it to `baseline_source='planner'` and clears `preset_origin`.
+- `baseline_source`, `preset_origin`, and `is_active` are server-owned on general CRUD; frontend write payloads omit all three.
 - No database migration, row deletion, bulk source conversion, or demo teardown.
 - Keep `HEATMAP_GRADING_ENABLED=False` as the code default; set the Render web service explicitly to `True`.
 - Heatmap and comparison must consume the same eligibility helper.
@@ -23,7 +24,7 @@
 
 ## Final-review follow-up (2026-07-29)
 
-**Progress:** Tasks 1-4 are implemented and had their previous review pass. The final review found an existing legacy-catalog status mismatch; this follow-up keeps the policy and request shape unchanged while correcting the status contract. The pre-fix full backend run recorded `2,237 OK, 39 skipped`; it is historical evidence only. Post-fix focused and full verification, copy lint, build, and diff checks are recorded separately in the final-fix report. The PM has authorized push, merge, and production deployment; execution and production verification are still pending.
+**Progress:** Tasks 1-4 are implemented and had their previous review pass. The final reviews found legacy status, inactive re-use, server-owned active-state, documentation, and rolling-deployment gaps; the follow-ups keep the policy and public request compatibility while correcting those contracts. The pre-fix full backend run recorded `2,237 OK, 39 skipped`; it is historical evidence only. Final focused and full verification must be rerun after these fixes. The PM has authorized push, merge, and production deployment; execution and production verification are still pending.
 
 **Acceptance criteria:**
 
@@ -32,8 +33,9 @@
 - Linking preserves `baseline_source` and `preset_origin`; a catalog reload keeps the linked detail in the pending-adoption state until explicit batch save.
 - An unchanged requested inactive planner, preset, or source-less row becomes active planner source and clears `preset_origin`; untouched scopes remain unchanged.
 - Draft equality includes active state, while the existing batch request keeps omitting source and active-state fields. A successful save clears the re-use affordance only for the requested scope.
+- General POST/PATCH requests cannot set `is_active`; the serializer ignores client attempts, the model default owns create state, and only the explicit batch save reactivates an existing row.
 
-**Deployment order, pending execution:** Vercel's compatible frontend must be `Ready` before starting the Render backend deployment. If Render auto-deploy starts concurrently after merge, cancel or hold it, wait for Vercel `Ready`, then deploy Render. No deployment has been executed by this follow-up.
+**Deployment order, pending execution:** Before merge, temporarily disable auto-deploy for the Render web service. Merge, wait until the compatible frontend is `Ready` in Vercel production, then manually deploy the exact merge commit to the Render web service and restore auto-deploy. No deployment has been executed by this follow-up.
 
 ---
 
@@ -626,7 +628,7 @@ Expected: no whitespace errors, only planned files changed, and no unrelated use
 Review lenses:
 
 - Correctness: preset cannot enter grading through heatmap, comparison, legacy fallback, or unchanged adoption.
-- Security and tenancy: owner filtering and server-owned source assignment remain intact.
+- Security and tenancy: owner filtering and server-owned source, preset origin, and active-state assignment remain intact.
 - UX: all three states are distinct on mobile and desktop.
 - Insurance-domain honesty: no unreviewed Inpa value is presented as an authoritative standard.
 - Operations: code default remains closed and only the Render web service opens the gate.
@@ -656,7 +658,7 @@ git log --oneline origin/master..HEAD
 
 Use a ready PR from `codex/planner-baseline-grading` to `master`. Merge only when backend, PostgreSQL concurrency, frontend, gitleaks, and Vercel checks all pass.
 
-After merge, wait until the Vercel frontend deployment is `Ready` before starting Render. If Render begins automatically at the same time, cancel or hold that deployment and start it only after Vercel is `Ready`.
+Before merge, temporarily disable auto-deploy for the Render web service. After merge, wait until the Vercel frontend deployment is `Ready`, manually deploy the exact merge commit to Render web, verify it is live, and restore auto-deploy.
 
 - [ ] **Step 8: Verify production**
 
