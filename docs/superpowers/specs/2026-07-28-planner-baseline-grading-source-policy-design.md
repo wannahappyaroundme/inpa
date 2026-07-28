@@ -83,7 +83,7 @@
 기존 미연결 행은 카탈로그 응답에서 중앙 `is_grading_eligible_baseline` 결과를 사용한다.
 
 - `is_applied`: 활성 planner 출처이며 실제 폴백으로 사용되는 행만 `true`
-- `requires_adoption`: 활성 행이지만 중앙 출처 판정상 아직 적용할 수 없을 때 `true`
+- `requires_adoption`: `preset` 또는 출처 없는 과거 행처럼 중앙 출처 판정상 아직 적용할 수 없을 때 `true`이며, 활성 여부와 무관하다.
 - 상태 표기: 실제 적용은 `분석에 적용 중`, 출처는 맞지만 연결이 남으면 `연결 필요`, 이전 추천값 또는 출처 없는 값은 `연결 후 금액 확인 필요`
 - 연결 API는 `analysis_detail`과 이름만 바꾸며 `baseline_source`와 `preset_origin`은 보존한다. 연결 후 카탈로그를 다시 불러온 상세 행은 기존의 `내 기준으로 사용` 동작을 계속 제공한다.
 - 배치 저장은 요청에 포함된 행만 `planner` 출처, `preset_origin=null`, `is_active=true`로 전환한다. 같은 화면의 요청하지 않은 범위와 다른 범위는 그대로 둔다.
