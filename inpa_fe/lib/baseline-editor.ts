@@ -121,7 +121,7 @@ export function catalogToDraft(
             recommend_max: normalizeBaselineAmount(baseline.recommend_max),
             unit: baseline.unit,
             baseline_source: baseline.baseline_source,
-            is_active: baseline.is_active,
+            is_active: baseline.is_active ?? true,
             is_stored: true,
           }));
           const defaultIndex = scopes.findIndex(

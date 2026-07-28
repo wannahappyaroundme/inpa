@@ -1358,7 +1358,7 @@ export interface BaselineCatalogStoredScope {
   recommend_max: string | null;
   unit: BaselineUnit;
   baseline_source: string | null;
-  is_active: boolean;
+  is_active?: boolean;
 }
 
 export interface BaselineCatalogDetail {
@@ -1399,7 +1399,7 @@ export interface LegacyPlannerBaseline {
   recommend_min: string | null;
   recommend_max: string | null;
   unit: BaselineUnit;
-  is_active: boolean;
+  is_active?: boolean;
   is_applied: boolean;
   requires_adoption?: boolean;
   conflict_code: LegacyBaselineConflictCode;

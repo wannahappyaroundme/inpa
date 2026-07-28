@@ -247,6 +247,21 @@ describe("담보 기준 편집 변환", () => {
     }]);
   });
 
+  it("이전 서버 응답에 활성 상태가 없으면 기존 활성 기준으로 읽는다", () => {
+    const legacyCatalog = structuredClone(catalog);
+    delete (
+      legacyCatalog.categories[0].subcategories[0].details[0].baselines[0] as {
+        is_active?: boolean;
+      }
+    ).is_active;
+
+    const draft = catalogToDraft(legacyCatalog);
+
+    expect(
+      draft.categories[0].subcategories[0].details[0].baselines[0].is_active,
+    ).toBe(true);
+  });
+
   it("저장한 범위만 설계사 기준으로 정리하고 나머지 이전 기준은 보존한다", () => {
     const draft = catalogToDraft(catalog);
     const savedScope =

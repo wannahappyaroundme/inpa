@@ -100,7 +100,7 @@ function legacyScopeLabel(baseline: LegacyPlannerBaseline): string {
 function legacyStatusLabel(baseline: LegacyPlannerBaseline): string {
   if (baseline.is_applied) return "분석에 적용 중";
   if (baseline.requires_adoption) return "연결 후 금액 확인 필요";
-  if (!baseline.is_active) return "연결 후 다시 사용 필요";
+  if (baseline.is_active === false) return "연결 후 다시 사용 필요";
   return "연결 필요";
 }
 
