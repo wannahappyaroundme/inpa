@@ -41,7 +41,7 @@ from inpa.boards.models import BlogPost, Faq, Notice, Post
 from inpa.consultations.models import ConsultationRecording
 from inpa.core.internal_accounts import is_showcase_user
 from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
-from inpa.customers.models import ConsentLog, Customer
+from inpa.customers.models import ConsentLog, Customer, CustomerTag
 from inpa.dashboard.models import MonthlyGoal
 from inpa.insurances.models import (
     CustomerInsurance,
@@ -989,3 +989,670 @@ class ShowcaseSeedCommandTests(TestCase):
             output,
             re.IGNORECASE,
         ))
+
+
+@override_settings(
+    SHOWCASE_ACCOUNT_EMAIL=_SHOWCASE_EMAIL,
+    SHOWCASE_ACCOUNT_PASSWORD=_ARBITRARY_TEST_VALUE,
+    PASSWORD_HASHERS=_PASSWORD_HASHERS,
+    BOOKING_ENABLED=True,
+    BOOKING_TOKEN_TTL_HOURS=72,
+    FRONTEND_BASE_URL='https://app.example.invalid',
+    INSURANCE_REVIEW_GATE_ENABLED=True,
+    LEGACY_SHARE_FALLBACK_ENABLED=False,
+    FREE_TIER_UNLIMITED=True,
+)
+class ShowcaseApiIntegrationTests(TestCase):
+    """Exercise the seeded account through the same API contracts as the UI."""
+
+    ANCHOR_NAMES = (
+        '김도윤',
+        '이서현',
+        '박지훈',
+        '최유진',
+        '정현우',
+        '한소연',
+        '조민재',
+        '윤하늘',
+    )
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command('seed_normalization', '--force', stdout=StringIO())
+        free_plan, _created = Plan.objects.get_or_create(
+            code='free',
+            defaults={
+                'display_name': 'Free',
+                'price_krw': 0,
+                'is_active': True,
+            },
+        )
+        Plan.objects.get_or_create(
+            code='super',
+            defaults={
+                'display_name': 'Super',
+                'price_krw': 0,
+                'is_active': True,
+            },
+        )
+        call_command('seed_showcase', '--apply', stdout=StringIO())
+        cls.showcase_user = User.objects.get(email=_SHOWCASE_EMAIL)
+
+        cls.ordinary_password = 'ordinary-only-value-72mq'
+        cls.ordinary_user = User.objects.create_user(
+            email='ordinary-api-user@test.example',
+            password=cls.ordinary_password,
+            is_active=True,
+        )
+        Profile.objects.create(
+            user=cls.ordinary_user,
+            email_verified_at=timezone.now(),
+        )
+        Subscription.objects.update_or_create(
+            user=cls.ordinary_user,
+            defaults={'plan': free_plan, 'status': 'active'},
+        )
+        cls.ordinary_customer = Customer.objects.create(
+            owner=cls.ordinary_user,
+            name='일반계정고객',
+            mobile_phone_number='010-1888-7777',
+            birth_day='1989-04-03',
+            gender=1,
+            sales_stage=Customer.STAGE_CONTACT,
+            memo='일반 계정 소유 격리 확인 자료',
+        )
+        cls.ordinary_insurance = CustomerInsurance.objects.create(
+            customer=cls.ordinary_customer,
+            insurance_type=1,
+            portfolio_type=1,
+            name='일반 계정 보장형',
+            monthly_premiums=70_000,
+            review_status='draft',
+            analysis_included=False,
+        )
+        cls.ordinary_schedule = ScheduleItem.objects.create(
+            owner=cls.ordinary_user,
+            customer=cls.ordinary_customer,
+            kind=ScheduleItem.KIND_EVENT,
+            category=ScheduleItem.CAT_TASK,
+            title='일반 계정 일정',
+            start_at=timezone.now(),
+        )
+        cls.ordinary_notification = Notification.objects.create(
+            owner=cls.ordinary_user,
+            customer=cls.ordinary_customer,
+            notif_type='task_due',
+            title='일반 계정 알림',
+            body='일반 계정만 볼 수 있는 알림',
+        )
+
+        cls.admin_password = 'admin-only-value-39zr'
+        cls.admin_user = User.objects.create_user(
+            email='showcase-api-admin@test.example',
+            password=cls.admin_password,
+            is_active=True,
+        )
+        Profile.objects.create(
+            user=cls.admin_user,
+            email_verified_at=timezone.now(),
+            is_admin=True,
+        )
+        Subscription.objects.update_or_create(
+            user=cls.admin_user,
+            defaults={'plan': free_plan, 'status': 'active'},
+        )
+
+    def _authenticated_client(self, email, password):
+        login = APIClient().post(
+            '/api/v1/auth/login/',
+            {'email': email, 'password': password},
+            format='json',
+        )
+        self.assertEqual(login.status_code, 200, login.content)
+        self.assertEqual(login.json()['email'], email)
+        client = APIClient()
+        client.credentials(
+            HTTP_AUTHORIZATION=f"Token {login.json()['token']}",
+        )
+        return client
+
+    def _showcase_client(self):
+        return self._authenticated_client(
+            _SHOWCASE_EMAIL,
+            _ARBITRARY_TEST_VALUE,
+        )
+
+    def _ordinary_client(self):
+        return self._authenticated_client(
+            self.ordinary_user.email,
+            self.ordinary_password,
+        )
+
+    def _admin_client(self):
+        return self._authenticated_client(
+            self.admin_user.email,
+            self.admin_password,
+        )
+
+    def _paginated_results(self, client, path):
+        first = client.get(path)
+        self.assertEqual(first.status_code, 200, first.content)
+        body = first.json()
+        if isinstance(body, list):
+            return len(body), body
+
+        results = list(body['results'])
+        next_url = body.get('next')
+        while next_url:
+            parsed = urlparse(next_url)
+            next_path = parsed.path
+            if parsed.query:
+                next_path += f'?{parsed.query}'
+            page = client.get(next_path)
+            self.assertEqual(page.status_code, 200, page.content)
+            page_body = page.json()
+            results.extend(page_body['results'])
+            next_url = page_body.get('next')
+        return body['count'], results
+
+    def _assert_foreign_row_hidden(
+        self,
+        *,
+        client,
+        get_path,
+        patch_path,
+        patch_body,
+        delete_path,
+        delete_body=None,
+    ):
+        self.assertEqual(client.get(get_path).status_code, 404)
+        self.assertEqual(
+            client.patch(patch_path, patch_body, format='json').status_code,
+            404,
+        )
+        self.assertEqual(
+            client.delete(
+                delete_path,
+                delete_body or {},
+                format='json',
+            ).status_code,
+            404,
+        )
+
+    def test_showcase_and_ordinary_users_authenticate_and_admin_policy_holds(self):
+        showcase = self._showcase_client()
+        ordinary = self._ordinary_client()
+        admin = self._admin_client()
+
+        self.assertEqual(
+            showcase.get('/api/v1/auth/profile/').status_code,
+            200,
+        )
+        self.assertEqual(
+            ordinary.get('/api/v1/auth/profile/').status_code,
+            200,
+        )
+
+        anchor = Customer.objects.get(
+            owner=self.showcase_user,
+            name=self.ANCHOR_NAMES[0],
+        )
+        admin_customer = admin.get(f'/api/v1/customers/{anchor.pk}/')
+        self.assertEqual(admin_customer.status_code, 200, admin_customer.content)
+        ops_customers = admin.get(
+            f'/api/v1/admin/users/{self.showcase_user.pk}/customers/',
+        )
+        self.assertEqual(ops_customers.status_code, 200, ops_customers.content)
+        self.assertEqual(ops_customers.json()['count'], 50)
+
+        self.assertEqual(
+            showcase.get('/api/v1/admin/users/').status_code,
+            403,
+        )
+        self.assertEqual(
+            showcase.get(
+                f'/api/v1/admin/users/{self.showcase_user.pk}/customers/',
+            ).status_code,
+            403,
+        )
+
+    def test_bidirectional_customer_insurance_schedule_notification_isolation(self):
+        showcase = self._showcase_client()
+        ordinary = self._ordinary_client()
+        anchor = Customer.objects.get(
+            owner=self.showcase_user,
+            name=self.ANCHOR_NAMES[0],
+        )
+        showcase_insurance = CustomerInsurance.objects.filter(
+            customer=anchor,
+        ).order_by('pk').first()
+        showcase_schedule = ScheduleItem.objects.filter(
+            owner=self.showcase_user,
+        ).order_by('pk').first()
+        showcase_notification = Notification.objects.filter(
+            owner=self.showcase_user,
+        ).order_by('pk').first()
+
+        pairs = (
+            (
+                ordinary,
+                anchor,
+                showcase_insurance,
+                showcase_schedule,
+                showcase_notification,
+            ),
+            (
+                showcase,
+                self.ordinary_customer,
+                self.ordinary_insurance,
+                self.ordinary_schedule,
+                self.ordinary_notification,
+            ),
+        )
+        for (
+            actor,
+            foreign_customer,
+            foreign_insurance,
+            foreign_schedule,
+            foreign_notification,
+        ) in pairs:
+            with self.subTest(
+                actor=actor,
+                foreign_customer=foreign_customer.pk,
+            ):
+                self._assert_foreign_row_hidden(
+                    client=actor,
+                    get_path=f'/api/v1/customers/{foreign_customer.pk}/',
+                    patch_path=f'/api/v1/customers/{foreign_customer.pk}/',
+                    patch_body={'memo': '경계를 넘는 수정'},
+                    delete_path=f'/api/v1/customers/{foreign_customer.pk}/',
+                )
+                insurance_path = (
+                    f'/api/v1/customers/{foreign_customer.pk}/insurances/'
+                    f'manual/{foreign_insurance.pk}/'
+                )
+                self._assert_foreign_row_hidden(
+                    client=actor,
+                    get_path=insurance_path,
+                    patch_path=insurance_path,
+                    patch_body={
+                        'name': '경계를 넘는 보험 수정',
+                        'data_version': foreign_insurance.data_version,
+                    },
+                    delete_path=insurance_path,
+                    delete_body={
+                        'data_version': foreign_insurance.data_version,
+                    },
+                )
+                schedule_path = (
+                    f'/api/v1/schedule-items/{foreign_schedule.pk}/'
+                )
+                self._assert_foreign_row_hidden(
+                    client=actor,
+                    get_path=schedule_path,
+                    patch_path=schedule_path,
+                    patch_body={'title': '경계를 넘는 일정 수정'},
+                    delete_path=schedule_path,
+                )
+                notification_path = (
+                    f'/api/v1/notifications/{foreign_notification.pk}/'
+                )
+                self._assert_foreign_row_hidden(
+                    client=actor,
+                    get_path=notification_path,
+                    patch_path=(
+                        f'/api/v1/notifications/'
+                        f'{foreign_notification.pk}/read/'
+                    ),
+                    patch_body={},
+                    delete_path=notification_path,
+                )
+
+        self.assertTrue(Customer.objects.filter(pk=anchor.pk).exists())
+        self.assertTrue(
+            CustomerInsurance.objects.filter(pk=showcase_insurance.pk).exists()
+        )
+        self.assertTrue(
+            ScheduleItem.objects.filter(pk=showcase_schedule.pk).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(pk=showcase_notification.pk).exists()
+        )
+        self.assertTrue(
+            Customer.objects.filter(pk=self.ordinary_customer.pk).exists()
+        )
+        self.assertTrue(
+            CustomerInsurance.objects.filter(
+                pk=self.ordinary_insurance.pk,
+            ).exists()
+        )
+        self.assertTrue(
+            ScheduleItem.objects.filter(
+                pk=self.ordinary_schedule.pk,
+            ).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                pk=self.ordinary_notification.pk,
+            ).exists()
+        )
+
+    def test_seeded_account_serves_all_primary_screen_contracts(self):
+        client = self._showcase_client()
+
+        dashboard = client.get('/api/v1/dashboard/')
+        self.assertEqual(dashboard.status_code, 200, dashboard.content)
+        for key in (
+            'target_meetings',
+            'target_premium',
+            'actual_meetings',
+            'actual_premium',
+            'actual_new_customers',
+            'expected_income',
+        ):
+            self.assertIn(key, dashboard.json())
+
+        goal_months = list(
+            MonthlyGoal.objects.filter(owner=self.showcase_user)
+            .order_by('-year_month')
+            .values_list('year_month', flat=True)
+        )
+        self.assertEqual(len(goal_months), 6)
+        for month in goal_months:
+            response = client.get(f'/api/v1/dashboard/?month={month}')
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(response.json()['year_month'], month)
+        insights = client.get('/api/v1/dashboard/insights/?months=6')
+        self.assertEqual(insights.status_code, 200, insights.content)
+        self.assertEqual(len(insights.json()['monthly_trend']), 6)
+
+        customer_count, customer_rows = self._paginated_results(
+            client,
+            '/api/v1/customers/',
+        )
+        self.assertEqual(customer_count, 50)
+        self.assertEqual(len(customer_rows), 50)
+        self.assertEqual(len({row['id'] for row in customer_rows}), 50)
+        self.assertEqual(
+            Counter(row['sales_stage'] for row in customer_rows),
+            {'db': 14, 'contact': 12, 'meeting': 12, 'contract': 12},
+        )
+
+        for anchor_name in self.ANCHOR_NAMES:
+            with self.subTest(anchor=anchor_name):
+                customer = Customer.objects.get(
+                    owner=self.showcase_user,
+                    name=anchor_name,
+                )
+                detail = client.get(f'/api/v1/customers/{customer.pk}/')
+                self.assertEqual(detail.status_code, 200, detail.content)
+                self.assertEqual(detail.json()['name'], anchor_name)
+
+                insurance_count, policies = self._paginated_results(
+                    client,
+                    (
+                        f'/api/v1/customers/{customer.pk}/'
+                        'insurances/manual/'
+                    ),
+                )
+                self.assertGreaterEqual(insurance_count, 2)
+                self.assertEqual(len(policies), insurance_count)
+
+                heatmap = client.get(
+                    f'/api/v1/customers/{customer.pk}/heatmap/',
+                )
+                self.assertEqual(heatmap.status_code, 200, heatmap.content)
+                self.assertEqual(heatmap.json()['customer_id'], customer.pk)
+                self.assertTrue(heatmap.json()['tree'])
+
+                comparison = client.get(
+                    f'/api/v1/customers/{customer.pk}/compare/',
+                    {
+                        'side_a_ids': str(policies[0]['id']),
+                        'side_b_ids': str(policies[1]['id']),
+                    },
+                )
+                self.assertEqual(
+                    comparison.status_code,
+                    200,
+                    comparison.content,
+                )
+                comparison_body = comparison.json()
+                self.assertEqual(
+                    [row['id'] for row in comparison_body['current']['insurances']],
+                    [policies[0]['id']],
+                )
+                self.assertEqual(
+                    [row['id'] for row in comparison_body['proposed']['insurances']],
+                    [policies[1]['id']],
+                )
+
+        schedule_count, schedule_rows = self._paginated_results(
+            client,
+            f"/api/v1/schedule-items/?month={timezone.localdate():%Y-%m}",
+        )
+        self.assertEqual(schedule_count, 30)
+        self.assertEqual(len(schedule_rows), 30)
+
+        meeting_count, meeting_rows = self._paginated_results(
+            client,
+            '/api/v1/meetings/',
+        )
+        self.assertEqual(meeting_count, 5)
+        self.assertEqual(len(meeting_rows), 5)
+        self.assertEqual(
+            Counter(row['status'] for row in meeting_rows),
+            {'pending': 2, 'confirmed': 3},
+        )
+
+        notification_count, notification_rows = self._paginated_results(
+            client,
+            '/api/v1/notifications/',
+        )
+        self.assertEqual(notification_count, 12)
+        self.assertEqual(len(notification_rows), 12)
+
+    def test_allowed_mutations_are_restored_by_the_next_seed(self):
+        client = self._showcase_client()
+        customer = Customer.objects.get(
+            owner=self.showcase_user,
+            name=self.ANCHOR_NAMES[0],
+        )
+        original_state = (
+            customer.sales_stage,
+            customer.memo,
+            tuple(
+                customer.tags.order_by('label').values_list(
+                    'label',
+                    flat=True,
+                )
+            ),
+        )
+
+        tag_response = client.post(
+            '/api/v1/customer-tags/',
+            {'label': '다음 상담'},
+            format='json',
+        )
+        self.assertEqual(tag_response.status_code, 201, tag_response.content)
+        original_tag_ids = list(
+            customer.tags.values_list('pk', flat=True)
+        )
+        mutation = client.patch(
+            f'/api/v1/customers/{customer.pk}/',
+            {
+                'sales_stage': Customer.STAGE_CONTRACT,
+                'memo': '화면에서 변경한 내부 확인 메모',
+                'tag_ids': [*original_tag_ids, tag_response.json()['id']],
+            },
+            format='json',
+        )
+        self.assertEqual(mutation.status_code, 200, mutation.content)
+        self.assertEqual(mutation.json()['sales_stage'], 'contract')
+        self.assertEqual(mutation.json()['memo'], '화면에서 변경한 내부 확인 메모')
+        self.assertIn(
+            '다음 상담',
+            {tag['label'] for tag in mutation.json()['tags']},
+        )
+
+        start_at = timezone.now() + timezone.timedelta(days=2)
+        schedule_response = client.post(
+            '/api/v1/schedule-items/',
+            {
+                'kind': ScheduleItem.KIND_EVENT,
+                'category': ScheduleItem.CAT_TASK,
+                'title': '화면에서 추가한 확인 일정',
+                'memo': '초기화 후 사라져야 하는 내부 변경',
+                'customer': customer.pk,
+                'start_at': start_at.isoformat(),
+                'end_at': (
+                    start_at + timezone.timedelta(minutes=30)
+                ).isoformat(),
+                'all_day': False,
+            },
+            format='json',
+        )
+        self.assertEqual(
+            schedule_response.status_code,
+            201,
+            schedule_response.content,
+        )
+        self.assertEqual(
+            ScheduleItem.objects.filter(owner=self.showcase_user).count(),
+            31,
+        )
+
+        call_command('seed_showcase', '--apply', stdout=StringIO())
+
+        restored_user = User.objects.get(email=_SHOWCASE_EMAIL)
+        restored = Customer.objects.get(
+            owner=restored_user,
+            name=self.ANCHOR_NAMES[0],
+        )
+        restored_state = (
+            restored.sales_stage,
+            restored.memo,
+            tuple(
+                restored.tags.order_by('label').values_list(
+                    'label',
+                    flat=True,
+                )
+            ),
+        )
+        self.assertEqual(restored_state, original_state)
+        self.assertFalse(
+            CustomerTag.objects.filter(
+                owner=restored_user,
+                label='다음 상담',
+            ).exists()
+        )
+        self.assertEqual(
+            ScheduleItem.objects.filter(owner=restored_user).count(),
+            30,
+        )
+        self.assertFalse(
+            ScheduleItem.objects.filter(
+                owner=restored_user,
+                title='화면에서 추가한 확인 일정',
+            ).exists()
+        )
+
+        relogin = self._authenticated_client(
+            _SHOWCASE_EMAIL,
+            _ARBITRARY_TEST_VALUE,
+        )
+        count, rows = self._paginated_results(
+            relogin,
+            '/api/v1/customers/',
+        )
+        self.assertEqual(count, 50)
+        restored_row = next(
+            row for row in rows if row['name'] == self.ANCHOR_NAMES[0]
+        )
+        restored_response = relogin.get(
+            f"/api/v1/customers/{restored_row['id']}/",
+        )
+        self.assertEqual(
+            restored_response.status_code,
+            200,
+            restored_response.content,
+        )
+        self.assertEqual(
+            restored_response.json()['memo'],
+            original_state[1],
+        )
+
+    def test_public_share_and_booking_payloads_disclose_only_intended_context(self):
+        public = APIClient()
+        snapshots = list(
+            ShareSnapshot.objects.filter(
+                owner=self.showcase_user,
+            ).select_related('customer').order_by('pk')
+        )
+        self.assertEqual(len(snapshots), 2)
+
+        forbidden_fragments = (
+            _SHOWCASE_EMAIL.lower(),
+            _ARBITRARY_TEST_VALUE.lower(),
+            'internal',
+            'showcase',
+            'showcase_account',
+            'showcase_seed',
+            'is_showcase',
+            '[demo]',
+            '[촬영]',
+            '데모',
+            '테스트',
+            '촬영용',
+            'sample',
+            'dummy',
+        )
+
+        booking_path = None
+        booking_customer_id = None
+        for snapshot in snapshots:
+            response = public.get(f'/api/v1/s/{snapshot.share_token}/')
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(
+                response.headers['X-Robots-Tag'],
+                'noindex, nofollow',
+            )
+            self.assertEqual(
+                response.headers['Cache-Control'],
+                'private, no-store',
+            )
+            rendered = response.content.decode('utf-8').lower()
+            for fragment in forbidden_fragments:
+                self.assertNotIn(fragment, rendered)
+            other_customers = (
+                Customer.objects.filter(owner=self.showcase_user)
+                .exclude(pk=snapshot.customer_id)
+                .values_list('name', 'mobile_phone_number')
+            )
+            for other_name, other_phone in other_customers:
+                self.assertNotIn(other_name, rendered)
+                self.assertNotIn(other_phone, rendered)
+
+            booking_url = response.json()['actions']['booking_url']
+            parsed = urlparse(booking_url)
+            self.assertEqual(parsed.netloc, 'app.example.invalid')
+            booking_path = f"/api/v1{parsed.path.rstrip('/')}/"
+            booking_customer_id = snapshot.customer_id
+
+        booking = public.get(booking_path)
+        self.assertEqual(booking.status_code, 200, booking.content)
+        self.assertEqual(
+            booking.headers['X-Robots-Tag'],
+            'noindex, nofollow',
+        )
+        rendered_booking = booking.content.decode('utf-8').lower()
+        for fragment in forbidden_fragments:
+            self.assertNotIn(fragment, rendered_booking)
+        other_customers = (
+            Customer.objects.filter(owner=self.showcase_user)
+            .exclude(pk=booking_customer_id)
+            .values_list('name', 'mobile_phone_number')
+        )
+        for other_name, other_phone in other_customers:
+            self.assertNotIn(other_name, rendered_booking)
+            self.assertNotIn(other_phone, rendered_booking)
