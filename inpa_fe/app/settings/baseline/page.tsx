@@ -33,6 +33,7 @@ import {
   countChangedScopes,
   filterBaselineCatalog,
   mapBaselineBatchFieldErrors,
+  normalizeSavedBaselineDraft,
   validateBaselineChanges,
   type BaselineDraftCatalog,
   type BaselineDraftDetail,
@@ -94,6 +95,13 @@ function legacyScopeLabel(baseline: LegacyPlannerBaseline): string {
     ageBandLabel(baseline.age_band),
     genderLabel(baseline.gender),
   ].join(" · ");
+}
+
+function legacyStatusLabel(baseline: LegacyPlannerBaseline): string {
+  if (baseline.is_applied) return "분석에 적용 중";
+  if (baseline.requires_adoption) return "연결 후 금액 확인 필요";
+  if (baseline.is_active === false) return "연결 후 다시 사용 필요";
+  return "연결 필요";
 }
 
 function amountLabel(value: string | null, unit: BaselineUnit): string {
@@ -582,7 +590,11 @@ export default function BaselineSettingsPage() {
         revision: server.revision,
         changes,
       });
-      const saved = { ...structuredClone(draft), revision: response.revision };
+      const saved = normalizeSavedBaselineDraft(
+        draft,
+        changes,
+        response.revision,
+      );
       setServer(saved);
       setDraft(structuredClone(saved));
       setFieldErrors({});
@@ -798,9 +810,7 @@ export default function BaselineSettingsPage() {
                                 : "bg-surface2 text-ink2"
                             }`}
                           >
-                            {baseline.is_applied
-                              ? "분석에 적용 중"
-                              : "연결 후 분석에 적용"}
+                            {legacyStatusLabel(baseline)}
                           </span>
                         </div>
                         <p className="mt-1 text-xs text-ink3">

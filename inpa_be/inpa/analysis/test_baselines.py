@@ -1,5 +1,8 @@
+import importlib.util
+import os
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -7,7 +10,12 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from inpa.analysis.baselines import normalize_money, select_baseline
+from inpa.analysis.baselines import (
+    grading_eligible_baselines,
+    is_grading_eligible_baseline,
+    normalize_money,
+    select_baseline,
+)
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory
 from inpa.analysis.views import _age_band
 from inpa.accounts.models import Profile, User
@@ -48,6 +56,77 @@ class BaselineMoneyTests(SimpleTestCase):
         self.assertIsNone(
             normalize_money(Decimal('3'), PlannerBaseline.UNIT_ACCOUNT)
         )
+
+
+class HeatmapGradingSettingsTests(SimpleTestCase):
+    def test_code_default_remains_fail_closed_without_environment_override(self):
+        settings_path = Path(__file__).resolve().parents[2] / 'config/settings/base.py'
+        with patch.dict(os.environ, {}, clear=True), patch('environ.Env.read_env'):
+            spec = importlib.util.spec_from_file_location(
+                'test_heatmap_grading_default_settings', settings_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+        self.assertFalse(module.HEATMAP_GRADING_ENABLED)
+
+
+class BaselineSourceEligibilityTests(SimpleTestCase):
+    def test_only_active_planner_source_is_grading_eligible(self):
+        planner = _baseline(
+            PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            '30s',
+            1,
+            'planner',
+            baseline_source='planner',
+        )
+        preset = _baseline(
+            PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            '30s',
+            1,
+            'preset',
+            baseline_source='preset',
+        )
+        source_less = _baseline(
+            PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            '30s',
+            1,
+            'source-less',
+            baseline_source=None,
+        )
+        inactive = _baseline(
+            PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            '30s',
+            1,
+            'inactive',
+            is_active=False,
+            baseline_source='planner',
+        )
+
+        self.assertTrue(is_grading_eligible_baseline(planner))
+        self.assertFalse(is_grading_eligible_baseline(preset))
+        self.assertFalse(is_grading_eligible_baseline(source_less))
+        self.assertFalse(is_grading_eligible_baseline(inactive))
+        self.assertEqual(
+            grading_eligible_baselines(
+                [preset, source_less, planner, inactive]),
+            [planner],
+        )
+
+    def test_select_baseline_rejects_unreviewed_preset_defensively(self):
+        preset = _baseline(
+            PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            '30s',
+            1,
+            'preset',
+            baseline_source='preset',
+        )
+
+        self.assertIsNone(select_baseline(
+            [preset],
+            insurance_type=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+        ))
 
 
 class BaselineSelectionTests(SimpleTestCase):
@@ -273,3 +352,29 @@ class HeatmapGradingGateTests(TestCase):
         for detail in details:
             self.assertEqual(detail['status'], 'neutral')
             self.assertIsNone(detail['baseline'])
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_preset_is_stored_but_not_applied(self):
+        baseline = PlannerBaseline.objects.get(owner=self.user)
+        baseline.baseline_source = PlannerBaseline.SOURCE_PRESET
+        baseline.preset_origin = 'v0_starter'
+        baseline.save(update_fields=['baseline_source', 'preset_origin'])
+
+        body = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/heatmap/').json()
+
+        self.assertEqual(body['mode'], 'neutral')
+        self.assertTrue(body['baseline_present'])
+        self.assertEqual(body['baseline_count'], 1)
+        self.assertEqual(body['applied_baseline_count'], 0)
+        self.assertEqual(body['unapplied_baseline_count'], 1)
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_planner_baseline_is_applied(self):
+        body = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/heatmap/').json()
+
+        self.assertEqual(body['mode'], 'graded')
+        self.assertEqual(body['baseline_count'], 1)
+        self.assertEqual(body['applied_baseline_count'], 1)
+        self.assertEqual(body['unapplied_baseline_count'], 0)

@@ -1251,6 +1251,38 @@ class PlannerBaselineValidationTests(TestCase):
         baseline.refresh_from_db()
         self.assertEqual(baseline.recommend_min, 1000)
 
+    def test_direct_create_and_patch_cannot_override_server_owned_active_state(self):
+        payload = {**self.valid, 'is_active': False}
+
+        created = self.client.post(self.URL, payload, format='json')
+
+        self.assertEqual(created.status_code, 201, created.content)
+        baseline = PlannerBaseline.objects.get(pk=created.json()['id'])
+        self.assertTrue(baseline.is_active)
+
+        updated = self.client.patch(
+            f'{self.URL}{baseline.id}/',
+            {'is_active': False},
+            format='json',
+        )
+
+        self.assertEqual(updated.status_code, 200, updated.content)
+        baseline.refresh_from_db()
+        self.assertTrue(baseline.is_active)
+
+        baseline.is_active = False
+        baseline.save(update_fields=['is_active'])
+        reactivation_attempt = self.client.patch(
+            f'{self.URL}{baseline.id}/',
+            {'is_active': True},
+            format='json',
+        )
+
+        self.assertEqual(
+            reactivation_attempt.status_code, 200, reactivation_attempt.content)
+        baseline.refresh_from_db()
+        self.assertFalse(baseline.is_active)
+
     def test_direct_duplicate_scope_returns_400_instead_of_integrity_error(self):
         first = self.client.post(self.URL, self.valid, format='json')
         self.assertEqual(first.status_code, 201, first.content)
@@ -1629,7 +1661,9 @@ class PlannerBaselineCatalogTests(TestCase):
             'recommend_min': '2500.00',
             'recommend_max': '5000.00',
             'unit': PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            'is_active': True,
             'is_applied': True,
+            'requires_adoption': False,
             'conflict_code': 'multiple_standard_matches',
             'conflict_reason': (
                 '같은 이름의 표준 담보가 여러 곳에 있어 연결할 항목을 확인해 주세요.'
@@ -1646,6 +1680,182 @@ class PlannerBaselineCatalogTests(TestCase):
                 for row in response.json()['legacy_baselines']
             ],
         )
+
+    def test_legacy_preset_and_source_less_rows_require_adoption_until_saved(self):
+        preset = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail_later.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=2500,
+            unit=PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            baseline_source=PlannerBaseline.SOURCE_PRESET,
+            preset_origin='v0_starter',
+            is_active=True,
+        )
+        source_less = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail_later_category.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=1500,
+            unit=PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            baseline_source=None,
+            is_active=True,
+        )
+
+        before_link = self.client.get(self.CATALOG_URL).json()['legacy_baselines']
+        before_link_by_id = {row['id']: row for row in before_link}
+        self.assertFalse(before_link_by_id[preset.id]['is_applied'])
+        self.assertTrue(before_link_by_id[preset.id]['requires_adoption'])
+        self.assertFalse(before_link_by_id[source_less.id]['is_applied'])
+        self.assertTrue(before_link_by_id[source_less.id]['requires_adoption'])
+
+        self.assertEqual(
+            self.client.post(
+                f'/api/v1/planner-baselines/{preset.id}/link/',
+                {'analysis_detail_id': self.detail_later.id},
+                format='json',
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.post(
+                f'/api/v1/planner-baselines/{source_less.id}/link/',
+                {'analysis_detail_id': self.detail_later_category.id},
+                format='json',
+            ).status_code,
+            200,
+        )
+
+        after_link = self.client.get(self.CATALOG_URL).json()
+        linked_sources = {
+            detail['id']: detail['baselines'][0]['baseline_source']
+            for category in after_link['categories']
+            for subcategory in category['subcategories']
+            for detail in subcategory['details']
+            if detail['id'] in {
+                self.detail_later.id,
+                self.detail_later_category.id,
+            }
+        }
+        self.assertEqual(linked_sources, {
+            self.detail_later.id: PlannerBaseline.SOURCE_PRESET,
+            self.detail_later_category.id: None,
+        })
+
+        response = self.client.post(
+            self.BATCH_URL,
+            {
+                'revision': after_link['revision'],
+                'changes': [self._change(
+                    self.detail_later,
+                    recommend_min='2500',
+                )],
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        preset.refresh_from_db()
+        source_less.refresh_from_db()
+        self.assertEqual(preset.baseline_source, PlannerBaseline.SOURCE_PLANNER)
+        self.assertIsNone(preset.preset_origin)
+        self.assertTrue(preset.is_active)
+        self.assertIsNone(source_less.baseline_source)
+        self.assertTrue(source_less.is_active)
+
+        response = self.client.post(
+            self.BATCH_URL,
+            {
+                'revision': response.json()['revision'],
+                'changes': [self._change(
+                    self.detail_later_category,
+                    recommend_min='1500',
+                )],
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        source_less.refresh_from_db()
+        self.assertEqual(
+            source_less.baseline_source,
+            PlannerBaseline.SOURCE_PLANNER,
+        )
+        self.assertIsNone(source_less.preset_origin)
+        self.assertTrue(source_less.is_active)
+
+    def test_inactive_legacy_planner_row_requires_explicit_reuse_not_adoption(self):
+        inactive = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=None,
+            coverage_key=self.detail_later.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=2500,
+            unit=PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            baseline_source=PlannerBaseline.SOURCE_PLANNER,
+            preset_origin='historic_planner',
+            is_active=False,
+        )
+        untouched = PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.detail_later_category,
+            coverage_key=self.detail_later_category.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+            age_band=PlannerBaseline.AGE_ALL,
+            gender=None,
+            recommend_min=1500,
+            unit=PlannerBaseline.UNIT_TEN_THOUSAND_WON,
+            baseline_source=PlannerBaseline.SOURCE_PLANNER,
+            preset_origin='leave-as-is',
+            is_active=False,
+        )
+
+        legacy = self.client.get(self.CATALOG_URL).json()['legacy_baselines']
+        row = next(item for item in legacy if item['id'] == inactive.id)
+        self.assertFalse(row['is_applied'])
+        self.assertFalse(row['requires_adoption'])
+        self.assertFalse(row['is_active'])
+
+        self.assertEqual(
+            self.client.post(
+                f'/api/v1/planner-baselines/{inactive.id}/link/',
+                {'analysis_detail_id': self.detail_later.id},
+                format='json',
+            ).status_code,
+            200,
+        )
+
+        self.assertEqual(
+            self.client.post(
+                self.BATCH_URL,
+                {
+                    'revision': self.client.get(self.CATALOG_URL).json()['revision'],
+                    'changes': [self._change(
+                        self.detail_later,
+                        recommend_min='2500',
+                    )],
+                },
+                format='json',
+            ).status_code,
+            200,
+        )
+        inactive.refresh_from_db()
+        untouched.refresh_from_db()
+        self.assertTrue(inactive.is_active)
+        self.assertEqual(
+            inactive.baseline_source,
+            PlannerBaseline.SOURCE_PLANNER,
+        )
+        self.assertIsNone(inactive.preset_origin)
+        self.assertFalse(untouched.is_active)
+        self.assertEqual(untouched.baseline_source, PlannerBaseline.SOURCE_PLANNER)
+        self.assertEqual(untouched.preset_origin, 'leave-as-is')
 
     def test_ambiguous_legacy_row_can_be_explicitly_linked_or_deleted(self):
         duplicate = AnalysisDetail.objects.create(

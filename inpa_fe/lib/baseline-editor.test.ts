@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  adoptBaselineScope,
   buildBaselineChanges,
   catalogToDraft,
   countChangedScopes,
   filterBaselineCatalog,
   mapBaselineBatchFieldErrors,
   normalizeBaselineAmount,
+  normalizeSavedBaselineDraft,
   validateBaselineChanges,
 } from "@/lib/baseline-editor";
-import type { BaselineCatalogResponse } from "@/lib/api";
+import type {
+  BaselineCatalogResponse,
+  PlannerBaselineBatchChange,
+} from "@/lib/api";
 
 const catalog: BaselineCatalogResponse = {
   revision: 3,
@@ -40,6 +45,8 @@ const catalog: BaselineCatalogResponse = {
                   recommend_min: "3000.00",
                   recommend_max: null,
                   unit: 1,
+                  baseline_source: "planner",
+                  is_active: true,
                 },
                 {
                   analysis_detail: 101,
@@ -49,6 +56,8 @@ const catalog: BaselineCatalogResponse = {
                   recommend_min: "5000.00",
                   recommend_max: "7000.00",
                   unit: 1,
+                  baseline_source: "planner",
+                  is_active: true,
                 },
               ],
             },
@@ -119,6 +128,9 @@ describe("담보 기준 편집 변환", () => {
         recommend_min: null,
         recommend_max: null,
         unit: 1,
+        baseline_source: null,
+        is_active: true,
+        is_stored: false,
       },
     ]);
     expect(draft.categories[0].subcategories[0].details[0].baselines[0]).toEqual({
@@ -129,6 +141,9 @@ describe("담보 기준 편집 변환", () => {
       recommend_min: "3000",
       recommend_max: null,
       unit: 1,
+      baseline_source: "planner",
+      is_active: true,
+      is_stored: true,
     });
   });
 
@@ -172,6 +187,142 @@ describe("담보 기준 편집 변환", () => {
 
     expect(buildBaselineChanges(server, draft)).toEqual([]);
     expect(countChangedScopes(server, draft)).toBe(0);
+  });
+
+  it("변경하지 않은 이전 기준을 내 기준으로 사용하면 저장 변경을 만든다", () => {
+    const server = structuredClone(catalog);
+    server.categories[0].subcategories[0].details[0].baselines[0] = {
+      ...server.categories[0].subcategories[0].details[0].baselines[0],
+      recommend_min: "5000",
+      recommend_max: null,
+      baseline_source: "preset",
+    };
+    const serverDraft = catalogToDraft(server);
+    const draft = structuredClone(serverDraft);
+    draft.categories[0].subcategories[0].details[0].baselines[0].baseline_source =
+      "planner";
+
+    expect(buildBaselineChanges(serverDraft, draft)).toEqual([
+      expect.objectContaining({
+        recommend_min: "5000",
+        recommend_max: null,
+      }),
+    ]);
+  });
+
+  it("비활성 내 기준을 다시 사용하면 출처와 활성 상태 변경만 저장한다", () => {
+    const server = structuredClone(catalog) as BaselineCatalogResponse & {
+      categories: Array<{ subcategories: Array<{ details: Array<{ baselines: Array<Record<string, unknown>> }> }> }>;
+    };
+    server.categories[0].subcategories[0].details[0].baselines[0].is_active = false;
+    const serverDraft = catalogToDraft(server);
+    const scope = serverDraft.categories[0].subcategories[0].details[0].baselines[0];
+
+    expect(scope.is_active).toBe(false);
+    const adopted = adoptBaselineScope(scope);
+    expect(adopted).toMatchObject({
+      baseline_source: "planner",
+      is_active: true,
+    });
+    expect(buildBaselineChanges(serverDraft, {
+      ...serverDraft,
+      categories: [{
+        ...serverDraft.categories[0],
+        subcategories: [{
+          ...serverDraft.categories[0].subcategories[0],
+          details: [{
+            ...serverDraft.categories[0].subcategories[0].details[0],
+            baselines: [adopted, ...serverDraft.categories[0].subcategories[0].details[0].baselines.slice(1)],
+          }],
+        }],
+      }],
+    })).toEqual([{
+      analysis_detail_id: 101,
+      product_group: 0,
+      age_band: "all",
+      gender: null,
+      recommend_min: "3000",
+      recommend_max: null,
+      unit: 1,
+    }]);
+  });
+
+  it("이전 서버 응답에 활성 상태가 없으면 기존 활성 기준으로 읽는다", () => {
+    const legacyCatalog = structuredClone(catalog);
+    delete (
+      legacyCatalog.categories[0].subcategories[0].details[0].baselines[0] as {
+        is_active?: boolean;
+      }
+    ).is_active;
+
+    const draft = catalogToDraft(legacyCatalog);
+
+    expect(
+      draft.categories[0].subcategories[0].details[0].baselines[0].is_active,
+    ).toBe(true);
+  });
+
+  it("저장한 범위만 설계사 기준으로 정리하고 나머지 이전 기준은 보존한다", () => {
+    const draft = catalogToDraft(catalog);
+    const savedScope =
+      draft.categories[0].subcategories[0].details[0].baselines[0];
+    savedScope.recommend_min = "04500.00";
+    savedScope.baseline_source = "preset";
+    const untouchedScope =
+      draft.categories[0].subcategories[0].details[0].baselines[1];
+    untouchedScope.recommend_min = "05000.00";
+    untouchedScope.baseline_source = null;
+    const deletedScope =
+      draft.categories[0].subcategories[1].details[0].baselines[0];
+    deletedScope.recommend_min = "3000";
+    deletedScope.baseline_source = "preset";
+    deletedScope.is_stored = true;
+    const changes: PlannerBaselineBatchChange[] = [
+      {
+        analysis_detail_id: savedScope.analysis_detail_id,
+        product_group: savedScope.product_group,
+        age_band: savedScope.age_band,
+        gender: savedScope.gender,
+        recommend_min: "4500",
+        recommend_max: null,
+        unit: savedScope.unit,
+      },
+      {
+        analysis_detail_id: deletedScope.analysis_detail_id,
+        product_group: deletedScope.product_group,
+        age_band: deletedScope.age_band,
+        gender: deletedScope.gender,
+        recommend_min: null,
+        recommend_max: null,
+        unit: deletedScope.unit,
+      },
+    ];
+    const saved = normalizeSavedBaselineDraft(draft, changes, 4);
+
+    expect(saved.revision).toBe(4);
+    expect(
+      saved.categories[0].subcategories[0].details[0].baselines[0],
+    ).toMatchObject({
+      recommend_min: "4500",
+      baseline_source: "planner",
+      is_stored: true,
+    });
+    expect(
+      saved.categories[0].subcategories[0].details[0].baselines[1],
+    ).toMatchObject({
+      recommend_min: "05000.00",
+      baseline_source: null,
+      is_stored: true,
+    });
+    expect(
+      saved.categories[0].subcategories[1].details[0].baselines[0],
+    ).toMatchObject({
+      recommend_min: null,
+      recommend_max: null,
+      baseline_source: null,
+      is_stored: false,
+    });
+    expect(savedScope.baseline_source).toBe("preset");
   });
 
   it("대분류·중분류·담보명 검색을 각각 지원하고 빈 그룹은 제거한다", () => {
@@ -329,6 +480,8 @@ describe("담보 기준 편집 변환", () => {
         recommend_min: "8000.00",
         recommend_max: null,
         unit: 1,
+        baseline_source: "planner",
+        is_active: true,
       },
       {
         analysis_detail: 101,
@@ -338,6 +491,8 @@ describe("담보 기준 편집 변환", () => {
         recommend_min: "9000.00",
         recommend_max: null,
         unit: 1,
+        baseline_source: "planner",
+        is_active: true,
       },
     );
     const server = catalogToDraft(extended);

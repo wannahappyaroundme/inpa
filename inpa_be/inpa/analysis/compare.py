@@ -22,7 +22,7 @@
   3) 발행(publish)은 settings.COMPARE_PUBLISH_ENABLED=False 이면 403 하드블록.
      publishable 은 항상 false 로 응답한다(고객 발송 = §97 법무 확정 전 금지).
 
-mode(neutral|graded): 히트맵과 동일 게이트 — 살아있는 PlannerBaseline(baseline_source!=null)이
+mode(neutral|graded): 히트맵과 동일 게이트 — 활성 planner 출처 PlannerBaseline이
   없으면 neutral. 비교표 자체는 mode 무관하게 사실만 표시한다(부족/충분 단정은 비교표에 없음).
 
 owner 격리: 부모 Customer 를 owner 스코프 쿼리로 잡는다(없으면 404 = 존재 자체 은폐).
@@ -40,6 +40,7 @@ from rest_framework.views import APIView
 from inpa.analysis.switch_verdict import compute_switch_warnings
 from inpa.analysis.baselines import (
     baseline_candidates_for_detail,
+    grading_eligible_baselines,
     select_baseline,
 )
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
@@ -248,11 +249,12 @@ def _mode_for_customer(customer, insurance_list):
     if not getattr(settings, 'HEATMAP_GRADING_ENABLED', False):
         return 'neutral'
 
-    baselines = list(
+    stored_baselines = list(
         PlannerBaseline.objects
         .filter(owner=customer.owner, is_active=True)
         .exclude(baseline_source__isnull=True)
     )
+    baselines = grading_eligible_baselines(stored_baselines)
     if not baselines:
         return 'neutral'
 

@@ -271,7 +271,10 @@ describe("insurance review authority UI", () => {
   it("links stored baselines to their settings without showing grading colors", () => {
     const storedBaseline = heatmap({
       baseline_present: true,
+      grading_enabled: true,
       baseline_count: 1,
+      applied_baseline_count: 0,
+      unapplied_baseline_count: 1,
       tree: [{
         category_id: 1,
         name: "진단",
@@ -299,8 +302,11 @@ describe("insurance review authority UI", () => {
       onFilterChange={() => undefined}
     />);
 
-    const settingsLink = screen.getByText("설정한 기준 확인하기 ›").closest("a");
+    const settingsLink = screen.getByText("기준 설정하기 ›").closest("a");
     expect(settingsLink?.getAttribute("href")).toBe("/settings/baseline");
+    expect(settingsLink).toHaveTextContent(
+      "금액을 확인하고 저장하면 내 기준으로 적용돼요.",
+    );
     expect(screen.queryByText("내 기준 1개 적용 중")).toBeNull();
     const detail = screen.getByLabelText("일반암진단비: 보유 내역만 표시");
     expect(within(detail).queryByText("부족")).toBeNull();

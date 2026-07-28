@@ -1179,7 +1179,9 @@ export interface HeatmapResponse {
   mode: "neutral" | "graded";
   baseline_present: boolean;
   grading_enabled: boolean;
-  baseline_count: number;       // graded 근거(보유한 살아있는 기준 수) — PM 06.24 명확화
+  baseline_count: number;       // 출처가 있는 활성 기준 수
+  applied_baseline_count?: number;
+  unapplied_baseline_count?: number;
   insurance_count: number;
   included_insurance_count: number;
   excluded_insurance_count: number;
@@ -1245,8 +1247,8 @@ export async function createCoverageFlag(
 }
 
 // ─── 설계사 기준선 (PlannerBaseline) ─────────────────────────────────────────
-// ★ 준법 통제점 (dev/10): baseline_source 가 null 이면 분석은 neutral 강제.
-//   기준을 설정하면(source='planner') 부족/적정/넉넉 판정 권위·최종책임은 설계사.
+// ★ 준법 통제점 (dev/10): 활성 planner 출처만 분석 판정에 사용한다.
+//   설계사가 직접 저장한 기준만 부족/적정/넉넉 판정 권위를 갖는다.
 // BE 계약: customers/urls.py → router.register('planner-baselines', ...)
 //   → /api/v1/planner-baselines/  (ModelViewSet, IsOwner)
 // 필드 출처: customers/serializers.py PlannerBaselineSerializer + models.py PlannerBaseline.
@@ -1269,7 +1271,7 @@ export type BaselineUnit = 1 | 2 | 3; // 1=만원 2=원 3=구좌
 /**
  * 기준선 1행. DRF DecimalField 는 JSON 직렬화 시 문자열로 내려온다
  * (recommend_min/max). null 가능.
- * baseline_source: 'planner'(직접) | 'preset:<id>'(프리셋 채택) | null(미설정→neutral).
+ * baseline_source: 'planner'(직접 저장, 판정 가능) | 'preset'(저장만, 판정 제외) | null(판정 제외).
  */
 export interface PlannerBaseline {
   id: number;
@@ -1297,7 +1299,6 @@ export interface PlannerBaselineWritePayload {
   recommend_min?: string | number | null;
   recommend_max?: string | number | null;
   unit?: BaselineUnit;
-  is_active?: boolean;
 }
 
 /** GET /api/v1/planner-baselines/?product_group=&age_band=&gender= — {count, next, previous, results} */
@@ -1355,6 +1356,8 @@ export interface BaselineCatalogStoredScope {
   recommend_min: string | null;
   recommend_max: string | null;
   unit: BaselineUnit;
+  baseline_source: string | null;
+  is_active?: boolean;
 }
 
 export interface BaselineCatalogDetail {
@@ -1395,7 +1398,9 @@ export interface LegacyPlannerBaseline {
   recommend_min: string | null;
   recommend_max: string | null;
   unit: BaselineUnit;
+  is_active?: boolean;
   is_applied: boolean;
+  requires_adoption?: boolean;
   conflict_code: LegacyBaselineConflictCode;
   conflict_reason: string;
   matching_analysis_detail_ids: number[];

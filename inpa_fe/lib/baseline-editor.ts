@@ -16,6 +16,9 @@ export interface BaselineDraftScope {
   recommend_min: string | null;
   recommend_max: string | null;
   unit: BaselineUnit;
+  baseline_source: string | null;
+  is_active: boolean;
+  is_stored: boolean;
 }
 
 export interface BaselineDraftDetail {
@@ -117,6 +120,9 @@ export function catalogToDraft(
             recommend_min: normalizeBaselineAmount(baseline.recommend_min),
             recommend_max: normalizeBaselineAmount(baseline.recommend_max),
             unit: baseline.unit,
+            baseline_source: baseline.baseline_source,
+            is_active: baseline.is_active ?? true,
+            is_stored: true,
           }));
           const defaultIndex = scopes.findIndex(
             (scope) =>
@@ -133,6 +139,9 @@ export function catalogToDraft(
                   recommend_min: null,
                   recommend_max: null,
                   unit: detail.unit,
+                  baseline_source: null,
+                  is_active: true,
+                  is_stored: false,
                 };
           return {
             ...detail,
@@ -259,15 +268,69 @@ function sameScopeValue(
       normalizeBaselineAmount(right.recommend_min) &&
     normalizeBaselineAmount(left.recommend_max) ===
       normalizeBaselineAmount(right.recommend_max) &&
-    left.unit === right.unit
+    left.unit === right.unit &&
+    left.baseline_source === right.baseline_source &&
+    left.is_active === right.is_active
   );
 }
 
 function asChange(scope: BaselineDraftScope): PlannerBaselineBatchChange {
   return {
-    ...scope,
+    analysis_detail_id: scope.analysis_detail_id,
+    product_group: scope.product_group,
+    age_band: scope.age_band,
+    gender: scope.gender,
     recommend_min: normalizeBaselineAmount(scope.recommend_min),
     recommend_max: normalizeBaselineAmount(scope.recommend_max),
+    unit: scope.unit,
+  };
+}
+
+export function adoptBaselineScope(
+  scope: BaselineDraftScope,
+): BaselineDraftScope {
+  return {
+    ...scope,
+    baseline_source: "planner",
+    is_active: true,
+  };
+}
+
+export function normalizeSavedBaselineDraft(
+  draft: BaselineDraftCatalog,
+  changes: PlannerBaselineBatchChange[],
+  revision: number,
+): BaselineDraftCatalog {
+  const changesByScope = new Map(
+    changes.map((change) => [baselineScopeKey(change), change]),
+  );
+  return {
+    ...draft,
+    revision,
+    categories: draft.categories.map((category) => ({
+      ...category,
+      subcategories: category.subcategories.map((subcategory) => ({
+        ...subcategory,
+        details: subcategory.details.map((detail) => ({
+          ...detail,
+          baselines: detail.baselines.map((scope) => {
+            const change = changesByScope.get(baselineScopeKey(scope));
+            if (!change) return scope;
+            const recommend_min = normalizeBaselineAmount(change.recommend_min);
+            const recommend_max = normalizeBaselineAmount(change.recommend_max);
+            const is_stored = recommend_min !== null || recommend_max !== null;
+            return {
+              ...scope,
+              recommend_min,
+              recommend_max,
+              baseline_source: is_stored ? "planner" : null,
+              is_active: true,
+              is_stored,
+            };
+          }),
+        })),
+      })),
+    })),
   };
 }
 

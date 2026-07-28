@@ -190,7 +190,7 @@ class PlannerBaselineSerializer(serializers.ModelSerializer):
         if errors:
             raise serializers.ValidationError(errors)
         attrs['coverage_key'] = detail.name
-        attrs['baseline_source'] = 'planner'
+        attrs['baseline_source'] = PlannerBaseline.SOURCE_PLANNER
         attrs['preset_origin'] = None
         return attrs
 
@@ -202,7 +202,7 @@ class PlannerBaselineSerializer(serializers.ModelSerializer):
                   'preset_origin', 'is_active', 'created_at', 'updated_at')
         read_only_fields = (
             'id', 'coverage_key', 'baseline_source', 'preset_origin',
-            'created_at', 'updated_at',
+            'is_active', 'created_at', 'updated_at',
         )
 
 

@@ -7,8 +7,7 @@
 - Customer / CustomerTag / FamilyMember / CustomerMedicalHistory / PlannerBaseline → 소유자 전용
 - ConsentLog → 소유자 전용 (customer__owner 경유, append-only 감사 로그)
 
-★ 준법 통제점: PlannerBaseline.baseline_source(=source)가 null이면 분석은 neutral 강제.
-  (이번 라운드는 모델만 — 분석/히트맵 판정 로직은 다음 라운드.)
+★ 준법 통제점: 활성 PlannerBaseline.baseline_source='planner'만 분석 판정에 사용한다.
 """
 import uuid
 
@@ -507,8 +506,7 @@ class PlannerBaseline(models.Model):
     표기상 planner_baseline. 설계사가 소유하는 보장 기준 — 인파는 중개·권유하지 않으며
     "부족/충분" 판정 권위는 설계사에게 있다.
 
-    ★ neutral 강제: 해당 coverage_key의 baseline이 없거나 source가 null이면 분석은 neutral 강제
-      (이번 라운드는 모델만 — 판정 로직은 다음 라운드).
+    ★ neutral 강제: 해당 coverage_key의 활성 planner 기준이 없으면 분석은 neutral 강제.
     """
     PRODUCT_GROUP_ALL = 0
     PRODUCT_GROUP_LIFE = 1
@@ -535,6 +533,8 @@ class PlannerBaseline(models.Model):
         (UNIT_WON, '원'),
         (UNIT_ACCOUNT, '구좌'),
     )
+    SOURCE_PLANNER = 'planner'
+    SOURCE_PRESET = 'preset'
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                               related_name='planner_baselines')
@@ -554,9 +554,9 @@ class PlannerBaseline(models.Model):
     unit = models.SmallIntegerField(
         '금액 단위', default=UNIT_TEN_THOUSAND_WON)
 
-    # ★ 준법 통제점 물리 키 — null이면 분석 neutral 강제
+    # ★ 준법 통제점 물리 키 — 활성 planner 출처만 분석 판정에 사용
     baseline_source = models.CharField('기준 출처', max_length=30, null=True, blank=True,
-                                       default=None)  # 'planner' | 'preset:<id>' | null
+                                       default=None)  # 'planner' | 'preset' | null
     preset_origin = models.CharField('프리셋 출처 라벨', max_length=100, null=True, blank=True)
     is_active = models.BooleanField('활성', default=True)
 

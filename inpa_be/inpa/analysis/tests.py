@@ -271,13 +271,13 @@ class HeatmapNeutralGateTests(TestCase):
                     self.assertIsNone(det['baseline'])
 
     def test_baseline_with_null_source_still_neutral(self):
-        """baseline 있으나 baseline_source=null → 여전히 neutral 강제(준법 통제점)."""
+        """활성 행이어도 planner 출처가 아니면 neutral 강제(준법 통제점)."""
         PlannerBaseline.objects.create(
             owner=self.user, coverage_key='사망보장',
             product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
             age_band='30s', gender=1,
             recommend_min=100000000, recommend_max=300000000,
-            baseline_source=None,  # ★ source 없음 → 판정 권위 미확립
+            baseline_source=None,  # ★ planner 출처 아님 → 판정 권위 미확립
         )
         r = self._get()
         body = r.json()
@@ -324,7 +324,7 @@ class HeatmapNeutralGateTests(TestCase):
 
 @override_settings(HEATMAP_GRADING_ENABLED=True)
 class HeatmapGradedTests(TestCase):
-    """살아있는 baseline(source!=null)이 있으면 mode='graded' + 담보별 판정."""
+    """활성 planner 기준이 있으면 mode='graded' + 담보별 판정."""
 
     def setUp(self):
         self.user, self.client = _make_planner('graded@test.com')
@@ -353,7 +353,7 @@ class HeatmapGradedTests(TestCase):
             age_band=age_band, gender=gender,
             recommend_min=lo, recommend_max=hi,
             unit=unit,
-            baseline_source='planner',  # ★ 살아있는 출처
+            baseline_source='planner',  # ★ 활성 설계사 출처
         )
 
     def _heatmap_detail_status(self):
@@ -851,6 +851,25 @@ class CompareFactsTests(TestCase):
         )
 
         self.assertEqual(self._get().json()['mode'], 'graded')
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_mode_excludes_unreviewed_preset_baseline(self):
+        _make_portfolio_typed(
+            self.customer, self.idet, 50000000, portfolio_type=1)
+        PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.det,
+            coverage_key=self.det.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=100000000,
+            unit=PlannerBaseline.UNIT_WON,
+            baseline_source=PlannerBaseline.SOURCE_PRESET,
+            preset_origin='v0_starter',
+        )
+
+        self.assertEqual(self._get().json()['mode'], 'neutral')
 
     @override_settings(HEATMAP_GRADING_ENABLED=True)
     def test_mode_prefers_linked_baseline_when_legacy_row_coexists(self):
