@@ -41,7 +41,13 @@ from inpa.boards.models import BlogPost, Faq, Notice, Post
 from inpa.consultations.models import ConsultationRecording
 from inpa.core.internal_accounts import is_showcase_user
 from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
-from inpa.customers.models import ConsentLog, Customer, CustomerTag
+from inpa.customers.models import (
+    ConsentLog,
+    Customer,
+    CustomerTag,
+    JobRiskCode,
+    PlannerBaseline,
+)
 from inpa.dashboard.models import MonthlyGoal
 from inpa.insurances.models import (
     CustomerInsurance,
@@ -155,6 +161,7 @@ class ShowcaseSeedCommandTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         call_command('seed_normalization', '--force', stdout=StringIO())
+        call_command('seed_jobs', stdout=StringIO())
         Plan.objects.get_or_create(
             code='free',
             defaults={
@@ -258,6 +265,123 @@ class ShowcaseSeedCommandTests(TestCase):
             'schedule': schedule_rows,
         }
 
+    def _complete_business_state(self):
+        user = self._showcase_user()
+        profile = user.profile
+        profile_fields = (
+            'name',
+            'affiliation',
+            'title',
+            'phone',
+            'intro_text',
+            'booking_msg_template',
+            'booking_location',
+            'booking_default_duration',
+            'booking_buffer_min',
+            'license_no',
+            'career_years',
+            'is_admin',
+            'is_showcase',
+            'is_dormant',
+            'manager_id',
+            'manager_promoted_at',
+            'manager_promotion_seen_at',
+            'cohort_opt_in',
+            'manager_share_opt_in',
+            'manager_share_level',
+            'utm_source',
+            'utm_medium',
+            'utm_campaign',
+            'google_sub',
+            'google_calendar_refresh_token',
+            'google_calendar_connected_at',
+            'google_calendar_mask_name',
+            'profile_image',
+        )
+        customer_rows = tuple(
+            Customer.objects.filter(owner=user).order_by('name').values_list(
+                'name',
+                'job_code__sctg_cd',
+                'job_code__name',
+                'lead_source',
+                'lead_created_at',
+                'sales_stage',
+                'status',
+                'is_favorite',
+                'is_pinned',
+            )
+        )
+        insurance_rows = tuple(
+            CustomerInsurance.objects.filter(
+                customer__owner=user,
+            ).select_related('customer').order_by(
+                'customer__name',
+                'name',
+                'contract_date',
+            ).values_list(
+                'customer__name',
+                'name',
+                'portfolio_type',
+                'payment_status',
+                'monthly_premiums',
+                'monthly_renewal_premium',
+                'monthly_non_renewal_premium',
+                'monthly_earned_premium',
+                'total_renewal_premium',
+                'total_non_renewal_premium',
+                'total_earned_premium',
+            )
+        )
+        coverage_rows = tuple(
+            CustomerInsuranceDetail.objects.filter(
+                insurance__customer__owner=user,
+            ).select_related(
+                'insurance__customer',
+            ).order_by(
+                'insurance__customer__name',
+                'insurance__name',
+                'raw_name',
+                'assurance_amount',
+            ).values_list(
+                'insurance__customer__name',
+                'insurance__name',
+                'raw_name',
+                'assurance_amount',
+                'premium',
+                'renewal_period',
+                'payment_period_type',
+            )
+        )
+        baseline_rows = tuple(
+            PlannerBaseline.objects.filter(owner=user).order_by(
+                'analysis_detail__name',
+            ).values_list(
+                'analysis_detail__name',
+                'coverage_key',
+                'product_group',
+                'age_band',
+                'gender',
+                'recommend_min',
+                'recommend_max',
+                'unit',
+                'baseline_source',
+                'is_active',
+            )
+        )
+        return {
+            'profile': tuple(
+                profile.profile_image.name
+                if name == 'profile_image'
+                else getattr(profile, name)
+                for name in profile_fields
+            ),
+            'customers': customer_rows,
+            'insurances': insurance_rows,
+            'coverages': coverage_rows,
+            'baselines': baseline_rows,
+            'counts': self._owned_counts(),
+        }
+
     def test_apply_is_required_before_any_database_change(self):
         self._assert_error_without_changes('--apply',)
 
@@ -350,6 +474,14 @@ class ShowcaseSeedCommandTests(TestCase):
         self._assert_error_without_changes('Super 요금제', '--apply')
         self.assertFalse(Plan.objects.filter(code='super').exists())
 
+    def test_inactive_super_plan_fails_without_database_change(self):
+        Plan.objects.filter(code='super').update(is_active=False)
+        self._assert_error_without_changes('활성 Super 요금제', '--apply')
+
+    def test_missing_job_catalog_fails_without_database_change(self):
+        JobRiskCode.objects.all().delete()
+        self._assert_error_without_changes('직업급수', '--apply')
+
     def test_all_missing_standard_prerequisites_are_reported_before_writes(self):
         AnalysisDetail.objects.filter(
             name='일반사망',
@@ -386,6 +518,16 @@ class ShowcaseSeedCommandTests(TestCase):
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
         self.assertFalse(profile.is_admin)
+        self.assertEqual(profile.phone, '010-1986-4270')
+        self.assertEqual(
+            profile.intro_text,
+            '가족의 현재 보장을 한눈에 정리해 드립니다.',
+        )
+        self.assertIn('{고객명}', profile.booking_msg_template)
+        self.assertFalse(profile.cohort_opt_in)
+        self.assertFalse(profile.manager_share_opt_in)
+        self.assertEqual(profile.manager_share_level, Profile.SHARE_NONE)
+        self.assertIsNone(profile.manager_id)
         self.assertIsNotNone(profile.email_verified_at)
         self.assertIsNotNone(profile.onboarding_completed_at)
         self.assertIsNotNone(profile.tour_completed_at)
@@ -409,6 +551,8 @@ class ShowcaseSeedCommandTests(TestCase):
             Counter(customers.values_list('status', flat=True)),
             STATUS_COUNTS,
         )
+        self.assertFalse(customers.filter(job_code__isnull=True).exists())
+        self.assertFalse(customers.filter(lead_created_at__isnull=False).exists())
         self.assertEqual(
             CustomerInsurance.objects.filter(customer__owner=user).count(),
             80,
@@ -467,6 +611,94 @@ class ShowcaseSeedCommandTests(TestCase):
             link_expires_at__gt=timezone.now(),
         )
         self.assertEqual(active_shares.count(), 2)
+
+        policies = CustomerInsurance.objects.filter(customer__owner=user)
+        self.assertEqual(
+            set(policies.values_list('portfolio_type', flat=True)),
+            {1, 2},
+        )
+        self.assertEqual(
+            set(policies.values_list('payment_status', flat=True)),
+            {1, 2, 3},
+        )
+        self.assertTrue(policies.filter(
+            monthly_renewal_premium__gt=0,
+        ).exists())
+        self.assertTrue(policies.filter(
+            monthly_non_renewal_premium__gt=0,
+        ).exists())
+        self.assertTrue(policies.filter(
+            monthly_earned_premium__gt=0,
+        ).exists())
+        self.assertTrue(policies.filter(
+            total_renewal_premium__gt=0,
+        ).exists())
+        self.assertTrue(policies.filter(
+            total_non_renewal_premium__gt=0,
+        ).exists())
+        self.assertTrue(policies.filter(
+            total_earned_premium__gt=0,
+        ).exists())
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_anchor_heatmaps_include_meaningful_three_colour_results(self):
+        self._seed()
+        user = self._showcase_user()
+        client = APIClient()
+        client.force_authenticate(user=user)
+        anchor_names = {
+            spec.name
+            for spec in CUSTOMERS
+            if spec.key in ANCHOR_CUSTOMER_KEYS
+        }
+        statuses = set()
+        for customer in Customer.objects.filter(
+            owner=user,
+            name__in=anchor_names,
+        ):
+            response = client.get(
+                f'/api/v1/customers/{customer.pk}/heatmap/',
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            body = response.json()
+            self.assertEqual(body['mode'], 'graded')
+            statuses.update(
+                detail['status']
+                for category in body['tree']
+                for subcategory in category['sub_categories']
+                for detail in subcategory['details']
+            )
+        self.assertTrue({'shortage', 'adequate', 'over'}.issubset(statuses))
+
+    def test_anchor_default_comparisons_have_distinct_nonempty_sides(self):
+        self._seed()
+        user = self._showcase_user()
+        client = APIClient()
+        client.force_authenticate(user=user)
+        anchors = Customer.objects.filter(
+            owner=user,
+            name__in={
+                spec.name
+                for spec in CUSTOMERS
+                if spec.key in ANCHOR_CUSTOMER_KEYS
+            },
+        )
+        for customer in anchors:
+            response = client.get(
+                f'/api/v1/customers/{customer.pk}/compare/',
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            body = response.json()
+            left_ids = {
+                row['id'] for row in body['current']['insurances']
+            }
+            right_ids = {
+                row['id'] for row in body['proposed']['insurances']
+            }
+            self.assertTrue(left_ids)
+            self.assertTrue(right_ids)
+            self.assertNotEqual(left_ids, right_ids)
+            self.assertTrue(left_ids.isdisjoint(right_ids))
 
     def test_public_tables_and_global_catalog_links_never_change(self):
         before = _fingerprint(_PUBLIC_MODELS)
@@ -625,8 +857,21 @@ class ShowcaseSeedCommandTests(TestCase):
         first_user_id = self._showcase_user().pk
         first_counts = self._owned_counts()
         first_state = self._relative_natural_state()
+        first_complete_state = self._complete_business_state()
         first_public = _fingerprint(_PUBLIC_MODELS)
 
+        profile = self._showcase_user().profile
+        Profile.objects.filter(pk=profile.pk).update(
+            phone='010-1999-9999',
+            intro_text='바뀐 소개',
+            booking_msg_template='바뀐 예약 문구',
+            cohort_opt_in=True,
+            manager_share_opt_in=True,
+            manager_share_level=Profile.SHARE_FULL,
+            marketing_agreed_at=timezone.now(),
+            is_dormant=True,
+            google_calendar_refresh_token='changed-local-value',
+        )
         self._seed()
 
         self.assertEqual(
@@ -636,6 +881,10 @@ class ShowcaseSeedCommandTests(TestCase):
         self.assertEqual(self._showcase_user().pk, first_user_id)
         self.assertEqual(self._owned_counts(), first_counts)
         self.assertEqual(self._relative_natural_state(), first_state)
+        rebuilt_complete_state = self._complete_business_state()
+        for key, expected in first_complete_state.items():
+            with self.subTest(complete_state=key):
+                self.assertEqual(rebuilt_complete_state[key], expected)
         self.assertEqual(_fingerprint(_PUBLIC_MODELS), first_public)
 
     def test_reset_revokes_existing_token_and_accepts_configured_password(self):
@@ -922,6 +1171,22 @@ class ShowcaseSeedCommandTests(TestCase):
         )
         self.assertEqual(_fingerprint(_PUBLIC_MODELS), public_before)
 
+    def test_purge_needs_no_password_catalog_or_active_super_plan(self):
+        self._seed()
+        JobRiskCode.objects.all().delete()
+        AnalysisCategory.objects.filter(
+            name__startswith='[표준]',
+        ).update(name='표준 경로 없음')
+        InsuranceCategory.objects.filter(
+            name__startswith='[표준]',
+        ).update(name='표준 경로 없음')
+        Plan.objects.filter(code='super').update(is_active=False)
+
+        with override_settings(SHOWCASE_ACCOUNT_PASSWORD=''):
+            self._call('--purge', '--apply')
+
+        self.assertFalse(User.objects.filter(email=_SHOWCASE_EMAIL).exists())
+
     def test_purge_refuses_target_after_showcase_flag_is_disabled(self):
         self._seed()
         user = self._showcase_user()
@@ -941,6 +1206,8 @@ class ShowcaseSeedCommandTests(TestCase):
             ShareSnapshot.objects.filter(owner=user).select_related('customer')
         )
         self.assertEqual(len(snapshots), 2)
+        owner = APIClient()
+        owner.force_authenticate(user=user)
         public = APIClient()
 
         for snapshot in snapshots:
@@ -967,6 +1234,27 @@ class ShowcaseSeedCommandTests(TestCase):
                 200,
                 booking_response.content,
             )
+            self.assertTrue(booking_response.json()['slots'])
+
+            direct_link = owner.post(
+                f'/api/v1/customers/{snapshot.customer_id}/'
+                'booking-requests/',
+            )
+            self.assertEqual(direct_link.status_code, 201, direct_link.content)
+            self.assertIn(
+                direct_link.json()['booking_url'],
+                direct_link.json()['message'],
+            )
+            direct_token = urlparse(
+                direct_link.json()['booking_url'],
+            ).path.removeprefix('/b/')
+            direct_public = public.get(f'/api/v1/b/{direct_token}/')
+            self.assertEqual(
+                direct_public.status_code,
+                200,
+                direct_public.content,
+            )
+            self.assertTrue(direct_public.json()['slots'])
 
     def test_command_output_contains_counts_but_no_secret_phone_or_raw_token(self):
         output = self._seed()
@@ -1019,6 +1307,7 @@ class ShowcaseApiIntegrationTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         call_command('seed_normalization', '--force', stdout=StringIO())
+        call_command('seed_jobs', stdout=StringIO())
         free_plan, _created = Plan.objects.get_or_create(
             code='free',
             defaults={

@@ -29,7 +29,14 @@ from inpa.billing.models import Plan, Subscription
 from inpa.booking.models import Meeting, WorkHour
 from inpa.consultations.models import ConsultationRecording
 from inpa.customers.consent_texts import consent_version_for_scope
-from inpa.customers.models import ConsentLog, Customer, CustomerTag
+from inpa.customers.models import (
+    ConsentLog,
+    Customer,
+    CustomerTag,
+    JobRiskCode,
+    PlannerBaseline,
+    PlannerBaselineRevision,
+)
 from inpa.dashboard.models import MonthlyGoal
 from inpa.insurances.import_services import _calculate_materialized_insurance
 from inpa.insurances.models import (
@@ -90,6 +97,63 @@ _STANDARD_PATHS = {
     for subcategory_name, details in subcategories
     for detail_name, _chart_based_amount in details
 }
+_SHOWCASE_BASELINES = (
+    ('일반사망', 100_000_000, 300_000_000),
+    ('일반암진단', 20_000_000, 80_000_000),
+    ('질병수술', 100_000, 1_000_000),
+)
+_JOB_SEARCH_TERMS = {
+    '퇴직 후 재취업 준비': '경비원',
+    '의류 매장 운영': '의류',
+    '사무 관리직': '사무직 관리자',
+    '중학교 교사': '중·고등학교 교사',
+    '소프트웨어 개발자': '개발자 및 프로그래머',
+    '제품 디자이너': '제품 디자이너',
+    '화물차 운전원': '자가용화물차운전자',
+    '음식점 운영 보조': '음식점',
+    '기계 설비 기사': '기계 설치 및 정비',
+    '도서관 사서': '사서',
+    '가구 제작자': '가구',
+    '온라인 판매 운영': '온라인 쇼핑 판매원',
+    '건물 관리원': '환경관리원',
+    '학원 강사': '학원 강사',
+    '영상 편집자': '영상',
+    '꽃집 운영': '화훼',
+    '전기 기술자': '전기공',
+    '반려동물 미용사': '동물 미용',
+    '인쇄소 운영': '인쇄',
+    '세무 사무원': '세무',
+    '물류 관리직': '도로운송 사무원',
+    '편집 기획자': '출판 및 자료편집',
+    '주방 설비 운영': '주방',
+    '초등학교 교사': '초등학교 교사',
+    '조경 관리사': '조경',
+    '공연 기획자': '기획사무원',
+    '자동차 정비사': '자동차 경정비원',
+    '식품 연구원': '식품',
+    '택배 영업소 운영': '택배',
+    '제과사': '제과',
+    '공장 품질 관리자': '품질',
+    '요가 강사': '요가',
+    '냉동 설비 기사': '냉동',
+    '출판 편집자': '출판 및 자료편집',
+    '농산물 판매 운영': '농산물',
+    '치과 위생사': '치과위생사',
+    '소방 설비 점검원': '소방시설',
+    '공방 운영': '공예',
+    '버스 운전원': '버스 운전원',
+    '아동 상담사': '상담',
+    '목공소 운영': '목공',
+    '호텔 서비스 담당': '호텔',
+    '세탁소 운영': '세탁',
+    '행정 사무원': '행정',
+    '사진 스튜디오 운영': '사진가',
+    '보육 교사': '보육 교사',
+    '금속 가공 기술자': '금속',
+    '공인중개사': '부동산 컨설턴트 및 중개사',
+    '건축 설계사': '건축가',
+    '공예 강사': '공예',
+}
 
 
 def _month_date(today, months_ago, day):
@@ -137,16 +201,12 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
-        validate_showcase_specs()
-        self._validate_spec_mapping()
         if not options['apply']:
             raise CommandError(
                 '변경하려면 --apply를 함께 입력해 주세요.'
             )
 
-        email, password = self._configured_credentials()
-        catalog, raw_storage_detail = self._load_standard_catalog()
-        plan = self._get_super_plan()
+        email = self._configured_email()
         target = self._target_user_lock_queryset(email).first()
         profile = (
             Profile.objects.select_for_update().filter(
@@ -168,6 +228,12 @@ class Command(BaseCommand):
             ))
             return
 
+        validate_showcase_specs()
+        self._validate_spec_mapping()
+        password = self._configured_password()
+        catalog, raw_storage_detail = self._load_standard_catalog()
+        jobs = self._load_job_catalog()
+        plan = self._get_super_plan()
         if target is not None:
             self._assert_safe_target(target, profile, email)
             self._assert_seed_data_replaceable(target)
@@ -182,7 +248,7 @@ class Command(BaseCommand):
         )
         now = timezone.now()
         today = timezone.localdate(now)
-        customers = self._create_customers(user, now, today)
+        customers = self._create_customers(user, jobs, now, today)
         coverage_count = self._create_insurances(
             user,
             customers,
@@ -191,6 +257,7 @@ class Command(BaseCommand):
             now,
             today,
         )
+        self._create_baselines(user, catalog)
         self._create_monthly_goals(user, today)
         self._create_schedule_items(user, customers, today)
         self._create_work_hours(user)
@@ -219,7 +286,7 @@ class Command(BaseCommand):
         return User.objects.select_for_update().filter(email=email)
 
     @staticmethod
-    def _configured_credentials():
+    def _configured_email():
         raw_email = getattr(settings, 'SHOWCASE_ACCOUNT_EMAIL', '')
         if not isinstance(raw_email, str) or not raw_email:
             raise CommandError(
@@ -231,12 +298,16 @@ class Command(BaseCommand):
                 'SHOWCASE_ACCOUNT_EMAIL은 공백 없는 소문자 표준 형식으로 '
                 '설정해 주세요.'
             )
+        return email
+
+    @staticmethod
+    def _configured_password():
         password = getattr(settings, 'SHOWCASE_ACCOUNT_PASSWORD', '')
         if not isinstance(password, str) or not password:
             raise CommandError(
                 'SHOWCASE_ACCOUNT_PASSWORD 설정을 확인해 주세요.'
             )
-        return email, password
+        return password
 
     @staticmethod
     def _validate_spec_mapping():
@@ -356,9 +427,53 @@ class Command(BaseCommand):
         return catalog, raw_storage_detail
 
     @staticmethod
+    def _load_job_catalog():
+        rows = list(JobRiskCode.objects.order_by('sctg_cd', 'name', 'pk'))
+        if not rows:
+            raise CommandError(
+                '직업급수 자료를 먼저 준비해 주세요.'
+            )
+        missing = []
+        catalog = {}
+        for occupation in sorted({spec.occupation for spec in CUSTOMERS}):
+            term = _JOB_SEARCH_TERMS.get(occupation)
+            if not term:
+                missing.append(occupation)
+                continue
+            candidates = []
+            for row in rows:
+                searchable = ' '.join((
+                    row.name,
+                    row.alt_name,
+                    row.synonym,
+                ))
+                if term not in searchable:
+                    continue
+                candidates.append((
+                    0 if term in {row.name, row.alt_name} else 1,
+                    len(row.name),
+                    row.sctg_cd,
+                    row.name,
+                    row.pk,
+                    row,
+                ))
+            if not candidates:
+                missing.append(f'{occupation}({term})')
+                continue
+            catalog[occupation] = min(
+                candidates,
+                key=lambda item: item[:-1],
+            )[-1]
+        if missing:
+            raise CommandError(
+                '직업급수 연결 자료 누락: ' + ', '.join(missing)
+            )
+        return catalog
+
+    @staticmethod
     def _get_super_plan():
         try:
-            return Plan.objects.get(code='super')
+            return Plan.objects.get(code='super', is_active=True)
         except Plan.DoesNotExist as exc:
             raise CommandError(
                 '활성 Super 요금제를 먼저 준비해 주세요.'
@@ -443,6 +558,8 @@ class Command(BaseCommand):
         ShareSnapshot.objects.filter(owner=user).delete()
         WorkHour.objects.filter(owner=user).delete()
         MonthlyGoal.objects.filter(owner=user).delete()
+        PlannerBaseline.objects.filter(owner=user).delete()
+        PlannerBaselineRevision.objects.filter(owner=user).delete()
         Customer.objects.filter(owner=user).delete()
         CustomerTag.objects.filter(owner=user).delete()
 
@@ -483,14 +600,43 @@ class Command(BaseCommand):
             'pp_doc_version': 'v1',
             'onboarding_completed_at': now,
             'tour_completed_at': now,
+            'last_password_changed': now,
+            'marketing_agreed_at': None,
+            'marketing_revoked_at': None,
             'is_admin': False,
             'is_showcase': True,
+            'is_dormant': False,
+            'dormant_at': None,
+            'dormancy_warning_sent_at': None,
+            'will_delete_at': None,
             'license_self_declared': True,
+            'license_no': None,
+            'career_years': 8,
             'agent_type': Profile.AGENT_BOTH,
             'affiliation_type': Profile.AFFILIATION_GA,
+            'manager': None,
+            'manager_promoted_at': None,
+            'manager_promotion_seen_at': None,
+            'cohort_opt_in': False,
+            'manager_share_opt_in': False,
+            'manager_share_level': Profile.SHARE_NONE,
+            'phone': '010-1986-4270',
+            'booking_msg_template': (
+                '{고객명}님, 편한 상담 시간을 골라 주세요. '
+                '{설계사명}이 등록된 보장 내용을 미리 정리해 두겠습니다. {링크}'
+            ),
             'booking_default_duration': 30,
             'booking_buffer_min': 60,
             'booking_location': '한빛금융서비스 상담실',
+            'intro_text': '가족의 현재 보장을 한눈에 정리해 드립니다.',
+            'profile_image': '',
+            'utm_source': '',
+            'utm_medium': '',
+            'utm_campaign': '',
+            'google_sub': None,
+            'google_calendar_refresh_token': None,
+            'google_calendar_connected_at': None,
+            'google_calendar_mask_name': True,
             **_SHOWCASE_PROFILE,
         }
         if profile is None:
@@ -512,7 +658,7 @@ class Command(BaseCommand):
         return user
 
     @staticmethod
-    def _create_customers(user, now, today):
+    def _create_customers(user, jobs, now, today):
         tag_by_label = {}
         for label in sorted({
             label
@@ -551,6 +697,7 @@ class Command(BaseCommand):
                 mobile_phone_number=spec.phone,
                 birth_day=spec.birth_date.isoformat(),
                 gender=spec.gender,
+                job_code=jobs[spec.occupation],
                 memo=(
                     f'{spec.memo}\n'
                     f'생활 맥락: {spec.family_context}\n'
@@ -558,7 +705,7 @@ class Command(BaseCommand):
                 ),
                 is_agree_term=True,
                 lead_source=spec.source,
-                lead_created_at=created_at,
+                lead_created_at=None,
                 sales_stage=spec.stage,
                 status=spec.status,
                 fa_reached_at=fa_reached_at,
@@ -620,7 +767,12 @@ class Command(BaseCommand):
                     else customers[spec.customer_key].name
                 ),
                 is_same_insured=spec.insured_role == 'self',
-                portfolio_type=1,
+                portfolio_type=(
+                    2
+                    if spec.customer_key in ANCHOR_CUSTOMER_KEYS
+                    and index % 2 == 0
+                    else 1
+                ),
                 payment_period_type=1,
                 warranty_period_type=2,
                 payment_period=20,
@@ -628,7 +780,19 @@ class Command(BaseCommand):
                 contract_date=contract_date.isoformat(),
                 expiry_date=expiry_date.isoformat(),
                 monthly_premiums=spec.monthly_premium,
-                monthly_assurance_premium=spec.monthly_premium,
+                monthly_assurance_premium=(
+                    spec.monthly_premium
+                    - (
+                        max(1_000, spec.monthly_premium // 12)
+                        if index % 7 == 0
+                        else 0
+                    )
+                ),
+                monthly_earned_premium=(
+                    max(1_000, spec.monthly_premium // 12)
+                    if index % 7 == 0
+                    else 0
+                ),
                 current_payment_period=max(
                     1,
                     (
@@ -638,7 +802,11 @@ class Command(BaseCommand):
                         + 1
                     ),
                 ),
-                payment_status=1,
+                payment_status=(
+                    3 if index % 29 == 0
+                    else 2 if index % 17 == 0
+                    else 1
+                ),
                 next_payment_date=today + relativedelta(months=1),
                 review_status='confirmed',
                 confirmed_at=registered_at,
@@ -680,6 +848,26 @@ class Command(BaseCommand):
                 updated_at=registered_at,
             )
         return coverage_count
+
+    @staticmethod
+    def _create_baselines(user, catalog):
+        for coverage_name, recommend_min, recommend_max in (
+            _SHOWCASE_BASELINES
+        ):
+            analysis_detail, _insurance_detail = catalog[coverage_name]
+            PlannerBaseline.objects.create(
+                owner=user,
+                analysis_detail=analysis_detail,
+                coverage_key=analysis_detail.name,
+                product_group=PlannerBaseline.PRODUCT_GROUP_ALL,
+                age_band=PlannerBaseline.AGE_ALL,
+                gender=None,
+                recommend_min=recommend_min,
+                recommend_max=recommend_max,
+                unit=PlannerBaseline.UNIT_WON,
+                baseline_source=PlannerBaseline.SOURCE_PLANNER,
+                is_active=True,
+            )
 
     @staticmethod
     def _create_monthly_goals(user, today):
