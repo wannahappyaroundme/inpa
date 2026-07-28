@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models.deletion import SET_NULL
 from django.db.models import Q
 from django.utils import timezone
 
@@ -20,11 +21,12 @@ from inpa.analysis.showcase_data import (
     INSURANCES,
     validate_showcase_specs,
 )
-from inpa.analytics.models import NorthStarEvent
+from inpa.analytics.models import NorthStarEvent, ShareSnapshot
 from inpa.analytics.sharing import create_share_snapshot
 from inpa.analytics.views import _build_share_payload
 from inpa.billing.models import Plan, Subscription
 from inpa.booking.models import Meeting, WorkHour
+from inpa.consultations.models import ConsultationRecording
 from inpa.customers.consent_texts import consent_version_for_scope
 from inpa.customers.models import ConsentLog, Customer, CustomerTag
 from inpa.dashboard.models import MonthlyGoal
@@ -47,25 +49,17 @@ _SHOWCASE_PROFILE = {
     'title': '팀장',
 }
 
-# Synthetic coverage labels are intentionally natural, while the immutable
-# analysis tree uses its historic exact names. This map is the only bridge.
+# Only pairs with the same insured event and benefit meaning may enter
+# analysis. Every other synthetic label remains a raw-only case.
 _COVERAGE_TO_STANDARD = {
-    '간병인입원일당': '질병입원일당',
-    '간병인지원': '질병입원비',
     '갑상선암진단': '갑상선암진단비',
-    '경도치매진단': '질병후유장해',
-    '고액암진단': '특정암진단비',
     '골절수술': '골절수술비',
-    '골절진단': '상해후유장해',
-    '교통사고처리지원': '형사합의실손비',
     '교통상해입원일당': '상해입원일당',
     '교통상해후유장해': '상해후유장해',
     '급성심근경색진단': '급성심근경색진단비',
-    '깁스치료': '상해수술비',
     '뇌졸중진단': '뇌졸중진단비',
     '뇌혈관수술': '질병수술비',
     '뇌혈관질환진단': '뇌혈관질환진단비',
-    '방사선치료': '항암방사선치료비',
     '변호사비용': '변호사선임비',
     '비급여도수치료': '실손비급여도수치료',
     '비급여주사': '실손비급여주사',
@@ -73,40 +67,24 @@ _COVERAGE_TO_STANDARD = {
     '상해입원일당': '상해입원일당',
     '상해종수술': '상해수술비',
     '상해후유장해': '상해후유장해',
-    '소아암진단': '일반암진단비',
-    '스포츠상해진단': '상해후유장해',
     '심혈관수술': '질병수술비',
     '암수술': '암수술비',
-    '어린이골절진단': '상해수술비',
     '어린이상해수술': '상해수술비',
-    '어린이입원일당': '질병입원일당',
     '어린이질병수술': '질병수술비',
     '여성특정질환수술': '질병수술비',
-    '운전자벌금': '대인벌금',
-    '유방암진단': '특정암진단비',
     '유사암진단': '유사암진단비',
-    '응급실내원': '질병입원비',
-    '의료비입원': '실손입원급여',
-    '의료비통원': '실손통원급여',
     '일반사망': '일반사망',
     '일반암진단': '일반암진단비',
     '일상생활배상': '일상생활배상책임',
-    '장기요양진단': '질병후유장해',
-    '중증치매진단': '고도후유장해',
     '질병수술': '질병수술비',
     '질병입원일당': '질병입원일당',
     '질병종수술': '질병수술비',
     '질병후유장해': '질병후유장해',
-    '치매진단': '질병후유장해',
-    '치아임플란트': '질병수술비',
-    '치아크라운': '질병수술비',
-    '특정감염병진단': '희귀난치성질환입원일당',
-    '표적항암치료': '표적항암약물치료비',
     '항암약물치료': '항암약물치료비',
     '허혈성심장질환진단': '허혈성심장질환진단비',
     '화상수술': '화상수술비',
-    '화상진단': '화상수술비',
 }
+_RAW_CASE_STORAGE_STANDARD = '일반사망'
 _STANDARD_PATHS = {
     detail_name: (
         f'{_STANDARD_MARKER}{category_name}',
@@ -121,7 +99,8 @@ _STANDARD_PATHS = {
 def _month_date(today, months_ago, day):
     month_start = today.replace(day=1) - relativedelta(months=months_ago)
     last_day = calendar.monthrange(month_start.year, month_start.month)[1]
-    return month_start.replace(day=min(day, last_day))
+    day_limit = today.day if months_ago == 0 else last_day
+    return month_start.replace(day=min(day, last_day, day_limit))
 
 
 def _aware(local_date, hour=12, minute=0):
@@ -170,19 +149,23 @@ class Command(BaseCommand):
             )
 
         email, password = self._configured_credentials()
-        catalog = self._load_standard_catalog()
+        catalog, raw_storage_detail = self._load_standard_catalog()
         plan = self._get_super_plan()
-        target = (
-            User.objects.select_for_update()
-            .select_related('profile')
-            .filter(email=email)
-            .first()
+        target = self._target_user_lock_queryset(email).first()
+        profile = (
+            Profile.objects.select_for_update().filter(
+                user_id=target.pk,
+            ).first()
+            if target is not None
+            else None
         )
 
         if options['purge']:
             if target is None:
                 raise CommandError('삭제할 시연 계정을 찾을 수 없습니다.')
-            self._assert_safe_target(target, email)
+            self._assert_safe_target(target, profile, email)
+            self._assert_seed_data_replaceable(target)
+            self._assert_no_external_user_references(target)
             self._delete_showcase_user(target)
             self.stdout.write(self.style.SUCCESS(
                 '내부 시연 계정 삭제 완료'
@@ -190,10 +173,13 @@ class Command(BaseCommand):
             return
 
         if target is not None:
-            self._assert_safe_target(target, email)
-            self._delete_showcase_user(target)
+            self._assert_safe_target(target, profile, email)
+            self._assert_seed_data_replaceable(target)
+            self._delete_seed_owned_data(target)
 
-        user = self._create_account(
+        user = self._prepare_account(
+            user=target,
+            profile=profile,
             email=email,
             password=password,
             plan=plan,
@@ -205,6 +191,7 @@ class Command(BaseCommand):
             user,
             customers,
             catalog,
+            raw_storage_detail,
             now,
             today,
         )
@@ -232,12 +219,21 @@ class Command(BaseCommand):
         )
 
     @staticmethod
+    def _target_user_lock_queryset(email):
+        return User.objects.select_for_update().filter(email=email)
+
+    @staticmethod
     def _configured_credentials():
         raw_email = getattr(settings, 'SHOWCASE_ACCOUNT_EMAIL', '')
-        email = str(raw_email or '').strip()
-        if not email or raw_email != email:
+        if not isinstance(raw_email, str) or not raw_email:
             raise CommandError(
                 'SHOWCASE_ACCOUNT_EMAIL 설정을 확인해 주세요.'
+            )
+        email = User.objects.normalize_email(raw_email.strip()).lower()
+        if raw_email != email:
+            raise CommandError(
+                'SHOWCASE_ACCOUNT_EMAIL은 공백 없는 소문자 표준 형식으로 '
+                '설정해 주세요.'
             )
         password = getattr(settings, 'SHOWCASE_ACCOUNT_PASSWORD', '')
         if not isinstance(password, str) or not password:
@@ -254,20 +250,18 @@ class Command(BaseCommand):
             for coverage in policy.coverages
         }
         mapped_names = set(_COVERAGE_TO_STANDARD)
-        missing_mappings = sorted(coverage_names - mapped_names)
         stale_mappings = sorted(mapped_names - coverage_names)
         missing_paths = sorted(
             {
                 standard_name
-                for standard_name in _COVERAGE_TO_STANDARD.values()
+                for standard_name in (
+                    *_COVERAGE_TO_STANDARD.values(),
+                    _RAW_CASE_STORAGE_STANDARD,
+                )
                 if standard_name not in _STANDARD_PATHS
             }
         )
         errors = []
-        if missing_mappings:
-            errors.append(
-                '합성 담보 매핑 누락: ' + ', '.join(missing_mappings)
-            )
         if stale_mappings:
             errors.append(
                 '사용하지 않는 합성 담보 매핑: ' + ', '.join(stale_mappings)
@@ -281,7 +275,10 @@ class Command(BaseCommand):
 
     @staticmethod
     def _load_standard_catalog():
-        required_names = sorted(set(_COVERAGE_TO_STANDARD.values()))
+        required_names = sorted({
+            *_COVERAGE_TO_STANDARD.values(),
+            _RAW_CASE_STORAGE_STANDARD,
+        })
         analysis_rows = list(
             AnalysisDetail.objects.select_related(
                 'sub_category__category',
@@ -337,6 +334,18 @@ class Command(BaseCommand):
                     insurance_detail,
                 )
 
+        raw_category, raw_subcategory = _STANDARD_PATHS[
+            _RAW_CASE_STORAGE_STANDARD
+        ]
+        raw_path = (
+            raw_category,
+            raw_subcategory,
+            _RAW_CASE_STORAGE_STANDARD,
+        )
+        raw_storage_detail = insurance_by_path.get(raw_path)
+        if raw_storage_detail is None:
+            missing.append('저장/' + '/'.join(raw_path))
+
         if missing or duplicates:
             parts = []
             if missing:
@@ -348,7 +357,7 @@ class Command(BaseCommand):
                     '표준 담보 중복: ' + ', '.join(sorted(set(duplicates)))
                 )
             raise CommandError(' / '.join(parts))
-        return catalog
+        return catalog, raw_storage_detail
 
     @staticmethod
     def _get_super_plan():
@@ -364,10 +373,9 @@ class Command(BaseCommand):
             ) from exc
 
     @staticmethod
-    def _assert_safe_target(user, configured_email):
+    def _assert_safe_target(user, profile, configured_email):
         if user.email != configured_email:
             raise CommandError('설정된 시연 계정과 대상이 일치하지 않습니다.')
-        profile = getattr(user, 'profile', None)
         if profile is None or not profile.is_showcase:
             raise CommandError(
                 '시연 계정 표식이 없는 계정은 변경하지 않습니다.'
@@ -378,7 +386,54 @@ class Command(BaseCommand):
             )
 
     @staticmethod
-    def _delete_showcase_user(user):
+    def _assert_seed_data_replaceable(user):
+        customer_ids = Customer.objects.filter(
+            owner=user,
+        ).values_list('pk', flat=True)
+        if ConsultationRecording.objects.filter(
+            Q(owner=user) | Q(customer_id__in=customer_ids)
+        ).exists():
+            raise CommandError(
+                '상담 녹음이 연결된 시연 계정은 자료를 먼저 확인한 뒤 '
+                '초기화하거나 삭제해 주세요.'
+            )
+
+    @staticmethod
+    def _assert_no_external_user_references(user):
+        unsafe_labels = []
+        for relation in User._meta.related_objects:
+            field = relation.field
+            if field.remote_field.on_delete is not SET_NULL:
+                continue
+            queryset = relation.related_model._base_manager.filter(
+                **{field.name: user}
+            )
+            relation_key = (
+                relation.related_model._meta.label_lower,
+                field.name,
+            )
+            if relation_key == (
+                'insurances.customerinsurance',
+                'confirmed_by',
+            ):
+                queryset = queryset.exclude(customer__owner=user)
+            elif relation_key == (
+                'analytics.northstarevent',
+                'sender',
+            ):
+                queryset = queryset.exclude(customer__owner=user)
+            if queryset.exists():
+                unsafe_labels.append(
+                    f'{relation.related_model._meta.label}.{field.name}'
+                )
+        if unsafe_labels:
+            raise CommandError(
+                '외부 참조가 연결된 시연 계정은 삭제하지 않습니다: '
+                + ', '.join(sorted(unsafe_labels))
+            )
+
+    @staticmethod
+    def _delete_seed_owned_data(user):
         customer_ids = list(
             Customer.objects.filter(owner=user).values_list('pk', flat=True)
         )
@@ -386,37 +441,65 @@ class Command(BaseCommand):
         NorthStarEvent.objects.filter(
             Q(sender=user) | Q(customer_id__in=customer_ids)
         ).delete()
+        Notification.objects.filter(owner=user).delete()
+        Meeting.objects.filter(owner=user).delete()
+        ScheduleItem.objects.filter(owner=user).delete()
+        ShareSnapshot.objects.filter(owner=user).delete()
+        WorkHour.objects.filter(owner=user).delete()
+        MonthlyGoal.objects.filter(owner=user).delete()
+        Customer.objects.filter(owner=user).delete()
+        CustomerTag.objects.filter(owner=user).delete()
+
+    @staticmethod
+    def _delete_showcase_user(user):
+        Command._delete_seed_owned_data(user)
         user.delete()
 
     @staticmethod
-    def _create_account(*, email, password, plan):
+    def _prepare_account(*, user, profile, email, password, plan):
         now = timezone.now()
-        user = User.objects.create_user(
-            email=email,
-            password=password,
-            is_active=True,
-            is_staff=False,
-            is_superuser=False,
-        )
-        Profile.objects.create(
-            user=user,
-            email_verified_at=now,
-            tos_agreed_at=now,
-            tos_doc_version='v1',
-            pp_agreed_at=now,
-            pp_doc_version='v1',
-            onboarding_completed_at=now,
-            tour_completed_at=now,
-            is_admin=False,
-            is_showcase=True,
-            license_self_declared=True,
-            agent_type=Profile.AGENT_BOTH,
-            affiliation_type=Profile.AFFILIATION_GA,
-            booking_default_duration=30,
-            booking_buffer_min=60,
-            booking_location='한빛금융서비스 상담실',
+        if user is None:
+            user = User.objects.create_user(
+                email=email,
+                password=password,
+                is_active=True,
+                is_staff=False,
+                is_superuser=False,
+            )
+        else:
+            user.set_password(password)
+            user.is_active = True
+            user.is_staff = False
+            user.is_superuser = False
+            user.save(update_fields=(
+                'password',
+                'is_active',
+                'is_staff',
+                'is_superuser',
+            ))
+
+        profile_values = {
+            'email_verified_at': now,
+            'tos_agreed_at': now,
+            'tos_doc_version': 'v1',
+            'pp_agreed_at': now,
+            'pp_doc_version': 'v1',
+            'onboarding_completed_at': now,
+            'tour_completed_at': now,
+            'is_admin': False,
+            'is_showcase': True,
+            'license_self_declared': True,
+            'agent_type': Profile.AGENT_BOTH,
+            'affiliation_type': Profile.AFFILIATION_GA,
+            'booking_default_duration': 30,
+            'booking_buffer_min': 60,
+            'booking_location': '한빛금융서비스 상담실',
             **_SHOWCASE_PROFILE,
-        )
+        }
+        if profile is None:
+            Profile.objects.create(user=user, **profile_values)
+        else:
+            Profile.objects.filter(pk=profile.pk).update(**profile_values)
         Subscription.objects.update_or_create(
             user=user,
             defaults={
@@ -451,7 +534,7 @@ class Command(BaseCommand):
                 (index - 1) % 6,
                 ((index * 3) % 27) + 1,
             )
-            created_at = _aware(created_date)
+            created_at = min(now, _aware(created_date))
             fa_reached_at = None
             if spec.stage in {
                 Customer.STAGE_MEETING,
@@ -461,6 +544,10 @@ class Command(BaseCommand):
                     now,
                     created_at + datetime.timedelta(days=2),
                 )
+            last_contacted_at = max(
+                created_at,
+                now - datetime.timedelta(days=(index * 2) % 21),
+            )
             customer = Customer.objects.create(
                 owner=user,
                 name=spec.name,
@@ -478,9 +565,7 @@ class Command(BaseCommand):
                 sales_stage=spec.stage,
                 status=spec.status,
                 fa_reached_at=fa_reached_at,
-                last_contacted_at=now - datetime.timedelta(
-                    days=(index * 2) % 21,
-                ),
+                last_contacted_at=last_contacted_at,
                 is_favorite=spec.key in ANCHOR_CUSTOMER_KEYS,
                 is_pinned=spec.key in ANCHOR_CUSTOMER_KEYS[:2],
             )
@@ -498,7 +583,14 @@ class Command(BaseCommand):
         return customers
 
     @staticmethod
-    def _create_insurances(user, customers, catalog, now, today):
+    def _create_insurances(
+        user,
+        customers,
+        catalog,
+        raw_storage_detail,
+        now,
+        today,
+    ):
         coverage_count = 0
         for index, spec in enumerate(INSURANCES, start=1):
             registered_date = _month_date(
@@ -506,7 +598,7 @@ class Command(BaseCommand):
                 spec.registered_month_offset,
                 ((index * 5) % 27) + 1,
             )
-            registered_at = _aware(registered_date, hour=14)
+            registered_at = min(now, _aware(registered_date, hour=14))
             contract_date = registered_date - relativedelta(
                 years=2 + (index % 5),
             )
@@ -558,7 +650,12 @@ class Command(BaseCommand):
                 confirmation_source='showcase_seed',
             )
             for coverage in spec.coverages:
-                analysis_detail, insurance_detail = catalog[coverage.name]
+                matched_details = catalog.get(coverage.name)
+                if matched_details is None:
+                    analysis_detail = None
+                    insurance_detail = raw_storage_detail
+                else:
+                    analysis_detail, insurance_detail = matched_details
                 case = CustomerInsuranceDetail.objects.create(
                     insurance=insurance,
                     detail=insurance_detail,
@@ -577,7 +674,8 @@ class Command(BaseCommand):
                     mapping_source='planner_override',
                     confirmed_at=registered_at,
                 )
-                case.analysis_detail_override.add(analysis_detail)
+                if analysis_detail is not None:
+                    case.analysis_detail_override.add(analysis_detail)
                 coverage_count += 1
             _calculate_materialized_insurance(insurance)
             CustomerInsurance.objects.filter(pk=insurance.pk).update(

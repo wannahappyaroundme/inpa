@@ -1,19 +1,26 @@
 import hashlib
 import re
 from collections import Counter
+from datetime import datetime
 from io import StringIO
 from urllib.parse import urlparse
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import connection
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from inpa.accounts.models import Profile
+from inpa.analysis.management.commands.seed_showcase import (
+    Command,
+    _COVERAGE_TO_STANDARD,
+)
 from inpa.analysis.models import (
     AnalysisCategory,
     AnalysisDetail,
@@ -30,6 +37,8 @@ from inpa.analytics.models import NorthStarEvent, ShareSnapshot
 from inpa.billing.models import Plan, Subscription
 from inpa.booking.models import Meeting, WorkHour
 from inpa.boards.models import BlogPost, Faq, Notice, Post
+from inpa.consultations.models import ConsultationRecording
+from inpa.core.internal_accounts import is_showcase_user
 from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
 from inpa.customers.models import ConsentLog, Customer
 from inpa.dashboard.models import MonthlyGoal
@@ -50,6 +59,39 @@ User = get_user_model()
 _SHOWCASE_EMAIL = 'internal-showcase@test.example'
 _ARBITRARY_TEST_VALUE = 'test-only-value-' + '49xq'
 _PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+_SEMANTIC_EQUIVALENCE_ALLOWLIST = {
+    '갑상선암진단': '갑상선암진단비',
+    '골절수술': '골절수술비',
+    '교통상해입원일당': '상해입원일당',
+    '교통상해후유장해': '상해후유장해',
+    '급성심근경색진단': '급성심근경색진단비',
+    '뇌졸중진단': '뇌졸중진단비',
+    '뇌혈관수술': '질병수술비',
+    '뇌혈관질환진단': '뇌혈관질환진단비',
+    '변호사비용': '변호사선임비',
+    '비급여도수치료': '실손비급여도수치료',
+    '비급여주사': '실손비급여주사',
+    '상해수술': '상해수술비',
+    '상해입원일당': '상해입원일당',
+    '상해종수술': '상해수술비',
+    '상해후유장해': '상해후유장해',
+    '심혈관수술': '질병수술비',
+    '암수술': '암수술비',
+    '어린이상해수술': '상해수술비',
+    '어린이질병수술': '질병수술비',
+    '여성특정질환수술': '질병수술비',
+    '유사암진단': '유사암진단비',
+    '일반사망': '일반사망',
+    '일반암진단': '일반암진단비',
+    '일상생활배상': '일상생활배상책임',
+    '질병수술': '질병수술비',
+    '질병입원일당': '질병입원일당',
+    '질병종수술': '질병수술비',
+    '질병후유장해': '질병후유장해',
+    '항암약물치료': '항암약물치료비',
+    '허혈성심장질환진단': '허혈성심장질환진단비',
+    '화상수술': '화상수술비',
+}
 _PUBLIC_MODELS = (
     Post,
     Notice,
@@ -215,12 +257,44 @@ class ShowcaseSeedCommandTests(TestCase):
     def test_apply_is_required_before_any_database_change(self):
         self._assert_error_without_changes('--apply',)
 
+    def test_postgresql_target_lock_query_has_no_nullable_profile_join(self):
+        queryset = Command._target_user_lock_queryset(_SHOWCASE_EMAIL)
+        with (
+            patch.object(connection, 'vendor', 'postgresql'),
+            patch.object(
+                connection.features,
+                'has_select_for_update',
+                True,
+            ),
+        ):
+            sql = str(queryset.query)
+
+        self.assertIn('FOR UPDATE', sql.upper())
+        self.assertNotIn('accounts_profile', sql)
+        self.assertFalse(queryset.query.select_related)
+
     def test_missing_email_setting_fails_without_database_change(self):
         with override_settings(SHOWCASE_ACCOUNT_EMAIL=''):
             self._assert_error_without_changes(
                 'SHOWCASE_ACCOUNT_EMAIL',
                 '--apply',
             )
+
+    def test_noncanonical_showcase_email_is_rejected_before_writes(self):
+        invalid_values = (
+            f' {_SHOWCASE_EMAIL}',
+            f'{_SHOWCASE_EMAIL} ',
+            'Internal-Showcase@test.example',
+            'internal-showcase@Test.Example',
+        )
+        for value in invalid_values:
+            with self.subTest(value=value), override_settings(
+                SHOWCASE_ACCOUNT_EMAIL=value,
+            ):
+                self._assert_error_without_changes(
+                    '소문자 표준 형식',
+                    '--apply',
+                )
 
     def test_missing_password_setting_fails_without_database_change(self):
         with override_settings(SHOWCASE_ACCOUNT_PASSWORD=''):
@@ -303,6 +377,7 @@ class ShowcaseSeedCommandTests(TestCase):
         self.assertEqual(profile.affiliation, '한빛금융서비스')
         self.assertEqual(profile.title, '팀장')
         self.assertTrue(profile.is_showcase)
+        self.assertTrue(is_showcase_user(user))
         self.assertTrue(user.is_active)
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
@@ -348,7 +423,7 @@ class ShowcaseSeedCommandTests(TestCase):
         self.assertFalse(
             CustomerInsuranceDetail.objects.filter(
                 insurance__customer__owner=user,
-                mapping_source='planner_override',
+                raw_name__in=_SEMANTIC_EQUIVALENCE_ALLOWLIST,
                 analysis_detail_override__isnull=True,
             ).exists()
         )
@@ -394,6 +469,63 @@ class ShowcaseSeedCommandTests(TestCase):
         self._seed()
         self.assertEqual(_fingerprint(_PUBLIC_MODELS), before)
 
+    def test_only_semantically_equivalent_coverages_receive_overrides(self):
+        self.assertEqual(
+            _COVERAGE_TO_STANDARD,
+            _SEMANTIC_EQUIVALENCE_ALLOWLIST,
+        )
+        self._seed()
+        user = self._showcase_user()
+        cases = (
+            CustomerInsuranceDetail.objects.filter(
+                insurance__customer__owner=user,
+            )
+            .select_related('insurance__customer')
+            .prefetch_related('analysis_detail_override')
+        )
+
+        mapped_by_anchor = Counter()
+        anchor_names = {
+            spec.name
+            for spec in CUSTOMERS
+            if spec.key in ANCHOR_CUSTOMER_KEYS
+        }
+        for case in cases:
+            override_names = list(
+                case.analysis_detail_override.values_list(
+                    'name',
+                    flat=True,
+                )
+            )
+            expected_name = _SEMANTIC_EQUIVALENCE_ALLOWLIST.get(
+                case.raw_name,
+            )
+            if expected_name is None:
+                self.assertEqual(
+                    override_names,
+                    [],
+                    f'{case.raw_name} must remain raw-only',
+                )
+            else:
+                self.assertEqual(override_names, [expected_name])
+                if case.insurance.customer.name in anchor_names:
+                    mapped_by_anchor[case.insurance.customer.name] += 1
+
+        self.assertGreaterEqual(sum(mapped_by_anchor.values()), 80)
+        self.assertEqual(len(mapped_by_anchor), len(ANCHOR_CUSTOMER_KEYS))
+        self.assertTrue(all(count >= 10 for count in mapped_by_anchor.values()))
+        for unsafe_name in (
+            '치아임플란트',
+            '골절진단',
+            '화상진단',
+            '간병인지원',
+            '응급실내원',
+        ):
+            self.assertFalse(cases.filter(
+                raw_name=unsafe_name,
+                analysis_detail_override__isnull=False,
+            ).exists())
+
     def test_second_apply_resets_only_safe_target_and_rebuilds_same_state(self):
         self._seed()
         first_user_id = self._showcase_user().pk
@@ -407,10 +539,132 @@ class ShowcaseSeedCommandTests(TestCase):
             User.objects.filter(email=_SHOWCASE_EMAIL).count(),
             1,
         )
-        self.assertNotEqual(self._showcase_user().pk, first_user_id)
+        self.assertEqual(self._showcase_user().pk, first_user_id)
         self.assertEqual(self._owned_counts(), first_counts)
         self.assertEqual(self._relative_natural_state(), first_state)
         self.assertEqual(_fingerprint(_PUBLIC_MODELS), first_public)
+
+    def test_reset_preserves_foreign_manager_link_and_purge_refuses_it(self):
+        self._seed()
+        showcase = self._showcase_user()
+        foreign_user = User.objects.create_user(
+            email='foreign-manager-link@test.example',
+            password=_ARBITRARY_TEST_VALUE,
+        )
+        foreign_profile = Profile.objects.create(
+            user=foreign_user,
+            manager=showcase,
+        )
+        profile_fields = [
+            field.attname
+            for field in Profile._meta.concrete_fields
+        ]
+        foreign_row = tuple(
+            Profile.objects.filter(pk=foreign_profile.pk).values_list(
+                *profile_fields
+            )
+        )
+
+        self._seed()
+
+        showcase.refresh_from_db()
+        foreign_profile.refresh_from_db()
+        self.assertEqual(foreign_profile.manager_id, showcase.pk)
+        self.assertEqual(
+            tuple(
+                Profile.objects.filter(pk=foreign_profile.pk).values_list(
+                    *profile_fields
+                )
+            ),
+            foreign_row,
+        )
+
+        before_purge = _database_fingerprint()
+        self._assert_error_without_changes(
+            '외부 참조',
+            '--purge',
+            '--apply',
+        )
+        self.assertEqual(_database_fingerprint(), before_purge)
+        foreign_profile.refresh_from_db()
+        self.assertEqual(foreign_profile.manager_id, showcase.pk)
+
+    def test_recording_blocks_reset_and_purge_without_queue_or_storage_work(self):
+        self._seed()
+        user = self._showcase_user()
+        customer = Customer.objects.filter(owner=user).first()
+        ConsultationRecording.objects.create(
+            owner=user,
+            customer=customer,
+            status=ConsultationRecording.STATUS_READY,
+            storage_key='consultation-recordings/showcase/source',
+            mime_type='audio/webm',
+        )
+
+        with (
+            patch(
+                'inpa.consultations.signals.transaction.on_commit',
+            ) as on_commit,
+            patch(
+                'inpa.consultations.signals.delete_exact_sources.delay',
+            ) as queue_delete,
+        ):
+            for args in (('--apply',), ('--purge', '--apply')):
+                with self.subTest(args=args):
+                    self._assert_error_without_changes('녹음', *args)
+
+        on_commit.assert_not_called()
+        queue_delete.assert_not_called()
+
+    def test_month_start_seed_chronology_never_enters_the_future(self):
+        seoul = ZoneInfo('Asia/Seoul')
+        for day in (1, 2):
+            reference = datetime(2026, 8, day, 8, 15, tzinfo=seoul)
+            with (
+                self.subTest(day=day),
+                patch(
+                    'inpa.analysis.management.commands.seed_showcase.'
+                    'timezone.now',
+                    return_value=reference,
+                ),
+                patch(
+                    'inpa.analysis.management.commands.seed_showcase.'
+                    'timezone.localdate',
+                    return_value=reference.date(),
+                ),
+            ):
+                self._seed()
+
+            user = self._showcase_user()
+            for customer in Customer.objects.filter(owner=user):
+                self.assertLessEqual(customer.created_at, reference)
+                self.assertGreaterEqual(
+                    customer.last_contacted_at,
+                    customer.created_at,
+                )
+                self.assertLessEqual(customer.last_contacted_at, reference)
+                if customer.fa_reached_at is not None:
+                    self.assertGreaterEqual(
+                        customer.fa_reached_at,
+                        customer.created_at,
+                    )
+                    self.assertLessEqual(customer.fa_reached_at, reference)
+            for insurance in CustomerInsurance.objects.filter(
+                customer__owner=user,
+            ):
+                self.assertLessEqual(insurance.created_at, reference)
+                self.assertEqual(
+                    insurance.confirmed_at,
+                    insurance.created_at,
+                )
+                self.assertLessEqual(insurance.confirmed_at, reference)
+                self.assertLessEqual(
+                    datetime.fromisoformat(insurance.contract_date).date(),
+                    timezone.localtime(
+                        insurance.created_at,
+                        seoul,
+                    ).date(),
+                )
 
     def test_forced_exception_rolls_back_user_and_every_owned_row(self):
         public_before = _fingerprint(_PUBLIC_MODELS)
@@ -430,6 +684,36 @@ class ShowcaseSeedCommandTests(TestCase):
         self.assertFalse(NorthStarEvent.objects.filter(
             sender__email=_SHOWCASE_EMAIL,
         ).exists())
+
+    def test_late_reset_failure_restores_original_complete_snapshot(self):
+        self._seed()
+        original_user_id = self._showcase_user().pk
+        before_database = _database_fingerprint()
+        before_public = _fingerprint(_PUBLIC_MODELS)
+        original_create_shares = Command._create_public_shares
+
+        def create_shares_then_fail(user, customers, now):
+            original_create_shares(user, customers, now)
+            self.assertEqual(
+                User.objects.get(email=_SHOWCASE_EMAIL).pk,
+                original_user_id,
+            )
+            raise RuntimeError('forced pre-commit rollback')
+
+        with patch.object(
+            Command,
+            '_create_public_shares',
+            side_effect=create_shares_then_fail,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                'forced pre-commit rollback',
+            ):
+                self._seed()
+
+        self.assertEqual(self._showcase_user().pk, original_user_id)
+        self.assertEqual(_database_fingerprint(), before_database)
+        self.assertEqual(_fingerprint(_PUBLIC_MODELS), before_public)
 
     def test_guarded_purge_removes_only_showcase_rows_and_preserves_globals(self):
         self._seed()
