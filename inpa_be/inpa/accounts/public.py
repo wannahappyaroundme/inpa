@@ -23,6 +23,7 @@ from inpa.accounts.models import Profile
 from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
 from inpa.analytics.views import _NoIndexMixin
+from inpa.core.internal_accounts import block_showcase_external_action
 from inpa.customers.consent_texts import CONSENT_TEXTS_VERSION
 from inpa.customers.models import ConsentLog, Customer
 from inpa.notifications.models import NotifType, Notification
@@ -68,6 +69,7 @@ class IntroductionCardView(_NoIndexMixin, APIView):
             return Response({'code': 'INVALID_REF', 'detail': '유효하지 않은 링크입니다.'},
                             status=status.HTTP_404_NOT_FOUND)
         planner = profile.user
+        block_showcase_external_action(planner)
         name = (request.data.get('name') or '').strip()
         raw_phone = request.data.get('phone')
         phone_digits = re.sub(r'[^0-9]', '', raw_phone) if isinstance(raw_phone, str) else ''

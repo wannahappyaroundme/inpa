@@ -45,6 +45,7 @@ from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
 from inpa.analytics.views import _NoIndexMixin, _build_share_payload, build_coverage_tree
 from inpa.billing.credit import LimitExceeded, log_claude_usage
+from inpa.core.internal_accounts import block_showcase_external_action
 from inpa.core.copyguard import warn_if_advice_words
 from inpa.core.ocr.claude_parser import claude_parse
 from inpa.core.ocr.ocrdata import LifeInsurance, LossInsurance
@@ -295,6 +296,7 @@ class SelfDiagnosisView(_NoIndexMixin, APIView):
             return Response({'code': 'INVALID_REF', 'detail': '유효하지 않은 링크입니다.'},
                             status=status.HTTP_404_NOT_FOUND)
         planner = profile.user
+        block_showcase_external_action(planner)
 
         # 1.5) ★ refcode 일일상한 (워커 무관 DB 카운트 — throttle의 워커별 한계 보완)
         today = timezone.now().date()

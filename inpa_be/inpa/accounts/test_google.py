@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.core.cache import cache
 from django.utils import timezone
+from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
 from inpa.accounts.google import GoogleTokenError
@@ -148,3 +149,228 @@ class GoogleCalendarTests(TestCase):
         meeting.refresh_from_db()
         self.assertEqual(meeting.status, Meeting.STATUS_CONFIRMED)
         self.assertIsNone(meeting.google_event_id)
+
+
+@override_settings(
+    SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example',
+    GOOGLE_OAUTH_ENABLED=True,
+    GOOGLE_OAUTH_CLIENT_ID='cid',
+    GOOGLE_OAUTH_CLIENT_SECRET='sec',
+    GOOGLE_OAUTH_REDIRECT_URI=(
+        'https://be.test/api/v1/auth/google/calendar/callback/'
+    ),
+)
+class ShowcaseGoogleActionTests(TestCase):
+    """검증된 시연 계정은 Google 연결·토큰 갱신 전에 멈춘다."""
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            email='showcase@inpa.example',
+            password='showcaseTestPass123!',
+            is_active=True,
+        )
+        self.profile = Profile.objects.create(
+            user=self.user,
+            email_verified_at=timezone.now(),
+            is_showcase=True,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.public = APIClient()
+
+    def assert_showcase_restricted(self, response):
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()['code'], 'SHOWCASE_ACTION_RESTRICTED')
+
+    @patch('inpa.accounts.views.verify_google_id_token')
+    def test_google_login_stops_after_verified_email_before_link_or_token(
+            self, verify):
+        verify.return_value = {
+            'sub': 'showcase-google-sub',
+            'email': self.user.email,
+            'email_verified': True,
+        }
+
+        response = self.public.post(
+            '/api/v1/auth/google/',
+            {'id_token': 'verified-google-token'},
+            format='json',
+        )
+
+        self.assert_showcase_restricted(response)
+        verify.assert_called_once_with('verified-google-token')
+        self.profile.refresh_from_db()
+        self.assertIsNone(self.profile.google_sub)
+        self.assertFalse(Token.objects.filter(user=self.user).exists())
+
+    @patch('inpa.accounts.views.verify_google_id_token')
+    def test_verified_showcase_email_blocks_even_if_sub_points_elsewhere(
+            self, verify):
+        ordinary = User.objects.create_user(
+            email='linked-ordinary@test.com',
+            is_active=True,
+        )
+        Profile.objects.create(
+            user=ordinary,
+            email_verified_at=timezone.now(),
+            google_sub='shared-google-sub',
+        )
+        verify.return_value = {
+            'sub': 'shared-google-sub',
+            'email': self.user.email,
+            'email_verified': True,
+        }
+
+        response = self.public.post(
+            '/api/v1/auth/google/',
+            {'id_token': 'verified-google-token'},
+            format='json',
+        )
+
+        self.assert_showcase_restricted(response)
+        self.assertFalse(Token.objects.filter(user=ordinary).exists())
+
+    @patch('inpa.accounts.views.verify_google_id_token')
+    def test_ordinary_google_login_still_links_once(self, verify):
+        ordinary = User.objects.create_user(
+            email='ordinary-google@test.com',
+            password='ordinaryTestPass123!',
+            is_active=True,
+        )
+        profile = Profile.objects.create(
+            user=ordinary,
+            email_verified_at=timezone.now(),
+        )
+        verify.return_value = {
+            'sub': 'ordinary-google-sub',
+            'email': ordinary.email,
+            'email_verified': True,
+        }
+
+        response = self.public.post(
+            '/api/v1/auth/google/',
+            {'id_token': 'ordinary-google-token'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        verify.assert_called_once_with('ordinary-google-token')
+        profile.refresh_from_db()
+        self.assertEqual(profile.google_sub, 'ordinary-google-sub')
+
+    @patch('inpa.accounts.google_calendar.build_auth_url')
+    def test_calendar_connect_blocks_before_auth_url_creation(self, build_url):
+        build_url.return_value = (
+            'https://accounts.google.com/o/oauth2/auth?showcase=1'
+        )
+        response = self.client.get(
+            '/api/v1/auth/google/calendar/connect/',
+        )
+
+        self.assert_showcase_restricted(response)
+        build_url.assert_not_called()
+
+    @patch('inpa.accounts.google_calendar.build_auth_url')
+    def test_ordinary_calendar_connect_still_builds_url_once(self, build_url):
+        ordinary = User.objects.create_user(
+            email='ordinary-calendar@test.com',
+            is_active=True,
+        )
+        Profile.objects.create(
+            user=ordinary,
+            email_verified_at=timezone.now(),
+        )
+        client = APIClient()
+        client.force_authenticate(user=ordinary)
+        build_url.return_value = (
+            'https://accounts.google.com/o/oauth2/auth?ordinary=1'
+        )
+
+        response = client.get('/api/v1/auth/google/calendar/connect/')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        build_url.assert_called_once_with(ordinary.pk)
+
+    @patch('inpa.accounts.google_calendar.exchange_code')
+    def test_calendar_callback_blocks_before_code_exchange(self, exchange):
+        from inpa.accounts.google_calendar import make_calendar_state
+
+        state = make_calendar_state(self.user.pk)
+        response = self.public.get(
+            '/api/v1/auth/google/calendar/callback/',
+            {'code': 'authorization-code', 'state': state},
+        )
+
+        self.assert_showcase_restricted(response)
+        exchange.assert_not_called()
+        self.profile.refresh_from_db()
+        self.assertIsNone(self.profile.google_calendar_refresh_token)
+
+    @patch('inpa.accounts.google_calendar.exchange_code')
+    def test_ordinary_calendar_callback_still_exchanges_once(self, exchange):
+        from inpa.accounts.google_calendar import make_calendar_state
+
+        ordinary = User.objects.create_user(
+            email='ordinary-callback@test.com',
+            is_active=True,
+        )
+        profile = Profile.objects.create(
+            user=ordinary,
+            email_verified_at=timezone.now(),
+        )
+        exchange.return_value = 'ordinary-refresh-token'
+        state = make_calendar_state(ordinary.pk)
+
+        response = self.public.get(
+            '/api/v1/auth/google/calendar/callback/',
+            {'code': 'authorization-code', 'state': state},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        exchange.assert_called_once_with('authorization-code')
+        profile.refresh_from_db()
+        self.assertEqual(
+            profile.google_calendar_refresh_token,
+            'ordinary-refresh-token',
+        )
+
+    @patch('inpa.accounts.google_calendar.revoke_refresh_token')
+    def test_calendar_disconnect_blocks_before_token_revoke(self, revoke):
+        self.profile.google_calendar_refresh_token = 'showcase-refresh-token'
+        self.profile.save(update_fields=['google_calendar_refresh_token'])
+
+        response = self.client.post(
+            '/api/v1/auth/google/calendar/disconnect/',
+        )
+
+        self.assert_showcase_restricted(response)
+        revoke.assert_not_called()
+        self.profile.refresh_from_db()
+        self.assertEqual(
+            self.profile.google_calendar_refresh_token,
+            'showcase-refresh-token',
+        )
+
+    @patch('inpa.accounts.google_calendar.revoke_refresh_token')
+    def test_ordinary_calendar_disconnect_still_revokes_once(self, revoke):
+        ordinary = User.objects.create_user(
+            email='ordinary-disconnect@test.com',
+            is_active=True,
+        )
+        profile = Profile.objects.create(
+            user=ordinary,
+            email_verified_at=timezone.now(),
+            google_calendar_refresh_token='ordinary-refresh-token',
+        )
+        client = APIClient()
+        client.force_authenticate(user=ordinary)
+
+        response = client.post(
+            '/api/v1/auth/google/calendar/disconnect/',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        revoke.assert_called_once_with('ordinary-refresh-token')
+        profile.refresh_from_db()
+        self.assertIsNone(profile.google_calendar_refresh_token)

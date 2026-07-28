@@ -20,6 +20,11 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from inpa.core.internal_accounts import (
+    block_showcase_external_action,
+    is_showcase_user,
+)
+from inpa.core.permissions import BlocksShowcaseExternalActions
 from inpa.notifications.models import create_reminder_rules_for_user
 
 from .google import (
@@ -165,7 +170,7 @@ class ResendVerificationView(APIView):
     def post(self, request):
         email = (request.data.get('email') or '').lower()
         user = User.objects.filter(email__iexact=email, is_active=False).first()
-        if user:
+        if user and not is_showcase_user(user):
             _try_send(_send_verify_email, user)  # 실패해도 200 유지(계정 존재 노출 방지)
         # 계정 존재 노출 방지 — 항상 200
         return Response({'message': '미인증 계정이면 인증 메일을 재발송했습니다.'})
@@ -245,10 +250,14 @@ class GoogleLoginView(APIView):
 
         # 1) sub로 이미 링크된 프로필이 있으면 그 사용자(정본).
         profile = Profile.objects.filter(google_sub=sub).select_related('user').first()
+        email_user = User.objects.filter(email__iexact=email).first()
+        if email_user is not None:
+            block_showcase_external_action(email_user)
         if profile is not None:
             user = profile.user
+            block_showcase_external_action(user)
         else:
-            user = User.objects.filter(email__iexact=email).first()
+            user = email_user
             if user is not None:
                 # 기존(이메일/비번) 계정에 링크.
                 profile, _ = Profile.objects.get_or_create(user=user)
@@ -315,7 +324,10 @@ def _gcal_redirect(result):
 
 class GoogleCalendarConnectView(APIView):
     """구글 캘린더 연동 시작 — GET /api/v1/auth/google/calendar/connect/ → {auth_url}."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def get(self, request):
         if not google_calendar_enabled():
@@ -347,6 +359,7 @@ class GoogleCalendarCallbackView(APIView):
         user = User.objects.filter(pk=user_pk).first()
         if user is None:
             return _gcal_redirect('error')
+        block_showcase_external_action(user)
         try:
             refresh_token = exchange_code(code)
             if not refresh_token:
@@ -362,7 +375,10 @@ class GoogleCalendarCallbackView(APIView):
 
 class GoogleCalendarDisconnectView(APIView):
     """구글 캘린더 연동 해제 — POST /api/v1/auth/google/calendar/disconnect/."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         from .google_calendar import revoke_refresh_token
@@ -392,7 +408,7 @@ class PasswordResetView(APIView):
         serializer = PasswordResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = User.objects.filter(email__iexact=serializer.validated_data['email']).first()
-        if user:
+        if user and not is_showcase_user(user):
             _try_send(_send_reset_email, user)  # 실패해도 200 유지(계정 존재 노출 방지)
         return Response({'message': '가입된 이메일이면 재설정 링크를 보냈습니다.'})
 
@@ -408,6 +424,7 @@ class PasswordResetConfirmView(APIView):
         if user is None or not check_password_reset_token(user, serializer.validated_data['token']):
             return Response({'code': 'TOKEN_INVALID', 'detail': '유효하지 않거나 만료된 링크입니다.'},
                             status=status.HTTP_400_BAD_REQUEST)
+        block_showcase_external_action(user)
         user.set_password(serializer.validated_data['new_password'])
         user.save(update_fields=['password'])
         Profile.objects.filter(user=user).update(last_password_changed=timezone.now())
@@ -416,7 +433,10 @@ class PasswordResetConfirmView(APIView):
 
 
 class PasswordChangeView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         serializer = PasswordChangeSerializer(data=request.data)
@@ -448,6 +468,8 @@ class ProfileView(APIView):
         serializer = ProfileSerializer(profile, data=request.data, partial=True,
                                        context={'request': request})
         serializer.is_valid(raise_exception=True)
+        if request.FILES.get('profile_image') is not None:
+            block_showcase_external_action(request.user)
         profile, _ = Profile.objects.get_or_create(user=request.user)
         try:
             with transaction.atomic():
@@ -485,7 +507,10 @@ class ManagerPromotionAckView(APIView):
 
 
 class WithdrawView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         user = request.user

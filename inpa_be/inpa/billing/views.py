@@ -31,7 +31,8 @@ from django.shortcuts import redirect
 
 from inpa.analytics.events import log_billing_event
 from inpa.analytics.models import NorthStarEvent
-from inpa.core.permissions import IsAdmin
+from inpa.core.internal_accounts import block_showcase_external_action
+from inpa.core.permissions import BlocksShowcaseExternalActions, IsAdmin
 
 from .coupons import CouponError, redeem_coupon
 from .coupons import hold_recurring_coupon
@@ -224,7 +225,10 @@ class CouponRedeemView(APIView):
       성공 200 {plan_code, plan_display_name, expires_at, duration_days}
       실패 404(없음)/409(이미 사용)/410(만료·소진·비활성) + {code, detail}
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         serializer = CouponRedeemSerializer(data=request.data)
@@ -282,7 +286,10 @@ def _phone_provider_error_response():
 
 
 class FreeTrialPhoneRequestView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         serializer = PhoneVerificationRequestSerializer(
@@ -309,7 +316,10 @@ class FreeTrialPhoneRequestView(APIView):
 
 
 class FreeTrialPhoneVerifyView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         if not getattr(
@@ -387,6 +397,7 @@ class ManualBenefitReviewRequestView(APIView):
         return Response(ManualBenefitReviewSerializer(review).data)
 
     def post(self, request):
+        block_showcase_external_action(request.user)
         serializer = ManualBenefitReviewRequestSerializer(
             data=request.data,
         )
@@ -535,7 +546,10 @@ def _log_trial_started(agreement):
 
 
 class RecurringCouponPreflightView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         if not card_registration_enabled():
@@ -590,7 +604,10 @@ class RecurringCouponPreflightView(APIView):
 
 
 class CardRegistrationStartView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         if not card_registration_enabled():
@@ -624,7 +641,10 @@ class CardRegistrationStartView(APIView):
 
 
 class CardRegistrationCompleteView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         serializer = CardRegistrationCompleteSerializer(
@@ -698,7 +718,10 @@ def _request_fingerprint(request, header_name):
 
 
 class FirstChargeReconfirmationView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         serializer = FirstChargeReconfirmationSerializer(
@@ -723,7 +746,10 @@ class FirstChargeReconfirmationView(APIView):
 
 
 class BillingCancellationView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         try:
