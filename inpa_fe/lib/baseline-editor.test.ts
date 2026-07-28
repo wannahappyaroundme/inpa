@@ -6,6 +6,7 @@ import {
   filterBaselineCatalog,
   mapBaselineBatchFieldErrors,
   normalizeBaselineAmount,
+  normalizeSavedBaselineDraft,
   validateBaselineChanges,
 } from "@/lib/baseline-editor";
 import type { BaselineCatalogResponse } from "@/lib/api";
@@ -199,6 +200,38 @@ describe("담보 기준 편집 변환", () => {
         recommend_max: null,
       }),
     ]);
+  });
+
+  it("저장 성공 뒤 금액이 있는 범위만 설계사 기준으로 정리한다", () => {
+    const draft = catalogToDraft(catalog);
+    const savedScope =
+      draft.categories[0].subcategories[0].details[0].baselines[0];
+    savedScope.recommend_min = "04500.00";
+    savedScope.baseline_source = "preset";
+    const emptyScope =
+      draft.categories[0].subcategories[1].details[0].baselines[0];
+    emptyScope.recommend_min = "  ";
+    emptyScope.recommend_max = null;
+    emptyScope.baseline_source = "preset";
+    emptyScope.is_stored = true;
+    const saved = normalizeSavedBaselineDraft(draft, 4);
+
+    expect(saved.revision).toBe(4);
+    expect(
+      saved.categories[0].subcategories[0].details[0].baselines[0],
+    ).toMatchObject({
+      recommend_min: "4500",
+      baseline_source: "planner",
+      is_stored: true,
+    });
+    expect(
+      saved.categories[0].subcategories[1].details[0].baselines[0],
+    ).toMatchObject({
+      recommend_min: null,
+      baseline_source: null,
+      is_stored: false,
+    });
+    expect(savedScope.baseline_source).toBe("preset");
   });
 
   it("대분류·중분류·담보명 검색을 각각 지원하고 빈 그룹은 제거한다", () => {

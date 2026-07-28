@@ -288,6 +288,37 @@ export function adoptBaselineScope(
   return { ...scope, baseline_source: "planner" };
 }
 
+export function normalizeSavedBaselineDraft(
+  draft: BaselineDraftCatalog,
+  revision: number,
+): BaselineDraftCatalog {
+  return {
+    ...draft,
+    revision,
+    categories: draft.categories.map((category) => ({
+      ...category,
+      subcategories: category.subcategories.map((subcategory) => ({
+        ...subcategory,
+        details: subcategory.details.map((detail) => ({
+          ...detail,
+          baselines: detail.baselines.map((scope) => {
+            const recommend_min = normalizeBaselineAmount(scope.recommend_min);
+            const recommend_max = normalizeBaselineAmount(scope.recommend_max);
+            const is_stored = recommend_min !== null || recommend_max !== null;
+            return {
+              ...scope,
+              recommend_min,
+              recommend_max,
+              baseline_source: is_stored ? "planner" : null,
+              is_stored,
+            };
+          }),
+        })),
+      })),
+    })),
+  };
+}
+
 export function buildBaselineChanges(
   server: BaselineDraftCatalog,
   draft: BaselineDraftCatalog,

@@ -337,6 +337,39 @@ describe("담보 전체 기준표 페이지 상태", () => {
     });
   });
 
+  it("금액을 고쳐 저장한 이전 기준은 바로 내 기준으로 표시한다", async () => {
+    const user = userEvent.setup();
+    apiGet.mockResolvedValue({
+      ...structuredClone(catalog),
+      categories: [{
+        ...structuredClone(catalog.categories[0]),
+        subcategories: [{
+          ...structuredClone(catalog.categories[0].subcategories[0]),
+          details: [{
+            ...structuredClone(catalog.categories[0].subcategories[0].details[0]),
+            baselines: [{
+              ...structuredClone(catalog.categories[0].subcategories[0].details[0].baselines[0]),
+              baseline_source: "preset",
+            }],
+          }],
+        }],
+      }],
+    });
+    render(<BaselineSettingsPage />);
+    const input = await screen.findByLabelText("일반암 진단비 기준금액");
+
+    await user.clear(input);
+    await user.type(input, "4500");
+    await user.click(screen.getByRole("button", { name: "변경 내용 저장" }));
+    await user.click(
+      screen.getByRole("button", { name: "일반암 진단비 상세 설정" }),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "내 기준으로 사용" }),
+    ).toBeNull();
+  });
+
   it("409 충돌은 입력값을 유지하고 사용자가 선택할 때만 새로 불러온다", async () => {
     const user = userEvent.setup();
     apiSave.mockRejectedValueOnce(

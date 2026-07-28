@@ -33,6 +33,7 @@ import {
   countChangedScopes,
   filterBaselineCatalog,
   mapBaselineBatchFieldErrors,
+  normalizeSavedBaselineDraft,
   validateBaselineChanges,
   type BaselineDraftCatalog,
   type BaselineDraftDetail,
@@ -582,7 +583,7 @@ export default function BaselineSettingsPage() {
         revision: server.revision,
         changes,
       });
-      const saved = { ...structuredClone(draft), revision: response.revision };
+      const saved = normalizeSavedBaselineDraft(draft, response.revision);
       setServer(saved);
       setDraft(structuredClone(saved));
       setFieldErrors({});
