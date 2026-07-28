@@ -40,6 +40,7 @@ from rest_framework.views import APIView
 from inpa.analysis.switch_verdict import compute_switch_warnings
 from inpa.analysis.baselines import (
     baseline_candidates_for_detail,
+    grading_eligible_baselines,
     select_baseline,
 )
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
@@ -248,11 +249,12 @@ def _mode_for_customer(customer, insurance_list):
     if not getattr(settings, 'HEATMAP_GRADING_ENABLED', False):
         return 'neutral'
 
-    baselines = list(
+    stored_baselines = list(
         PlannerBaseline.objects
         .filter(owner=customer.owner, is_active=True)
         .exclude(baseline_source__isnull=True)
     )
+    baselines = grading_eligible_baselines(stored_baselines)
     if not baselines:
         return 'neutral'
 

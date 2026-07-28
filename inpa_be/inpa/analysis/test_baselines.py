@@ -337,3 +337,29 @@ class HeatmapGradingGateTests(TestCase):
         for detail in details:
             self.assertEqual(detail['status'], 'neutral')
             self.assertIsNone(detail['baseline'])
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_preset_is_stored_but_not_applied(self):
+        baseline = PlannerBaseline.objects.get(owner=self.user)
+        baseline.baseline_source = PlannerBaseline.SOURCE_PRESET
+        baseline.preset_origin = 'v0_starter'
+        baseline.save(update_fields=['baseline_source', 'preset_origin'])
+
+        body = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/heatmap/').json()
+
+        self.assertEqual(body['mode'], 'neutral')
+        self.assertTrue(body['baseline_present'])
+        self.assertEqual(body['baseline_count'], 1)
+        self.assertEqual(body['applied_baseline_count'], 0)
+        self.assertEqual(body['unapplied_baseline_count'], 1)
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_planner_baseline_is_applied(self):
+        body = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/heatmap/').json()
+
+        self.assertEqual(body['mode'], 'graded')
+        self.assertEqual(body['baseline_count'], 1)
+        self.assertEqual(body['applied_baseline_count'], 1)
+        self.assertEqual(body['unapplied_baseline_count'], 0)

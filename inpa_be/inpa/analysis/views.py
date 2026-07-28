@@ -38,6 +38,7 @@ from inpa.insurances.serializers import InsuranceFeeSerializer
 
 from .baselines import (
     baseline_candidates_for_detail,
+    grading_eligible_baselines,
     normalize_money,
     select_baseline,
 )
@@ -190,15 +191,16 @@ class CustomerHeatmapView(APIView):
         result = calculate_total_analysis(
             customer.birth_day, case_list, chart_list, insurance_list)
 
-        # ── 3) 준법 게이트: 살아있는 baseline(baseline_source != null, is_active) 존재? ──
-        baselines = list(
+        # ── 3) 준법 게이트: 저장된 기준과 판정 적용 기준을 분리 ──
+        stored_baselines = list(
             PlannerBaseline.objects
             .filter(owner=customer.owner, is_active=True)
             .exclude(baseline_source__isnull=True)
         )
+        applied_baselines = grading_eligible_baselines(stored_baselines)
         mode = (
             'graded'
-            if settings.HEATMAP_GRADING_ENABLED and baselines
+            if settings.HEATMAP_GRADING_ENABLED and applied_baselines
             else 'neutral'
         )
         band = _age_band(customer.birth_day)
@@ -208,7 +210,7 @@ class CustomerHeatmapView(APIView):
             if mode != 'graded':
                 return 'neutral', None
             candidates = baseline_candidates_for_detail(
-                baselines,
+                applied_baselines,
                 analysis_detail_id=detail_id,
                 coverage_key=detail_name,
             )
@@ -318,9 +320,12 @@ class CustomerHeatmapView(APIView):
         return Response({
             'customer_id': customer.id,
             'mode': mode,
-            'baseline_present': bool(baselines),
+            'baseline_present': bool(stored_baselines),
             'grading_enabled': bool(settings.HEATMAP_GRADING_ENABLED),
-            'baseline_count': len(baselines),  # graded 근거(설계사가 보유한 살아있는 기준 수)
+            'baseline_count': len(stored_baselines),
+            'applied_baseline_count': len(applied_baselines),
+            'unapplied_baseline_count': (
+                len(stored_baselines) - len(applied_baselines)),
             'insurance_count': len(insurance_list),
             'included_insurance_count': included_insurance_count,
             'excluded_insurance_count': (

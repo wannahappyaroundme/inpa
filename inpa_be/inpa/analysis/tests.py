@@ -853,6 +853,25 @@ class CompareFactsTests(TestCase):
         self.assertEqual(self._get().json()['mode'], 'graded')
 
     @override_settings(HEATMAP_GRADING_ENABLED=True)
+    def test_mode_excludes_unreviewed_preset_baseline(self):
+        _make_portfolio_typed(
+            self.customer, self.idet, 50000000, portfolio_type=1)
+        PlannerBaseline.objects.create(
+            owner=self.user,
+            analysis_detail=self.det,
+            coverage_key=self.det.name,
+            product_group=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+            recommend_min=100000000,
+            unit=PlannerBaseline.UNIT_WON,
+            baseline_source=PlannerBaseline.SOURCE_PRESET,
+            preset_origin='v0_starter',
+        )
+
+        self.assertEqual(self._get().json()['mode'], 'neutral')
+
+    @override_settings(HEATMAP_GRADING_ENABLED=True)
     def test_mode_prefers_linked_baseline_when_legacy_row_coexists(self):
         _make_portfolio_typed(
             self.customer, self.idet, 50000000, portfolio_type=1)
