@@ -9,7 +9,10 @@ import {
   normalizeSavedBaselineDraft,
   validateBaselineChanges,
 } from "@/lib/baseline-editor";
-import type { BaselineCatalogResponse } from "@/lib/api";
+import type {
+  BaselineCatalogResponse,
+  PlannerBaselineBatchChange,
+} from "@/lib/api";
 
 const catalog: BaselineCatalogResponse = {
   revision: 3,
@@ -202,19 +205,42 @@ describe("담보 기준 편집 변환", () => {
     ]);
   });
 
-  it("저장 성공 뒤 금액이 있는 범위만 설계사 기준으로 정리한다", () => {
+  it("저장한 범위만 설계사 기준으로 정리하고 나머지 이전 기준은 보존한다", () => {
     const draft = catalogToDraft(catalog);
     const savedScope =
       draft.categories[0].subcategories[0].details[0].baselines[0];
     savedScope.recommend_min = "04500.00";
     savedScope.baseline_source = "preset";
-    const emptyScope =
+    const untouchedScope =
+      draft.categories[0].subcategories[0].details[0].baselines[1];
+    untouchedScope.recommend_min = "05000.00";
+    untouchedScope.baseline_source = null;
+    const deletedScope =
       draft.categories[0].subcategories[1].details[0].baselines[0];
-    emptyScope.recommend_min = "  ";
-    emptyScope.recommend_max = null;
-    emptyScope.baseline_source = "preset";
-    emptyScope.is_stored = true;
-    const saved = normalizeSavedBaselineDraft(draft, 4);
+    deletedScope.recommend_min = "3000";
+    deletedScope.baseline_source = "preset";
+    deletedScope.is_stored = true;
+    const changes: PlannerBaselineBatchChange[] = [
+      {
+        analysis_detail_id: savedScope.analysis_detail_id,
+        product_group: savedScope.product_group,
+        age_band: savedScope.age_band,
+        gender: savedScope.gender,
+        recommend_min: "4500",
+        recommend_max: null,
+        unit: savedScope.unit,
+      },
+      {
+        analysis_detail_id: deletedScope.analysis_detail_id,
+        product_group: deletedScope.product_group,
+        age_band: deletedScope.age_band,
+        gender: deletedScope.gender,
+        recommend_min: null,
+        recommend_max: null,
+        unit: deletedScope.unit,
+      },
+    ];
+    const saved = normalizeSavedBaselineDraft(draft, changes, 4);
 
     expect(saved.revision).toBe(4);
     expect(
@@ -225,9 +251,17 @@ describe("담보 기준 편집 변환", () => {
       is_stored: true,
     });
     expect(
+      saved.categories[0].subcategories[0].details[0].baselines[1],
+    ).toMatchObject({
+      recommend_min: "05000.00",
+      baseline_source: null,
+      is_stored: true,
+    });
+    expect(
       saved.categories[0].subcategories[1].details[0].baselines[0],
     ).toMatchObject({
       recommend_min: null,
+      recommend_max: null,
       baseline_source: null,
       is_stored: false,
     });

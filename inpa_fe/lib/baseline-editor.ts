@@ -290,8 +290,12 @@ export function adoptBaselineScope(
 
 export function normalizeSavedBaselineDraft(
   draft: BaselineDraftCatalog,
+  changes: PlannerBaselineBatchChange[],
   revision: number,
 ): BaselineDraftCatalog {
+  const changesByScope = new Map(
+    changes.map((change) => [baselineScopeKey(change), change]),
+  );
   return {
     ...draft,
     revision,
@@ -302,8 +306,10 @@ export function normalizeSavedBaselineDraft(
         details: subcategory.details.map((detail) => ({
           ...detail,
           baselines: detail.baselines.map((scope) => {
-            const recommend_min = normalizeBaselineAmount(scope.recommend_min);
-            const recommend_max = normalizeBaselineAmount(scope.recommend_max);
+            const change = changesByScope.get(baselineScopeKey(scope));
+            if (!change) return scope;
+            const recommend_min = normalizeBaselineAmount(change.recommend_min);
+            const recommend_max = normalizeBaselineAmount(change.recommend_max);
             const is_stored = recommend_min !== null || recommend_max !== null;
             return {
               ...scope,

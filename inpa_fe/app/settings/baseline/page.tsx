@@ -583,7 +583,11 @@ export default function BaselineSettingsPage() {
         revision: server.revision,
         changes,
       });
-      const saved = normalizeSavedBaselineDraft(draft, response.revision);
+      const saved = normalizeSavedBaselineDraft(
+        draft,
+        changes,
+        response.revision,
+      );
       setServer(saved);
       setDraft(structuredClone(saved));
       setFieldErrors({});
