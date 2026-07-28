@@ -851,6 +851,53 @@ class ShowcaseSeedCommandTests(TestCase):
         self.assertEqual(_database_fingerprint(), before_database)
         self.assertEqual(_fingerprint(_PUBLIC_MODELS), before_public)
 
+    def test_late_reset_failure_restores_existing_auth_token(self):
+        self._seed()
+        user = self._showcase_user()
+        token, _created = Token.objects.get_or_create(user=user)
+        original_token_key = token.key
+        authenticated = APIClient()
+        authenticated.credentials(
+            HTTP_AUTHORIZATION=f'Token {original_token_key}',
+        )
+        self.assertEqual(
+            authenticated.get('/api/v1/auth/profile/').status_code,
+            200,
+        )
+        before_database = _database_fingerprint()
+        original_create_shares = Command._create_public_shares
+
+        def create_shares_then_fail(reset_user, customers, now):
+            original_create_shares(reset_user, customers, now)
+            self.assertFalse(Token.objects.filter(
+                user=reset_user,
+                key=original_token_key,
+            ).exists())
+            raise RuntimeError('forced rollback after token deletion')
+
+        with patch.object(
+            Command,
+            '_create_public_shares',
+            side_effect=create_shares_then_fail,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                'forced rollback after token deletion',
+            ):
+                self._seed()
+
+        self.assertTrue(Token.objects.filter(
+            user_id=user.pk,
+            key=original_token_key,
+        ).exists())
+        restored = Token.objects.get(user_id=user.pk)
+        self.assertEqual(restored.key, original_token_key)
+        self.assertEqual(_database_fingerprint(), before_database)
+        self.assertEqual(
+            authenticated.get('/api/v1/auth/profile/').status_code,
+            200,
+        )
+
     def test_guarded_purge_removes_only_showcase_rows_and_preserves_globals(self):
         self._seed()
         user = self._showcase_user()
