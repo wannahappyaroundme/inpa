@@ -16,6 +16,7 @@
 from decimal import Decimal
 from contextlib import ExitStack
 from types import SimpleNamespace
+from urllib.parse import urlencode
 from unittest.mock import patch
 import uuid
 
@@ -1557,6 +1558,60 @@ class ShowcaseCouponTests(TestCase):
             plan=self.plus,
             trial_duration_months=1,
         )
+
+    def _provider_return_url(self, user):
+        from .agreements import _sign_state
+
+        state = _sign_state({
+            'user_id': user.pk,
+            'claim_id': str(uuid.uuid4()),
+            'agreement_id': str(uuid.uuid4()),
+            'shop_order_no': 'ORDER-RETURN',
+            'consent_version': 'billing-initial-v1',
+        })
+        return (
+            '/api/v1/billing/card-registration/provider-return/?'
+            + urlencode({'state': state})
+        )
+
+    def test_showcase_provider_return_blocks_before_completion_service(self):
+        with patch(
+            'inpa.billing.views.complete_card_registration',
+            return_value=self._agreement(self.user),
+        ) as complete:
+            response = self.client.post(
+                self._provider_return_url(self.user),
+                {
+                    'authorizationId': 'AUTH-RETURN',
+                    'shopOrderNo': 'ORDER-RETURN',
+                },
+                format='json',
+            )
+
+        self.assert_showcase_restricted(response)
+        complete.assert_not_called()
+
+    def test_ordinary_provider_return_calls_completion_service_once(self):
+        agreement = self._agreement(self.ordinary)
+        with (
+            patch(
+                'inpa.billing.views.complete_card_registration',
+                return_value=agreement,
+            ) as complete,
+            patch('inpa.billing.views._log_trial_started') as log_trial,
+        ):
+            response = self.ordinary_client.post(
+                self._provider_return_url(self.ordinary),
+                {
+                    'authorizationId': 'AUTH-RETURN',
+                    'shopOrderNo': 'ORDER-RETURN',
+                },
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 302)
+        complete.assert_called_once()
+        log_trial.assert_called_once_with(agreement)
 
     def _cases(self, user):
         return [

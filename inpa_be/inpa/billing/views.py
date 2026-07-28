@@ -40,6 +40,7 @@ from .cancellation import cancel_billing
 from .calendar import new_anchor, period_for
 from .agreements import (
     BillingFlowError,
+    _read_state,
     billing_status,
     complete_card_registration,
     confirm_first_charge,
@@ -671,6 +672,16 @@ class CardRegistrationProviderReturnView(APIView):
 
     def post(self, request):
         raw_state = request.query_params.get('state', '')
+        try:
+            state_payload = _read_state(raw_state)
+        except BillingFlowError:
+            state_payload = None
+        if state_payload is not None:
+            state_user = User.objects.filter(
+                pk=state_payload.get('user_id'),
+            ).first()
+            if state_user is not None:
+                block_showcase_external_action(state_user)
         try:
             agreement = complete_card_registration(
                 raw_state=raw_state,
