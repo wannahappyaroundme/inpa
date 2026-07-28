@@ -247,11 +247,13 @@ class AdminBillingOverviewView(APIView):
         agreements = (
             BillingAgreement.objects.select_related('user', 'plan')
             .prefetch_related('payment_tokens')
+            .exclude(internal_user_q('user'))
             .order_by('-updated_at')
         )
         orders = (
             PaymentOrder.objects.select_related(
                 'agreement__user')
+            .exclude(internal_user_q('agreement__user'))
             .order_by('-created_at')
         )
         return Response({
@@ -265,9 +267,14 @@ class AdminBillingOverviewView(APIView):
                     orders.filter(status='unknown').count(),
                 'revocation_pending_token_count':
                     PaymentMethodToken.objects.filter(
-                        status='revocation_pending').count(),
+                        status='revocation_pending',
+                    ).exclude(
+                        internal_user_q('agreement__user'),
+                    ).count(),
                 'held_coupon_claim_count':
-                    CouponClaim.objects.filter(status='held').count(),
+                    CouponClaim.objects.filter(status='held').exclude(
+                        internal_user_q('user'),
+                    ).count(),
                 'terminal_event_gap_count':
                     billing_terminal_event_gap(),
             },
@@ -433,6 +440,7 @@ class AdminBillingAgreementListView(APIView):
         agreements = (
             BillingAgreement.objects.select_related('user', 'plan')
             .prefetch_related('payment_tokens')
+            .exclude(internal_user_q('user'))
             .order_by('-updated_at')[:200]
         )
         return Response([_agreement_row(item) for item in agreements])
@@ -445,6 +453,7 @@ class AdminBillingOrderListView(APIView):
         orders = (
             PaymentOrder.objects.select_related(
                 'agreement__user')
+            .exclude(internal_user_q('agreement__user'))
             .order_by('-created_at')[:200]
         )
         return Response([_order_row(item) for item in orders])
@@ -610,7 +619,10 @@ class AdminBillingSettingsView(APIView):
 
 def consultation_status_snapshot():
     now = timezone.now()
-    source_rows = ConsultationRecording.objects.filter(
+    recording_rows = ConsultationRecording.objects.exclude(
+        internal_user_q('owner'),
+    )
+    source_rows = recording_rows.filter(
         storage_key__isnull=False,
         status__in=SOURCE_PRESENT_STATUSES,
     )
@@ -634,7 +646,9 @@ def consultation_status_snapshot():
             except Exception:
                 pass
         cache.set(audit_key, storage_audit, 300)
-    summary_rows = ConsultationSummaryRun.objects.all()
+    summary_rows = ConsultationSummaryRun.objects.exclude(
+        internal_user_q('recording__owner'),
+    )
     succeeded_seconds = list(
         summary_rows.filter(
             status=ConsultationSummaryRun.STATUS_SUCCEEDED,
@@ -658,20 +672,20 @@ def consultation_status_snapshot():
         estimated_cost_krw=Sum('estimated_cost_krw'),
     )
     return {
-        'active_upload_count': ConsultationRecording.objects.filter(
+        'active_upload_count': recording_rows.filter(
             status=ConsultationRecording.STATUS_UPLOADING,
         ).count(),
         'ready_source_count': source_rows.exclude(
             status=ConsultationRecording.STATUS_UPLOADING,
         ).count(),
-        'deleted_count': ConsultationRecording.objects.filter(
+        'deleted_count': recording_rows.filter(
             status=ConsultationRecording.STATUS_DELETED,
         ).count(),
         'overdue_source_count': source_rows.filter(
             expires_at__isnull=False,
             expires_at__lte=now,
         ).count(),
-        'delete_failure_count': ConsultationRecording.objects.filter(
+        'delete_failure_count': recording_rows.filter(
             delete_result='retry_required',
         ).count(),
         'summary_queued_count': summary_rows.filter(
@@ -751,9 +765,15 @@ class AdminDashboardView(APIView):
             # 오늘 현황
             'today_new_users': User.objects.exclude(
                 internal_user_q()).filter(date_joined__date=today).count(),
-            'today_new_orders': PromotionOrder.objects.filter(created_at__date=today).count(),
-            'open_inquiries': Inquiry.objects.filter(status=Inquiry.STATUS_OPEN).count(),
-            'pending_reports': Report.objects.filter(status=Report.STATUS_PENDING).count(),
+            'today_new_orders': PromotionOrder.objects.exclude(
+                internal_user_q('owner'),
+            ).filter(created_at__date=today).count(),
+            'open_inquiries': Inquiry.objects.exclude(
+                internal_user_q('owner'),
+            ).filter(status=Inquiry.STATUS_OPEN).count(),
+            'pending_reports': Report.objects.exclude(
+                internal_user_q('reporter'),
+            ).filter(status=Report.STATUS_PENDING).count(),
             # 누적 지표 (사실 카운트만 — "활성화율 낮음/위험" 등 판정 금지)
             'total_users': User.objects.exclude(internal_user_q()).count(),
             'total_customers': Customer.objects.exclude(
@@ -761,7 +781,9 @@ class AdminDashboardView(APIView):
             # 요금제 분포
             'plan_distribution': _get_plan_distribution(),
             # 미처리 항목
-            'pending_orders': PromotionOrder.objects.filter(
+            'pending_orders': PromotionOrder.objects.exclude(
+                internal_user_q('owner'),
+            ).filter(
                 status=PromotionOrder.STATUS_PENDING
             ).count(),
             'unresolved_unmatched': UnmatchedLog.objects.filter(resolved=False).count(),
@@ -949,7 +971,11 @@ class AdminInquiryListView(APIView):
 
     def get(self, request):
         from rest_framework.pagination import PageNumberPagination
-        qs = Inquiry.objects.select_related('owner').prefetch_related('replies__author')
+        qs = (
+            Inquiry.objects.select_related('owner')
+            .prefetch_related('replies__author')
+            .exclude(internal_user_q('owner'))
+        )
 
         status_filter = request.query_params.get('status')
         if status_filter:
@@ -1042,7 +1068,11 @@ class AdminReportListView(APIView):
 
     def get(self, request):
         from rest_framework.pagination import PageNumberPagination
-        qs = Report.objects.select_related('reporter', 'resolved_by').order_by('-created_at')
+        qs = (
+            Report.objects.select_related('reporter', 'resolved_by')
+            .exclude(internal_user_q('reporter'))
+            .order_by('-created_at')
+        )
 
         status_filter = request.query_params.get('status')
         if status_filter:
@@ -1111,7 +1141,11 @@ class AdminOrderListView(APIView):
 
     def get(self, request):
         from rest_framework.pagination import PageNumberPagination
-        qs = PromotionOrder.objects.select_related('owner', 'sample').order_by('-created_at')
+        qs = (
+            PromotionOrder.objects.select_related('owner', 'sample')
+            .exclude(internal_user_q('owner'))
+            .order_by('-created_at')
+        )
 
         status_filter = request.query_params.get('status')
         if status_filter:

@@ -53,7 +53,17 @@ from inpa.accounts.models import Profile, User
 from inpa.admin_console.models import PolicyVersion
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory, UnmatchedLog
 from inpa.billing.credit import add_months
-from inpa.billing.models import Plan, Subscription, UsageMeter
+from inpa.billing.models import (
+    BillingAgreement,
+    Coupon,
+    CouponClaim,
+    PaymentAttempt,
+    PaymentMethodToken,
+    PaymentOrder,
+    Plan,
+    Subscription,
+    UsageMeter,
+)
 from inpa.boards.models import Inquiry, InquiryReply, Notice, Post, Report
 from inpa.customers.models import ConsentLog, Customer
 from inpa.consultations.models import (
@@ -2204,6 +2214,186 @@ class AdminUsageShowcaseExclusionTests(TestCase):
         self.assertEqual(review['status_counts'], {'queued': 1})
         self.assertEqual(review['attempts']['job_count'], 1)
         self.assertEqual(review['leases']['job_count'], 1)
+
+    def test_dashboard_and_operational_lists_exclude_showcase_artifacts(self):
+        sample = _make_sample()
+        for owner, marker in (
+                (self.planner, 'ordinary'),
+                (self.showcase, 'showcase')):
+            Inquiry.objects.create(
+                owner=owner,
+                category=Inquiry.CATEGORY_FEATURE,
+                title=f'{marker} inquiry',
+                body='내용',
+            )
+            Report.objects.create(
+                reporter=owner,
+                content_type=Report.CONTENT_POST,
+                object_id=100 if marker == 'ordinary' else 200,
+                reason=Report.REASON_OTHER,
+            )
+            PromotionOrder.objects.create(
+                owner=owner,
+                sample=sample,
+                form_response={'marker': marker},
+            )
+
+        dashboard = self.client_admin.get('/api/v1/admin/dashboard/').json()
+
+        self.assertEqual(dashboard['today_new_orders'], 1)
+        self.assertEqual(dashboard['open_inquiries'], 1)
+        self.assertEqual(dashboard['pending_reports'], 1)
+        self.assertEqual(dashboard['pending_orders'], 1)
+        for endpoint in ('inquiries', 'reports', 'orders'):
+            response = self.client_admin.get(
+                f'/api/v1/admin/{endpoint}/',
+            ).json()
+            self.assertEqual(response['count'], 1)
+            self.assertNotIn(self.showcase.email, str(response['results']))
+
+    def test_billing_overview_and_lists_exclude_showcase_commitments(self):
+        plan = _make_plan('showcase-billing', 'Showcase Billing', 10_000)
+        now = timezone.now()
+        coupon = Coupon.objects.create(
+            code='SHOWCASE-BILLING',
+            plan=plan,
+            coupon_kind='recurring_trial',
+            duration_months=1,
+            redeem_by=now + timedelta(days=5),
+            max_redemptions=10,
+        )
+        ordinary_agreement = None
+        for sequence, user in enumerate(
+                (self.planner, self.showcase), start=1):
+            agreement = BillingAgreement.objects.create(
+                user=user,
+                plan=plan,
+                status='active',
+                billing_anchor_day=1,
+                trial_duration_months=1,
+                cycle_sequence=sequence,
+                current_period_starts_on=timezone.localdate(),
+                current_period_ends_on=timezone.localdate() + timedelta(days=30),
+                next_charge_date=timezone.localdate() + timedelta(days=30),
+            )
+            if user == self.planner:
+                ordinary_agreement = agreement
+            PaymentMethodToken.objects.create(
+                agreement=agreement,
+                encrypted_token=f'ciphertext-{sequence}',
+                key_version='v1',
+                status='revocation_pending',
+            )
+            order = PaymentOrder.objects.create(
+                agreement=agreement,
+                cycle_sequence=sequence,
+                merchant_order_id=f'order-{sequence}',
+                amount_krw=10_000,
+                due_date=timezone.localdate(),
+                status='unknown',
+            )
+            PaymentAttempt.objects.create(
+                order=order,
+                attempt_no=1,
+                provider_request_id=f'provider-{sequence}',
+                started_at=now - timedelta(minutes=20),
+            )
+            CouponClaim.objects.create(
+                coupon=coupon,
+                user=user,
+                status='held',
+                expires_at=now + timedelta(minutes=10),
+            )
+
+        overview = self.client_admin.get(
+            '/api/v1/admin/billing/overview/',
+        ).json()
+
+        self.assertEqual(overview['status']['agreement_count'], 1)
+        self.assertEqual(overview['status']['active_count'], 1)
+        self.assertEqual(overview['status']['unknown_order_count'], 1)
+        self.assertEqual(
+            overview['status']['revocation_pending_token_count'],
+            1,
+        )
+        self.assertEqual(overview['status']['held_coupon_claim_count'], 1)
+        self.assertEqual(overview['status']['terminal_event_gap_count'], 1)
+        self.assertEqual(
+            [row['user_email'] for row in overview['recent_agreements']],
+            [self.planner.email],
+        )
+        self.assertEqual(
+            [row['user_email'] for row in overview['recent_orders']],
+            [self.planner.email],
+        )
+        agreements = self.client_admin.get(
+            '/api/v1/admin/billing/agreements/',
+        ).json()
+        orders = self.client_admin.get(
+            '/api/v1/admin/billing/orders/',
+        ).json()
+        self.assertEqual(
+            [row['id'] for row in agreements],
+            [str(ordinary_agreement.id)],
+        )
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]['user_email'], self.planner.email)
+
+    @override_settings(CONSULTATION_RECORDING_ENABLED=False)
+    def test_consultation_status_excludes_showcase_sources_summaries_and_cost(self):
+        planner_customer = Customer.objects.create(
+            owner=self.planner,
+            name='일반 상담 고객',
+        )
+        showcase_customer = Customer.objects.create(
+            owner=self.showcase,
+            name='시연 상담 고객',
+        )
+        ordinary_run = None
+        for marker, owner, customer, minutes, cost in (
+                ('ordinary', self.planner, planner_customer, 3, 12),
+                ('showcase', self.showcase, showcase_customer, 99, 9_999)):
+            recording = ConsultationRecording.objects.create(
+                owner=owner,
+                customer=customer,
+                status=ConsultationRecording.STATUS_READY,
+                storage_key=(
+                    f'consultation-recordings/{marker}/source'
+                ),
+                mime_type='audio/webm',
+                expires_at=timezone.now() + timedelta(days=1),
+            )
+            run = ConsultationSummaryRun.objects.create(
+                recording=recording,
+                status=ConsultationSummaryRun.STATUS_SUCCEEDED,
+                idempotency_key=f'{marker}-summary',
+                prompt_version='prompt-v1',
+                recording_consent_version='recording-v1',
+                sensitive_consent_version='sensitive-v1',
+                overseas_consent_version='overseas-v1',
+                processing_minutes_reserved=minutes,
+                estimated_cost_krw=cost,
+                processing_seconds=20,
+                outcome='succeeded',
+            )
+            if owner == self.planner:
+                ordinary_run = run
+
+        snapshot = self.client_admin.get(
+            '/api/v1/admin/consultations/',
+        ).json()['status']
+
+        self.assertEqual(snapshot['ready_source_count'], 1)
+        self.assertEqual(snapshot['summary_success_count'], 1)
+        self.assertEqual(snapshot['summary_processing_minutes'], 3)
+        self.assertEqual(snapshot['summary_estimated_cost_krw'], 12)
+        self.assertEqual(snapshot['summary_p50_seconds'], 20)
+        self.assertEqual(snapshot['summary_p95_seconds'], 20)
+        self.assertEqual(len(snapshot['recent_summary_runs']), 1)
+        self.assertEqual(
+            snapshot['recent_summary_runs'][0]['id'],
+            str(ordinary_run.id),
+        )
 
 
 # ─── FIX 4: 관리자 사용량 화면 = 강제와 동일한 유효 요금제 한도 ──────────

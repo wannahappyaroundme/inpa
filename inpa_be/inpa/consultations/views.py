@@ -12,8 +12,12 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from inpa.core.permissions import IsEmailVerified
 from inpa.billing.credit import LimitExceeded
+from inpa.core.internal_accounts import internal_user_q
+from inpa.core.permissions import (
+    BlocksShowcaseExternalActions,
+    IsEmailVerified,
+)
 from inpa.customers.consent_texts import (
     has_current_consultation_recording_consent,
     has_current_consultation_summary_consents,
@@ -107,6 +111,14 @@ class CustomerRecordingMixin:
         )
 
 
+class ExternalRecordingActionMixin(CustomerRecordingMixin):
+    permission_classes = [
+        IsAuthenticated,
+        IsEmailVerified,
+        BlocksShowcaseExternalActions,
+    ]
+
+
 class RecordingListView(CustomerRecordingMixin, APIView):
     def get(self, request, customer_pk):
         customer = self.get_customer(customer_pk)
@@ -152,7 +164,7 @@ class RecordingCapabilityView(CustomerRecordingMixin, APIView):
         })
 
 
-class UploadSessionView(CustomerRecordingMixin, APIView):
+class UploadSessionView(ExternalRecordingActionMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'consultation_upload'
 
@@ -217,7 +229,7 @@ class RecordingDetailView(CustomerRecordingMixin, APIView):
         return Response(ConsultationRecordingSerializer(recording).data)
 
 
-class RecordingSummarizeView(CustomerRecordingMixin, APIView):
+class RecordingSummarizeView(ExternalRecordingActionMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'consultation_summary'
 
@@ -260,7 +272,7 @@ class RecordingSummarizeView(CustomerRecordingMixin, APIView):
         )
 
 
-class RecordingPartURLView(CustomerRecordingMixin, APIView):
+class RecordingPartURLView(ExternalRecordingActionMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'consultation_upload'
 
@@ -284,7 +296,7 @@ class RecordingPartURLView(CustomerRecordingMixin, APIView):
         })
 
 
-class CompleteUploadView(CustomerRecordingMixin, APIView):
+class CompleteUploadView(ExternalRecordingActionMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'consultation_upload'
 
@@ -307,7 +319,7 @@ class CompleteUploadView(CustomerRecordingMixin, APIView):
         return Response(ConsultationRecordingSerializer(recording).data)
 
 
-class RecordingPlayURLView(CustomerRecordingMixin, APIView):
+class RecordingPlayURLView(ExternalRecordingActionMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'consultation_play'
 
@@ -347,7 +359,7 @@ class RecordingPlayURLView(CustomerRecordingMixin, APIView):
             return Response({'url': url, 'expires_in_seconds': 300})
 
 
-class RecordingDownloadURLView(CustomerRecordingMixin, APIView):
+class RecordingDownloadURLView(ExternalRecordingActionMixin, APIView):
     def post(self, request, customer_pk, recording_id):
         with transaction.atomic():
             customer = lock_customer_consent_state(
@@ -425,7 +437,7 @@ class RecordingDownloadURLView(CustomerRecordingMixin, APIView):
             })
 
 
-class RecordingSourceDeleteView(CustomerRecordingMixin, APIView):
+class RecordingSourceDeleteView(ExternalRecordingActionMixin, APIView):
     def delete(self, request, customer_pk, recording_id):
         customer = self.get_owned_customer(customer_pk)
         self.get_owned_recording(customer, recording_id)
@@ -457,6 +469,8 @@ class ClovaCallbackView(APIView):
         exists = ConsultationSummaryRun.objects.filter(
             pk=run_id,
             attempt_uuid=attempt_uuid,
+        ).exclude(
+            internal_user_q('recording__owner'),
         ).exists()
         if not exists:
             raise NotFound('요청 정보를 찾을 수 없어요.')

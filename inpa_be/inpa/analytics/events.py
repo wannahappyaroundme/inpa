@@ -211,6 +211,7 @@ def billing_terminal_event_gap(*, now=None, lookback_hours=24):
     "승인 시도는 있는데 종결 신호가 멈춤"을 감지한다.
     """
     from inpa.billing.models import PaymentAttempt
+    from inpa.core.internal_accounts import internal_user_q
     from .models import NorthStarEvent
     from django.db.models import Exists, OuterRef
 
@@ -226,6 +227,8 @@ def billing_terminal_event_gap(*, now=None, lookback_hours=24):
     return PaymentAttempt.objects.filter(
         started_at__gte=started_after,
         started_at__lte=due_before,
+    ).exclude(
+        internal_user_q('order__agreement__user'),
     ).annotate(
         has_terminal_event=Exists(terminal_for_attempt),
     ).filter(

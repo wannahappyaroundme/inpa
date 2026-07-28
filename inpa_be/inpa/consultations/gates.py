@@ -1,5 +1,7 @@
 from django.conf import settings
 
+from inpa.core.internal_accounts import is_showcase_user
+
 from .models import ConsultationPilotAccess, ConsultationRuntimeConfig
 
 
@@ -10,6 +12,8 @@ def recording_feature_enabled(user=None):
         return False
     if user is None:
         return True
+    if is_showcase_user(user):
+        return False
     profile = getattr(user, 'profile', None)
     if profile is not None and profile.is_admin:
         return True
@@ -24,6 +28,8 @@ def summary_feature_enabled(user=None):
         return False
     if user is None:
         return True
+    if is_showcase_user(user):
+        return False
     profile = getattr(user, 'profile', None)
     if profile is not None and profile.is_admin:
         return True
