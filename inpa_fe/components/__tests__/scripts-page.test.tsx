@@ -14,6 +14,7 @@ import {
   ApiError,
   createPersonalTalkTemplate,
   deletePersonalTalkTemplate,
+  getCustomer,
   getProfile,
   listPersonalTalkTemplates,
   putTalkTemplatePreference,
@@ -23,9 +24,12 @@ import {
   type ProfileResponse,
 } from "@/lib/api";
 
+const analytics = vi.hoisted(() => ({ track: vi.fn() }));
+
 vi.mock("@/lib/useAuthGuard", () => ({
   useAuthGuard: () => true,
 }));
+vi.mock("@vercel/analytics", () => ({ track: analytics.track }));
 
 vi.mock("@/components/app-nav", () => ({
   AppNav: () => <nav aria-label="앱 메뉴" />,
@@ -34,6 +38,7 @@ vi.mock("@/components/app-nav", () => ({
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getProfile: vi.fn(),
+  getCustomer: vi.fn(),
   listPersonalTalkTemplates: vi.fn(),
   createPersonalTalkTemplate: vi.fn(),
   updatePersonalTalkTemplate: vi.fn(),
@@ -42,6 +47,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 }));
 
 const mockedGetProfile = vi.mocked(getProfile);
+const mockedGetCustomer = vi.mocked(getCustomer);
 const mockedList = vi.mocked(listPersonalTalkTemplates);
 const mockedCreate = vi.mocked(createPersonalTalkTemplate);
 const mockedUpdate = vi.mocked(updatePersonalTalkTemplate);
@@ -92,14 +98,20 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
-  window.history.replaceState({}, "", "/scripts");
+  window.history.replaceState({}, "", "/scripts?mode=quick");
   mockedGetProfile.mockReset();
+  mockedGetCustomer.mockReset();
   mockedList.mockReset();
   mockedCreate.mockReset();
   mockedUpdate.mockReset();
   mockedDelete.mockReset();
   mockedPreference.mockReset();
+  analytics.track.mockReset();
   mockedGetProfile.mockResolvedValue(profile);
+  mockedGetCustomer.mockResolvedValue({
+    id: 31,
+    name: "김인파",
+  } as Awaited<ReturnType<typeof getCustomer>>);
   mockedList.mockResolvedValue({
     results: [personal()],
     hidden_source_keys: [],
@@ -113,6 +125,175 @@ beforeEach(() => {
 });
 
 describe("/scripts page state", () => {
+  it("opens the guided customer playbooks by default and switches to quick copy", async () => {
+    window.history.replaceState({}, "", "/scripts");
+    const user = userEvent.setup();
+    render(<ScriptsPage />);
+
+    const guided = screen.getByRole("button", { name: "실전 상담" });
+    expect(guided).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: /소개받은 고객 첫 통화/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "관리 후 소개 부탁" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "빠른 문구" }));
+    expect(
+      await screen.findByRole("heading", { name: "관리 후 소개 부탁" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "빠른 문구" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("opens the requested quick category from the URL", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/scripts?mode=quick&category=appointment",
+    );
+    render(<ScriptsPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "첫 점검 약속" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "관리 후 소개 부탁" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("상황 분류")).toHaveValue("appointment");
+    expect(analytics.track).not.toHaveBeenCalledWith(
+      "talk_playbook_open",
+      expect.anything(),
+    );
+  });
+
+  it("reads a legacy customer name once and removes it from the URL", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/scripts?mode=quick&customer=%EA%B9%80%EB%B3%B4%EC%9E%A5&extra=1",
+    );
+    const user = userEvent.setup();
+    render(<ScriptsPage />);
+
+    expect(
+      await screen.findByLabelText("고객 이름 (이 화면에서만)"),
+    ).toHaveValue("김보장");
+    expect(window.location.search).toBe("?mode=quick");
+
+    await user.click(screen.getByRole("button", { name: "실전 상담" }));
+    expect(window.location.search).not.toContain("customer=");
+    expect(window.location.search).not.toContain("extra=");
+  });
+
+  it("opens and preserves the requested guided playbook in the URL", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/scripts?playbook=first-coverage-review",
+    );
+    const user = userEvent.setup();
+    render(<ScriptsPage />);
+
+    expect(
+      await screen.findByRole("button", { name: /첫 대면 보장 점검/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(
+      screen.getByRole("button", { name: /소개받은 고객 첫 통화/ }),
+    );
+    expect(window.location.search).toBe(
+      "?playbook=referred-customer-first-call",
+    );
+  });
+
+  it("loads a selected customer by owner-scoped customerId without putting the name in the URL", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/scripts?mode=quick&customerId=31",
+    );
+    render(<ScriptsPage />);
+
+    await waitFor(() => expect(mockedGetCustomer).toHaveBeenCalledWith(31));
+    await screen.findByDisplayValue("김인파");
+    expect(screen.getByLabelText("고객 이름 (이 화면에서만)")).toHaveValue(
+      "김인파",
+    );
+    expect(window.location.search).toBe("?mode=quick&customerId=31");
+  });
+
+  it("keeps manual customer input when an older customer lookup finishes later", async () => {
+    const customerLookup = deferred<Awaited<ReturnType<typeof getCustomer>>>();
+    mockedGetCustomer.mockReturnValue(customerLookup.promise);
+    window.history.replaceState(
+      {},
+      "",
+      "/scripts?mode=quick&customerId=31",
+    );
+    const user = userEvent.setup();
+    render(<ScriptsPage />);
+
+    const customerInput = screen.getByLabelText(
+      "고객 이름 (이 화면에서만)",
+    );
+    await user.type(customerInput, "직접입력");
+    await act(async () => {
+      customerLookup.resolve({
+        id: 31,
+        name: "늦게온이름",
+      } as Awaited<ReturnType<typeof getCustomer>>);
+    });
+
+    expect(customerInput).toHaveValue("직접입력");
+    await user.click(screen.getByRole("button", { name: "실전 상담" }));
+    await user.click(
+      screen.getByRole("button", { name: /첫 대면 보장 점검/ }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /8단계 확인한 내용과 다음 일정 정하기/,
+      }),
+    );
+    expect(
+      screen.getByRole("link", { name: "고객 분석 열기" }),
+    ).toHaveAttribute("href", "/customer/31?tab=analysis");
+    expect(screen.getByText(/분석 연결: 늦게온이름 고객/)).toBeInTheDocument();
+  });
+
+  it("keeps both playbooks usable when selected customer lookup is interrupted", async () => {
+    const user = userEvent.setup();
+    mockedGetCustomer.mockRejectedValue(
+      new ApiError(404, "not_found", "고객을 찾을 수 없습니다."),
+    );
+    window.history.replaceState({}, "", "/scripts?customerId=999");
+    render(<ScriptsPage />);
+
+    expect(
+      await screen.findByText(
+        "고객 이름을 직접 입력하면 실전 상담을 바로 이어갈 수 있어요.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /소개받은 고객 첫 통화/ }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /첫 대면 보장 점검/ }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /8단계 확인한 내용과 다음 일정 정하기/,
+      }),
+    );
+    expect(
+      screen.getByRole("link", { name: "고객 분석 열기" }),
+    ).toHaveAttribute("href", "/customers");
+  });
+
   it("loads defaults and personal rows while keeping profile fields read-only and customer local", async () => {
     render(<ScriptsPage />);
 
