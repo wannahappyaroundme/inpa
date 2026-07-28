@@ -338,7 +338,7 @@ class planner_baseline(models.Model):   # 표기상 소문자, 실 클래스명 
     recommend_min  = models.DecimalField(null=True)
     recommend_max  = models.DecimalField(null=True)
     unit           = models.SmallIntegerField()        # 금액 단위
-    source         = models.CharField(null=True)       # planner | preset:<id> | null
+    baseline_source = models.CharField(null=True)      # planner | preset | null
     preset_origin  = models.CharField(null=True)
     is_active      = models.BooleanField(default=True)
     created_at     = models.DateTimeField(auto_now_add=True)
@@ -349,7 +349,7 @@ class planner_baseline(models.Model):   # 표기상 소문자, 실 클래스명 
             name='uniq_baseline_scope')]
 ```
 
-> ★ **neutral 강제 규칙:** 히트맵·분석에서 해당 `coverage_key`의 `planner_baseline`이 없거나 `source==null`이면 그 담보는 **부족/충분으로 단정 금지 → neutral**(보유여부 0원만 회색 표기). 상세는 `dev/10-planner-criteria.md`.
+> ★ **neutral 강제 규칙:** 히트맵·분석에서 해당 `coverage_key`에 `is_active=true`이면서 `source='planner'`인 기준이 없으면 그 담보는 **부족/충분으로 단정 금지 → neutral**(보유여부 0원만 회색 표기). `preset`, `null`, 비활성 `planner` 기준은 설계사가 화면에서 다시 확인·저장하기 전까지 판정에 쓰지 않는다. 상세는 `dev/10-planner-criteria.md`.
 
 ---
 

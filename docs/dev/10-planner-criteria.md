@@ -1,8 +1,8 @@
 # 설계사 기준 설정 (Planner Baseline)
 
 > **문서 ID**: `dev/10-planner-criteria.md`
-> **버전**: v0.1 (초안) · **작성일**: 2026-06-19
-> **상태**: 기획 착수 — Sprint0 게이트 항목(G4-2, planner_baseline 모델 미설계)을 해소하기 위한 정본 초안
+> **버전**: v0.2 · **작성일**: 2026-06-19 · **현재화**: 2026-07-29
+> **상태**: 구현 완료, 운영 배포 전. 활성 `planner` 기준만 판정에 사용하는 정책이 코드와 테스트에 반영됨
 > **선행 정본**: `dev/09-compliance.md`(컴플라이언스 절대원칙) · `dev/07-api-data-contracts.md`(히트맵 동결분 `heatmap_status`) · `dev/02-data-model-and-api.md`(모델 지도)
 > **제품**: 인파(Inpa) — 보험설계사의 업무 OS
 
@@ -51,11 +51,12 @@ is_active == true 그리고 baseline_source == 'planner'
 
 ### 1.3 기본 프리셋의 책임 경계 (디스클레이머 의무)
 
-인파는 설계사 편의를 위해 **기본 프리셋(참고용 시드값)** 을 제공할 수 있다. 단, 이는 컴플라이언스 지뢰밭이므로 다음을 **의무 강제**한다:
+인파는 설계사 편의를 위해 **기본 프리셋(참고용 시드값)** 을 제공할 수 있다. 단, 다음 경계를 **의무 강제**한다:
 
-- (추정) 프리셋 채택 시에도 `baseline_source = 'planner'` 로 기록 — **"인파가 정했다"가 아니라 "설계사가 인파 프리셋을 채택했다"** 로 책임 귀속.
+- 프리셋을 불러온 직후에는 `baseline_source='preset'`으로 보관하고 판정에서 제외한다.
+- 설계사가 금액을 확인해 저장한 행만 `baseline_source='planner'`, `preset_origin=null`, `is_active=true`로 전환한다.
 - 프리셋 화면 상시 디스클레이머: **"본 기준은 참고용이며, 출처는 [출처]입니다. 최종 기준은 설계사님이 조정·확정하셔야 합니다."**
-- **프리셋 출처 명시 필수**(`dev/09 §2` 준법 가드 ②). 출처 없는 프리셋 제공 금지 → 후술 §4.3에서 출처 미확정(G4-1/Q1) 시 **프리셋 비활성** 유지.
+- 향후 공식 프리셋은 **출처 명시 필수**(`dev/09 §2` 준법 가드 ②). 기존 출처 미확정 값은 삭제하지 않되, 설계사 확인 전까지 판정에서 제외한다.
 
 ---
 
@@ -63,7 +64,7 @@ is_active == true 그리고 baseline_source == 'planner'
 
 ### 2.1 모델 위치 및 멀티테넌시
 
-- **신규 테이블** `planner_baseline` (CTO 산출물 "신규 모델" 목록에 추가 — 기존 NormalizationDict/ConsentLog/NorthStarEvent + 업무OS 3종에 이어).
+- **기존 테이블** `planner_baseline`. 이번 판정 출처 정책은 기존 필드를 사용하므로 추가 마이그레이션이 없다.
 - **소유 단위 = 설계사 1인**(`owner FK(User)`). 멀티테넌시 row-level 격리(`OwnedQuerySetMixin` + `IsOwner`) 적용 대상. GA 지점 공유 기준은 범위 밖.
 - 기준선은 **고객별이 아니라 설계사별 전역 정책**이다. 한 설계사의 모든 고객 히트맵이 이 한 벌의 밴드를 공유한다. (개별 고객 override는 §6 향후과제.)
 
@@ -81,7 +82,7 @@ planner_baseline
   recommend_min   decimal(null)       -- 권장 하한(이 밑=short/부족)
   recommend_max   decimal(null)       -- 권장 상한(이 위=over/넉넉) (추정, over 표기는 §3.2)
   unit            smallint            -- 1=만원/2=원/3=구좌 등 (담보별 단위 차이 흡수)
-  source          str                 -- 'planner'(직접) | 'preset:<id>'(프리셋 채택) | null
+  baseline_source str                 -- 'planner'(확인·저장) | 'preset'(확인 전 참고값) | null(과거 출처 미상)
   preset_origin   str(null)           -- 프리셋 채택 시 출처 라벨(디스클레이머 표시용)
   is_active       bool                -- soft toggle(밴드 비활성화 시 해당 셀 neutral 복귀)
   created_at / updated_at
@@ -94,21 +95,14 @@ planner_baseline
 - **`UNIQUE(owner, coverage_key, product_group, age_band, gender)`**: 한 설계사가 동일 (담보 × 상품군 × 연령대 × 성별) 조합에 밴드를 중복 정의 못 하게 강제. 충족 판정 시 단일 행 결정성 보장.
 - **`gender=null` 폴백**: 성별 무관 밴드. 판정 시 (성별 일치 행 우선 → 없으면 null 행) 2단 폴백. 설계사가 성별 구분 없이 한 줄로 설정하는 케이스 수용.
 - **`age_band` 문자열 enum**: 정수 나이 대신 밴드 문자열로 저장 → 고객 정확한 나이를 밴드로 매핑하는 책임은 판정 함수(FE 무관, BE 권위).
-- **`source` 3값 분기**: `null`(미설정→neutral 강제) / `'planner'`(직접 입력) / `'preset:<id>'`(프리셋 채택, `preset_origin`에 출처 라벨 동반). **§1.2 게이트의 물리 키.**
+- **`baseline_source` 3값 분기**: `null`(과거 출처 미상→neutral 강제) / `'planner'`(설계사가 확인·저장→판정 가능) / `'preset'`(확인 전 참고값→neutral 강제, `preset_origin`에 출처 라벨 동반). **§1.2 게이트의 물리 키.**
 - **`recommend_max` nullable**: 상한 미설정 가능. 상한 없으면 over(넉넉) 판정 미발화, min 미달만 short 판정. (보수적 디폴트 — §3.2 참조.)
 
-### 2.4 마이그레이션 순서 (BE 산출물 §6 계승)
+### 2.4 운영 상태
 
-```
-makemigrations
-  → migrate (NorthStarEvent 포함 — Day1 동결분)
-  → migrate (planner_baseline 추가 — 본 문서)
-  → seed_taxonomy (StandardCoverage 100+ — coverage_key의 FK 무결성 선행)
-  → loadinitialmemberships
-  → [조건부] seed_baseline_preset (§4.3 출처 확정 후에만 실행)
-```
-
-> ⚠️ `planner_baseline.coverage_key`는 `seed_taxonomy`의 StandardCoverage leaf를 참조하므로 **반드시 담보 트리 시드 이후** 마이그레이션/시드. 순서 역전 시 고아 키 발생.
+- 이번 변경은 기존 `baseline_source`, `preset_origin`, `is_active` 필드만 사용하므로 DB 마이그레이션이 없다.
+- 표준 담보 트리는 `seed_normalization`이 먼저 보장한다.
+- 기존 `preset`·`null`·비활성 행은 일괄 변환하거나 삭제하지 않는다. 설계사가 화면에서 요청한 범위만 저장 시 활성 `planner` 기준으로 전환한다.
 
 ---
 
@@ -221,7 +215,7 @@ heatmap_status(actual, baseline, mode):
 - **상품군 탭 전환** 시 필터 리셋(foliio admin-dashboard sort/filter reset on tab change 패턴 계승).
 - **연령대 × 성별 셀렉터**: 선택 조합에 해당하는 밴드 행 집합 표시. 빈 칸 = 미설정(neutral).
 - **밴드 입력**: 하한/상한 숫자 입력 + 활성 토글. 상한 빈칸 허용(over 미판정).
-- **저장 시** `source='planner'` 기록. 프리셋 불러오기 후 저장 시 `source='preset:<id>'` + `preset_origin` 기록.
+- **저장 시** 요청에 포함된 행만 `baseline_source='planner'`, `preset_origin=null`, `is_active=true`로 기록. 프리셋을 불러오기만 한 상태는 `baseline_source='preset'`으로 보관하고 판정에 쓰지 않는다.
 - **디스클레이머 상시 노출**(접기 불가) — §1.3 의무.
 
 ### 4.3 기본 프리셋 (참고용 — 디스클레이머 의무)
@@ -249,29 +243,29 @@ heatmap_status(actual, baseline, mode):
 | `/baseline/:id/` | DELETE | `IsOwner` | 밴드 삭제(soft, `is_active=false` 권장) |
 | `/baseline/bulk/` | PUT | `IsOwner` | 화면 단위 일괄 저장(상품군×연령×성별 행집합) |
 | `/baseline/presets/` | GET | `IsOwner` | (조건부) 프리셋 목록 — 출처 확정 시만 활성 |
-| `/baseline/apply_preset/` | POST | `IsOwner` | 프리셋 채택→본인 밴드로 복사(`source='preset:<id>'`) |
+| `/baseline/apply_preset/` | POST | `IsOwner` | 참고값을 본인 밴드로 복사(`baseline_source='preset'`, 확인·저장 전 판정 제외) |
 
 - 전 엔드포인트 `OwnedQuerySetMixin` 적용 — `request.user` 없는 접근 0(공유뷰 화이트리스트 대상 아님).
-- **`heatmap_mode` 토글**: `user.heatmap_mode`(neutral/graded)는 별도 사용자 설정. graded 전환은 **planner_baseline 1행 이상 존재 + Q1 출처 확정** 동시 충족 시에만 UI 허용(추정).
+- **판정 모드**: 운영 `HEATMAP_GRADING_ENABLED`가 열려 있고, 고객 담보에 맞는 활성 `planner` 기준이 하나 이상 있을 때만 `graded`. 그 외에는 `neutral`.
 
 ---
 
 ## 6. 책임 경계 재확인 + 향후 과제
 
-### 6.1 이 문서가 잠그는 것 (Sprint0 게이트 해소)
+### 6.1 이 문서가 잠그는 것
 
 - ✅ **G4-2 해소**: `planner_baseline` 모델 스키마 동결 → 히트맵 graded 활성화의 데이터 근거 확보.
-- ✅ **컴플라이언스 단일 입력 확보**: 충족 판정의 유일한 기준 출처 = 설계사가 활성화한 `source='planner'` 값.
+- ✅ **컴플라이언스 단일 입력 확보**: 충족 판정의 유일한 기준 출처 = 설계사가 활성화한 `baseline_source='planner'` 값.
 - ✅ **neutral 강제 게이트**: 비활성 행과 `planner`가 아닌 출처를 모델·함수 양단에서 neutral로 처리.
 
-### 6.2 이 문서가 잠그지 못하는 것 (상위 블로킹 의존)
+### 6.2 현재 운영 경계와 이후 결정
 
-| 미결 | 출처 | 영향 | 우회 |
-|---|---|---|---|
-| **프리셋 시드값 + 출처·권위** | Q1 / G4-1 | graded 프리셋 비활성 | 설계사 직접 입력(`planner`)만 허용 |
-| **graded 플립 최종 승인** | `dev/09 §5` 준법 게이트 | 3색 활성 시점 | neutral 디폴트 유지(베타) |
-| **chart_based_amount 시드** | BE 산출물 blocking #5 | 히트맵 기준선 거짓위험 | planner_baseline로 출처 이관 |
-| **age_band/product_group enum 확정** | (추정) 본 문서 | 매핑 정확도 | 5밴드×4상품군 (추정) 잠정 |
+| 항목 | 현재 결정 | 이후 조건 |
+|---|---|---|
+| **기존 프리셋 시드값** | 확인 전 판정 제외 | 공식 출처·유지 주체가 확정되면 별도 승인 |
+| **3색 판정** | 운영 웹에서 활성 `planner` 기준만 사용 | 이상 시 환경 설정을 닫고 재배포 |
+| **코드 기본값** | `HEATMAP_GRADING_ENABLED=False` | 새 환경은 항상 neutral로 시작 |
+| **나이대·상품군** | 현행 5밴드×4상품군 유지 | 실제 운영 피드백을 근거로 별도 변경 |
 
 ### 6.3 향후 과제 (P1+)
 
@@ -281,13 +275,13 @@ heatmap_status(actual, baseline, mode):
 
 ---
 
-## 7. 미결 항목 (갭) — Sprint0 잠금 회의 상정
+## 7. 이후 검토 항목
 
 | # | 갭 | 유형 | owner | 비고 |
 |---|---|---|---|---|
-| B-1 | 프리셋 시드값 100+ 담보 `recommend_min/max` + **출처·권위**(Q1/G4-1) | **blocking** | PM+준법+데이터 | 미확정 시 프리셋 탭 비활성, 직접입력만 |
-| B-2 | graded 플립 최종 승인(`dev/09 §5` 준법 게이트) | **blocking** | 대표+준법 | Q1 출처+면책문안 없이 플립 금지 |
-| B-3 | 프리셋 채택 시 디스클레이머 출처 라벨 정본 문구 | **blocking** | 준법 | "참고용·설계사 조정" + 출처 명시 의무 |
+| B-1 | 공식 프리셋 시드값 100+ 담보 `recommend_min/max` + **출처·권위** | later | PM+준법+데이터 | 확정 전까지 기존 참고값은 판정 제외 |
+| B-2 | 공식 프리셋 유지·갱신 책임자 | later | PM+운영 | 관리자 편집과 변경 이력 포함 |
+| B-3 | 공식 프리셋 제공 시 출처 라벨 정본 문구 | later | 준법 | "참고용·설계사 확인" + 출처 명시 |
 | N-1 | `age_band` 5밴드 경계(20s/30s/.../60s+) + 만나이 매핑 규칙 | non-block | PM | (추정) 잠정 5밴드 |
 | N-2 | `product_group` 4값 enum(생명/손해/실손/연금) 확정 | non-block | BE+PM | (추정) 담보 트리와 정합 필요 |
 | N-3 | `recommend_max`(상한/과보장) 표기 정책 — over status 노출 여부 | non-block | PM+준법 | 상한 nullable, over 보수적 미발화 가능 |
@@ -297,4 +291,4 @@ heatmap_status(actual, baseline, mode):
 
 ---
 
-> **다음 액션**: 본 초안을 Sprint0 게이트 잠금 회의에 상정 → B-1(프리셋 출처)·B-2(graded 플립)·B-3(디스클레이머 문구)를 준법·대표 승인 안건으로 묶음. 승인 전까지 **neutral 디폴트 + 설계사 직접입력(`source='planner'`)** 만으로 `planner_baseline` 골격 구현 착수 가능(프리셋·graded는 게이트 통과 후 활성).
+> **다음 액션**: 전체 회귀검증과 운영 배포를 마친 뒤, 비식별 테스트 계정에서 `preset/null → 확인·저장 → planner 판정` 흐름을 점검한다. 이상 시 `HEATMAP_GRADING_ENABLED=False`로 되돌리고 재배포한다.

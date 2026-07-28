@@ -324,7 +324,7 @@ class HeatmapNeutralGateTests(TestCase):
 
 @override_settings(HEATMAP_GRADING_ENABLED=True)
 class HeatmapGradedTests(TestCase):
-    """살아있는 baseline(source!=null)이 있으면 mode='graded' + 담보별 판정."""
+    """활성 planner 기준이 있으면 mode='graded' + 담보별 판정."""
 
     def setUp(self):
         self.user, self.client = _make_planner('graded@test.com')
