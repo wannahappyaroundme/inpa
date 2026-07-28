@@ -9,10 +9,18 @@ from django.db import close_old_connections, connection
 from django.core import mail
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
+from rest_framework.exceptions import APIException
 from rest_framework.test import APIClient
 
 from .models import Profile, User
 from .tokens import make_email_verify_token
+from inpa.core.internal_accounts import (
+    ShowcaseActionRestricted,
+    block_showcase_external_action,
+    internal_user_q,
+    is_showcase_user,
+)
+from inpa.core.permissions import BlocksShowcaseExternalActions
 
 
 THREAD_TIMEOUT = 5
@@ -258,6 +266,108 @@ class AuthFlowTests(TestCase):
         r = self.c.post('/api/v1/auth/password-reset/', {'email': self.reg['email']}, format='json')
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(mail.outbox), 2)  # 가입메일 + 재설정메일
+
+
+@override_settings(SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example')
+class ShowcaseAccountClassificationTests(TestCase):
+    """내부 시연 계정은 설정 이메일과 서버 소유 표식이 모두 맞아야 한다."""
+
+    def _user_with_profile(self, email, *, is_showcase=False):
+        user = User.objects.create_user(email=email, password=None)
+        Profile.objects.create(user=user, is_showcase=is_showcase)
+        return user
+
+    def test_profile_defaults_to_not_showcase_and_hides_internal_flag_from_profile_api(self):
+        """기본 프로필이 시연 처리되거나 내부 표식이 API에 새면 안 된다."""
+        user = self._user_with_profile('ordinary@inpa.example')
+        self.assertFalse(user.profile.is_showcase)
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.get('/api/v1/auth/profile/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('is_showcase', response.data)
+
+    def test_showcase_requires_matching_email_and_profile_flag(self):
+        """이메일 위장이나 플래그 오표시는 시연 계정 권한을 주면 안 된다."""
+        email_only = self._user_with_profile('showcase@inpa.example')
+        flag_only = self._user_with_profile('flag-only@inpa.example', is_showcase=True)
+
+        self.assertFalse(is_showcase_user(email_only))
+        self.assertFalse(is_showcase_user(flag_only))
+        email_only.delete()
+        verified = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+        without_profile = User.objects.create_user(email='no-profile@inpa.example', password=None)
+        self.assertTrue(is_showcase_user(verified))
+        self.assertFalse(is_showcase_user(without_profile))
+        self.assertFalse(is_showcase_user(User()))
+
+    def test_empty_showcase_email_disables_showcase_recognition(self):
+        """운영 설정 누락 시 어떤 프로필도 예외 권한을 얻지 않는다."""
+        user = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+
+        with override_settings(SHOWCASE_ACCOUNT_EMAIL=''):
+            self.assertFalse(is_showcase_user(user))
+
+    def test_internal_user_q_matches_local_accounts_and_verified_showcase_only(self):
+        """운영 통계 제외 조건에 일반 계정이 섞이거나 시연 계정이 빠지면 안 된다."""
+        local = self._user_with_profile('demo@inpa.local')
+        showcase = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+        flag_only = self._user_with_profile('flag-only@inpa.example', is_showcase=True)
+        ordinary = self._user_with_profile('ordinary@inpa.example')
+
+        matched = set(User.objects.filter(internal_user_q()).values_list('email', flat=True))
+
+        self.assertEqual(matched, {local.email, showcase.email})
+        self.assertNotIn(flag_only.email, matched)
+        self.assertNotIn(ordinary.email, matched)
+
+        with override_settings(SHOWCASE_ACCOUNT_EMAIL=''):
+            local_only = set(User.objects.filter(internal_user_q()).values_list('email', flat=True))
+        self.assertEqual(local_only, {local.email})
+
+    def test_internal_user_q_prefix_filters_related_sender(self):
+        """FK 접두사를 붙인 내부 계정 조건은 관련 사용자 필드에 적용돼야 한다."""
+        from inpa.analytics.models import NorthStarEvent
+
+        local = self._user_with_profile('sender-demo@inpa.local')
+        showcase = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+        ordinary = self._user_with_profile('sender-ordinary@inpa.example')
+        for sender in (local, showcase, ordinary):
+            NorthStarEvent.objects.create(
+                sender=sender,
+                event_type=NorthStarEvent.ANALYSIS_VIEW,
+            )
+
+        matched = set(NorthStarEvent.objects.filter(
+            internal_user_q('sender')
+        ).values_list('sender__email', flat=True))
+
+        self.assertEqual(matched, {local.email, showcase.email})
+
+    def test_block_showcase_external_action_restricts_only_verified_showcase(self):
+        """시연 계정만 외부 작동을 막고 일반 사용자는 기존 동작을 유지해야 한다."""
+        showcase = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+        ordinary = self._user_with_profile('ordinary@inpa.example')
+
+        with self.assertRaises(ShowcaseActionRestricted) as caught:
+            block_showcase_external_action(showcase)
+        self.assertEqual(caught.exception.status_code, 403)
+        self.assertIsInstance(caught.exception, APIException)
+        self.assertIsNone(block_showcase_external_action(ordinary))
+
+    def test_permission_delegates_showcase_external_action_guard(self):
+        """DRF 권한 평가도 같은 시연 계정 외부 작동 제한을 적용해야 한다."""
+        showcase = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+        ordinary = self._user_with_profile('ordinary@inpa.example')
+
+        permission = BlocksShowcaseExternalActions()
+        request = type('Request', (), {'user': ordinary})()
+        self.assertTrue(permission.has_permission(request, view=None))
+        request.user = showcase
+        with self.assertRaises(ShowcaseActionRestricted):
+            permission.has_permission(request, view=None)
 
 
 def _verified_planner(email):
