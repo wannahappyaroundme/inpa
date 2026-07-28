@@ -868,11 +868,13 @@ export async function listCustomers(
  * page=1만 부르면 21명째부터 못 고르므로, next가 없을 때까지 이어붙인다.
  * 안전 상한(무한루프 방지): 최대 100페이지.
  */
-export async function listAllCustomers(): Promise<CustomerListItem[]> {
+export async function listAllCustomers(
+  params: { search?: string } = {},
+): Promise<CustomerListItem[]> {
   const all: CustomerListItem[] = [];
   let page = 1;
   for (let i = 0; i < 100; i++) {
-    const res = await listCustomers({ page });
+    const res = await listCustomers({ page, search: params.search });
     all.push(...res.results);
     if (!res.next) break;
     page += 1;
