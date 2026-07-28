@@ -4,6 +4,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, fields, is_dataclass
 from datetime import date
+from itertools import combinations
 
 from django.core.management.base import CommandError
 
@@ -47,9 +48,29 @@ class InsuranceSpec:
     customer_key: str
     company_name: str
     product_type: str
+    insured_role: str
     monthly_premium: int
     registered_month_offset: int
     coverages: tuple[CoverageSpec, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyArchetype:
+    product_type: str
+    coverage_names: tuple[str, ...]
+    insured_role: str = 'self'
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioArchetype:
+    key: str
+    policies: tuple[PolicyArchetype, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CustomerPortfolioSpec:
+    customer_key: str
+    archetype_key: str
 
 
 # Each row is authored independently and carries no source document or real identity.
@@ -318,104 +339,24 @@ _COVERAGE_AMOUNTS = {
     '비급여도수치료': 3_500_000,
     '치아임플란트': 1_000_000,
     '치아크라운': 500_000,
+    '여성특정질환수술': 3_000_000,
+    '유방암진단': 20_000_000,
+    '갑상선암진단': 5_000_000,
+    '질병종수술': 3_000_000,
+    '상해종수술': 3_000_000,
+    '골절수술': 2_000_000,
+    '화상수술': 2_000_000,
+    '소아암진단': 50_000_000,
+    '어린이질병수술': 2_000_000,
+    '어린이입원일당': 50_000,
+    '어린이상해수술': 2_000_000,
+    '어린이골절진단': 500_000,
+    '교통상해입원일당': 50_000,
+    '교통상해후유장해': 50_000_000,
+    '응급실내원': 300_000,
+    '특정감염병진단': 1_000_000,
+    '스포츠상해진단': 1_000_000,
 }
-
-_ANCHOR_COVERAGE_NAMES = (
-    (
-        '일반사망', '일반암진단', '유사암진단', '뇌혈관질환진단',
-        '허혈성심장질환진단', '질병수술', '질병입원일당',
-        '간병인입원일당', '간병인지원', '장기요양진단', '치매진단',
-        '경도치매진단', '중증치매진단', '뇌졸중진단',
-        '급성심근경색진단', '뇌혈관수술', '심혈관수술',
-        '의료비입원', '의료비통원', '비급여주사', '비급여도수치료',
-    ),
-    (
-        '일반사망', '일반암진단', '유사암진단', '고액암진단', '암수술',
-        '항암약물치료', '방사선치료', '표적항암치료',
-        '뇌혈관질환진단', '뇌졸중진단', '뇌혈관수술',
-        '허혈성심장질환진단', '급성심근경색진단', '심혈관수술',
-        '질병수술', '질병입원일당', '의료비입원', '의료비통원',
-        '치아임플란트', '치아크라운', '일상생활배상',
-    ),
-    (
-        '일반사망', '상해사망', '일반암진단', '유사암진단',
-        '뇌혈관질환진단', '허혈성심장질환진단', '질병후유장해',
-        '상해후유장해', '질병수술', '상해수술', '질병입원일당',
-        '상해입원일당', '암수술', '항암약물치료', '뇌졸중진단',
-        '급성심근경색진단', '골절진단', '화상진단', '일상생활배상',
-        '의료비입원', '의료비통원',
-    ),
-    (
-        '일반사망', '일반암진단', '유사암진단', '뇌혈관질환진단',
-        '허혈성심장질환진단', '암수술', '질병수술', '상해수술',
-        '질병입원일당', '상해입원일당', '항암약물치료', '방사선치료',
-        '표적항암치료', '골절진단', '깁스치료', '화상진단',
-        '일상생활배상', '의료비입원', '의료비통원',
-        '치아임플란트', '치아크라운',
-    ),
-    (
-        '상해사망', '상해후유장해', '상해수술', '상해입원일당',
-        '골절진단', '깁스치료', '화상진단', '일상생활배상',
-        '운전자벌금', '변호사비용', '교통사고처리지원', '일반암진단',
-        '유사암진단', '뇌혈관질환진단', '허혈성심장질환진단',
-        '질병수술', '의료비입원', '의료비통원', '비급여주사',
-        '비급여도수치료', '치아크라운',
-    ),
-    (
-        '의료비입원', '의료비통원', '비급여주사', '비급여도수치료',
-        '질병입원일당', '질병수술', '상해입원일당', '상해수술',
-        '골절진단', '깁스치료', '화상진단', '일반암진단',
-        '유사암진단', '암수술', '항암약물치료', '뇌혈관질환진단',
-        '허혈성심장질환진단', '치아임플란트', '치아크라운',
-        '일상생활배상', '상해후유장해',
-    ),
-    (
-        '상해사망', '상해후유장해', '상해수술', '상해입원일당',
-        '골절진단', '깁스치료', '화상진단', '일상생활배상',
-        '운전자벌금', '변호사비용', '교통사고처리지원', '일반사망',
-        '일반암진단', '뇌혈관질환진단', '허혈성심장질환진단',
-        '질병수술', '뇌졸중진단', '급성심근경색진단',
-        '의료비입원', '의료비통원', '질병후유장해',
-    ),
-    (
-        '일반사망', '일반암진단', '유사암진단', '뇌혈관질환진단',
-        '허혈성심장질환진단', '질병수술', '질병입원일당',
-        '간병인입원일당', '간병인지원', '장기요양진단', '치매진단',
-        '경도치매진단', '중증치매진단', '암수술', '항암약물치료',
-        '뇌졸중진단', '급성심근경색진단', '의료비입원',
-        '의료비통원', '일상생활배상', '상해후유장해',
-    ),
-)
-
-_ANCHOR_PRODUCT_TYPES = (
-    ('종합보장형', '간병보장형', '의료비보장형'),
-    ('건강보장형', '질병보장형', '의료비보장형'),
-    ('종합보장형', '질병보장형', '상해보장형'),
-    ('건강보장형', '질병보장형', '의료비보장형'),
-    ('상해보장형', '운전자보장형', '건강보장형'),
-    ('의료비보장형', '건강보장형', '질병보장형'),
-    ('상해보장형', '운전자보장형', '종합보장형'),
-    ('간병보장형', '질병보장형', '건강보장형'),
-)
-
-_GENERAL_COVERAGE_NAMES = (
-    '일반암진단',
-    '유사암진단',
-    '뇌혈관질환진단',
-    '허혈성심장질환진단',
-    '질병수술',
-    '상해수술',
-    '질병입원일당',
-    '상해입원일당',
-    '골절진단',
-    '깁스치료',
-    '상해후유장해',
-    '일상생활배상',
-    '의료비입원',
-    '의료비통원',
-    '운전자벌금',
-    '간병인지원',
-)
 
 _COMPANIES = (
     '생활보장사 A',
@@ -432,6 +373,380 @@ _PRODUCT_TYPES = (
     '어린이보장형',
     '운전자보장형',
     '의료비보장형',
+    '암보장형',
+)
+
+
+def _policy(
+    product_type: str,
+    *coverage_names: str,
+    insured_role: str = 'self',
+) -> PolicyArchetype:
+    return PolicyArchetype(
+        product_type=product_type,
+        coverage_names=coverage_names,
+        insured_role=insured_role,
+    )
+
+
+_HEALTH = _policy(
+    '건강보장형',
+    '일반암진단',
+    '뇌혈관질환진단',
+    '허혈성심장질환진단',
+    '뇌졸중진단',
+    '급성심근경색진단',
+    '뇌혈관수술',
+    '심혈관수술',
+    '질병수술',
+)
+_DIAGNOSIS_HEALTH = _policy(
+    '건강보장형',
+    '일반암진단',
+    '뇌혈관질환진단',
+    '허혈성심장질환진단',
+    '고액암진단',
+    '뇌졸중진단',
+    '급성심근경색진단',
+    '질병수술',
+)
+_CANCER = _policy(
+    '암보장형',
+    '일반암진단',
+    '유사암진단',
+    '암수술',
+    '고액암진단',
+    '항암약물치료',
+    '방사선치료',
+    '표적항암치료',
+)
+_DISEASE = _policy(
+    '질병보장형',
+    '질병수술',
+    '질병입원일당',
+    '일반암진단',
+    '뇌혈관질환진단',
+    '허혈성심장질환진단',
+    '질병후유장해',
+    '질병종수술',
+)
+_INJURY = _policy(
+    '상해보장형',
+    '상해수술',
+    '상해후유장해',
+    '상해입원일당',
+    '골절진단',
+    '깁스치료',
+    '화상진단',
+    '일상생활배상',
+)
+_CARE = _policy(
+    '간병보장형',
+    '간병인지원',
+    '장기요양진단',
+    '간병인입원일당',
+    '치매진단',
+    '경도치매진단',
+    '중증치매진단',
+    '질병입원일당',
+)
+_DRIVER = _policy(
+    '운전자보장형',
+    '운전자벌금',
+    '변호사비용',
+    '교통사고처리지원',
+    '상해수술',
+    '상해후유장해',
+    '교통상해입원일당',
+    '교통상해후유장해',
+)
+_MEDICAL = _policy(
+    '의료비보장형',
+    '의료비입원',
+    '의료비통원',
+    '비급여주사',
+    '비급여도수치료',
+    '질병수술',
+    '질병입원일당',
+    '응급실내원',
+)
+_COMPREHENSIVE = _policy(
+    '종합보장형',
+    '일반사망',
+    '일반암진단',
+    '뇌혈관질환진단',
+    '허혈성심장질환진단',
+    '질병수술',
+    '상해수술',
+    '상해후유장해',
+)
+_CHILD = _policy(
+    '어린이보장형',
+    '소아암진단',
+    '어린이질병수술',
+    '어린이입원일당',
+    '어린이상해수술',
+    '어린이골절진단',
+    '의료비입원',
+    '의료비통원',
+    insured_role='child',
+)
+_WOMEN_CANCER = _policy(
+    '암보장형',
+    '일반암진단',
+    '유사암진단',
+    '암수술',
+    '여성특정질환수술',
+    '유방암진단',
+    '갑상선암진단',
+    '항암약물치료',
+)
+_WOMEN_HEALTH = _policy(
+    '건강보장형',
+    '일반암진단',
+    '뇌혈관질환진단',
+    '허혈성심장질환진단',
+    '여성특정질환수술',
+    '유방암진단',
+    '갑상선암진단',
+    '질병수술',
+)
+_SURGERY_INPATIENT = _policy(
+    '질병보장형',
+    '질병수술',
+    '질병입원일당',
+    '일반암진단',
+    '상해수술',
+    '질병종수술',
+    '뇌혈관수술',
+    '심혈관수술',
+    '암수술',
+)
+_INJURY_SURGERY = _policy(
+    '상해보장형',
+    '상해수술',
+    '상해후유장해',
+    '상해종수술',
+    '골절수술',
+    '화상수술',
+    '골절진단',
+    '깁스치료',
+)
+_YOUNG_INJURY = _policy(
+    '상해보장형',
+    '상해수술',
+    '상해후유장해',
+    '스포츠상해진단',
+    '골절진단',
+    '깁스치료',
+    '화상진단',
+    '일상생활배상',
+)
+_MEDICAL_DISEASE = _policy(
+    '의료비보장형',
+    '의료비입원',
+    '의료비통원',
+    '일반암진단',
+    '질병수술',
+    '질병입원일당',
+    '뇌혈관질환진단',
+    '비급여도수치료',
+)
+_YOUNG_DISEASE = _policy(
+    '질병보장형',
+    '질병수술',
+    '질병입원일당',
+    '일반암진단',
+    '갑상선암진단',
+    '특정감염병진단',
+    '질병후유장해',
+    '응급실내원',
+)
+_YOUNG_MEDICAL = _policy(
+    '의료비보장형',
+    '의료비입원',
+    '의료비통원',
+    '일반암진단',
+    '질병수술',
+    '질병입원일당',
+    '특정감염병진단',
+    '응급실내원',
+)
+_MEDICAL_DENTAL = _policy(
+    '의료비보장형',
+    '의료비입원',
+    '의료비통원',
+    '치아임플란트',
+    '치아크라운',
+    '질병수술',
+    '질병입원일당',
+    '비급여주사',
+)
+_CARE_MAJOR = _policy(
+    '간병보장형',
+    '간병인지원',
+    '장기요양진단',
+    '간병인입원일당',
+    '일반암진단',
+    '뇌혈관질환진단',
+    '허혈성심장질환진단',
+    '질병수술',
+)
+_FAMILY_DISEASE = _policy(
+    '종합보장형',
+    '일반사망',
+    '일반암진단',
+    '뇌혈관질환진단',
+    '허혈성심장질환진단',
+    '질병수술',
+    '질병입원일당',
+    '질병후유장해',
+)
+_FAMILY_INJURY = _policy(
+    '종합보장형',
+    '일반사망',
+    '일반암진단',
+    '상해수술',
+    '상해후유장해',
+    '상해입원일당',
+    '골절진단',
+    '일상생활배상',
+)
+_INJURY_LIABILITY = _policy(
+    '상해보장형',
+    '상해수술',
+    '상해후유장해',
+    '일상생활배상',
+    '상해입원일당',
+    '골절진단',
+    '깁스치료',
+    '화상진단',
+)
+_DRIVER_CARE = _policy(
+    '종합보장형',
+    '일반사망',
+    '일반암진단',
+    '운전자벌금',
+    '변호사비용',
+    '교통사고처리지원',
+    '간병인지원',
+    '장기요양진단',
+)
+_INJURY_CARE = _policy(
+    '종합보장형',
+    '일반사망',
+    '일반암진단',
+    '상해수술',
+    '상해후유장해',
+    '간병인지원',
+    '장기요양진단',
+)
+_LIABILITY_DISEASE = _policy(
+    '종합보장형',
+    '일반사망',
+    '일반암진단',
+    '질병수술',
+    '질병입원일당',
+    '일상생활배상',
+    '뇌혈관질환진단',
+    '허혈성심장질환진단',
+)
+
+PORTFOLIO_ARCHETYPES = (
+    PortfolioArchetype('anchor-senior-care', (_CARE, _MEDICAL, _HEALTH)),
+    PortfolioArchetype('anchor-major-disease', (_CANCER, _HEALTH, _MEDICAL_DENTAL)),
+    PortfolioArchetype('anchor-family-income', (_COMPREHENSIVE, _HEALTH, _INJURY)),
+    PortfolioArchetype(
+        'anchor-parent-surgery',
+        (_SURGERY_INPATIENT, _INJURY_SURGERY, _CHILD),
+    ),
+    PortfolioArchetype('anchor-active-driver', (_DRIVER, _INJURY, _MEDICAL)),
+    PortfolioArchetype(
+        'anchor-women-medical',
+        (_MEDICAL, _WOMEN_CANCER, _WOMEN_HEALTH),
+    ),
+    PortfolioArchetype('anchor-driver-family', (_DRIVER, _COMPREHENSIVE, _CHILD)),
+    PortfolioArchetype(
+        'anchor-young-basic',
+        (_YOUNG_MEDICAL, _YOUNG_DISEASE, _YOUNG_INJURY),
+    ),
+    PortfolioArchetype('occupational-injury-surgery', (_INJURY_SURGERY, _DISEASE)),
+    PortfolioArchetype('medical-standard', (_MEDICAL, _HEALTH)),
+    PortfolioArchetype('family-injury', (_FAMILY_INJURY, _INJURY)),
+    PortfolioArchetype('disease-inpatient', (_DISEASE, _MEDICAL)),
+    PortfolioArchetype('major-disease', (_HEALTH, _CANCER)),
+    PortfolioArchetype('surgery-inpatient', (_SURGERY_INPATIENT, _INJURY_SURGERY)),
+    PortfolioArchetype('medical-disease', (_MEDICAL_DISEASE, _DISEASE)),
+    PortfolioArchetype('family-disease', (_FAMILY_DISEASE, _HEALTH)),
+    PortfolioArchetype('injury-disability', (_INJURY, _MEDICAL)),
+    PortfolioArchetype('young-basic-medical', (_YOUNG_MEDICAL, _YOUNG_DISEASE)),
+    PortfolioArchetype('senior-care-medical', (_CARE, _MEDICAL)),
+    PortfolioArchetype('family-income-disease', (_FAMILY_DISEASE, _CANCER)),
+    PortfolioArchetype('mixed-injury-disease', (_COMPREHENSIVE, _INJURY)),
+    PortfolioArchetype('senior-care-major', (_CARE_MAJOR, _HEALTH)),
+    PortfolioArchetype('injury-liability', (_INJURY_LIABILITY, _MEDICAL)),
+    PortfolioArchetype('young-basic-disease', (_YOUNG_DISEASE, _MEDICAL)),
+    PortfolioArchetype('driver-injury', (_DRIVER, _INJURY)),
+    PortfolioArchetype('diagnosis-focus', (_DIAGNOSIS_HEALTH, _CANCER)),
+    PortfolioArchetype('driver-care', (_DRIVER_CARE, _CARE)),
+    PortfolioArchetype('inpatient-surgery', (_SURGERY_INPATIENT, _MEDICAL)),
+    PortfolioArchetype('disease-surgery', (_SURGERY_INPATIENT, _CANCER)),
+    PortfolioArchetype('injury-care', (_INJURY_CARE, _CARE)),
+    PortfolioArchetype('dental-medical', (_MEDICAL_DENTAL, _CANCER)),
+    PortfolioArchetype('liability-disease', (_LIABILITY_DISEASE, _HEALTH)),
+)
+
+CUSTOMER_PORTFOLIOS = (
+    CustomerPortfolioSpec('customer-01', 'anchor-senior-care'),
+    CustomerPortfolioSpec('customer-02', 'anchor-major-disease'),
+    CustomerPortfolioSpec('customer-03', 'anchor-family-income'),
+    CustomerPortfolioSpec('customer-04', 'anchor-parent-surgery'),
+    CustomerPortfolioSpec('customer-05', 'anchor-active-driver'),
+    CustomerPortfolioSpec('customer-06', 'anchor-women-medical'),
+    CustomerPortfolioSpec('customer-07', 'anchor-driver-family'),
+    CustomerPortfolioSpec('customer-08', 'anchor-young-basic'),
+    CustomerPortfolioSpec('customer-09', 'occupational-injury-surgery'),
+    CustomerPortfolioSpec('customer-10', 'medical-standard'),
+    CustomerPortfolioSpec('customer-11', 'family-injury'),
+    CustomerPortfolioSpec('customer-12', 'disease-inpatient'),
+    CustomerPortfolioSpec('customer-13', 'major-disease'),
+    CustomerPortfolioSpec('customer-14', 'surgery-inpatient'),
+    CustomerPortfolioSpec('customer-15', 'medical-disease'),
+    CustomerPortfolioSpec('customer-16', 'family-disease'),
+    CustomerPortfolioSpec('customer-17', 'injury-disability'),
+    CustomerPortfolioSpec('customer-18', 'young-basic-medical'),
+    CustomerPortfolioSpec('customer-19', 'senior-care-medical'),
+    CustomerPortfolioSpec('customer-20', 'family-income-disease'),
+    CustomerPortfolioSpec('customer-21', 'mixed-injury-disease'),
+    CustomerPortfolioSpec('customer-22', 'medical-standard'),
+    CustomerPortfolioSpec('customer-23', 'senior-care-major'),
+    CustomerPortfolioSpec('customer-24', 'surgery-inpatient'),
+    CustomerPortfolioSpec('customer-25', 'injury-liability'),
+    CustomerPortfolioSpec('customer-26', 'young-basic-disease'),
+    CustomerPortfolioSpec('customer-27', 'driver-injury'),
+    CustomerPortfolioSpec('customer-28', 'diagnosis-focus'),
+    CustomerPortfolioSpec('customer-29', 'driver-care'),
+    CustomerPortfolioSpec('customer-30', 'young-basic-medical'),
+    CustomerPortfolioSpec('customer-31', 'mixed-injury-disease'),
+    CustomerPortfolioSpec('customer-32', 'inpatient-surgery'),
+    CustomerPortfolioSpec('customer-33', 'injury-disability'),
+    CustomerPortfolioSpec('customer-34', 'medical-disease'),
+    CustomerPortfolioSpec('customer-35', 'senior-care-major'),
+    CustomerPortfolioSpec('customer-36', 'dental-medical'),
+    CustomerPortfolioSpec('customer-37', 'occupational-injury-surgery'),
+    CustomerPortfolioSpec('customer-38', 'liability-disease'),
+    CustomerPortfolioSpec('customer-39', 'driver-injury'),
+    CustomerPortfolioSpec('customer-40', 'family-disease'),
+    CustomerPortfolioSpec('customer-41', 'mixed-injury-disease'),
+    CustomerPortfolioSpec('customer-42', 'young-basic-medical'),
+    CustomerPortfolioSpec('customer-43', 'major-disease'),
+    CustomerPortfolioSpec('customer-44', 'disease-surgery'),
+    CustomerPortfolioSpec('customer-45', 'injury-liability'),
+    CustomerPortfolioSpec('customer-46', 'medical-disease'),
+    CustomerPortfolioSpec('customer-47', 'injury-care'),
+    CustomerPortfolioSpec('customer-48', 'disease-inpatient'),
+    CustomerPortfolioSpec('customer-49', 'family-injury'),
+    CustomerPortfolioSpec('customer-50', 'young-basic-disease'),
 )
 _MONTH_OFFSETS = (
     (5,) * 8
@@ -465,6 +780,14 @@ def _coverage_specs(names: tuple[str, ...], seed: int) -> tuple[CoverageSpec, ..
 
 
 def _build_insurance_specs() -> tuple[InsuranceSpec, ...]:
+    portfolio_by_customer = {
+        assignment.customer_key: assignment.archetype_key
+        for assignment in CUSTOMER_PORTFOLIOS
+    }
+    archetype_by_key = {
+        archetype.key: archetype
+        for archetype in PORTFOLIO_ARCHETYPES
+    }
     customer_occurrences: Counter[str] = Counter()
     policies = []
     for index, (customer_key, month_offset) in enumerate(
@@ -473,29 +796,21 @@ def _build_insurance_specs() -> tuple[InsuranceSpec, ...]:
     ):
         policy_position = customer_occurrences[customer_key]
         customer_occurrences[customer_key] += 1
-        if customer_key in ANCHOR_CUSTOMER_KEYS:
-            anchor_index = ANCHOR_CUSTOMER_KEYS.index(customer_key)
-            start = policy_position * 7
-            names = _ANCHOR_COVERAGE_NAMES[anchor_index][start:start + 7]
-            product_type = _ANCHOR_PRODUCT_TYPES[anchor_index][policy_position]
-        else:
-            start = (index * 3) % len(_GENERAL_COVERAGE_NAMES)
-            names = tuple(
-                _GENERAL_COVERAGE_NAMES[
-                    (start + coverage_index) % len(_GENERAL_COVERAGE_NAMES)
-                ]
-                for coverage_index in range(4)
-            )
-            product_type = _PRODUCT_TYPES[(index - 1) % len(_PRODUCT_TYPES)]
+        archetype = archetype_by_key[portfolio_by_customer[customer_key]]
+        policy_archetype = archetype.policies[policy_position]
 
         policies.append(InsuranceSpec(
             key=f'policy-{index:02d}',
             customer_key=customer_key,
             company_name=_COMPANIES[(index - 1) % len(_COMPANIES)],
-            product_type=product_type,
+            product_type=policy_archetype.product_type,
+            insured_role=policy_archetype.insured_role,
             monthly_premium=29_000 + ((index * 7_300) % 128_000),
             registered_month_offset=month_offset,
-            coverages=_coverage_specs(names, seed=index),
+            coverages=_coverage_specs(
+                policy_archetype.coverage_names,
+                seed=index,
+            ),
         ))
     return tuple(policies)
 
@@ -536,6 +851,62 @@ _REAL_INSURER_OR_RESULT_TERMS = (
     '계약 달성',
     '매출 달성',
     'mdrt',
+)
+_PRODUCT_COVERAGE_REQUIREMENTS = (
+    ('종합보장형', ('일반사망', '일반암진단')),
+    (
+        '건강보장형',
+        ('일반암진단', '뇌혈관질환진단', '허혈성심장질환진단'),
+    ),
+    ('질병보장형', ('질병수술', '질병입원일당')),
+    ('상해보장형', ('상해수술', '상해후유장해')),
+    ('간병보장형', ('간병인지원', '장기요양진단')),
+    ('어린이보장형', ('소아암진단', '어린이질병수술')),
+    (
+        '운전자보장형',
+        ('운전자벌금', '변호사비용', '교통사고처리지원'),
+    ),
+    ('의료비보장형', ('의료비입원', '의료비통원')),
+    ('암보장형', ('일반암진단', '유사암진단', '암수술')),
+)
+_FOCUS_COVERAGE_REQUIREMENTS = (
+    ('간병', ('간병인지원', '장기요양진단')),
+    ('노후', ('간병인지원', '장기요양진단')),
+    (
+        '운전자',
+        ('운전자벌금', '변호사비용', '교통사고처리지원'),
+    ),
+    ('의료비', ('의료비입원', '의료비통원')),
+    (
+        '3대 질병',
+        ('일반암진단', '뇌혈관질환진단', '허혈성심장질환진단'),
+    ),
+    (
+        '암과 심뇌혈관',
+        ('일반암진단', '뇌혈관질환진단', '허혈성심장질환진단'),
+    ),
+    ('질병', ('일반암진단', '질병수술')),
+    ('상해', ('상해수술', '상해후유장해')),
+    (
+        '수술과 입원',
+        ('질병수술', '상해수술', '질병입원일당'),
+    ),
+    ('입원', ('질병입원일당',)),
+    ('치아', ('치아임플란트', '치아크라운')),
+    ('배상', ('일상생활배상',)),
+    ('여성 건강', ('여성특정질환수술',)),
+    ('생활비', ('일반사망',)),
+    ('가족', ('일반사망',)),
+    ('기초', ('일반암진단', '질병수술')),
+    ('후유장해', ('상해후유장해',)),
+)
+_SENIOR_CARE_COVERAGES = (
+    '간병인입원일당',
+    '간병인지원',
+    '장기요양진단',
+    '치매진단',
+    '경도치매진단',
+    '중증치매진단',
 )
 
 
@@ -613,6 +984,30 @@ def validate_showcase_specs() -> None:
         '핵심 고객의 연령과 생활 맥락을 확인해 주세요.',
     )
 
+    archetype_keys = tuple(
+        archetype.key for archetype in PORTFOLIO_ARCHETYPES
+    )
+    assignment_keys = tuple(
+        assignment.customer_key for assignment in CUSTOMER_PORTFOLIOS
+    )
+    _require(
+        len(set(archetype_keys)) == len(archetype_keys),
+        '포트폴리오 유형 키 중복을 확인해 주세요.',
+    )
+    _require(
+        len(CUSTOMER_PORTFOLIOS) == CUSTOMER_COUNT
+        and len(set(assignment_keys)) == CUSTOMER_COUNT
+        and set(assignment_keys) == set(customer_keys),
+        '고객별 포트폴리오 유형 연결을 확인해 주세요.',
+    )
+    _require(
+        all(
+            assignment.archetype_key in archetype_keys
+            for assignment in CUSTOMER_PORTFOLIOS
+        ),
+        '등록되지 않은 포트폴리오 유형을 확인해 주세요.',
+    )
+
     policy_keys = tuple(policy.key for policy in INSURANCES)
     _require(
         len(set(policy_keys)) == INSURANCE_COUNT,
@@ -647,6 +1042,86 @@ def validate_showcase_specs() -> None:
             for policy in INSURANCES
         ),
         '증권 보험료와 담보 구성을 확인해 주세요.',
+    )
+    product_requirements = {
+        product_type: set(required)
+        for product_type, required in _PRODUCT_COVERAGE_REQUIREMENTS
+    }
+    _require(
+        set(product_requirements).issubset({
+            policy.product_type for policy in INSURANCES
+        }),
+        '상품 유형별 자료 구성을 확인해 주세요.',
+    )
+    _require(
+        all(
+            product_requirements[policy.product_type].issubset({
+                coverage.name for coverage in policy.coverages
+            })
+            for policy in INSURANCES
+        ),
+        '상품 유형과 담보 의미를 확인해 주세요.',
+    )
+    customer_by_key = {customer.key: customer for customer in CUSTOMERS}
+    _require(
+        all(
+            policy.insured_role in {'self', 'child'}
+            and (
+                policy.product_type != '어린이보장형'
+                or (
+                    policy.insured_role == 'self'
+                    and customer_by_key[policy.customer_key].birth_date.year >= 2008
+                )
+                or (
+                    policy.insured_role == 'child'
+                    and '자녀' in customer_by_key[policy.customer_key].family_context
+                )
+            )
+            for policy in INSURANCES
+        ),
+        '어린이 보장의 피보험 맥락을 확인해 주세요.',
+    )
+
+    coverages_by_customer = {
+        customer.key: {
+            coverage.name
+            for policy in INSURANCES
+            if policy.customer_key == customer.key
+            for coverage in policy.coverages
+        }
+        for customer in CUSTOMERS
+    }
+    _require(
+        all(
+            set(required).issubset(coverages_by_customer[customer.key])
+            for customer in CUSTOMERS
+            for keyword, required in _FOCUS_COVERAGE_REQUIREMENTS
+            if keyword in customer.coverage_focus
+        ),
+        '고객 보장 관심사와 담보 구성을 확인해 주세요.',
+    )
+    _require(
+        all(
+            not (
+                customer.birth_date.year >= 2000
+                and '기초' in customer.coverage_focus
+            )
+            or set(_SENIOR_CARE_COVERAGES).isdisjoint(
+                coverages_by_customer[customer.key]
+            )
+            for customer in CUSTOMERS
+        ),
+        '젊은 고객의 기초 보장 구성을 확인해 주세요.',
+    )
+    _require(
+        all(
+            (
+                len(coverages_by_customer[left] & coverages_by_customer[right])
+                / len(coverages_by_customer[left] | coverages_by_customer[right])
+            ) <= 0.60
+            for left, right in combinations(ANCHOR_CUSTOMER_KEYS, 2)
+        ),
+        '핵심 고객 담보 구성이 과도하게 겹칩니다.',
     )
 
     month_counts = Counter(

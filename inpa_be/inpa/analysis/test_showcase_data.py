@@ -3,10 +3,11 @@ import importlib
 import re
 from collections import Counter
 from dataclasses import FrozenInstanceError, replace
+from itertools import combinations
+from unittest.mock import patch
 
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase
-from unittest.mock import patch
 
 try:
     specs = importlib.import_module('inpa.analysis.showcase_data')
@@ -149,6 +150,16 @@ class ShowcaseCustomerSpecsTests(ShowcaseSpecTestCase):
 
 
 class ShowcaseInsuranceSpecsTests(ShowcaseSpecTestCase):
+    def _policies_by_customer(self):
+        return {
+            customer.key: tuple(
+                policy
+                for policy in specs.INSURANCES
+                if policy.customer_key == customer.key
+            )
+            for customer in specs.CUSTOMERS
+        }
+
     def test_eighty_policies_are_assigned_to_all_fifty_customers(self):
         self.assertEqual(specs.INSURANCE_COUNT, 80)
         self.assertIsInstance(specs.INSURANCES, tuple)
@@ -219,6 +230,7 @@ class ShowcaseInsuranceSpecsTests(ShowcaseSpecTestCase):
             '어린이보장형',
             '운전자보장형',
             '의료비보장형',
+            '암보장형',
         }
         self.assertEqual(
             {policy.company_name for policy in specs.INSURANCES},
@@ -228,6 +240,208 @@ class ShowcaseInsuranceSpecsTests(ShowcaseSpecTestCase):
             policy.product_type in allowed_products
             for policy in specs.INSURANCES
         ))
+
+    def test_each_customer_explicitly_selects_an_immutable_portfolio_archetype(self):
+        assignments = getattr(specs, 'CUSTOMER_PORTFOLIOS', None)
+        self.assertIsInstance(assignments, tuple)
+        self.assertEqual(len(assignments), 50)
+        self.assertTrue(dataclasses.is_dataclass(specs.CustomerPortfolioSpec))
+        self.assertEqual(
+            {assignment.customer_key for assignment in assignments},
+            {customer.key for customer in specs.CUSTOMERS},
+        )
+        self.assertTrue(all(assignment.archetype_key for assignment in assignments))
+        with self.assertRaises(FrozenInstanceError):
+            assignments[0].archetype_key = 'changed'
+
+    def test_child_products_require_an_eligible_insured_context(self):
+        customer_by_key = {
+            customer.key: customer for customer in specs.CUSTOMERS
+        }
+        child_policies = [
+            policy
+            for policy in specs.INSURANCES
+            if policy.product_type == '어린이보장형'
+        ]
+        self.assertTrue(child_policies)
+        for policy in child_policies:
+            customer = customer_by_key[policy.customer_key]
+            insured_role = getattr(policy, 'insured_role', 'self')
+            eligible_self = (
+                insured_role == 'self'
+                and customer.birth_date.year >= 2008
+            )
+            eligible_child = (
+                insured_role == 'child'
+                and '자녀' in customer.family_context
+            )
+            self.assertTrue(
+                eligible_self or eligible_child,
+                f'{customer.name}님의 어린이보장형 피보험 맥락이 맞지 않습니다.',
+            )
+
+    def test_each_product_type_contains_its_required_coverage_meaning(self):
+        required_coverages = {
+            '종합보장형': {'일반사망', '일반암진단'},
+            '건강보장형': {
+                '일반암진단',
+                '뇌혈관질환진단',
+                '허혈성심장질환진단',
+            },
+            '질병보장형': {'질병수술', '질병입원일당'},
+            '상해보장형': {'상해수술', '상해후유장해'},
+            '간병보장형': {'간병인지원', '장기요양진단'},
+            '어린이보장형': {'소아암진단', '어린이질병수술'},
+            '운전자보장형': {
+                '운전자벌금',
+                '변호사비용',
+                '교통사고처리지원',
+            },
+            '의료비보장형': {'의료비입원', '의료비통원'},
+            '암보장형': {'일반암진단', '유사암진단', '암수술'},
+        }
+        self.assertTrue(
+            set(required_coverages).issubset({
+                policy.product_type for policy in specs.INSURANCES
+            })
+        )
+        for policy in specs.INSURANCES:
+            coverage_names = {
+                coverage.name for coverage in policy.coverages
+            }
+            self.assertTrue(
+                required_coverages[policy.product_type] <= coverage_names,
+                f'{policy.key} {policy.product_type} 담보 의미가 맞지 않습니다.',
+            )
+
+    def test_customer_focus_keywords_have_required_coverage_groups(self):
+        focus_requirements = (
+            ('간병', {'간병인지원', '장기요양진단'}),
+            ('노후', {'간병인지원', '장기요양진단'}),
+            ('운전자', {
+                '운전자벌금',
+                '변호사비용',
+                '교통사고처리지원',
+            }),
+            ('의료비', {'의료비입원', '의료비통원'}),
+            ('3대 질병', {
+                '일반암진단',
+                '뇌혈관질환진단',
+                '허혈성심장질환진단',
+            }),
+            ('암과 심뇌혈관', {
+                '일반암진단',
+                '뇌혈관질환진단',
+                '허혈성심장질환진단',
+            }),
+            ('질병', {'일반암진단', '질병수술'}),
+            ('상해', {'상해수술', '상해후유장해'}),
+            ('수술과 입원', {
+                '질병수술',
+                '상해수술',
+                '질병입원일당',
+            }),
+            ('입원', {'질병입원일당'}),
+            ('치아', {'치아임플란트', '치아크라운'}),
+            ('배상', {'일상생활배상'}),
+            ('여성 건강', {'여성특정질환수술'}),
+            ('생활비', {'일반사망'}),
+            ('가족', {'일반사망'}),
+            ('기초', {'일반암진단', '질병수술'}),
+            ('후유장해', {'상해후유장해'}),
+        )
+        policies_by_customer = self._policies_by_customer()
+        for customer in specs.CUSTOMERS:
+            coverage_names = {
+                coverage.name
+                for policy in policies_by_customer[customer.key]
+                for coverage in policy.coverages
+            }
+            for keyword, required in focus_requirements:
+                if keyword in customer.coverage_focus:
+                    self.assertTrue(
+                        required <= coverage_names,
+                        f'{customer.name}님의 {keyword} 담보군이 부족합니다.',
+                    )
+
+    def test_anchor_coverage_sets_have_pairwise_jaccard_at_most_point_six(self):
+        policies_by_customer = self._policies_by_customer()
+        coverage_sets = {
+            key: {
+                coverage.name
+                for policy in policies_by_customer[key]
+                for coverage in policy.coverages
+            }
+            for key in specs.ANCHOR_CUSTOMER_KEYS
+        }
+        for left, right in combinations(specs.ANCHOR_CUSTOMER_KEYS, 2):
+            similarity = (
+                len(coverage_sets[left] & coverage_sets[right])
+                / len(coverage_sets[left] | coverage_sets[right])
+            )
+            self.assertLessEqual(
+                similarity,
+                0.60,
+                f'{left}와 {right} 담보 유사도가 {similarity:.3f}입니다.',
+            )
+
+    def test_young_basic_anchor_has_no_senior_care_coverages(self):
+        policies_by_customer = self._policies_by_customer()
+        coverage_names = {
+            coverage.name
+            for policy in policies_by_customer['customer-08']
+            for coverage in policy.coverages
+        }
+        self.assertTrue(coverage_names.isdisjoint({
+            '간병인입원일당',
+            '간병인지원',
+            '장기요양진단',
+            '치매진단',
+            '경도치매진단',
+            '중증치매진단',
+        }))
+
+    def test_previous_circular_offset_pairs_do_not_copy_portfolios(self):
+        previous_clone_pairs = (
+            ('customer-09', 'customer-17'),
+            ('customer-10', 'customer-18'),
+            ('customer-11', 'customer-19'),
+            ('customer-12', 'customer-20'),
+            ('customer-13', 'customer-21'),
+            ('customer-14', 'customer-22'),
+            ('customer-23', 'customer-39'),
+            ('customer-24', 'customer-40'),
+            ('customer-25', 'customer-41'),
+            ('customer-26', 'customer-42'),
+            ('customer-27', 'customer-43'),
+            ('customer-28', 'customer-44'),
+            ('customer-29', 'customer-45'),
+            ('customer-30', 'customer-46'),
+            ('customer-31', 'customer-47'),
+            ('customer-32', 'customer-48'),
+            ('customer-33', 'customer-49'),
+            ('customer-34', 'customer-50'),
+        )
+        policies_by_customer = self._policies_by_customer()
+
+        def signature(customer_key):
+            return tuple(
+                (
+                    policy.product_type,
+                    getattr(policy, 'insured_role', 'self'),
+                    frozenset(
+                        coverage.name for coverage in policy.coverages
+                    ),
+                )
+                for policy in policies_by_customer[customer_key]
+            )
+
+        for left, right in previous_clone_pairs:
+            self.assertNotEqual(
+                signature(left),
+                signature(right),
+                f'{left}와 {right} 포트폴리오가 복제됐습니다.',
+            )
 
 
 class ShowcaseCopySafetyTests(ShowcaseSpecTestCase):
