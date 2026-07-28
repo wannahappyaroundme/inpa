@@ -2873,6 +2873,15 @@ class FeeSerializerTests(TestCase):
         self.assertEqual(data2['total_renewal_premium'], 0)
         self.assertEqual(data2['total_non_renewal_premium'], 500)
 
+    def test_case_fee_prefers_the_policy_raw_coverage_name(self):
+        """저장용 카탈로그 위치보다 증권에서 확인한 실제 담보명을 보여준다."""
+        self.case.raw_name = '통합암진단특약'
+        self.case.save(update_fields=['raw_name'])
+
+        data = CaseFeeSerializer(self.case).data
+
+        self.assertEqual(data['detail_name'], '통합암진단특약')
+
     def test_insurance_fee_nests_case_fees(self):
         data = InsuranceFeeSerializer(self.ci).data
         self.assertEqual(data['monthly_renewal_premium'], 20000)

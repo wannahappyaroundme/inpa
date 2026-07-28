@@ -69,7 +69,7 @@ class CustomerInsuranceDetailSerializer(serializers.ModelSerializer):
 
 class CaseFeeSerializer(serializers.ModelSerializer):
     """담보별 요금(사실) — 판정 없음."""
-    detail_name = serializers.CharField(source='detail.name', read_only=True)
+    detail_name = serializers.SerializerMethodField()
     is_renewal = serializers.SerializerMethodField()
 
     class Meta:
@@ -80,6 +80,9 @@ class CaseFeeSerializer(serializers.ModelSerializer):
 
     def get_is_renewal(self, obj):
         return obj.is_renewal_case
+
+    def get_detail_name(self, obj):
+        return obj.raw_name.strip() or obj.detail.name
 
 
 class InsuranceFeeSerializer(serializers.ModelSerializer):
