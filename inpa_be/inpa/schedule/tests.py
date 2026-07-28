@@ -107,6 +107,24 @@ class ScheduleCrudTests(TestCase):
         titles = {x['title'] for x in results}
         self.assertIn('고객 생일', titles)   # 다음 해에도 계속 노출
 
+    def test_month_filter_returns_a_full_busy_month(self):
+        """월간 캘린더는 기본 20건 제한 때문에 그달 후반 일정을 잃지 않는다."""
+        for day in range(1, 31):
+            ScheduleItem.objects.create(
+                owner=self.user,
+                kind='event',
+                title=f'7월 {day}일 일정',
+                start_at=f'2026-07-{day:02d}T01:00:00Z',
+            )
+
+        response = self.client.get(
+            '/api/v1/schedule-items/?month=2026-07',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['count'], 30)
+        self.assertEqual(len(response.json()['results']), 30)
+
 
 class ScheduleOwnerIsolationTests(TestCase):
     def setUp(self):
