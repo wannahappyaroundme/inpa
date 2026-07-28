@@ -480,6 +480,8 @@ describe("담보 기준 편집 변환", () => {
         recommend_min: "8000.00",
         recommend_max: null,
         unit: 1,
+        baseline_source: "planner",
+        is_active: true,
       },
       {
         analysis_detail: 101,
@@ -489,6 +491,8 @@ describe("담보 기준 편집 변환", () => {
         recommend_min: "9000.00",
         recommend_max: null,
         unit: 1,
+        baseline_source: "planner",
+        is_active: true,
       },
     );
     const server = catalogToDraft(extended);
