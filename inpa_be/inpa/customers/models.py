@@ -535,6 +535,8 @@ class PlannerBaseline(models.Model):
         (UNIT_WON, '원'),
         (UNIT_ACCOUNT, '구좌'),
     )
+    SOURCE_PLANNER = 'planner'
+    SOURCE_PRESET = 'preset'
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                               related_name='planner_baselines')

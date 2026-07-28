@@ -5,6 +5,8 @@ from inpa.customers.models import PlannerBaseline
 
 __all__ = [
     'baseline_candidates_for_detail',
+    'grading_eligible_baselines',
+    'is_grading_eligible_baseline',
     'normalize_money',
     'select_baseline',
 ]
@@ -40,6 +42,21 @@ def normalize_money(value, unit):
     return None
 
 
+def is_grading_eligible_baseline(row):
+    return bool(
+        getattr(row, 'is_active', True)
+        and getattr(row, 'baseline_source', None)
+        == PlannerBaseline.SOURCE_PLANNER
+    )
+
+
+def grading_eligible_baselines(candidates):
+    return [
+        row for row in candidates
+        if is_grading_eligible_baseline(row)
+    ]
+
+
 def select_baseline(candidates, *, insurance_type, age_band, gender):
     product_group = (
         insurance_type
@@ -53,9 +70,7 @@ def select_baseline(candidates, *, insurance_type, age_band, gender):
     allowed_ages = {age_band, PlannerBaseline.AGE_ALL}
     ranked = []
     for row in candidates:
-        if not getattr(row, 'is_active', True):
-            continue
-        if not getattr(row, 'baseline_source', 'planner'):
+        if not is_grading_eligible_baseline(row):
             continue
         if row.product_group not in allowed_products:
             continue

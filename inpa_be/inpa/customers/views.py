@@ -39,10 +39,7 @@ from .memos import (
     MAX_MEMO_BODY_LENGTH, create_manual_memo, delete_memo, sync_legacy_memo,
     update_memo,
 )
-from .presets import (
-    BASELINE_SOURCE_PRESET, PRESET_NOTE, PRESET_ORIGIN_V0, PRESET_V0,
-    iter_preset_rows,
-)
+from .presets import PRESET_NOTE, PRESET_ORIGIN_V0, PRESET_V0, iter_preset_rows
 from .serializers import (
     ConsentLogSerializer, ContactLogSerializer, ContractChecklistItemSerializer, CustomerListSerializer,
     CustomerMemoSerializer, CustomerSerializer, CustomerMedicalHistorySerializer, CustomerTagSerializer,
@@ -811,7 +808,7 @@ class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
                         'recommend_min': minimum,
                         'recommend_max': maximum,
                         'unit': change['unit'],
-                        'baseline_source': 'planner',
+                        'baseline_source': PlannerBaseline.SOURCE_PLANNER,
                         'preset_origin': None,
                         'is_active': True,
                     }
@@ -918,7 +915,7 @@ class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
                 recommend_min=recommend_min,
                 recommend_max=recommend_max,
                 unit=1,  # 만원 (STANDARD_TREE 단위)
-                baseline_source=BASELINE_SOURCE_PRESET,  # ★ graded 게이트 ON
+                baseline_source=PlannerBaseline.SOURCE_PRESET,  # ★ graded 게이트 ON
                 preset_origin=PRESET_ORIGIN_V0,
                 is_active=True,
             ))

@@ -7,7 +7,12 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from inpa.analysis.baselines import normalize_money, select_baseline
+from inpa.analysis.baselines import (
+    grading_eligible_baselines,
+    is_grading_eligible_baseline,
+    normalize_money,
+    select_baseline,
+)
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory
 from inpa.analysis.views import _age_band
 from inpa.accounts.models import Profile, User
@@ -48,6 +53,65 @@ class BaselineMoneyTests(SimpleTestCase):
         self.assertIsNone(
             normalize_money(Decimal('3'), PlannerBaseline.UNIT_ACCOUNT)
         )
+
+
+class BaselineSourceEligibilityTests(SimpleTestCase):
+    def test_only_active_planner_source_is_grading_eligible(self):
+        planner = _baseline(
+            PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            '30s',
+            1,
+            'planner',
+            baseline_source='planner',
+        )
+        preset = _baseline(
+            PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            '30s',
+            1,
+            'preset',
+            baseline_source='preset',
+        )
+        source_less = _baseline(
+            PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            '30s',
+            1,
+            'source-less',
+            baseline_source=None,
+        )
+        inactive = _baseline(
+            PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            '30s',
+            1,
+            'inactive',
+            is_active=False,
+            baseline_source='planner',
+        )
+
+        self.assertTrue(is_grading_eligible_baseline(planner))
+        self.assertFalse(is_grading_eligible_baseline(preset))
+        self.assertFalse(is_grading_eligible_baseline(source_less))
+        self.assertFalse(is_grading_eligible_baseline(inactive))
+        self.assertEqual(
+            grading_eligible_baselines(
+                [preset, source_less, planner, inactive]),
+            [planner],
+        )
+
+    def test_select_baseline_rejects_unreviewed_preset_defensively(self):
+        preset = _baseline(
+            PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            '30s',
+            1,
+            'preset',
+            baseline_source='preset',
+        )
+
+        self.assertIsNone(select_baseline(
+            [preset],
+            insurance_type=PlannerBaseline.PRODUCT_GROUP_NONLIFE,
+            age_band='30s',
+            gender=1,
+        ))
 
 
 class BaselineSelectionTests(SimpleTestCase):

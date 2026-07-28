@@ -190,7 +190,7 @@ class PlannerBaselineSerializer(serializers.ModelSerializer):
         if errors:
             raise serializers.ValidationError(errors)
         attrs['coverage_key'] = detail.name
-        attrs['baseline_source'] = 'planner'
+        attrs['baseline_source'] = PlannerBaseline.SOURCE_PLANNER
         attrs['preset_origin'] = None
         return attrs
 

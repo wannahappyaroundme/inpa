@@ -23,11 +23,13 @@ neutral → graded 로 바뀝니다(부족/충분 판정이 켜짐). 이는 의�
 """
 from __future__ import annotations  # 3.9 호환: PEP 604(int | None) 주석 지연 평가
 
+from .models import PlannerBaseline
+
 # 멱등/식별 라벨 — 적용된 프리셋의 출처를 PlannerBaseline.preset_origin 에 기록한다.
 PRESET_ORIGIN_V0 = 'v0_starter'
 
 # baseline_source 물리 키 — null 이 아니면 분석 graded 게이트가 열린다(준법 통제점).
-BASELINE_SOURCE_PRESET = 'preset'
+BASELINE_SOURCE_PRESET = PlannerBaseline.SOURCE_PRESET
 
 # 적용 시 항상 함께 내려보내는 한계 고지(정직성 레드라인). 응답 note 로 그대로 사용.
 PRESET_NOTE = (
