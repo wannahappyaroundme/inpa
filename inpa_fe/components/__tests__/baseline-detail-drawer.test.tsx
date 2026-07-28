@@ -16,6 +16,7 @@ const defaultScope: BaselineDraftScope = {
   recommend_min: "3000",
   recommend_max: null,
   unit: 1,
+  baseline_source: "planner",
 };
 
 const exceptionScope: BaselineDraftScope = {
@@ -26,6 +27,7 @@ const exceptionScope: BaselineDraftScope = {
   recommend_min: "5000",
   recommend_max: "7000",
   unit: 1,
+  baseline_source: "planner",
 };
 
 const detail: BaselineDraftDetail = {
@@ -125,6 +127,32 @@ describe("담보 상세 기준 드로어", () => {
     );
 
     expect(onScopeChange).toHaveBeenCalledWith(exceptionScope, null);
+  });
+
+  it("이전 기준을 확인한 뒤 내 기준으로 사용하도록 전환한다", async () => {
+    const user = userEvent.setup();
+    const presetScope = { ...defaultScope, baseline_source: "preset" };
+    const onScopeChange = vi.fn();
+    render(
+      <BaselineDetailDrawer
+        open
+        detail={{ ...detail, baselines: [presetScope, exceptionScope] }}
+        onClose={vi.fn()}
+        onScopeChange={onScopeChange}
+        onAddScope={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "이 금액을 확인한 뒤 내 기준으로 사용하면 분석에 반영돼요.",
+      ),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "내 기준으로 사용" }));
+    expect(onScopeChange).toHaveBeenCalledWith(
+      presetScope,
+      expect.objectContaining({ baseline_source: "planner" }),
+    );
   });
 
   it("실손과 연금저축 범위를 기존 값으로 표시하고 새 범위로 선택할 수 있다", async () => {

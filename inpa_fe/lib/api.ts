@@ -1180,6 +1180,8 @@ export interface HeatmapResponse {
   baseline_present: boolean;
   grading_enabled: boolean;
   baseline_count: number;       // graded 근거(보유한 살아있는 기준 수) — PM 06.24 명확화
+  applied_baseline_count?: number;
+  unapplied_baseline_count?: number;
   insurance_count: number;
   included_insurance_count: number;
   excluded_insurance_count: number;
@@ -1355,6 +1357,7 @@ export interface BaselineCatalogStoredScope {
   recommend_min: string | null;
   recommend_max: string | null;
   unit: BaselineUnit;
+  baseline_source: string | null;
 }
 
 export interface BaselineCatalogDetail {

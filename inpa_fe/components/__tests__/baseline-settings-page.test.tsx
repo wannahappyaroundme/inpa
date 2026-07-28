@@ -83,6 +83,7 @@ const catalog: BaselineCatalogResponse = {
                   recommend_min: "3000.00",
                   recommend_max: null,
                   unit: 1,
+                  baseline_source: "planner",
                 },
               ],
             },
@@ -294,6 +295,46 @@ describe("담보 전체 기준표 페이지 상태", () => {
       2,
       expect.objectContaining({ revision: 4 }),
     );
+  });
+
+  it("확인한 이전 기준은 저장할 때 내 기준으로 적용하고 출처는 보내지 않는다", async () => {
+    const user = userEvent.setup();
+    apiGet.mockResolvedValue({
+      ...structuredClone(catalog),
+      categories: [{
+        ...structuredClone(catalog.categories[0]),
+        subcategories: [{
+          ...structuredClone(catalog.categories[0].subcategories[0]),
+          details: [{
+            ...structuredClone(catalog.categories[0].subcategories[0].details[0]),
+            baselines: [{
+              ...structuredClone(catalog.categories[0].subcategories[0].details[0].baselines[0]),
+              baseline_source: "preset",
+            }],
+          }],
+        }],
+      }],
+    });
+    render(<BaselineSettingsPage />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "일반암 진단비 상세 설정" }),
+    );
+    await user.click(screen.getByRole("button", { name: "내 기준으로 사용" }));
+    await user.click(screen.getByRole("button", { name: "변경 내용 저장" }));
+
+    expect(apiSave).toHaveBeenCalledWith({
+      revision: 3,
+      changes: [{
+        analysis_detail_id: 101,
+        product_group: 0,
+        age_band: "all",
+        gender: null,
+        recommend_min: "3000",
+        recommend_max: null,
+        unit: 1,
+      }],
+    });
   });
 
   it("409 충돌은 입력값을 유지하고 사용자가 선택할 때만 새로 불러온다", async () => {

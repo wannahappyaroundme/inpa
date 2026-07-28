@@ -40,6 +40,7 @@ const catalog: BaselineCatalogResponse = {
                   recommend_min: "3000.00",
                   recommend_max: null,
                   unit: 1,
+                  baseline_source: "planner",
                 },
                 {
                   analysis_detail: 101,
@@ -49,6 +50,7 @@ const catalog: BaselineCatalogResponse = {
                   recommend_min: "5000.00",
                   recommend_max: "7000.00",
                   unit: 1,
+                  baseline_source: "planner",
                 },
               ],
             },
@@ -119,6 +121,7 @@ describe("담보 기준 편집 변환", () => {
         recommend_min: null,
         recommend_max: null,
         unit: 1,
+        baseline_source: null,
       },
     ]);
     expect(draft.categories[0].subcategories[0].details[0].baselines[0]).toEqual({
@@ -129,6 +132,7 @@ describe("담보 기준 편집 변환", () => {
       recommend_min: "3000",
       recommend_max: null,
       unit: 1,
+      baseline_source: "planner",
     });
   });
 
@@ -172,6 +176,27 @@ describe("담보 기준 편집 변환", () => {
 
     expect(buildBaselineChanges(server, draft)).toEqual([]);
     expect(countChangedScopes(server, draft)).toBe(0);
+  });
+
+  it("변경하지 않은 이전 기준을 내 기준으로 사용하면 저장 변경을 만든다", () => {
+    const server = structuredClone(catalog);
+    server.categories[0].subcategories[0].details[0].baselines[0] = {
+      ...server.categories[0].subcategories[0].details[0].baselines[0],
+      recommend_min: "5000",
+      recommend_max: null,
+      baseline_source: "preset",
+    };
+    const serverDraft = catalogToDraft(server);
+    const draft = structuredClone(serverDraft);
+    draft.categories[0].subcategories[0].details[0].baselines[0].baseline_source =
+      "planner";
+
+    expect(buildBaselineChanges(serverDraft, draft)).toEqual([
+      expect.objectContaining({
+        recommend_min: "5000",
+        recommend_max: null,
+      }),
+    ]);
   });
 
   it("대분류·중분류·담보명 검색을 각각 지원하고 빈 그룹은 제거한다", () => {

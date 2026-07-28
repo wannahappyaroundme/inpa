@@ -372,6 +372,9 @@ export function HeatmapGrid({
   const noHeldCoverage = heatmap.insurance_count > 0 && totalHeld === 0;
   const storedBaselineWithoutGrading =
     heatmap.baseline_present && !heatmap.grading_enabled;
+  const appliedBaselineCount =
+    heatmap.applied_baseline_count ?? heatmap.baseline_count;
+  const unappliedBaselineCount = heatmap.unapplied_baseline_count ?? 0;
   const baselineSettingsLabel = storedBaselineWithoutGrading
     ? "설정한 기준 확인하기"
     : "기준 설정하기";
@@ -382,7 +385,7 @@ export function HeatmapGrid({
       <div className="mb-3 text-[12px] leading-5">
         {heatmap.mode === "graded" ? (
           <span className="inline-block rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-emerald-800">
-            ✓ 내 기준 {heatmap.baseline_count}개 적용 중. 넉넉·적정·부족은 <b className="font-semibold">설정한 기준</b>에 따른 결과예요.
+            ✓ 내 기준 {appliedBaselineCount}개 적용 중. 넉넉·적정·부족은 <b className="font-semibold">설정한 기준</b>에 따른 결과예요.
           </span>
         ) : (
           <Link
@@ -390,7 +393,9 @@ export function HeatmapGrid({
             className="flex items-center justify-between gap-2 rounded-xl bg-surface2 border border-line px-3.5 py-2.5 hover:border-brand transition"
           >
             <span className="text-ink2">
-              {storedBaselineWithoutGrading ? (
+              {heatmap.grading_enabled && unappliedBaselineCount > 0 ? (
+                <>금액을 확인하고 저장하면 내 기준으로 적용돼요.</>
+              ) : storedBaselineWithoutGrading ? (
                 <>설정한 기준은 계속 확인할 수 있어요. 지금은 보유 내역만 표시돼요.</>
               ) : (
                 <>기준을 정하면 <b className="text-ink">넉넉·적정·부족</b>을 색으로 한눈에 볼 수 있어요. (지금은 보유 내역만 표시돼요)</>

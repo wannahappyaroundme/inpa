@@ -16,6 +16,7 @@ export interface BaselineDraftScope {
   recommend_min: string | null;
   recommend_max: string | null;
   unit: BaselineUnit;
+  baseline_source: string | null;
 }
 
 export interface BaselineDraftDetail {
@@ -117,6 +118,7 @@ export function catalogToDraft(
             recommend_min: normalizeBaselineAmount(baseline.recommend_min),
             recommend_max: normalizeBaselineAmount(baseline.recommend_max),
             unit: baseline.unit,
+            baseline_source: baseline.baseline_source,
           }));
           const defaultIndex = scopes.findIndex(
             (scope) =>
@@ -133,6 +135,7 @@ export function catalogToDraft(
                   recommend_min: null,
                   recommend_max: null,
                   unit: detail.unit,
+                  baseline_source: null,
                 };
           return {
             ...detail,
@@ -259,16 +262,27 @@ function sameScopeValue(
       normalizeBaselineAmount(right.recommend_min) &&
     normalizeBaselineAmount(left.recommend_max) ===
       normalizeBaselineAmount(right.recommend_max) &&
-    left.unit === right.unit
+    left.unit === right.unit &&
+    left.baseline_source === right.baseline_source
   );
 }
 
 function asChange(scope: BaselineDraftScope): PlannerBaselineBatchChange {
   return {
-    ...scope,
+    analysis_detail_id: scope.analysis_detail_id,
+    product_group: scope.product_group,
+    age_band: scope.age_band,
+    gender: scope.gender,
     recommend_min: normalizeBaselineAmount(scope.recommend_min),
     recommend_max: normalizeBaselineAmount(scope.recommend_max),
+    unit: scope.unit,
   };
+}
+
+export function adoptBaselineScope(
+  scope: BaselineDraftScope,
+): BaselineDraftScope {
+  return { ...scope, baseline_source: "planner" };
 }
 
 export function buildBaselineChanges(
