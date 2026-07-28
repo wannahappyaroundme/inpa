@@ -62,6 +62,8 @@ services:
         value: "True"                # 영업 > 설계사 영업 운영 공개
       - key: INSURANCE_REVIEW_GATE_ENABLED
         value: "False"               # 스테이징 평가와 PM 승인 전까지 검토형 경로 닫힘
+      - key: HEATMAP_GRADING_ENABLED
+        value: "True"                # 설계사가 직접 저장한 기준만 판정에 적용
       - key: CONSULTATION_RECORDING_ENABLED
         value: "False"               # 전용 R2·동의·운영 점검 뒤 파일럿 계정부터 공개
       - key: CONSULTATION_AI_SUMMARY_ENABLED

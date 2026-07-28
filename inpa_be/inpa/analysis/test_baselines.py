@@ -1,5 +1,8 @@
+import importlib.util
+import os
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -53,6 +56,18 @@ class BaselineMoneyTests(SimpleTestCase):
         self.assertIsNone(
             normalize_money(Decimal('3'), PlannerBaseline.UNIT_ACCOUNT)
         )
+
+
+class HeatmapGradingSettingsTests(SimpleTestCase):
+    def test_code_default_remains_fail_closed_without_environment_override(self):
+        settings_path = Path(__file__).resolve().parents[2] / 'config/settings/base.py'
+        with patch.dict(os.environ, {}, clear=True), patch('environ.Env.read_env'):
+            spec = importlib.util.spec_from_file_location(
+                'test_heatmap_grading_default_settings', settings_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+        self.assertFalse(module.HEATMAP_GRADING_ENABLED)
 
 
 class BaselineSourceEligibilityTests(SimpleTestCase):
