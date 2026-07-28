@@ -11,6 +11,7 @@ from django.db import transaction
 from django.db.models.deletion import SET_NULL
 from django.db.models import Q
 from django.utils import timezone
+from rest_framework.authtoken.models import Token
 
 from inpa.accounts.models import Profile
 from inpa.analysis.management.commands.seed_normalization import STANDARD_TREE
@@ -54,11 +55,8 @@ _SHOWCASE_PROFILE = {
 _COVERAGE_TO_STANDARD = {
     '갑상선암진단': '갑상선암진단비',
     '골절수술': '골절수술비',
-    '교통상해입원일당': '상해입원일당',
-    '교통상해후유장해': '상해후유장해',
     '급성심근경색진단': '급성심근경색진단비',
     '뇌졸중진단': '뇌졸중진단비',
-    '뇌혈관수술': '질병수술비',
     '뇌혈관질환진단': '뇌혈관질환진단비',
     '변호사비용': '변호사선임비',
     '비급여도수치료': '실손비급여도수치료',
@@ -67,11 +65,9 @@ _COVERAGE_TO_STANDARD = {
     '상해입원일당': '상해입원일당',
     '상해종수술': '상해수술비',
     '상해후유장해': '상해후유장해',
-    '심혈관수술': '질병수술비',
     '암수술': '암수술비',
     '어린이상해수술': '상해수술비',
     '어린이질병수술': '질병수술비',
-    '여성특정질환수술': '질병수술비',
     '유사암진단': '유사암진단비',
     '일반사망': '일반사망',
     '일반암진단': '일반암진단비',
@@ -477,6 +473,7 @@ class Command(BaseCommand):
                 'is_staff',
                 'is_superuser',
             ))
+        Token.objects.filter(user=user).delete()
 
         profile_values = {
             'email_verified_at': now,

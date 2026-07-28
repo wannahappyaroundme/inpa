@@ -14,6 +14,7 @@ from django.core.management.base import CommandError
 from django.db import connection
 from django.test import TestCase, override_settings
 from django.utils import timezone
+from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
 from inpa.accounts.models import Profile
@@ -58,15 +59,20 @@ User = get_user_model()
 
 _SHOWCASE_EMAIL = 'internal-showcase@test.example'
 _ARBITRARY_TEST_VALUE = 'test-only-value-' + '49xq'
+_ROTATED_TEST_VALUE = 'test-only-rotated-' + '83ks'
 _PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+_OVERMAPPING_DENYLIST = (
+    '뇌혈관수술',
+    '심혈관수술',
+    '여성특정질환수술',
+    '교통상해입원일당',
+    '교통상해후유장해',
+)
 _SEMANTIC_EQUIVALENCE_ALLOWLIST = {
     '갑상선암진단': '갑상선암진단비',
     '골절수술': '골절수술비',
-    '교통상해입원일당': '상해입원일당',
-    '교통상해후유장해': '상해후유장해',
     '급성심근경색진단': '급성심근경색진단비',
     '뇌졸중진단': '뇌졸중진단비',
-    '뇌혈관수술': '질병수술비',
     '뇌혈관질환진단': '뇌혈관질환진단비',
     '변호사비용': '변호사선임비',
     '비급여도수치료': '실손비급여도수치료',
@@ -75,11 +81,9 @@ _SEMANTIC_EQUIVALENCE_ALLOWLIST = {
     '상해입원일당': '상해입원일당',
     '상해종수술': '상해수술비',
     '상해후유장해': '상해후유장해',
-    '심혈관수술': '질병수술비',
     '암수술': '암수술비',
     '어린이상해수술': '상해수술비',
     '어린이질병수술': '질병수술비',
-    '여성특정질환수술': '질병수술비',
     '유사암진단': '유사암진단비',
     '일반사망': '일반사망',
     '일반암진단': '일반암진단비',
@@ -526,6 +530,96 @@ class ShowcaseSeedCommandTests(TestCase):
                 analysis_detail_override__isnull=False,
             ).exists())
 
+    def test_broad_synthetic_coverages_stay_raw_only_across_all_outputs(self):
+        self._seed()
+        user = self._showcase_user()
+        cases = list(
+            CustomerInsuranceDetail.objects.filter(
+                insurance__customer__owner=user,
+                raw_name__in=_OVERMAPPING_DENYLIST,
+            )
+            .select_related('insurance__customer')
+            .prefetch_related('analysis_detail_override')
+        )
+        self.assertEqual(
+            {case.raw_name for case in cases},
+            set(_OVERMAPPING_DENYLIST),
+        )
+
+        denied_ids_by_customer = {}
+        for case in cases:
+            self.assertEqual(
+                list(case.analysis_detail_override.all()),
+                [],
+                f'{case.raw_name} must have no materialized override',
+            )
+            self.assertEqual(
+                list(case.effective_analysis_details()),
+                [],
+                f'{case.raw_name} must not enter an effective set',
+            )
+            denied_ids_by_customer.setdefault(
+                case.insurance.customer_id,
+                set(),
+            ).add(case.pk)
+
+        def held_amounts(body):
+            return {
+                detail['name']: detail['held_amount']
+                for category in body['tree']
+                for subcategory in category['sub_categories']
+                for detail in subcategory['details']
+            }
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        from inpa.analytics.views import _build_share_payload
+
+        for customer_id, denied_case_ids in denied_ids_by_customer.items():
+            heatmap_response = client.get(
+                f'/api/v1/customers/{customer_id}/heatmap/',
+            )
+            self.assertEqual(
+                heatmap_response.status_code,
+                200,
+                heatmap_response.content,
+            )
+            heatmap = heatmap_response.json()
+            contribution_case_ids = {
+                contribution['case_id']
+                for category in heatmap['tree']
+                for subcategory in category['sub_categories']
+                for detail in subcategory['details']
+                for contribution in detail['contributions']
+            }
+            self.assertTrue(
+                denied_case_ids.isdisjoint(contribution_case_ids),
+            )
+
+            compare_response = client.get(
+                f'/api/v1/customers/{customer_id}/compare/',
+            )
+            self.assertEqual(
+                compare_response.status_code,
+                200,
+                compare_response.content,
+            )
+            compare_amounts = {
+                row['coverage']: row['current_amount']
+                for row in compare_response.json()['rows']
+                if row['current_amount']
+            }
+            heatmap_amounts = {
+                name: amount
+                for name, amount in held_amounts(heatmap).items()
+                if amount
+            }
+            self.assertEqual(compare_amounts, heatmap_amounts)
+
+            customer = Customer.objects.get(pk=customer_id)
+            share = _build_share_payload(customer)
+            self.assertEqual(held_amounts(share), held_amounts(heatmap))
+
     def test_second_apply_resets_only_safe_target_and_rebuilds_same_state(self):
         self._seed()
         first_user_id = self._showcase_user().pk
@@ -543,6 +637,48 @@ class ShowcaseSeedCommandTests(TestCase):
         self.assertEqual(self._owned_counts(), first_counts)
         self.assertEqual(self._relative_natural_state(), first_state)
         self.assertEqual(_fingerprint(_PUBLIC_MODELS), first_public)
+
+    def test_reset_revokes_existing_token_and_accepts_configured_password(self):
+        self._seed()
+        login = APIClient().post(
+            '/api/v1/auth/login/',
+            {
+                'email': _SHOWCASE_EMAIL,
+                'password': _ARBITRARY_TEST_VALUE,
+            },
+            format='json',
+        )
+        self.assertEqual(login.status_code, 200, login.content)
+        old_token = login.json()['token']
+        authenticated = APIClient()
+        authenticated.credentials(
+            HTTP_AUTHORIZATION=f'Token {old_token}',
+        )
+        self.assertEqual(
+            authenticated.get('/api/v1/auth/profile/').status_code,
+            200,
+        )
+
+        with override_settings(
+            SHOWCASE_ACCOUNT_PASSWORD=_ROTATED_TEST_VALUE,
+        ):
+            self._call('--apply')
+
+        self.assertFalse(Token.objects.filter(key=old_token).exists())
+        self.assertEqual(
+            authenticated.get('/api/v1/auth/profile/').status_code,
+            401,
+        )
+        relogin = APIClient().post(
+            '/api/v1/auth/login/',
+            {
+                'email': _SHOWCASE_EMAIL,
+                'password': _ROTATED_TEST_VALUE,
+            },
+            format='json',
+        )
+        self.assertEqual(relogin.status_code, 200, relogin.content)
+        self.assertNotEqual(relogin.json()['token'], old_token)
 
     def test_reset_preserves_foreign_manager_link_and_purge_refuses_it(self):
         self._seed()
