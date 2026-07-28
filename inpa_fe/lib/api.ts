@@ -1299,7 +1299,6 @@ export interface PlannerBaselineWritePayload {
   recommend_min?: string | number | null;
   recommend_max?: string | number | null;
   unit?: BaselineUnit;
-  is_active?: boolean;
 }
 
 /** GET /api/v1/planner-baselines/?product_group=&age_band=&gender= — {count, next, previous, results} */

@@ -1251,6 +1251,38 @@ class PlannerBaselineValidationTests(TestCase):
         baseline.refresh_from_db()
         self.assertEqual(baseline.recommend_min, 1000)
 
+    def test_direct_create_and_patch_cannot_override_server_owned_active_state(self):
+        payload = {**self.valid, 'is_active': False}
+
+        created = self.client.post(self.URL, payload, format='json')
+
+        self.assertEqual(created.status_code, 201, created.content)
+        baseline = PlannerBaseline.objects.get(pk=created.json()['id'])
+        self.assertTrue(baseline.is_active)
+
+        updated = self.client.patch(
+            f'{self.URL}{baseline.id}/',
+            {'is_active': False},
+            format='json',
+        )
+
+        self.assertEqual(updated.status_code, 200, updated.content)
+        baseline.refresh_from_db()
+        self.assertTrue(baseline.is_active)
+
+        baseline.is_active = False
+        baseline.save(update_fields=['is_active'])
+        reactivation_attempt = self.client.patch(
+            f'{self.URL}{baseline.id}/',
+            {'is_active': True},
+            format='json',
+        )
+
+        self.assertEqual(
+            reactivation_attempt.status_code, 200, reactivation_attempt.content)
+        baseline.refresh_from_db()
+        self.assertFalse(baseline.is_active)
+
     def test_direct_duplicate_scope_returns_400_instead_of_integrity_error(self):
         first = self.client.post(self.URL, self.valid, format='json')
         self.assertEqual(first.status_code, 201, first.content)
