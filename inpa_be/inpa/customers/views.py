@@ -23,6 +23,7 @@ from rest_framework.views import APIView
 
 from inpa.billing.credit import LimitExceeded, check_and_consume, check_and_consume_n
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory
+from inpa.analysis.baselines import is_grading_eligible_baseline
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.insurances.models import CustomerInsurance
@@ -585,7 +586,7 @@ class ConsentRequestCreateView(APIView):
 class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
     """설계사 기준선 CRUD — 소유자 전용. /api/v1/planner-baselines/
 
-    ★ 준법 통제점. baseline_source가 null이면 분석은 neutral 강제.
+    ★ 준법 통제점. 활성 planner 출처가 아니면 분석은 neutral 강제.
     """
     permission_classes = [IsAuthenticated, IsEmailVerified, IsOwner]
     serializer_class = PlannerBaselineSerializer
@@ -861,8 +862,8 @@ class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
 
         ★ V0 스타터 데이터 한계(정직성 레드라인):
           - 프리셋 수치(recommend_min/max)는 약관·금감원 출처와 대조 검증되지 않은 v0 가설값.
-          - 적용 시 baseline_source='preset' 이 되어 분석 mode 가 neutral → graded 로 켜진다.
-            따라서 응답 note 로 '검토 후 사용'을 항상 고지한다.
+          - 적용 시 baseline_source='preset' 으로 저장되며 분석은 neutral 로 유지된다.
+            설계사가 검토 후 직접 저장한 값만 판정에 사용한다.
 
         멱등: 동일 owner 의 UNIQUE 스코프(owner·coverage_key·product_group·age_band·gender)가
           이미 있으면 건너뛴다(덮어쓰지 않음 — 설계사가 수정한 값을 프리셋이 훼손하지 않도록).
@@ -915,7 +916,7 @@ class PlannerBaselineViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
                 recommend_min=recommend_min,
                 recommend_max=recommend_max,
                 unit=1,  # 만원 (STANDARD_TREE 단위)
-                baseline_source=PlannerBaseline.SOURCE_PRESET,  # ★ graded 게이트 ON
+                baseline_source=PlannerBaseline.SOURCE_PRESET,  # 저장 전 판정 제외
                 preset_origin=PRESET_ORIGIN_V0,
                 is_active=True,
             ))
@@ -1048,8 +1049,7 @@ class BaselineCatalogView(APIView):
                 baseline.gender,
             )
             is_applied = bool(
-                baseline.is_active
-                and baseline.baseline_source
+                is_grading_eligible_baseline(baseline)
                 and matching_ids
                 and legacy_scope_counts[scope] == 1
                 and any(
@@ -1073,6 +1073,10 @@ class BaselineCatalogView(APIView):
                 ),
                 'unit': baseline.unit,
                 'is_applied': is_applied,
+                'requires_adoption': bool(
+                    baseline.is_active
+                    and not is_grading_eligible_baseline(baseline)
+                ),
                 'conflict_code': conflict_code,
                 'conflict_reason': conflict_reason,
                 'matching_analysis_detail_ids': matching_ids,

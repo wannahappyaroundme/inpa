@@ -246,6 +246,8 @@ describe("담보 전체 기준표 페이지 상태", () => {
     });
     render(<BaselineSettingsPage />);
 
+    expect(await screen.findByText("연결 필요")).toBeInTheDocument();
+
     await user.click(
       await screen.findByRole("button", {
         name: "직접 적은 담보 기존 값 삭제",
@@ -254,6 +256,35 @@ describe("담보 전체 기준표 페이지 상태", () => {
 
     expect(apiDelete).toHaveBeenCalledWith(92);
     expect(apiGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("확인 전 이전 기준은 연결 뒤 금액 확인이 필요하다고 안내한다", async () => {
+    apiGet.mockResolvedValue({
+      ...structuredClone(catalog),
+      legacy_baselines: [
+        {
+          id: 93,
+          coverage_key: "이전 기준 담보",
+          product_group: 0,
+          age_band: "all",
+          gender: null,
+          recommend_min: "1500.00",
+          recommend_max: null,
+          unit: 1,
+          is_applied: false,
+          requires_adoption: true,
+          conflict_code: "link_confirmation_required",
+          conflict_reason: "연결할 표준 담보를 확인해 주세요.",
+          matching_analysis_detail_ids: [101],
+        },
+      ],
+    });
+    render(<BaselineSettingsPage />);
+
+    expect(
+      await screen.findByText("연결 후 금액 확인 필요"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("연결 후 분석에 적용")).not.toBeInTheDocument();
   });
 
   it("일괄 저장 성공은 새 revision을 사용하고 변경 상태를 비운다", async () => {

@@ -6,9 +6,9 @@
     '한눈표'를 만들고, 보유 보장금액을 집계(♻ calculate_total_analysis)한다.
 
 ★ 준법 통제점 (dev/02 §0, planner_baseline neutral 강제):
-  - 설계사가 해당 고객 상품군에 대한 PlannerBaseline(baseline_source != null) 을 보유하지 않으면
+  - 설계사가 해당 고객 상품군에 대한 활성 PlannerBaseline(baseline_source='planner') 을 보유하지 않으면
     mode='neutral' — 각 담보 status='neutral'(부족/충분 단정 금지).
-  - baseline_source 가 살아있는 baseline 이 하나라도 있으면 mode='graded' — 해당 담보만
+  - 활성 planner 기준이 하나라도 있으면 mode='graded' — 해당 담보만
     baseline 과 비교해 'shortage'|'adequate'|'over' 판정. baseline 없는 담보는 여전히 neutral.
   → "부족/충분" 판정 권위는 인파가 아니라 설계사(planner_baseline)에게 있다.
 

@@ -21,6 +21,17 @@
 - No em dash (`—`) in rendered copy.
 - Do not commit, push, merge, or deploy until the PM separately authorizes that Git action or production action.
 
+## Final-review follow-up (2026-07-29)
+
+**Progress:** Tasks 1-4 are implemented and had their previous review pass. The final review found an existing legacy-catalog status mismatch; this follow-up keeps the policy and request shape unchanged while correcting the status contract. The pre-fix full backend run recorded `2,237 OK, 39 skipped`; it is historical evidence only. Post-fix focused and full verification, copy lint, build, and diff checks are recorded separately in the final-fix report. The PM has authorized push, merge, and production deployment; execution and production verification are still pending.
+
+**Acceptance criteria:**
+
+- The legacy response computes `is_applied` with `is_grading_eligible_baseline` and adds `requires_adoption` for active rows that are not eligible.
+- A legacy planner fallback that is actually usable shows `분석에 적용 중`; an eligible but unresolved row shows `연결 필요`; preset or source-less rows show `연결 후 금액 확인 필요`.
+- Linking preserves `baseline_source` and `preset_origin`; a catalog reload keeps the linked detail in the pending-adoption state until explicit batch save.
+- An unchanged requested preset or source-less row becomes active planner source and clears `preset_origin`; untouched scopes remain unchanged.
+
 ---
 
 ### Task 1: Centralize baseline source eligibility

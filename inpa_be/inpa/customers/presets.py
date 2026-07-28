@@ -4,9 +4,8 @@
 이 파일의 권장 하한/상한(recommend_min/max) 수치는 **약관 원문·금융감독원 출처와 대조 검증되지 않은
 v0 가설값**입니다. 보험 도메인 상식을 바탕으로 구성한 초기 스타터셋일 뿐, 권위 데이터가 아닙니다.
 
-따라서 이 프리셋을 적용하면 PlannerBaseline.baseline_source='preset' 이 되어 분석 mode 가
-neutral → graded 로 바뀝니다(부족/충분 판정이 켜짐). 이는 의도된 동작이지만,
-**설계사가 수치를 검토·수정하기 전까지는 '판정의 권위'가 미검증 프리셋에 있다는 뜻**입니다.
+따라서 이 프리셋을 적용하면 PlannerBaseline.baseline_source='preset' 으로 저장되지만 분석은
+neutral 로 유지됩니다. 설계사가 수치를 검토하고 직접 저장한 뒤에만 판정에 사용합니다.
 응답 note·docstring 으로 이 한계를 항상 명시합니다(정직성 레드라인).
 
 프로덕션 사용 전 반드시:
@@ -28,7 +27,7 @@ from .models import PlannerBaseline
 # 멱등/식별 라벨 — 적용된 프리셋의 출처를 PlannerBaseline.preset_origin 에 기록한다.
 PRESET_ORIGIN_V0 = 'v0_starter'
 
-# baseline_source 물리 키 — null 이 아니면 분석 graded 게이트가 열린다(준법 통제점).
+# 프리셋 출처는 저장용이며, 활성 planner 출처만 분석 판정에 사용한다.
 BASELINE_SOURCE_PRESET = PlannerBaseline.SOURCE_PRESET
 
 # 적용 시 항상 함께 내려보내는 한계 고지(정직성 레드라인). 응답 note 로 그대로 사용.
