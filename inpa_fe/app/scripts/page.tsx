@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import { AppNav } from "@/components/app-nav";
+import { GuidedTalkPlaybooks } from "@/components/guided-talk-playbooks";
 import {
   TalkTemplateEditor,
   type TalkTemplateEditorMode,
@@ -32,6 +33,7 @@ import {
   ApiError,
   createPersonalTalkTemplate,
   deletePersonalTalkTemplate,
+  getCustomer,
   getProfile,
   listPersonalTalkTemplates,
   putTalkTemplatePreference,
@@ -52,6 +54,10 @@ import {
   type TalkTemplateFilter,
   type TalkTemplateViewItem,
 } from "@/lib/talk-template-view-model";
+import {
+  GUIDED_TALK_PLAYBOOKS,
+  type GuidedTalkPlaybook,
+} from "@/lib/guided-talk-playbooks";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 
 interface EditorSession {
@@ -59,6 +65,9 @@ interface EditorSession {
   personalId: number | null;
   initialValue?: PersonalTalkTemplatePayload;
 }
+
+type ScriptsMode = "guided" | "quick";
+type GuidedTalkPlaybookKey = GuidedTalkPlaybook["key"];
 
 interface MenuAction {
   label: string;
@@ -253,7 +262,17 @@ export default function ScriptsPage() {
   const [personalLoading, setPersonalLoading] = useState(true);
   const [personalError, setPersonalError] = useState(false);
   const [customer, setCustomer] = useState("");
+  const [customerId, setCustomerId] = useState<number | null>(null);
+  const [linkedCustomerName, setLinkedCustomerName] = useState("");
+  const [customerLoading, setCustomerLoading] = useState(false);
+  const [customerError, setCustomerError] = useState(false);
+  const [referrer, setReferrer] = useState("");
   const [optOut, setOptOut] = useState("");
+  const [mode, setMode] = useState<ScriptsMode>("guided");
+  const [playbookKey, setPlaybookKey] = useState<GuidedTalkPlaybookKey>(
+    GUIDED_TALK_PLAYBOOKS[0].key,
+  );
+  const [queryReady, setQueryReady] = useState(false);
   const [filter, setFilter] = useState<TalkTemplateFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [editor, setEditor] = useState<EditorSession | null>(null);
@@ -268,6 +287,8 @@ export default function ScriptsPage() {
   const personalRequestRef = useRef(0);
   const personalMutationGenerationRef = useRef(0);
   const editorOpenerRef = useRef<HTMLElement | null>(null);
+  const customerRequestRef = useRef(0);
+  const customerEditedRef = useRef(false);
 
   const loadProfile = useCallback(async () => {
     const requestId = ++profileRequestRef.current;
@@ -319,15 +340,92 @@ export default function ScriptsPage() {
     return () => {
       profileRequestRef.current += 1;
       personalRequestRef.current += 1;
+      customerRequestRef.current += 1;
     };
   }, [loadPersonal, loadProfile, ready]);
 
   useEffect(() => {
-    const queryCustomer = new URLSearchParams(window.location.search).get(
-      "customer",
-    );
-    if (queryCustomer) setCustomer(queryCustomer);
-  }, []);
+    if (!ready) return;
+    const params = new URLSearchParams(window.location.search);
+    const queryMode = params.get("mode");
+    const nextMode = queryMode === "quick" ? "quick" : "guided";
+    setMode(nextMode);
+
+    const queryCategory = params.get("category");
+    const validCategory =
+      queryCategory &&
+      COPY_CATEGORIES.some((category) => category.key === queryCategory)
+        ? queryCategory
+        : null;
+    if (validCategory) {
+      setCategoryFilter(validCategory);
+    }
+
+    const requestedPlaybook = params.get("playbook");
+    const validPlaybook =
+      GUIDED_TALK_PLAYBOOKS.find(
+        (playbook) => playbook.key === requestedPlaybook,
+      )?.key ?? GUIDED_TALK_PLAYBOOKS[0].key;
+    setPlaybookKey(validPlaybook);
+
+    const legacyCustomer = params.get("customer");
+    const rawCustomerId = params.get("customerId");
+    const parsedCustomerId = rawCustomerId ? Number(rawCustomerId) : NaN;
+    const validCustomerId =
+      Number.isSafeInteger(parsedCustomerId) && parsedCustomerId > 0
+        ? parsedCustomerId
+        : null;
+
+    const cleanParams = new URLSearchParams();
+    if (nextMode === "quick") cleanParams.set("mode", "quick");
+    if (requestedPlaybook === validPlaybook) {
+      cleanParams.set("playbook", validPlaybook);
+    }
+    if (validCustomerId !== null) {
+      cleanParams.set("customerId", String(validCustomerId));
+    }
+    if (nextMode === "quick" && validCategory) {
+      cleanParams.set("category", validCategory);
+    }
+    const cleanQuery = cleanParams.toString();
+    const cleanUrl = `${window.location.pathname}${
+      cleanQuery ? `?${cleanQuery}` : ""
+    }`;
+    if (
+      `${window.location.pathname}${window.location.search}` !== cleanUrl
+    ) {
+      window.history.replaceState({}, "", cleanUrl);
+    }
+    setQueryReady(true);
+
+    if (!Number.isSafeInteger(parsedCustomerId) || parsedCustomerId <= 0) {
+      if (legacyCustomer) setCustomer(legacyCustomer);
+      return;
+    }
+
+    const requestId = ++customerRequestRef.current;
+    setCustomerId(parsedCustomerId);
+    setCustomerLoading(true);
+    setCustomerError(false);
+    void getCustomer(parsedCustomerId)
+      .then((selectedCustomer) => {
+        if (customerRequestRef.current !== requestId) return;
+        setLinkedCustomerName(selectedCustomer.name);
+        if (!customerEditedRef.current) setCustomer(selectedCustomer.name);
+      })
+      .catch(() => {
+        if (customerRequestRef.current === requestId) {
+          setCustomerId(null);
+          setLinkedCustomerName("");
+          setCustomerError(true);
+        }
+      })
+      .finally(() => {
+        if (customerRequestRef.current === requestId) {
+          setCustomerLoading(false);
+        }
+      });
+  }, [ready]);
 
   const view = useMemo(
     () =>
@@ -357,8 +455,9 @@ export default function ScriptsPage() {
       title: profileValue(profile?.title),
       phone: profileValue(profile?.phone),
       optOut,
+      referrer,
     }),
-    [customer, optOut, profile],
+    [customer, optOut, profile, referrer],
   );
   const shareText = shareTemplate
     ? substituteTalkTemplate(shareTemplate.body, variables)
@@ -386,6 +485,62 @@ export default function ScriptsPage() {
   }
 
   if (!ready) return null;
+
+  function replaceScriptsQuery({
+    nextMode,
+    nextPlaybookKey = playbookKey,
+    categoryKey,
+  }: {
+    nextMode: ScriptsMode;
+    nextPlaybookKey?: GuidedTalkPlaybookKey;
+    categoryKey?: string;
+  }) {
+    const params = new URLSearchParams();
+    if (nextMode === "quick") params.set("mode", "quick");
+    params.set("playbook", nextPlaybookKey);
+    if (customerId !== null) {
+      params.set("customerId", String(customerId));
+    }
+    if (
+      nextMode === "quick" &&
+      categoryKey &&
+      COPY_CATEGORIES.some((category) => category.key === categoryKey)
+    ) {
+      params.set("category", categoryKey);
+    }
+    const query = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}`,
+    );
+  }
+
+  function changeMode(nextMode: ScriptsMode, categoryKey?: string) {
+    setMode(nextMode);
+    if (categoryKey) setCategoryFilter(categoryKey);
+    replaceScriptsQuery({
+      nextMode,
+      categoryKey:
+        categoryKey ??
+        (categoryFilter !== "all" ? categoryFilter : undefined),
+    });
+  }
+
+  function changePlaybook(nextPlaybookKey: string) {
+    if (
+      !GUIDED_TALK_PLAYBOOKS.some(
+        (playbook) => playbook.key === nextPlaybookKey,
+      )
+    ) {
+      return;
+    }
+    setPlaybookKey(nextPlaybookKey);
+    replaceScriptsQuery({
+      nextMode: "guided",
+      nextPlaybookKey,
+    });
+  }
 
   function openCreate(opener: HTMLElement | null = null) {
     editorOpenerRef.current = opener;
@@ -585,18 +740,20 @@ export default function ScriptsPage() {
               화법 · 문구
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-ink3">
-              상황에 맞는 문구를 고르고, 고객과 이어갈 작은 행동을 바로
-              정해 보세요. 최종 문구는 공유창에서 한 번 더 확인할 수 있어요.
+              실제 통화와 상담은 단계별로 따라가고, 짧은 연락은 빠른
+              문구에서 바로 골라 쓰세요.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={(event) => openCreate(event.currentTarget)}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white transition hover:bg-brand/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-          >
-            <Plus aria-hidden="true" size={17} />
-            나만의 화법 추가
-          </button>
+          {mode === "quick" && (
+            <button
+              type="button"
+              onClick={(event) => openCreate(event.currentTarget)}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white transition hover:bg-brand/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            >
+              <Plus aria-hidden="true" size={17} />
+              나만의 화법 추가
+            </button>
+          )}
         </header>
 
         <section
@@ -606,11 +763,12 @@ export default function ScriptsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 id="share-info-title" className="text-sm font-extrabold text-ink">
-                공유에 사용할 정보
+                문장에 사용할 정보
               </h2>
               <p className="mt-1 text-xs leading-5 text-ink3">
-                내 정보는 계정 설정 값을 그대로 사용하고, 고객 이름과
-                수신거부 안내는 이 화면에서만 문구에 넣어요.
+                {mode === "quick"
+                  ? "내 정보는 계정 설정 값을 그대로 사용하고, 고객 이름과 소개자 이름, 수신거부 안내는 이 화면에서만 문장에 넣어요."
+                  : "내 정보는 계정 설정 값을 그대로 사용하고, 고객 이름과 소개자 이름은 이 화면에서만 문장에 넣어요."}
               </p>
             </div>
             <Link
@@ -622,25 +780,43 @@ export default function ScriptsPage() {
             </Link>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              ["내 이름", profileValue(profile?.name)],
-              ["내 소속", profileValue(profile?.affiliation)],
-              ["내 직책", profileValue(profile?.title)],
-              ["내 전화번호", profileValue(profile?.phone)],
-            ].map(([label, value]) => (
-              <label key={label} className="block">
-                <span className="text-xs font-bold text-ink3">{label}</span>
-                <input
-                  readOnly
-                  aria-label={label}
-                  value={value}
-                  placeholder={profileLoading ? "불러오는 중" : "-"}
-                  className="mt-1.5 w-full rounded-xl border border-line bg-surface2 px-3 py-2.5 text-sm font-semibold text-ink outline-none"
-                />
-              </label>
-            ))}
-          </div>
+          {mode === "quick" ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                ["내 이름", profileValue(profile?.name)],
+                ["내 소속", profileValue(profile?.affiliation)],
+                ["내 직책", profileValue(profile?.title)],
+                ["내 전화번호", profileValue(profile?.phone)],
+              ].map(([label, value]) => (
+                <label key={label} className="block">
+                  <span className="text-xs font-bold text-ink3">{label}</span>
+                  <input
+                    readOnly
+                    aria-label={label}
+                    value={value}
+                    placeholder={profileLoading ? "불러오는 중" : "-"}
+                    className="mt-1.5 w-full rounded-xl border border-line bg-surface2 px-3 py-2.5 text-sm font-semibold text-ink outline-none"
+                  />
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-xl bg-surface2 px-4 py-3">
+              <p className="text-xs font-bold text-ink3">상담자 정보</p>
+              <p className="mt-1 text-sm font-bold text-ink">
+                {profileLoading
+                  ? "내 정보를 불러오고 있어요."
+                  : [
+                      profileValue(profile?.name),
+                      profileValue(profile?.affiliation),
+                      profileValue(profile?.title),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") ||
+                    "계정 설정에서 내 이름과 소속을 채워 주세요."}
+              </p>
+            </div>
+          )}
 
           {profileError && (
             <div
@@ -661,37 +837,124 @@ export default function ScriptsPage() {
             </div>
           )}
 
-          <div className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-2">
+          <div
+            className={`mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-2 ${
+              mode === "quick" ? "xl:grid-cols-3" : ""
+            }`}
+          >
             <label className="block">
               <span className="text-xs font-bold text-ink3">
                 고객 이름 (이 화면에서만)
               </span>
               <input
+                aria-label="고객 이름 (이 화면에서만)"
                 value={customer}
-                onChange={(event) => setCustomer(event.target.value)}
-                placeholder="예: 김인파"
+                onChange={(event) => {
+                  customerEditedRef.current = true;
+                  setCustomer(event.target.value);
+                }}
+                placeholder={customerLoading ? "고객 이름 불러오는 중" : "예: 김인파"}
                 className="mt-1.5 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand"
               />
+              {customerId !== null && linkedCustomerName && (
+                <span className="mt-1 block text-[11px] leading-4 text-ink3">
+                  분석 연결: {linkedCustomerName} 고객, 화면의 호칭을 바꿔도
+                  연결은 유지돼요.
+                </span>
+              )}
             </label>
             <label className="block">
               <span className="text-xs font-bold text-ink3">
-                수신거부 안내 (광고 문구에만)
+                소개자 이름 (이 화면에서만)
               </span>
               <input
-                aria-label="수신거부 안내 (광고 문구에만)"
-                value={optOut}
-                onChange={(event) => setOptOut(event.target.value)}
-                placeholder="예: 이 번호로 거부 의사를 알려 주세요"
+                aria-label="소개자 이름 (이 화면에서만)"
+                value={referrer}
+                onChange={(event) => setReferrer(event.target.value)}
+                placeholder="예: 이인파"
                 className="mt-1.5 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand"
               />
               <span className="mt-1 block text-[11px] leading-4 text-ink3">
-                실제로 안내할 방법을 직접 입력해 주세요. 이 값은 저장하지
-                않아요.
+                소개 경위가 실제와 같을 때만 입력해 주세요.
               </span>
             </label>
+            {mode === "quick" && (
+              <label className="block">
+                <span className="text-xs font-bold text-ink3">
+                  수신거부 안내 (광고 문구에만)
+                </span>
+                <input
+                  aria-label="수신거부 안내 (광고 문구에만)"
+                  value={optOut}
+                  onChange={(event) => setOptOut(event.target.value)}
+                  placeholder="예: 이 번호로 거부 의사를 알려 주세요"
+                  className="mt-1.5 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                />
+                <span className="mt-1 block text-[11px] leading-4 text-ink3">
+                  실제로 안내할 방법을 직접 입력해 주세요. 이 값은 저장하지
+                  않아요.
+                </span>
+              </label>
+            )}
           </div>
+          {customerError && (
+            <p
+              role="alert"
+              className="mt-3 rounded-xl bg-warn-soft px-4 py-3 text-xs font-semibold leading-5 text-warn-ink"
+            >
+              고객 이름을 직접 입력하면 실전 상담을 바로 이어갈 수 있어요.
+            </p>
+          )}
         </section>
 
+        {!queryReady ? (
+          <div
+            role="status"
+            className="mt-5 rounded-2xl border border-line bg-surface px-5 py-6 text-sm font-semibold text-ink2 shadow-card"
+          >
+            사용할 화법을 불러오고 있어요.
+          </div>
+        ) : (
+          <>
+            <div
+              role="group"
+              aria-label="화법 사용 방식"
+              className="mt-5 inline-flex w-full rounded-2xl border border-line bg-surface p-1.5 shadow-card sm:w-auto"
+            >
+          {[
+            ["guided", "실전 상담"],
+            ["quick", "빠른 문구"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={mode === value}
+              onClick={() => changeMode(value as ScriptsMode)}
+              className={`min-h-11 flex-1 rounded-xl px-5 text-sm font-extrabold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand sm:flex-none ${
+                mode === value
+                  ? "bg-brand text-white"
+                  : "text-ink3 hover:bg-surface2"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+            </div>
+
+            {mode === "guided" ? (
+              <div className="mt-6">
+                <GuidedTalkPlaybooks
+                  variables={variables}
+                  customerId={customerId}
+                  initialPlaybookKey={playbookKey}
+                  onPlaybookChange={changePlaybook}
+                  onOpenQuick={(categoryKey) =>
+                    changeMode("quick", categoryKey)
+                  }
+                />
+              </div>
+            ) : (
+              <>
         {personalError && (
           <div
             role="alert"
@@ -982,6 +1245,10 @@ export default function ScriptsPage() {
               ))}
             </ul>
           </section>
+        )}
+              </>
+            )}
+          </>
         )}
       </main>
 

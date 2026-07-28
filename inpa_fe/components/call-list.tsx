@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getCallList, type CallListResponse } from "@/lib/api";
+import { talkScriptsHref } from "@/lib/guided-talk-playbooks";
 
 export function CallList({ limit }: { limit?: number }) {
   const [data, setData] = useState<CallListResponse | null>(null);
@@ -101,7 +102,9 @@ export function CallList({ limit }: { limit?: number }) {
                 </>
               )}
               <Link
-                href={`/scripts?customer=${encodeURIComponent(c.name)}`}
+                href={talkScriptsHref(c.id, {
+                  playbook: "referred-customer-first-call",
+                })}
                 className="px-2.5 py-1 rounded-lg bg-surface2 text-[12px] font-semibold text-ink2 hover:text-ink transition-colors"
               >
                 화법

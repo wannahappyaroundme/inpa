@@ -80,6 +80,7 @@ import {
   type ContractChecklistItem,
 } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
+import { talkScriptsHref } from "@/lib/guided-talk-playbooks";
 import { buildCompareExportText, compareDiffText } from "@/lib/compare-export";
 import {
   buildPolicySelectionSnapshot,
@@ -592,7 +593,14 @@ function CustomerSummary({
             ) : (
               <Link href={`/customer/${customer.id}?tab=info`} className={actGhost}>연락처 입력</Link>
             )}
-            <Link href={`/scripts?customer=${encodeURIComponent(customer.name)}`} className={actGhost}>화법</Link>
+            <Link
+              href={talkScriptsHref(customer.id, {
+                playbook: "referred-customer-first-call",
+              })}
+              className={actGhost}
+            >
+              화법
+            </Link>
           </>
         )}
         {customer.sales_stage === "contact" && (
@@ -601,7 +609,14 @@ function CustomerSummary({
         {customer.sales_stage === "meeting" && (
           <>
             <button onClick={() => onTab("analysis")} className={actPrimary}>분석 시작</button>
-            <Link href={`/scripts?customer=${encodeURIComponent(customer.name)}`} className={actGhost}>화법</Link>
+            <Link
+              href={talkScriptsHref(customer.id, {
+                playbook: "first-coverage-review",
+              })}
+              className={actGhost}
+            >
+              화법
+            </Link>
           </>
         )}
         {customer.sales_stage === "contract" && (
