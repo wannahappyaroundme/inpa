@@ -44,6 +44,7 @@ from inpa.analysis.baselines import (
     select_baseline,
 )
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
+from inpa.core.internal_accounts import is_showcase_user
 from inpa.core.permissions import IsEmailVerified
 from inpa.customers.models import Customer, PlannerBaseline
 
@@ -487,7 +488,10 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
         # ── AI 비교안내서 초안 — COMPARE_AI_ENABLED=True 일 때만 ────────────
         guide_draft = None
         guide_enabled = False
-        if getattr(settings, 'COMPARE_AI_ENABLED', False):
+        if (
+            getattr(settings, 'COMPARE_AI_ENABLED', False)
+            and not is_showcase_user(request.user)
+        ):
             # 한도 차감(ai_compare) — 초과 시 402. 베타 무차감 스위치는 credit.py 가 처리.
             try:
                 check_and_consume(request.user, 'ai_compare')

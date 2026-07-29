@@ -1,6 +1,8 @@
 """공통 권한 클래스 — dev/02 §0 가시성 매트릭스 강제."""
 from rest_framework.permissions import BasePermission
 
+from .internal_accounts import block_showcase_external_action
+
 
 def _is_admin(user):
     return bool(getattr(getattr(user, 'profile', None), 'is_admin', False))
@@ -30,3 +32,11 @@ class IsEmailVerified(BasePermission):
     def has_permission(self, request, view):
         u = request.user
         return bool(u and u.is_authenticated and u.is_active)
+
+
+class BlocksShowcaseExternalActions(BasePermission):
+    """Block externally acting endpoints for the verified showcase account."""
+
+    def has_permission(self, request, view):
+        block_showcase_external_action(request.user)
+        return True

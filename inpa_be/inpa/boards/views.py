@@ -28,6 +28,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
+from inpa.core.internal_accounts import is_showcase_user
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 
@@ -44,7 +45,11 @@ from .models import (
     Report,
 )
 from .pagination import BlogPostPagination, PostCursorPagination
-from .permissions import IsAdminOnly, IsAuthorOrAdmin
+from .permissions import (
+    BlocksShowcaseSharedWrites,
+    IsAdminOnly,
+    IsAuthorOrAdmin,
+)
 from .serializers import (
     AttachmentSerializer,
     BlogPostDetailSerializer,
@@ -122,7 +127,11 @@ class PostViewSet(viewsets.GenericViewSet):
     수정·삭제: IsAuthorOrAdmin (객체 단위).
     숨김(is_hidden=True): 관리자만 접근, 일반 설계사엔 404.
     """
-    permission_classes = [IsAuthenticated, IsEmailVerified]
+    permission_classes = [
+        IsAuthenticated,
+        IsEmailVerified,
+        BlocksShowcaseSharedWrites,
+    ]
     pagination_class = PostCursorPagination
 
     def get_queryset(self):
@@ -182,8 +191,9 @@ class PostViewSet(viewsets.GenericViewSet):
     def retrieve(self, request, pk=None):
         """글 상세 — 조회수 atomic 증가."""
         post = self._get_visible_post(pk)
-        Post.objects.filter(pk=post.pk).update(view_count=F('view_count') + 1)
-        post.refresh_from_db(fields=['view_count'])
+        if not is_showcase_user(request.user):
+            Post.objects.filter(pk=post.pk).update(view_count=F('view_count') + 1)
+            post.refresh_from_db(fields=['view_count'])
         serializer = PostDetailSerializer(post, context={'request': request})
         return Response(serializer.data)
 
@@ -270,7 +280,11 @@ class CommentViewSet(viewsets.GenericViewSet):
     PATCH  /board/comments/:id/                    수정 (IsAuthorOrAdmin)
     DELETE /board/comments/:id/                    소프트 삭제 (IsAuthorOrAdmin)
     """
-    permission_classes = [IsAuthenticated, IsEmailVerified]
+    permission_classes = [
+        IsAuthenticated,
+        IsEmailVerified,
+        BlocksShowcaseSharedWrites,
+    ]
 
     def get_queryset(self):
         return Comment.objects.select_related('author__profile', 'parent').filter(
@@ -378,7 +392,11 @@ class AttachmentViewSet(viewsets.GenericViewSet):
 
     POST /board/posts/attachments/   uploader 자동 주입
     """
-    permission_classes = [IsAuthenticated, IsEmailVerified]
+    permission_classes = [
+        IsAuthenticated,
+        IsEmailVerified,
+        BlocksShowcaseSharedWrites,
+    ]
     serializer_class = AttachmentSerializer
 
     def create(self, request):
@@ -396,7 +414,11 @@ class ReportViewSet(viewsets.GenericViewSet):
     POST /board/reports/   접수 (인증 설계사 전원)
     GET  /board/reports/   관리자: 전체 / 본인: 자기 신고만
     """
-    permission_classes = [IsAuthenticated, IsEmailVerified]
+    permission_classes = [
+        IsAuthenticated,
+        IsEmailVerified,
+        BlocksShowcaseSharedWrites,
+    ]
     serializer_class = ReportSerializer
 
     def get_queryset(self):
@@ -433,7 +455,11 @@ class NoticeViewSet(viewsets.GenericViewSet):
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
             return [AllowAny()]
-        return [IsAuthenticated(), IsAdminOnly()]
+        return [
+            IsAuthenticated(),
+            BlocksShowcaseSharedWrites(),
+            IsAdminOnly(),
+        ]
 
     def get_queryset(self):
         from inpa.core.permissions import _is_admin
@@ -485,7 +511,11 @@ class FaqViewSet(viewsets.GenericViewSet):
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
             return [AllowAny()]
-        return [IsAuthenticated(), IsAdminOnly()]
+        return [
+            IsAuthenticated(),
+            BlocksShowcaseSharedWrites(),
+            IsAdminOnly(),
+        ]
 
     def get_queryset(self):
         from inpa.core.permissions import _is_admin
@@ -545,7 +575,12 @@ class InquiryViewSet(OwnedQuerySetMixin, viewsets.GenericViewSet):
     PATCH  /board/inquiries/:id/        문의 수정 (open 상태만)
     DELETE /board/inquiries/:id/        문의 취소 (open 상태만)
     """
-    permission_classes = [IsAuthenticated, IsEmailVerified, IsOwner]
+    permission_classes = [
+        IsAuthenticated,
+        IsEmailVerified,
+        BlocksShowcaseSharedWrites,
+        IsOwner,
+    ]
     queryset = Inquiry.objects.prefetch_related('replies__author')
     owner_field = 'owner'
 
@@ -597,7 +632,11 @@ class InquiryReplyViewSet(viewsets.GenericViewSet):
     POST   /board/inquiries/:inquiry_pk/replies/    관리자 답변 작성
     PATCH  /board/inquiry-replies/:id/              관리자 답변 수정
     """
-    permission_classes = [IsAuthenticated, IsAdminOnly]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseSharedWrites,
+        IsAdminOnly,
+    ]
     queryset = InquiryReply.objects.select_related('inquiry', 'author')
 
     def create(self, request, inquiry_pk=None):
@@ -664,7 +703,7 @@ class BlogPostViewSet(viewsets.GenericViewSet):
         post = get_object_or_404(self.get_queryset(), slug=slug)
         user = request.user
         is_admin = bool(user and user.is_authenticated and _is_admin(user))
-        if post.is_published and not is_admin:
+        if post.is_published and not is_admin and not is_showcase_user(user):
             BlogPost.objects.filter(pk=post.pk).update(view_count=F('view_count') + 1)
             post.refresh_from_db(fields=['view_count'])
         return Response(BlogPostDetailSerializer(post, context={'request': request}).data)
@@ -705,7 +744,7 @@ class FeedbackCreateView(viewsets.ViewSet):
     본인 '문의 내역' 과 답변 알림이 그대로 작동, 비로그인은 owner=None(익명).
     새 문의 → 관리자 알림 fan-out (INQUIRY_RECEIVED).
     """
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny, BlocksShowcaseSharedWrites]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'feedback'
 

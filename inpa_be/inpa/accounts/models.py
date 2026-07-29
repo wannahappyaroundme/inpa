@@ -74,6 +74,8 @@ class Profile(models.Model):
 
     # ── 계정 상태 (휴면) ────────────────────────────────────
     is_admin = models.BooleanField(default=False)     # 관리자 bypass 게이트
+    # 내부 시연 계정 표식. 설정 이메일과 함께 확인해야만 시연 계정으로 인정한다.
+    is_showcase = models.BooleanField(default=False, db_index=True)
     is_dormant = models.BooleanField(default=False)   # 미들웨어 차단 금지 — 로그인 시 자동복구
     dormant_at = models.DateTimeField(null=True, blank=True)
     dormancy_warning_sent_at = models.DateTimeField(null=True, blank=True)

@@ -17,6 +17,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core import signing
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import (
     IntegrityError, OperationalError, close_old_connections, connection,
     transaction,
@@ -4505,3 +4506,223 @@ class CustomerMemoCommitCallbackTests(TransactionTestCase):
             customer=second,
             event_type=NorthStarEvent.CONSULTATION_MEMO_CREATED,
             payload={'source': CustomerMemo.SOURCE_MANUAL}).count(), 1)
+
+
+@override_settings(
+    SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example',
+    ANTHROPIC_API_KEY='test-provider-key',
+    CLAUDE_MODEL_PARSE='test-model',
+    INSURANCE_REVIEW_GATE_ENABLED=False,
+)
+class ShowcaseUploadTests(TestCase):
+    """고객 내부 CRUD는 유지하고 파일·공개 인바운드 확산만 차단한다."""
+
+    def setUp(self):
+        cache.clear()
+        self.user, self.client = _make_planner('showcase@inpa.example')
+        Profile.objects.filter(user=self.user).update(is_showcase=True)
+        self.user.profile.refresh_from_db()
+        self.customer = Customer.objects.create(
+            owner=self.user,
+            name='준비된 고객',
+            mobile_phone_number='010-1000-1000',
+        )
+        self.public = APIClient()
+
+    def assert_showcase_restricted(self, response):
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()['code'], 'SHOWCASE_ACTION_RESTRICTED')
+
+    @staticmethod
+    def image_upload(name='card.gif'):
+        return SimpleUploadedFile(
+            name,
+            (
+                b'GIF89a\x01\x00\x01\x00\x80\x00\x00'
+                b'\x00\x00\x00\xff\xff\xff!\xf9\x04\x01'
+                b'\x00\x00\x00\x00,\x00\x00\x00\x00\x01'
+                b'\x00\x01\x00\x00\x02\x02D\x01\x00;'
+            ),
+            content_type='image/gif',
+        )
+
+    def test_business_card_upload_blocks_before_storage_save(self):
+        storage = Customer._meta.get_field('business_card').storage
+        with mock.patch.object(
+            storage,
+            'save',
+            return_value='business_cards/showcase.gif',
+        ) as save:
+            response = self.client.patch(
+                f'/api/v1/customers/{self.customer.pk}/',
+                {'business_card': self.image_upload()},
+                format='multipart',
+            )
+
+        self.assert_showcase_restricted(response)
+        save.assert_not_called()
+
+    def test_ordinary_business_card_upload_still_saves_once(self):
+        ordinary, client = _make_planner('ordinary-card@test.com')
+        customer = Customer.objects.create(owner=ordinary, name='일반 고객')
+        storage = Customer._meta.get_field('business_card').storage
+        with mock.patch.object(
+            storage,
+            'save',
+            return_value='business_cards/ordinary.gif',
+        ) as save:
+            response = client.patch(
+                f'/api/v1/customers/{customer.pk}/',
+                {'business_card': self.image_upload('ordinary.gif')},
+                format='multipart',
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        save.assert_called_once()
+        customer.refresh_from_db()
+        self.assertEqual(
+            customer.business_card.name,
+            'business_cards/ordinary.gif',
+        )
+
+    def test_customer_memo_and_status_internal_update_remains_available(self):
+        response = self.client.patch(
+            f'/api/v1/customers/{self.customer.pk}/',
+            {'memo': '시연 중 수정한 메모', 'status': 'hold'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.memo, '시연 중 수정한 메모')
+        self.assertEqual(self.customer.status, 'hold')
+
+    def test_public_self_diagnosis_blocks_before_customer_and_provider_work(self):
+        payload = {
+            'name': '시연 공개 고객',
+            'phone': '010-2222-3333',
+            'birth': '1990-01-01',
+            'gender': '1',
+            'consent_share': 'true',
+            'consent_overseas': 'true',
+            'file': SimpleUploadedFile(
+                'policy.pdf',
+                b'%PDF-1.7\nshowcase-policy',
+                content_type='application/pdf',
+            ),
+        }
+        with mock.patch(
+            'inpa.insurances.self_diagnosis._extract_pdf_lines',
+            return_value=(['시연 증권'], None),
+        ) as extract, mock.patch(
+            'inpa.insurances.self_diagnosis.claude_parse',
+            return_value=None,
+        ) as parse:
+            response = self.public.post(
+                f'/api/v1/d/{self.user.profile.ref_code}/',
+                payload,
+                format='multipart',
+            )
+
+        self.assert_showcase_restricted(response)
+        extract.assert_not_called()
+        parse.assert_not_called()
+        self.assertFalse(
+            Customer.objects.filter(
+                owner=self.user,
+                lead_source='self_diagnosis',
+            ).exists()
+        )
+
+    def test_ordinary_public_self_diagnosis_still_calls_parser_once(self):
+        ordinary, _client = _make_planner('ordinary-selfdiag@test.com')
+        payload = {
+            'name': '일반 공개 고객',
+            'phone': '010-4444-5555',
+            'birth': '1990-01-01',
+            'gender': '2',
+            'consent_share': 'true',
+            'consent_overseas': 'true',
+            'file': SimpleUploadedFile(
+                'policy.pdf',
+                b'%PDF-1.7\nordinary-policy',
+                content_type='application/pdf',
+            ),
+        }
+        with mock.patch(
+            'inpa.insurances.self_diagnosis._extract_pdf_lines',
+            return_value=(['일반 증권'], None),
+        ) as extract, mock.patch(
+            'inpa.insurances.self_diagnosis.claude_parse',
+            return_value=None,
+        ) as parse:
+            response = self.public.post(
+                f'/api/v1/d/{ordinary.profile.ref_code}/',
+                payload,
+                format='multipart',
+            )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        extract.assert_called_once()
+        parse.assert_called_once()
+        self.assertTrue(
+            Customer.objects.filter(
+                owner=ordinary,
+                lead_source='self_diagnosis',
+            ).exists()
+        )
+
+    def test_public_introduction_post_blocks_before_customer_or_notification(self):
+        with mock.patch(
+            'inpa.accounts.public.Notification.objects.create',
+        ) as create_notification:
+            response = self.public.post(
+                f'/api/v1/p/{self.user.profile.ref_code}/',
+                {
+                    'name': '시연 상담 고객',
+                    'phone': '010-7777-8888',
+                    'agreed': 'true',
+                },
+                format='json',
+            )
+
+        self.assert_showcase_restricted(response)
+        create_notification.assert_not_called()
+        self.assertFalse(
+            Customer.objects.filter(
+                owner=self.user,
+                lead_source='introduction',
+            ).exists()
+        )
+
+    def test_ordinary_public_introduction_post_still_notifies_once(self):
+        ordinary, _client = _make_planner('ordinary-intro@test.com')
+        with mock.patch(
+            'inpa.accounts.public.Notification.objects.create',
+        ) as create_notification:
+            response = self.public.post(
+                f'/api/v1/p/{ordinary.profile.ref_code}/',
+                {
+                    'name': '일반 상담 고객',
+                    'phone': '010-9999-0000',
+                    'agreed': 'true',
+                },
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        create_notification.assert_called_once()
+        self.assertTrue(
+            Customer.objects.filter(
+                owner=ordinary,
+                lead_source='introduction',
+            ).exists()
+        )
+
+    def test_public_read_surfaces_remain_available(self):
+        self.assertEqual(
+            self.public.get(
+                f'/api/v1/p/{self.user.profile.ref_code}/',
+            ).status_code,
+            200,
+        )

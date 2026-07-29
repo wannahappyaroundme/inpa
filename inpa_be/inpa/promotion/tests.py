@@ -34,13 +34,16 @@
   [form_response PII 격리 — AC-C2]
   F1  타 설계사는 본인 주문이 아닌 주문의 form_response 접근 불가 (404)
 """
-from django.test import TestCase
+from unittest.mock import patch
+
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from inpa.accounts.models import Profile, User
 
 from .models import (
+    PromotionDownload,
     PromotionOrder,
     PromotionOrderStatusLog,
     PromotionSample,
@@ -450,3 +453,113 @@ class OrderMetaKeysTests(TestCase):
             'form_response': {'quantity': 100},
         }, format='json')
         self.assertEqual(r.status_code, 201, r.content)
+
+
+@override_settings(SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example')
+class ShowcasePromotionTests(TestCase):
+    """전자자료·판촉 주문 생성만 차단하고 기존 주문 읽기는 유지한다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('showcase@inpa.example')
+        Profile.objects.filter(user=self.user).update(is_showcase=True)
+        self.user.profile.refresh_from_db()
+        self.sample = _make_sample()
+        self.digital = _make_sample(
+            name='전자자료',
+            category='전자자료',
+            is_digital=True,
+        )
+
+    def assert_showcase_restricted(self, response):
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()['code'], 'SHOWCASE_ACTION_RESTRICTED')
+
+    def test_showcase_digital_request_blocks_before_queue_and_notification(self):
+        PromotionDownload.objects.create(
+            owner=self.user,
+            sample=self.digital,
+            is_free=True,
+        )
+        with patch('inpa.promotion.views._notify_admins') as notify:
+            response = self.client.post(
+                f'/api/v1/promotion/samples/{self.digital.pk}/request/',
+            )
+
+        self.assert_showcase_restricted(response)
+        notify.assert_not_called()
+        self.assertEqual(
+            PromotionOrder.objects.filter(owner=self.user).count(),
+            0,
+        )
+        self.assertEqual(
+            PromotionDownload.objects.filter(
+                owner=self.user,
+                sample=self.digital,
+            ).count(),
+            1,
+        )
+
+    def test_ordinary_digital_request_still_queues_and_notifies_once(self):
+        ordinary, client = _make_planner('ordinary-digital@test.com')
+        PromotionDownload.objects.create(
+            owner=ordinary,
+            sample=self.digital,
+            is_free=True,
+        )
+        with patch('inpa.promotion.views._notify_admins') as notify:
+            response = client.post(
+                f'/api/v1/promotion/samples/{self.digital.pk}/request/',
+            )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        notify.assert_called_once()
+        self.assertEqual(
+            PromotionOrder.objects.filter(owner=ordinary).count(),
+            1,
+        )
+
+    def test_showcase_order_blocks_before_credit_and_create(self):
+        with patch('inpa.promotion.views.check_and_consume') as consume:
+            response = self.client.post(
+                '/api/v1/promotion/orders/',
+                {
+                    'sample': self.sample.pk,
+                    'form_response': {'quantity': 100},
+                },
+                format='json',
+            )
+
+        self.assert_showcase_restricted(response)
+        consume.assert_not_called()
+        self.assertFalse(
+            PromotionOrder.objects.filter(owner=self.user).exists()
+        )
+
+    def test_ordinary_order_still_consumes_credit_once_and_creates(self):
+        ordinary, client = _make_planner('ordinary-order@test.com')
+        with patch('inpa.promotion.views.check_and_consume') as consume:
+            response = client.post(
+                '/api/v1/promotion/orders/',
+                {
+                    'sample': self.sample.pk,
+                    'form_response': {'quantity': 100},
+                },
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        consume.assert_called_once_with(ordinary, 'promotion')
+        self.assertTrue(
+            PromotionOrder.objects.filter(owner=ordinary).exists()
+        )
+
+    def test_existing_order_history_remains_readable(self):
+        order = _make_order(self.user, self.sample)
+
+        listed = self.client.get('/api/v1/promotion/orders/')
+        detailed = self.client.get(
+            f'/api/v1/promotion/orders/{order.pk}/',
+        )
+
+        self.assertEqual(listed.status_code, 200, listed.content)
+        self.assertEqual(detailed.status_code, 200, detailed.content)

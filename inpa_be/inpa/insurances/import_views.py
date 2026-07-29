@@ -22,6 +22,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from inpa.billing.credit import LimitExceeded
+from inpa.core.internal_accounts import block_showcase_external_action
 from inpa.core.permissions import IsEmailVerified
 
 from . import import_services
@@ -106,6 +107,7 @@ def _parse_idempotency_key(request, *, required):
 def _run_create(request, customer_pk, *, legacy=False):
     serializer = InsuranceImportCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    block_showcase_external_action(request.user)
     try:
         idempotency_key = _parse_idempotency_key(
             request, required=not legacy)

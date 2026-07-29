@@ -14,6 +14,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from inpa.core.internal_accounts import is_showcase_user
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.customers.models import Customer
@@ -34,6 +35,8 @@ def _booking_enabled():
 
 def _push_to_google(meeting):
     """미팅 확정(수락) 시 구글 캘린더에 등록 — 연동된 설계사만, 실패는 격리(예약엔 영향 없음)."""
+    if is_showcase_user(meeting.owner):
+        return
     try:
         from inpa.accounts.google import google_calendar_enabled
         profile = getattr(meeting.owner, 'profile', None)

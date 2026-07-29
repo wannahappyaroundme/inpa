@@ -24,6 +24,7 @@ from rest_framework.views import APIView
 from inpa.billing.credit import LimitExceeded, check_and_consume, check_and_consume_n
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory
 from inpa.analysis.baselines import is_grading_eligible_baseline
+from inpa.core.internal_accounts import block_showcase_external_action
 from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.insurances.models import CustomerInsurance
@@ -113,6 +114,8 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         serializer.save(owner=self.request.user)
 
     def perform_update(self, serializer):
+        if self.request.FILES.get('business_card') is not None:
+            block_showcase_external_action(self.request.user)
         keys = set(self.request.data.keys())
         if (keys & self.SUBSTANTIVE) - {'memo'}:
             serializer.save(last_contacted_at=timezone.now())
@@ -131,6 +134,8 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        if request.FILES.get('business_card') is not None:
+            block_showcase_external_action(request.user)
         try:
             with transaction.atomic():
                 check_and_consume(request.user, 'customer')

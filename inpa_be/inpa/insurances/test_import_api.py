@@ -1962,3 +1962,92 @@ class InsuranceImportGateAndConfigTests(TestCase):
 
         self.assertNotIn(token, rendered)
         self.assertIn('<redacted>', rendered)
+
+
+@override_settings(
+    SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example',
+    INSURANCE_REVIEW_GATE_ENABLED=True,
+    FREE_TIER_UNLIMITED=True,
+)
+class ShowcaseImportTests(TestCase):
+    """검토형 증권 업로드는 막고 준비된 작업 목록 읽기는 유지한다."""
+
+    def setUp(self):
+        self.user, self.client = _planner('showcase@inpa.example')
+        Profile.objects.filter(user=self.user).update(is_showcase=True)
+        self.user.profile.refresh_from_db()
+        self.customer = Customer.objects.create(
+            owner=self.user,
+            name='준비된 고객',
+            mobile_phone_number='010-1000-1000',
+        )
+        _consent(self.customer)
+
+    def assert_showcase_restricted(self, response):
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()['code'], 'SHOWCASE_ACTION_RESTRICTED')
+
+    @staticmethod
+    def reception_result():
+        return mock.Mock(
+            job=mock.Mock(id=uuid.uuid4(), status='queued'),
+            duplicate_kind='created',
+            response_status=202,
+            response_body={
+                'job_id': str(uuid.uuid4()),
+                'status': 'queued',
+            },
+        )
+
+    def test_showcase_import_blocks_before_reception_storage_and_enqueue(self):
+        with mock.patch(
+            'inpa.insurances.import_services.receive_import',
+            return_value=self.reception_result(),
+        ) as receive:
+            response = self.client.post(
+                _url(self.customer),
+                {
+                    'file': _pdf(),
+                    'intent': 'add',
+                    'portfolio_type': 1,
+                },
+                format='multipart',
+                **_headers(),
+            )
+
+        self.assert_showcase_restricted(response)
+        receive.assert_not_called()
+        self.assertFalse(
+            InsuranceExtractionJob.objects.filter(owner=self.user).exists()
+        )
+
+    def test_ordinary_import_still_calls_reception_once(self):
+        ordinary, client = _planner('ordinary-import@test.com')
+        customer = Customer.objects.create(
+            owner=ordinary,
+            name='일반 고객',
+            mobile_phone_number='010-2000-2000',
+        )
+        _consent(customer)
+        with mock.patch(
+            'inpa.insurances.import_services.receive_import',
+            return_value=self.reception_result(),
+        ) as receive:
+            response = client.post(
+                _url(customer),
+                {
+                    'file': _pdf(),
+                    'intent': 'add',
+                    'portfolio_type': 1,
+                },
+                format='multipart',
+                **_headers(),
+            )
+
+        self.assertEqual(response.status_code, 202, response.content)
+        receive.assert_called_once()
+
+    def test_import_collection_read_remains_available(self):
+        response = self.client.get(_url(self.customer))
+
+        self.assertEqual(response.status_code, 200, response.content)

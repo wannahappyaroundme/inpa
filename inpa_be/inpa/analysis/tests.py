@@ -1197,8 +1197,9 @@ class CompareAiGateTests(TestCase):
         _make_portfolio_typed(self.customer, self.idet, 100000000, portfolio_type=2)
 
     @override_settings(COMPARE_AI_ENABLED=True)
+    @mock.patch('inpa.analysis.compare.check_and_consume')
     @mock.patch('inpa.analysis.compare._generate_guide_draft')
-    def test_ai_enabled_returns_guide(self, mock_gen):
+    def test_ai_enabled_returns_guide(self, mock_gen, mock_credit):
         """게이트 ON + Claude 성공(mock) → guide_draft 채워지고 guide_enabled=true."""
         mock_gen.return_value = ('§97 6요건 초안 본문', {'input_tokens': 10,
                                                        'output_tokens': 20})
@@ -1208,7 +1209,37 @@ class CompareAiGateTests(TestCase):
         self.assertTrue(body['guide_enabled'])
         self.assertEqual(body['comparison_source'], 'deterministic')
         self.assertEqual(body['guide_source'], 'ai')
+        mock_credit.assert_called_once_with(self.user, 'ai_compare')
         mock_gen.assert_called_once()
+
+    @override_settings(
+        COMPARE_AI_ENABLED=True,
+        SHOWCASE_ACCOUNT_EMAIL='compare-ai@test.com',
+    )
+    @mock.patch('inpa.analysis.compare.check_and_consume')
+    @mock.patch('inpa.analysis.compare._generate_guide_draft')
+    def test_showcase_returns_fact_comparison_without_ai_branch(
+        self,
+        mock_gen,
+        mock_credit,
+    ):
+        self.user.profile.is_showcase = True
+        self.user.profile.save(update_fields=['is_showcase'])
+        mock_gen.return_value = ('호출되면 안 되는 초안', {'input_tokens': 10})
+
+        response = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/compare/')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(any(
+            row['coverage'] == '사망보장' for row in body['rows']
+        ))
+        self.assertIsNone(body['guide_draft'])
+        self.assertFalse(body['guide_enabled'])
+        self.assertIsNone(body['guide_source'])
+        mock_credit.assert_not_called()
+        mock_gen.assert_not_called()
 
     @override_settings(COMPARE_AI_ENABLED=True)
     @mock.patch('inpa.analysis.compare._generate_guide_draft')
@@ -2835,6 +2866,29 @@ class CoverageFlagCreateTests(TestCase):
             }, format='json')
             self.assertEqual(r.status_code, 201)
         self.assertEqual(CoverageFlag.objects.count(), 2)
+
+    @override_settings(SHOWCASE_ACCOUNT_EMAIL='flag@test.com')
+    def test_showcase_request_is_blocked_before_shared_flag_or_admin_notification(self):
+        from inpa.analysis.models import CoverageFlag
+        from inpa.notifications.models import Notification
+
+        self.user.profile.is_showcase = True
+        self.user.profile.save(update_fields=['is_showcase'])
+        customer_count = Customer.objects.count()
+        case_count = CustomerInsuranceDetail.objects.count()
+
+        response = self.client.post(self._url(self.customer.id), {
+            'analysis_detail_id': self.det.id,
+            'case_id': self.case.id,
+            'note': '공유 사전에 남으면 안 되는 요청',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.data['code'], 'SHOWCASE_ACTION_RESTRICTED')
+        self.assertEqual(CoverageFlag.objects.count(), 0)
+        self.assertEqual(Notification.objects.filter(owner=self.admin).count(), 0)
+        self.assertEqual(Customer.objects.count(), customer_count)
+        self.assertEqual(CustomerInsuranceDetail.objects.count(), case_count)
 
 
 # ═══════════════════════════════════════════════════════════════════════

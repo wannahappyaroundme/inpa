@@ -1,5 +1,6 @@
 """미팅 예약 핵심 테스트 — owner 격리 · 토큰 · 공개 예약 · 중복예약 · 플래그 게이트."""
 from datetime import timedelta
+from unittest import mock
 
 from django.core import signing
 from django.core.cache import cache
@@ -380,6 +381,80 @@ class BookingCoreTests(TestCase):
         self.assertEqual(r.status_code, 200)
         meeting.refresh_from_db()
         self.assertEqual(meeting.status, Meeting.STATUS_CONFIRMED)
+
+    @override_settings(SHOWCASE_ACCOUNT_EMAIL='agent_a@test.com')
+    @mock.patch(
+        'inpa.accounts.google_calendar.insert_meeting_event',
+        return_value='showcase-event-must-not-exist',
+    )
+    @mock.patch(
+        'inpa.accounts.google.google_calendar_enabled',
+        return_value=True,
+    )
+    def test_showcase_accept_confirms_without_google_call(
+        self,
+        _google_enabled,
+        insert_event,
+    ):
+        self.profile_a.is_showcase = True
+        self.profile_a.google_calendar_refresh_token = 'existing-token'
+        self.profile_a.save(update_fields=[
+            'is_showcase',
+            'google_calendar_refresh_token',
+        ])
+        meeting = Meeting.objects.create(
+            owner=self.user_a,
+            customer=self.customer,
+            start_at=_future(),
+            method=Meeting.METHOD_PHONE,
+            status=Meeting.STATUS_PENDING,
+        )
+
+        response = self.client_a.post(
+            f'/api/v1/meetings/{meeting.id}/accept/')
+
+        self.assertEqual(response.status_code, 200)
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_CONFIRMED)
+        self.assertIsNone(meeting.google_event_id)
+        insert_event.assert_not_called()
+
+    @override_settings(SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example')
+    @mock.patch(
+        'inpa.accounts.google_calendar.insert_meeting_event',
+        return_value='ordinary-google-event',
+    )
+    @mock.patch(
+        'inpa.accounts.google.google_calendar_enabled',
+        return_value=True,
+    )
+    def test_ordinary_accept_pushes_to_google_once(
+        self,
+        _google_enabled,
+        insert_event,
+    ):
+        self.profile_a.google_calendar_refresh_token = 'existing-token'
+        self.profile_a.save(update_fields=[
+            'google_calendar_refresh_token',
+        ])
+        meeting = Meeting.objects.create(
+            owner=self.user_a,
+            customer=self.customer,
+            start_at=_future(),
+            method=Meeting.METHOD_PHONE,
+            status=Meeting.STATUS_PENDING,
+        )
+
+        response = self.client_a.post(
+            f'/api/v1/meetings/{meeting.id}/accept/')
+
+        self.assertEqual(response.status_code, 200)
+        meeting.refresh_from_db()
+        self.assertEqual(
+            meeting.google_event_id,
+            'ordinary-google-event',
+        )
+        insert_event.assert_called_once()
 
     def test_accept_promotes_customer_to_fa(self):
         # 수락 = 만나기로 확정 → db/contact 고객이 FA(meeting)로 자동 승급 + fa_reached_at 스탬프.

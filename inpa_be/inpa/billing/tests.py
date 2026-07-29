@@ -14,7 +14,11 @@
   추가   /billing/usage/ — 비인증 401, 관리자 엔드포인트 비관리자 403
 """
 from decimal import Decimal
+from contextlib import ExitStack
+from types import SimpleNamespace
+from urllib.parse import urlencode
 from unittest.mock import patch
+import uuid
 
 from django.apps import apps as django_apps
 from django.test import TestCase, override_settings
@@ -1498,3 +1502,299 @@ class UsageDisplayMatchesEnforcementTests(TestCase):
         self.assertEqual(data['subscription']['status'], 'active')
         ocr = next(u for u in data['usage'] if u['action'] == 'ocr')
         self.assertEqual(ocr['limit'], self.plus.limit_ocr)
+
+
+@override_settings(
+    SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example',
+    FREE_TRIAL_PHONE_VERIFICATION_ENABLED=True,
+)
+class ShowcaseCouponTests(TestCase):
+    """최신 billing 외부 write만 중앙 가드로 막고 notice/read는 유지한다."""
+
+    def setUp(self):
+        self.free, self.plus = _get_or_create_plans()
+        self.user, self.client = _make_user('showcase@inpa.example')
+        Profile.objects.filter(user=self.user).update(is_showcase=True)
+        self.user.profile.refresh_from_db()
+        self.ordinary, self.ordinary_client = _make_user(
+            'ordinary-billing@test.com'
+        )
+        self.now = timezone.now()
+        self.recurring_coupon = Coupon.objects.create(
+            plan=self.plus,
+            code='INPA-RECURRING',
+            coupon_kind='recurring_trial',
+            duration_months=1,
+            redeem_by=self.now + timedelta(days=7),
+        )
+
+    def assert_showcase_restricted(self, response):
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()['code'], 'SHOWCASE_ACTION_RESTRICTED')
+
+    def _manual_review(self):
+        return SimpleNamespace(
+            pk=1,
+            phone_last4='5678',
+            contact_email='planner@example.com',
+            reason='확인 요청',
+            status='pending',
+            decision_reason='',
+            created_at=self.now,
+            decided_at=None,
+            consumed_at=None,
+        )
+
+    def _recurring_claim(self):
+        return SimpleNamespace(
+            id=uuid.uuid4(),
+            expires_at=self.now + timedelta(minutes=10),
+            coupon=self.recurring_coupon,
+        )
+
+    def _agreement(self, user):
+        return SimpleNamespace(
+            user=user,
+            plan=self.plus,
+            trial_duration_months=1,
+        )
+
+    def _provider_return_url(self, user):
+        from .agreements import _sign_state
+
+        state = _sign_state({
+            'user_id': user.pk,
+            'claim_id': str(uuid.uuid4()),
+            'agreement_id': str(uuid.uuid4()),
+            'shop_order_no': 'ORDER-RETURN',
+            'consent_version': 'billing-initial-v1',
+        })
+        return (
+            '/api/v1/billing/card-registration/provider-return/?'
+            + urlencode({'state': state})
+        )
+
+    def test_showcase_provider_return_blocks_before_completion_service(self):
+        with patch(
+            'inpa.billing.views.complete_card_registration',
+            return_value=self._agreement(self.user),
+        ) as complete:
+            response = self.client.post(
+                self._provider_return_url(self.user),
+                {
+                    'authorizationId': 'AUTH-RETURN',
+                    'shopOrderNo': 'ORDER-RETURN',
+                },
+                format='json',
+            )
+
+        self.assert_showcase_restricted(response)
+        complete.assert_not_called()
+
+    def test_ordinary_provider_return_calls_completion_service_once(self):
+        agreement = self._agreement(self.ordinary)
+        with (
+            patch(
+                'inpa.billing.views.complete_card_registration',
+                return_value=agreement,
+            ) as complete,
+            patch('inpa.billing.views._log_trial_started') as log_trial,
+        ):
+            response = self.ordinary_client.post(
+                self._provider_return_url(self.ordinary),
+                {
+                    'authorizationId': 'AUTH-RETURN',
+                    'shopOrderNo': 'ORDER-RETURN',
+                },
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 302)
+        complete.assert_called_once()
+        log_trial.assert_called_once_with(agreement)
+
+    def _cases(self, user):
+        return [
+            {
+                'name': 'coupon_redeem',
+                'url': '/api/v1/billing/coupons/redeem/',
+                'payload': {'code': 'INPA-LEGACY'},
+                'target': 'inpa.billing.views.redeem_coupon',
+                'return_value': {
+                    'plan_code': 'plus',
+                    'plan_display_name': 'Plus',
+                    'expires_at': self.now.isoformat(),
+                    'duration_days': 30,
+                },
+                'status': 200,
+            },
+            {
+                'name': 'phone_request',
+                'url': '/api/v1/billing/free-trial/phone/request/',
+                'payload': {'phone': '010-1234-5678'},
+                'target': (
+                    'inpa.billing.views.request_phone_verification'
+                ),
+                'return_value': SimpleNamespace(
+                    pk=uuid.uuid4(),
+                    phone_last4='5678',
+                ),
+                'status': 200,
+            },
+            {
+                'name': 'phone_verify',
+                'url': '/api/v1/billing/free-trial/phone/verify/',
+                'payload': {
+                    'challenge_id': str(uuid.uuid4()),
+                    'phone': '010-1234-5678',
+                    'code': '123456',
+                },
+                'target': 'inpa.billing.views.verify_otp_challenge',
+                'return_value': None,
+                'status': 200,
+            },
+            {
+                'name': 'manual_review',
+                'url': '/api/v1/billing/free-trial/manual-reviews/',
+                'payload': {
+                    'contact_email': 'planner@example.com',
+                    'reason': '확인 요청',
+                },
+                'target': (
+                    'inpa.billing.views.create_manual_benefit_review'
+                ),
+                'return_value': (self._manual_review(), True),
+                'status': 201,
+            },
+            {
+                'name': 'recurring_preflight',
+                'url': '/api/v1/billing/coupons/preflight/',
+                'payload': {'code': self.recurring_coupon.code},
+                'target': 'inpa.billing.views.hold_recurring_coupon',
+                'return_value': self._recurring_claim(),
+                'status': 200,
+                'extra': {
+                    'inpa.billing.views.card_registration_enabled': True,
+                    'inpa.billing.views.log_billing_event': None,
+                },
+            },
+            {
+                'name': 'card_start',
+                'url': '/api/v1/billing/card-registration/start/',
+                'payload': {
+                    'claim_id': str(uuid.uuid4()),
+                    'initial_consent_version': 'billing-initial-v1',
+                    'device_type': 'pc',
+                },
+                'target': 'inpa.billing.views.start_card_registration',
+                'return_value': {
+                    'auth_page_url': 'https://payments.example.test/auth',
+                    'state': 'signed-state',
+                    'shop_order_no': 'ORDER-1',
+                    'claim_expires_at': self.now + timedelta(minutes=10),
+                    'access_through': self.now.date() + timedelta(days=30),
+                    'next_charge_date': self.now.date() + timedelta(days=31),
+                    'amount_krw': 31900,
+                },
+                'status': 200,
+                'extra': {
+                    'inpa.billing.views.card_registration_enabled': True,
+                },
+            },
+            {
+                'name': 'card_complete',
+                'url': '/api/v1/billing/card-registration/complete/',
+                'payload': {
+                    'state': 'signed-state',
+                    'authorization_id': 'authorization-id',
+                    'shop_order_no': 'ORDER-1',
+                },
+                'target': (
+                    'inpa.billing.views.complete_card_registration'
+                ),
+                'return_value': self._agreement(user),
+                'status': 200,
+                'extra': {
+                    'inpa.billing.views._log_trial_started': None,
+                    'inpa.billing.views.billing_status': {'status': 'trial'},
+                },
+            },
+            {
+                'name': 'first_charge_reconfirmation',
+                'url': '/api/v1/billing/reconfirm/',
+                'payload': {
+                    'first_charge_consent_version': 'billing-charge-v1',
+                },
+                'target': 'inpa.billing.views.confirm_first_charge',
+                'return_value': (
+                    SimpleNamespace(pk=77),
+                    {'reconfirmed': True},
+                ),
+                'status': 200,
+            },
+            {
+                'name': 'billing_cancellation',
+                'url': '/api/v1/billing/cancel/',
+                'payload': {},
+                'target': 'inpa.billing.views.cancel_billing',
+                'return_value': {'status': 'free'},
+                'status': 200,
+            },
+        ]
+
+    def _request_with_patches(self, client, case):
+        with ExitStack() as stack:
+            service = stack.enter_context(
+                patch(case['target'], return_value=case['return_value'])
+            )
+            for target, return_value in case.get('extra', {}).items():
+                stack.enter_context(
+                    patch(target, return_value=return_value)
+                )
+            response = client.post(
+                case['url'],
+                case['payload'],
+                format='json',
+            )
+        return response, service
+
+    def test_showcase_billing_writes_block_before_each_service(self):
+        for case in self._cases(self.user):
+            with self.subTest(path=case['name']):
+                response, service = self._request_with_patches(
+                    self.client,
+                    case,
+                )
+                self.assert_showcase_restricted(response)
+                service.assert_not_called()
+
+    def test_ordinary_billing_writes_still_call_each_service_once(self):
+        for case in self._cases(self.ordinary):
+            with self.subTest(path=case['name']):
+                response, service = self._request_with_patches(
+                    self.ordinary_client,
+                    case,
+                )
+                self.assertEqual(
+                    response.status_code,
+                    case['status'],
+                    response.content,
+                )
+                service.assert_called_once()
+
+    def test_billing_notice_write_and_usage_read_remain_available(self):
+        device_id = uuid.uuid4()
+        with patch(
+            'inpa.billing.views.lease_notice',
+            return_value=None,
+        ) as lease:
+            notice = self.client.post(
+                '/api/v1/billing/notices/lease/',
+                {'device_id': str(device_id)},
+                format='json',
+            )
+
+        self.assertEqual(notice.status_code, 200, notice.content)
+        lease.assert_called_once_with(self.user, device_id)
+        usage = self.client.get('/api/v1/billing/usage/')
+        self.assertEqual(usage.status_code, 200, usage.content)

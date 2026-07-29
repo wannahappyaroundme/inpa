@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from django.db import transaction
 from django.utils import timezone
 
+from inpa.core.internal_accounts import block_showcase_external_action
+
 from .models import Profile
 
 
@@ -24,6 +26,8 @@ class TeamLinkResult:
 
 @transaction.atomic
 def link_agent_to_manager(*, agent, manager, confirm_switch=False) -> TeamLinkResult:
+    block_showcase_external_action(agent)
+    block_showcase_external_action(manager)
     if agent.pk == manager.pk:
         raise ValueError('self_management')
 

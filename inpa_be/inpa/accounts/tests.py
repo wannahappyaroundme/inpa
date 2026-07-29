@@ -7,12 +7,21 @@ from unittest import mock, skipUnless
 
 from django.db import close_old_connections, connection
 from django.core import mail
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
+from rest_framework.exceptions import APIException
 from rest_framework.test import APIClient
 
 from .models import Profile, User
-from .tokens import make_email_verify_token
+from .tokens import make_email_verify_token, make_password_reset_pair
+from inpa.core.internal_accounts import (
+    ShowcaseActionRestricted,
+    block_showcase_external_action,
+    internal_user_q,
+    is_showcase_user,
+)
+from inpa.core.permissions import BlocksShowcaseExternalActions
 
 
 THREAD_TIMEOUT = 5
@@ -258,6 +267,108 @@ class AuthFlowTests(TestCase):
         r = self.c.post('/api/v1/auth/password-reset/', {'email': self.reg['email']}, format='json')
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(mail.outbox), 2)  # 가입메일 + 재설정메일
+
+
+@override_settings(SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example')
+class ShowcaseAccountClassificationTests(TestCase):
+    """내부 시연 계정은 설정 이메일과 서버 소유 표식이 모두 맞아야 한다."""
+
+    def _user_with_profile(self, email, *, is_showcase=False):
+        user = User.objects.create_user(email=email, password=None)
+        Profile.objects.create(user=user, is_showcase=is_showcase)
+        return user
+
+    def test_profile_defaults_to_not_showcase_and_hides_internal_flag_from_profile_api(self):
+        """기본 프로필이 시연 처리되거나 내부 표식이 API에 새면 안 된다."""
+        user = self._user_with_profile('ordinary@inpa.example')
+        self.assertFalse(user.profile.is_showcase)
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.get('/api/v1/auth/profile/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('is_showcase', response.data)
+
+    def test_showcase_requires_matching_email_and_profile_flag(self):
+        """이메일 위장이나 플래그 오표시는 시연 계정 권한을 주면 안 된다."""
+        email_only = self._user_with_profile('showcase@inpa.example')
+        flag_only = self._user_with_profile('flag-only@inpa.example', is_showcase=True)
+
+        self.assertFalse(is_showcase_user(email_only))
+        self.assertFalse(is_showcase_user(flag_only))
+        email_only.delete()
+        verified = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+        without_profile = User.objects.create_user(email='no-profile@inpa.example', password=None)
+        self.assertTrue(is_showcase_user(verified))
+        self.assertFalse(is_showcase_user(without_profile))
+        self.assertFalse(is_showcase_user(User()))
+
+    def test_empty_showcase_email_disables_showcase_recognition(self):
+        """운영 설정 누락 시 어떤 프로필도 예외 권한을 얻지 않는다."""
+        user = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+
+        with override_settings(SHOWCASE_ACCOUNT_EMAIL=''):
+            self.assertFalse(is_showcase_user(user))
+
+    def test_internal_user_q_matches_local_accounts_and_verified_showcase_only(self):
+        """운영 통계 제외 조건에 일반 계정이 섞이거나 시연 계정이 빠지면 안 된다."""
+        local = self._user_with_profile('demo@inpa.local')
+        showcase = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+        flag_only = self._user_with_profile('flag-only@inpa.example', is_showcase=True)
+        ordinary = self._user_with_profile('ordinary@inpa.example')
+
+        matched = set(User.objects.filter(internal_user_q()).values_list('email', flat=True))
+
+        self.assertEqual(matched, {local.email, showcase.email})
+        self.assertNotIn(flag_only.email, matched)
+        self.assertNotIn(ordinary.email, matched)
+
+        with override_settings(SHOWCASE_ACCOUNT_EMAIL=''):
+            local_only = set(User.objects.filter(internal_user_q()).values_list('email', flat=True))
+        self.assertEqual(local_only, {local.email})
+
+    def test_internal_user_q_prefix_filters_related_sender(self):
+        """FK 접두사를 붙인 내부 계정 조건은 관련 사용자 필드에 적용돼야 한다."""
+        from inpa.analytics.models import NorthStarEvent
+
+        local = self._user_with_profile('sender-demo@inpa.local')
+        showcase = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+        ordinary = self._user_with_profile('sender-ordinary@inpa.example')
+        for sender in (local, showcase, ordinary):
+            NorthStarEvent.objects.create(
+                sender=sender,
+                event_type=NorthStarEvent.ANALYSIS_VIEW,
+            )
+
+        matched = set(NorthStarEvent.objects.filter(
+            internal_user_q('sender')
+        ).values_list('sender__email', flat=True))
+
+        self.assertEqual(matched, {local.email, showcase.email})
+
+    def test_block_showcase_external_action_restricts_only_verified_showcase(self):
+        """시연 계정만 외부 작동을 막고 일반 사용자는 기존 동작을 유지해야 한다."""
+        showcase = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+        ordinary = self._user_with_profile('ordinary@inpa.example')
+
+        with self.assertRaises(ShowcaseActionRestricted) as caught:
+            block_showcase_external_action(showcase)
+        self.assertEqual(caught.exception.status_code, 403)
+        self.assertIsInstance(caught.exception, APIException)
+        self.assertIsNone(block_showcase_external_action(ordinary))
+
+    def test_permission_delegates_showcase_external_action_guard(self):
+        """DRF 권한 평가도 같은 시연 계정 외부 작동 제한을 적용해야 한다."""
+        showcase = self._user_with_profile('showcase@inpa.example', is_showcase=True)
+        ordinary = self._user_with_profile('ordinary@inpa.example')
+
+        permission = BlocksShowcaseExternalActions()
+        request = type('Request', (), {'user': ordinary})()
+        self.assertTrue(permission.has_permission(request, view=None))
+        request.user = showcase
+        with self.assertRaises(ShowcaseActionRestricted):
+            permission.has_permission(request, view=None)
 
 
 def _verified_planner(email):
@@ -1017,3 +1128,180 @@ class TourCompleteTests(TestCase):
                      {'tour_completed_at': '2026-01-01T00:00:00Z'}, format='json')
         r = self.c.get('/api/v1/auth/profile/')
         self.assertIsNone(r.json()['tour_completed_at'])
+
+
+@override_settings(SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example')
+class ShowcaseExternalActionTests(TestCase):
+    """시연 계정의 인증·파일 외부 작동만 막고 내부 프로필 수정은 유지한다."""
+
+    def setUp(self):
+        self.user, self.client = _verified_planner('showcase@inpa.example')
+        Profile.objects.filter(user=self.user).update(is_showcase=True)
+        self.user.profile.refresh_from_db()
+
+    def assert_showcase_restricted(self, response):
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()['code'], 'SHOWCASE_ACTION_RESTRICTED')
+
+    def test_resend_and_reset_requests_keep_200_without_sending_showcase_mail(self):
+        self.user.is_active = False
+        self.user.save(update_fields=['is_active'])
+        with mock.patch('inpa.accounts.views._send_verify_email') as verify_sender:
+            resend = APIClient().post(
+                '/api/v1/auth/resend-verification/',
+                {'email': self.user.email},
+                format='json',
+            )
+        self.assertEqual(resend.status_code, 200)
+        verify_sender.assert_not_called()
+
+        self.user.is_active = True
+        self.user.save(update_fields=['is_active'])
+        with mock.patch('inpa.accounts.views._send_reset_email') as reset_sender:
+            reset = APIClient().post(
+                '/api/v1/auth/password-reset/',
+                {'email': self.user.email},
+                format='json',
+            )
+        self.assertEqual(reset.status_code, 200)
+        reset_sender.assert_not_called()
+
+    def test_ordinary_resend_and_reset_still_send_once(self):
+        ordinary = User.objects.create_user(
+            email='ordinary-mail@test.com',
+            password='ordinaryTestPass123!',
+            is_active=False,
+        )
+        Profile.objects.create(user=ordinary)
+        public = APIClient()
+        with mock.patch('inpa.accounts.views._send_verify_email') as verify_sender:
+            resend = public.post(
+                '/api/v1/auth/resend-verification/',
+                {'email': ordinary.email},
+                format='json',
+            )
+        self.assertEqual(resend.status_code, 200)
+        verify_sender.assert_called_once_with(ordinary)
+
+        ordinary.is_active = True
+        ordinary.save(update_fields=['is_active'])
+        with mock.patch('inpa.accounts.views._send_reset_email') as reset_sender:
+            reset = public.post(
+                '/api/v1/auth/password-reset/',
+                {'email': ordinary.email},
+                format='json',
+            )
+        self.assertEqual(reset.status_code, 200)
+        reset_sender.assert_called_once_with(ordinary)
+
+    def test_password_reset_confirm_is_blocked_before_password_change(self):
+        uid, token = make_password_reset_pair(self.user)
+        password_hash = self.user.password
+
+        response = APIClient().post(
+            '/api/v1/auth/password-reset/confirm/',
+            {
+                'uid': uid,
+                'token': token,
+                'new_password': 'changedTestPass123!',
+            },
+            format='json',
+        )
+
+        self.assert_showcase_restricted(response)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.password, password_hash)
+
+    def test_password_change_is_blocked_before_password_change(self):
+        password_hash = self.user.password
+
+        response = self.client.post(
+            '/api/v1/auth/password/change/',
+            {
+                'old_password': 'inpaPass123!',
+                'new_password': 'changedTestPass123!',
+            },
+            format='json',
+        )
+
+        self.assert_showcase_restricted(response)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.password, password_hash)
+
+    def test_profile_image_upload_is_blocked_before_storage_save(self):
+        upload = SimpleUploadedFile(
+            'profile.gif',
+            (
+                b'GIF89a\x01\x00\x01\x00\x80\x00\x00'
+                b'\x00\x00\x00\xff\xff\xff!\xf9\x04\x01'
+                b'\x00\x00\x00\x00,\x00\x00\x00\x00\x01'
+                b'\x00\x01\x00\x00\x02\x02D\x01\x00;'
+            ),
+            content_type='image/gif',
+        )
+        storage = Profile._meta.get_field('profile_image').storage
+        with mock.patch.object(
+            storage,
+            'save',
+            return_value='profiles/showcase.gif',
+        ) as save:
+            response = self.client.patch(
+                '/api/v1/auth/profile/',
+                {'profile_image': upload},
+                format='multipart',
+            )
+
+        self.assert_showcase_restricted(response)
+        save.assert_not_called()
+
+    def test_ordinary_profile_image_upload_still_saves_once(self):
+        ordinary, client = _verified_planner('ordinary-image@test.com')
+        upload = SimpleUploadedFile(
+            'profile.gif',
+            (
+                b'GIF89a\x01\x00\x01\x00\x80\x00\x00'
+                b'\x00\x00\x00\xff\xff\xff!\xf9\x04\x01'
+                b'\x00\x00\x00\x00,\x00\x00\x00\x00\x01'
+                b'\x00\x01\x00\x00\x02\x02D\x01\x00;'
+            ),
+            content_type='image/gif',
+        )
+        storage = Profile._meta.get_field('profile_image').storage
+        with mock.patch.object(
+            storage,
+            'save',
+            return_value='profiles/ordinary.gif',
+        ) as save:
+            response = client.patch(
+                '/api/v1/auth/profile/',
+                {'profile_image': upload},
+                format='multipart',
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        save.assert_called_once()
+        ordinary.profile.refresh_from_db()
+        self.assertEqual(ordinary.profile.profile_image.name, 'profiles/ordinary.gif')
+
+    def test_withdraw_is_blocked_before_user_delete(self):
+        response = self.client.post(
+            '/api/v1/auth/withdraw/',
+            {'password': 'inpaPass123!'},
+            format='json',
+        )
+
+        self.assert_showcase_restricted(response)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
+
+    def test_internal_profile_fields_remain_editable_and_readable(self):
+        response = self.client.patch(
+            '/api/v1/auth/profile/',
+            {'name': '시연 설계사'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            self.client.get('/api/v1/auth/profile/').json()['name'],
+            '시연 설계사',
+        )

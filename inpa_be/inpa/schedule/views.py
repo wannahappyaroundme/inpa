@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.utils import timezone
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -17,6 +18,14 @@ from inpa.core.permissions import IsEmailVerified, IsOwner
 
 from .models import ScheduleItem
 from .serializers import ScheduleItemSerializer
+
+
+class ScheduleItemPagination(PageNumberPagination):
+    """월간 캘린더가 한 달의 일정을 한 번에 그릴 수 있는 목록 크기."""
+
+    page_size = 200
+    page_size_query_param = 'page_size'
+    max_page_size = 500
 
 
 def _month_bounds_utc(month):
@@ -41,6 +50,7 @@ def _month_bounds_utc(month):
 class ScheduleItemViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsEmailVerified, IsOwner]
     serializer_class = ScheduleItemSerializer
+    pagination_class = ScheduleItemPagination
     queryset = ScheduleItem.objects.select_related('customer').all()
 
     def get_queryset(self):

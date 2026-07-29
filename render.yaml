@@ -146,6 +146,10 @@ services:
       #    "같은 값"을 여기에 입력해야 동작(미설정 시 엔드포인트 404 = 잡 꺼짐, fail-closed).
       - key: JOB_RUNNER_TOKEN
         sync: false                  # `openssl rand -hex 32` 등 강한 랜덤값. GH Secret 과 동일하게.
+      - key: SHOWCASE_ACCOUNT_EMAIL
+        sync: false
+      - key: SHOWCASE_ACCOUNT_PASSWORD
+        sync: false
       # ── 미디어(명함·전자자료) 저장 — AWS 불필요. 아래 셋 중 하나만 ──
       # [A] S3 "호환" 오브젝트 스토리지(권장·무료): Cloudflare R2 / Supabase / Backblaze B2 등.
       #     → 아래 5개 채우기(R2면 REGION=auto, ENDPOINT_URL=R2 주소).
@@ -209,6 +213,11 @@ services:
           type: web
           name: inpa-be
           envVarKey: CONSULTATION_AI_SUMMARY_ENABLED
+      - key: SHOWCASE_ACCOUNT_EMAIL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: SHOWCASE_ACCOUNT_EMAIL
       - key: BILLING_CARD_REGISTRATION_ENABLED
         fromService:
           type: web

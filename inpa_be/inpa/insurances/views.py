@@ -45,7 +45,7 @@ from inpa.analytics.events import log_event
 from inpa.analytics.models import NorthStarEvent
 from inpa.billing.credit import LimitExceeded, check_and_consume, log_claude_usage
 from inpa.core.ocr.claude_parser import claude_parse
-from inpa.core.permissions import IsEmailVerified
+from inpa.core.permissions import BlocksShowcaseExternalActions, IsEmailVerified
 from inpa.customers.consent_texts import has_current_overseas_consent
 from inpa.customers.models import Customer
 
@@ -363,7 +363,11 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
 
     POST /api/v1/customers/<customer_pk>/insurances/ocr/   (multipart: file=PDF)
     """
-    permission_classes = [IsAuthenticated, IsEmailVerified]
+    permission_classes = [
+        IsAuthenticated,
+        IsEmailVerified,
+        BlocksShowcaseExternalActions,
+    ]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'ocr'  # Claude Opus 비용폭탄 방어 — 유저별 시간당 상한
     parser_classes = [MultiPartParser, FormParser]

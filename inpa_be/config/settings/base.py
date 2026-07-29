@@ -174,6 +174,9 @@ TEAM_INVITE_TTL_DAYS = env.int('TEAM_INVITE_TTL_DAYS', default=7)
 # 일일 배치 트리거 토큰 (spec 2026-07-04) — 미설정('')이면 /jobs/run-daily/ 404 (fail-closed).
 # GitHub Secrets 의 JOB_RUNNER_TOKEN 과 동일 값으로 Render env 에 설정.
 JOB_RUNNER_TOKEN = env('JOB_RUNNER_TOKEN', default='')
+# 내부 시연 계정. 둘 다 비어 있으면 시연 계정 예외 동작은 완전히 꺼진다.
+SHOWCASE_ACCOUNT_EMAIL = env('SHOWCASE_ACCOUNT_EMAIL', default='')
+SHOWCASE_ACCOUNT_PASSWORD = env('SHOWCASE_ACCOUNT_PASSWORD', default='')
 # 로그인 5회 실패 → 10분 잠금 (423)
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 600

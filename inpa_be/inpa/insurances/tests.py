@@ -2873,6 +2873,15 @@ class FeeSerializerTests(TestCase):
         self.assertEqual(data2['total_renewal_premium'], 0)
         self.assertEqual(data2['total_non_renewal_premium'], 500)
 
+    def test_case_fee_prefers_the_policy_raw_coverage_name(self):
+        """저장용 카탈로그 위치보다 증권에서 확인한 실제 담보명을 보여준다."""
+        self.case.raw_name = '통합암진단특약'
+        self.case.save(update_fields=['raw_name'])
+
+        data = CaseFeeSerializer(self.case).data
+
+        self.assertEqual(data['detail_name'], '통합암진단특약')
+
     def test_insurance_fee_nests_case_fees(self):
         data = InsuranceFeeSerializer(self.ci).data
         self.assertEqual(data['monthly_renewal_premium'], 20000)
@@ -3230,3 +3239,102 @@ class OcrNorthStarEventTests(TestCase):
         self.assertEqual(r.status_code, 422)
         self.assertEqual(
             NorthStarEvent.objects.filter(event_type=NorthStarEvent.OCR_UPLOAD).count(), 0)
+
+
+@override_settings(
+    SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example',
+    ANTHROPIC_API_KEY='test-provider-key',
+    CLAUDE_MODEL_PARSE='test-model',
+    OCR_VERIFY_ENABLED=False,
+    INSURANCE_REVIEW_GATE_ENABLED=False,
+)
+class ShowcaseOcrTests(TestCase):
+    """시연 계정 OCR만 외부 호출 전에 막고 직접 입력 보험은 유지한다."""
+
+    def setUp(self):
+        self.user, self.client = _make_planner('showcase@inpa.example')
+        Profile.objects.filter(user=self.user).update(is_showcase=True)
+        self.user.profile.refresh_from_db()
+        self.customer = Customer.objects.create(
+            owner=self.user,
+            name='준비된 고객',
+            birth_day='1985.03.10',
+            gender=1,
+        )
+        _grant_overseas(self.customer)
+
+    def assert_showcase_restricted(self, response):
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()['code'], 'SHOWCASE_ACTION_RESTRICTED')
+
+    def test_showcase_ocr_blocks_before_pdf_credit_and_claude(self):
+        with mock.patch(
+            'inpa.insurances.views._extract_pdf_lines',
+            return_value=(['증권 원문'], None),
+        ) as extract, mock.patch(
+            'inpa.insurances.views.check_and_consume',
+        ) as consume, mock.patch(
+            'inpa.insurances.views.claude_parse',
+            return_value=_fake_ocr_data(),
+        ) as parse:
+            response = self.client.post(
+                _ocr_url(self.customer.pk),
+                {'file': _dummy_pdf()},
+                format='multipart',
+            )
+
+        self.assert_showcase_restricted(response)
+        extract.assert_not_called()
+        consume.assert_not_called()
+        parse.assert_not_called()
+        self.assertFalse(
+            CustomerInsurance.objects.filter(customer=self.customer).exists()
+        )
+
+    def test_ordinary_ocr_still_calls_pdf_credit_and_claude_once(self):
+        ordinary, client = _make_planner('ordinary-ocr@test.com')
+        customer = Customer.objects.create(
+            owner=ordinary,
+            name='일반 고객',
+            birth_day='1985.03.10',
+            gender=1,
+        )
+        _grant_overseas(customer)
+        with mock.patch(
+            'inpa.insurances.views._extract_pdf_lines',
+            return_value=(['증권 원문'], None),
+        ) as extract, mock.patch(
+            'inpa.insurances.views.check_and_consume',
+        ) as consume, mock.patch(
+            'inpa.insurances.views.claude_parse',
+            return_value=_fake_ocr_data(),
+        ) as parse:
+            response = client.post(
+                _ocr_url(customer.pk),
+                {'file': _dummy_pdf()},
+                format='multipart',
+            )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        extract.assert_called_once()
+        consume.assert_called_once_with(ordinary, 'ocr')
+        parse.assert_called_once()
+
+    def test_manual_insurance_create_and_read_remain_available(self):
+        url = (
+            f'/api/v1/customers/{self.customer.pk}/insurances/manual/'
+        )
+        response = self.client.post(
+            url,
+            {
+                'name': '직접 입력 보험',
+                'insurance_type': 1,
+                'portfolio_type': 1,
+                'monthly_premiums': 85000,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        listed = self.client.get(url)
+        self.assertEqual(listed.status_code, 200, listed.content)

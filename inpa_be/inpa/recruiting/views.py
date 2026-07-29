@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 
 from inpa.accounts.models import Profile
 from inpa.billing.credit import user_can_use_team
+from inpa.core.permissions import BlocksShowcaseExternalActions
 
 from .analytics import candidate_metrics
 from .models import (
@@ -263,7 +264,10 @@ class RecruitingCandidateViewSet(RecruitingEnabledMixin, viewsets.ModelViewSet):
 
 
 class RecruitingPageView(RecruitingEnabledMixin, APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def get(self, request):
         page, _ = get_or_create_recruiting_page(request.user)
@@ -292,7 +296,10 @@ class RecruitingTemplateListView(RecruitingEnabledMixin, APIView):
 
 
 class RecruitingCampaignView(RecruitingEnabledMixin, APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def get(self, request):
         _, campaign = get_or_create_recruiting_page(request.user)
@@ -337,7 +344,10 @@ class RecruitingCampaignView(RecruitingEnabledMixin, APIView):
 
 
 class RecruitingCampaignCopiedView(RecruitingEnabledMixin, APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request):
         _, campaign = get_or_create_recruiting_page(request.user)

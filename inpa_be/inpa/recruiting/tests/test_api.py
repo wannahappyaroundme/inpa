@@ -276,3 +276,129 @@ class RecruitingCandidateApiTests(TestCase):
         self.assertEqual(patched.status_code, 400)
         self.candidate.refresh_from_db()
         self.assertEqual(self.candidate.name, "담당 변경")
+
+
+@override_settings(
+    RECRUITING_ENABLED=True,
+    SHOWCASE_ACCOUNT_EMAIL="showcase@inpa.example",
+)
+class ShowcasePublicCampaignTests(TestCase):
+    """공개 page/campaign 생성·활성·복사만 막고 내부 영업 읽기는 유지한다."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="showcase@inpa.example",
+            is_active=True,
+        )
+        Profile.objects.create(
+            user=self.user,
+            name="시연 설계사",
+            is_showcase=True,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+        self.ordinary = User.objects.create_user(
+            email="ordinary-recruiting@test.com",
+            is_active=True,
+        )
+        Profile.objects.create(user=self.ordinary, name="일반 설계사")
+        self.ordinary_client = APIClient()
+        self.ordinary_client.force_authenticate(self.ordinary)
+
+    def assert_showcase_restricted(self, response):
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(
+            response.json()["code"],
+            "SHOWCASE_ACTION_RESTRICTED",
+        )
+
+    @staticmethod
+    def public_path_cases():
+        return [
+            ("page_get", "get", "/api/v1/recruiting/page/", None),
+            (
+                "page_patch",
+                "patch",
+                "/api/v1/recruiting/page/",
+                {"is_published": True},
+            ),
+            (
+                "campaign_get",
+                "get",
+                "/api/v1/recruiting/campaign/",
+                None,
+            ),
+            (
+                "campaign_patch",
+                "patch",
+                "/api/v1/recruiting/campaign/",
+                {"is_active": True},
+            ),
+            (
+                "campaign_copied",
+                "post",
+                "/api/v1/recruiting/campaign/copied/",
+                {},
+            ),
+        ]
+
+    def _request(self, client, method, url, payload):
+        request_method = getattr(client, method)
+        if payload is None:
+            return request_method(url)
+        return request_method(url, payload, format="json")
+
+    def test_showcase_public_page_and_campaign_paths_block_before_service(self):
+        from inpa.recruiting.services import (
+            get_or_create_recruiting_page,
+        )
+
+        for name, method, url, payload in self.public_path_cases():
+            with self.subTest(path=name), patch(
+                "inpa.recruiting.views.get_or_create_recruiting_page",
+                wraps=get_or_create_recruiting_page,
+            ) as service:
+                response = self._request(
+                    self.client,
+                    method,
+                    url,
+                    payload,
+                )
+
+                self.assert_showcase_restricted(response)
+                service.assert_not_called()
+
+    def test_ordinary_public_page_and_campaign_paths_call_service_once(self):
+        from inpa.recruiting.services import (
+            get_or_create_recruiting_page,
+        )
+
+        for name, method, url, payload in self.public_path_cases():
+            with self.subTest(path=name), patch(
+                "inpa.recruiting.views.get_or_create_recruiting_page",
+                wraps=get_or_create_recruiting_page,
+            ) as service:
+                response = self._request(
+                    self.ordinary_client,
+                    method,
+                    url,
+                    payload,
+                )
+
+                self.assertEqual(response.status_code, 200, response.content)
+                service.assert_called_once()
+
+    def test_internal_recruiting_summary_and_templates_remain_readable(self):
+        RecruitingCopyTemplate.objects.create(
+            code="showcase-template",
+            kind=RecruitingCopyTemplate.Kind.HEADLINE,
+            title="준비된 문구",
+            body="준비된 내용",
+        )
+
+        summary = self.client.get("/api/v1/recruiting/summary/")
+        templates = self.client.get("/api/v1/recruiting/templates/")
+
+        self.assertEqual(summary.status_code, 200, summary.content)
+        self.assertEqual(templates.status_code, 200, templates.content)

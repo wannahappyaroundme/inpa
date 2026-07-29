@@ -37,8 +37,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from inpa.billing.credit import LimitExceeded, check_and_consume
+from inpa.core.internal_accounts import block_showcase_external_action
 from inpa.core.mixins import OwnedQuerySetMixin
-from inpa.core.permissions import IsAdmin, IsEmailVerified, IsOwner
+from inpa.core.permissions import (
+    BlocksShowcaseExternalActions,
+    IsAdmin,
+    IsEmailVerified,
+    IsOwner,
+)
 
 from .models import (
     PromotionDownload,
@@ -126,7 +132,11 @@ class PromotionDigitalRequestView(APIView):
     1회차: PromotionDownload(is_free) 기록 + digital_file URL 반환(무료 다운로드, 크레딧 무차감).
     2회차+: PromotionOrder(pending) 생성 + 관리자 알림 → 운영팀이 수동 제작·발송.
     """
-    permission_classes = [IsAuthenticated, IsEmailVerified]
+    permission_classes = [
+        IsAuthenticated,
+        IsEmailVerified,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request, sample_id):
         sample = get_object_or_404(PromotionSample, pk=sample_id)
@@ -219,6 +229,7 @@ class PromotionOrderListCreateView(APIView):
         serializer = PromotionOrderCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        block_showcase_external_action(request.user)
 
         # 크레딧 차감 (한도 초과 시 402)
         try:

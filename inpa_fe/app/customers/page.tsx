@@ -9,7 +9,7 @@ import { SelfDiagnosisShare } from "@/components/self-diagnosis-share";
 import { InfoDot } from "@/components/info-dot";
 import { useAuthGuard } from "@/lib/useAuthGuard";
 import {
-  listCustomers,
+  listAllCustomers,
   updateCustomer,
   SALES_STAGES,
   CUSTOMER_STATUSES,
@@ -222,9 +222,9 @@ export default function CustomersPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listCustomers({ search: q || undefined });
-      setCustomers(res.results);
-      setTotalCount(res.count);
+      const rows = await listAllCustomers({ search: q || undefined });
+      setCustomers(rows);
+      setTotalCount(rows.length);
     } catch {
       setError("고객 목록을 불러오지 못했어요. 잠시 후 다시 시도하세요.");
       setCustomers([]);
