@@ -250,31 +250,6 @@ services:
           type: web
           name: inpa-be
           envVarKey: BILLING_WEBHOOK_RECONCILIATION_ENABLED
-      - key: KICC_MALL_ID
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: KICC_MALL_ID
-      - key: KICC_CLIENT_SECRET
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: KICC_CLIENT_SECRET
-      - key: KICC_API_BASE_URL
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: KICC_API_BASE_URL
-      - key: PAYMENT_TOKEN_ENCRYPTION_KEY
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: PAYMENT_TOKEN_ENCRYPTION_KEY
-      - key: PAYMENT_TOKEN_KEY_VERSION
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: PAYMENT_TOKEN_KEY_VERSION
       - key: CONSULTATION_SUMMARY_ACTIVE_LIMIT
         fromService:
           type: web
@@ -554,28 +529,3 @@ services:
           type: web
           name: inpa-be
           envVarKey: BILLING_WEBHOOK_RECONCILIATION_ENABLED
-      - key: KICC_MALL_ID
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: KICC_MALL_ID
-      - key: KICC_CLIENT_SECRET
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: KICC_CLIENT_SECRET
-      - key: KICC_API_BASE_URL
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: KICC_API_BASE_URL
-      - key: PAYMENT_TOKEN_ENCRYPTION_KEY
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: PAYMENT_TOKEN_ENCRYPTION_KEY
-      - key: PAYMENT_TOKEN_KEY_VERSION
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: PAYMENT_TOKEN_KEY_VERSION
