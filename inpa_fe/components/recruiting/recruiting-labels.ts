@@ -124,3 +124,7 @@ export function friendlyRecruitingError(
   }
   return fallback;
 }
+
+export function isShowcaseActionRestricted(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "SHOWCASE_ACTION_RESTRICTED";
+}
