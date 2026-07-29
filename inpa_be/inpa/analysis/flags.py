@@ -19,7 +19,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from inpa.core.permissions import IsEmailVerified
+from inpa.core.permissions import BlocksShowcaseExternalActions, IsEmailVerified
 from inpa.customers.models import Customer
 from inpa.insurances.models import CustomerInsuranceDetail
 
@@ -105,6 +105,11 @@ class CustomerCoverageFlagView(_CustomerScopedView):
     서버가 raw_name_snapshot(case.raw_name → detail.name 폴백)·company(보험의 감지
     보험사 코드)를 스냅샷하고, 어드민 전원에게 검수 알림을 fan-out 한다.
     """
+    permission_classes = [
+        IsAuthenticated,
+        IsEmailVerified,
+        BlocksShowcaseExternalActions,
+    ]
 
     def post(self, request, customer_pk):
         # ★ 쓰기 = 소유자 전용(어드민 read 우회 없음) — 타인 고객이면 404(존재 은폐).

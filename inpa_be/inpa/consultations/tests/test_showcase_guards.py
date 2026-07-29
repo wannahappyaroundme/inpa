@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
@@ -229,6 +230,20 @@ class ShowcaseConsultationGuardTests(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, ConsultationSummaryRun.STATUS_QUEUED)
         enqueue.assert_not_called()
+
+    def test_render_worker_receives_showcase_identity_from_web_service(self):
+        repo_root = Path(__file__).resolve().parents[4]
+        blueprint = (repo_root / 'render.yaml').read_text(encoding='utf-8')
+        worker = blueprint.split(
+            '  - type: worker\n    name: inpa-insurance-worker',
+            1,
+        )[1].split('\n  - type: cron', 1)[0]
+
+        self.assertRegex(
+            worker,
+            r'- key: SHOWCASE_ACCOUNT_EMAIL\s+fromService:\s+type: web\s+'
+            r'name: inpa-be\s+envVarKey: SHOWCASE_ACCOUNT_EMAIL',
+        )
 
     @patch('inpa.consultations.views.process_consultation_summary.apply_async')
     def test_signed_callback_for_showcase_run_never_enqueues_ai_work(self, enqueue):

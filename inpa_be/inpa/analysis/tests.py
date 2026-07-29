@@ -2867,6 +2867,29 @@ class CoverageFlagCreateTests(TestCase):
             self.assertEqual(r.status_code, 201)
         self.assertEqual(CoverageFlag.objects.count(), 2)
 
+    @override_settings(SHOWCASE_ACCOUNT_EMAIL='flag@test.com')
+    def test_showcase_request_is_blocked_before_shared_flag_or_admin_notification(self):
+        from inpa.analysis.models import CoverageFlag
+        from inpa.notifications.models import Notification
+
+        self.user.profile.is_showcase = True
+        self.user.profile.save(update_fields=['is_showcase'])
+        customer_count = Customer.objects.count()
+        case_count = CustomerInsuranceDetail.objects.count()
+
+        response = self.client.post(self._url(self.customer.id), {
+            'analysis_detail_id': self.det.id,
+            'case_id': self.case.id,
+            'note': '공유 사전에 남으면 안 되는 요청',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.data['code'], 'SHOWCASE_ACTION_RESTRICTED')
+        self.assertEqual(CoverageFlag.objects.count(), 0)
+        self.assertEqual(Notification.objects.filter(owner=self.admin).count(), 0)
+        self.assertEqual(Customer.objects.count(), customer_count)
+        self.assertEqual(CustomerInsuranceDetail.objects.count(), case_count)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # 골든셋 정규화 정확도 기준선 (프리런치 리뷰 #18, 2026-07-09)

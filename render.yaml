@@ -213,6 +213,11 @@ services:
           type: web
           name: inpa-be
           envVarKey: CONSULTATION_AI_SUMMARY_ENABLED
+      - key: SHOWCASE_ACCOUNT_EMAIL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: SHOWCASE_ACCOUNT_EMAIL
       - key: BILLING_CARD_REGISTRATION_ENABLED
         fromService:
           type: web
