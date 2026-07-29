@@ -45,3 +45,9 @@ Symptom: 운영 `master`와 최신 사용자 결정은 `v2-30d`, 정확히 720�
 Cause: 긴 대화의 초기 요구를 최신 저장소 상태와 사용자의 후속 확정 사항보다 우선해 해석했다.
 Fix: 미배포 `v3-7d` 변경과 마이그레이션을 모두 제거하고 기존 `v2-30d` 고지, 제약, 테스트를 그대로 유지했다.
 Prevention: 보관·결제·동의처럼 데이터 의미가 바뀌는 작업은 구현 직전에 `master`의 현재 정책과 가장 최근의 명시적 사용자 결정을 함께 확인하고, 선택한 값을 사용자에게 숫자와 버전으로 먼저 고지한다.
+
+### 2026-07-30 Render 선택 환경변수 참조가 Blueprint 생성을 반복 차단
+Symptom: 상담 원본 정리 cron 생성이 KICC 자격정보 누락으로 한 번, 상담용 Anthropic 모델 누락으로 다시 멈췄다. 웹 배포는 Live여도 워커 환경 갱신과 신규 cron 생성은 적용되지 않았다.
+Cause: `render.yaml`의 `fromService.envVarKey`는 원본 웹 서비스에 실제 값이 없는 `sync: false` 선택 변수도 필수 참조로 취급한다. 닫힌 결제·CLOVA 경로와 OpenAI fallback 변수까지 상담 워커·cron에 연결했다.
+Fix: 현재 열린 OpenAI 경로에 필요한 기존 공용 모델·키만 워커에 전달하고, 닫힌 결제·CLOVA·중복 모델·콜백 변수 참조를 제거했다. 앱 설정의 빈 값 fallback과 기능 게이트는 그대로 유지했다.
+Prevention: Blueprint 파생 서비스는 현재 활성 경로의 필수 변수만 `fromService`로 참조한다. 회귀 테스트가 워커와 상담 정리 cron에 선택 변수가 다시 들어오는 것을 차단하고, 배포 후 Sync 상세의 `environment variable not found`와 실제 Resources 행 수를 함께 확인한다.

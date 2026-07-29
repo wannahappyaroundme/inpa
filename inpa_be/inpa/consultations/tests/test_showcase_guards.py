@@ -278,14 +278,20 @@ class ShowcaseConsultationGuardTests(TestCase):
             1,
         )[1]
 
-        optional_payment_keys = (
+        optional_unset_keys = (
             'KICC_MALL_ID',
             'KICC_CLIENT_SECRET',
             'KICC_API_BASE_URL',
             'PAYMENT_TOKEN_ENCRYPTION_KEY',
             'PAYMENT_TOKEN_KEY_VERSION',
+            'CONSULTATION_SUMMARY_MODEL',
+            'OPENAI_CONSULTATION_TRANSCRIPTION_MODEL',
+            'OPENAI_CONSULTATION_SUMMARY_MODEL',
+            'CLOVA_SPEECH_INVOKE_URL',
+            'CLOVA_SPEECH_SECRET_KEY',
+            'BACKEND_BASE_URL',
         )
-        for key in optional_payment_keys:
+        for key in optional_unset_keys:
             self.assertNotIn(f'- key: {key}', worker)
             self.assertNotIn(f'- key: {key}', cleanup)
         self.assertIn('- key: CONSULTATION_RETENTION_HOURS', cleanup)

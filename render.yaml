@@ -285,11 +285,6 @@ services:
           type: web
           name: inpa-be
           envVarKey: CLAUDE_MODEL_BULK
-      - key: CONSULTATION_SUMMARY_MODEL
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: CONSULTATION_SUMMARY_MODEL
       - key: CONSULTATION_STT_PROVIDER
         fromService:
           type: web
@@ -315,41 +310,16 @@ services:
           type: web
           name: inpa-be
           envVarKey: OPENAI_TRANSCRIPTION_MODEL
-      - key: OPENAI_CONSULTATION_TRANSCRIPTION_MODEL
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: OPENAI_CONSULTATION_TRANSCRIPTION_MODEL
       - key: OPENAI_COMPARISON_MODEL
         fromService:
           type: web
           name: inpa-be
           envVarKey: OPENAI_COMPARISON_MODEL
-      - key: OPENAI_CONSULTATION_SUMMARY_MODEL
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: OPENAI_CONSULTATION_SUMMARY_MODEL
       - key: CONSULTATION_RETENTION_HOURS
         fromService:
           type: web
           name: inpa-be
           envVarKey: CONSULTATION_RETENTION_HOURS
-      - key: CLOVA_SPEECH_INVOKE_URL
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: CLOVA_SPEECH_INVOKE_URL
-      - key: CLOVA_SPEECH_SECRET_KEY
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: CLOVA_SPEECH_SECRET_KEY
-      - key: BACKEND_BASE_URL
-        fromService:
-          type: web
-          name: inpa-be
-          envVarKey: BACKEND_BASE_URL
       - key: CONSULTATION_STORAGE_BUCKET
         fromService:
           type: web
