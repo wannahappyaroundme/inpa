@@ -301,7 +301,7 @@ function CoverageTable({
                   onClick={() => onOpenDetail(detail.id)}
                   disabled={disabled}
                   aria-label={`${detail.name} 상세 설정`}
-                  className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 text-xs font-bold text-ink2 transition hover:border-brand/30 hover:bg-brand-soft hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto"
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-line bg-surface px-3 text-xs font-bold text-ink2 transition hover:border-brand/30 hover:bg-brand-soft hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto"
                 >
                   <SlidersHorizontal aria-hidden="true" size={15} />
                   상세 설정
