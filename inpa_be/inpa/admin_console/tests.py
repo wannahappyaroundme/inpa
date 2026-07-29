@@ -258,6 +258,49 @@ class AdminUserManagementTest(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()['sent'])
 
+    @override_settings(SHOWCASE_ACCOUNT_EMAIL='planner@test.kr')
+    def test_U3_showcase_reset_email_is_blocked_before_sender_or_state_change(self):
+        from unittest import mock
+
+        from django.core import mail
+
+        self.planner.profile.is_showcase = True
+        self.planner.profile.save(update_fields=['is_showcase'])
+        user_before = User.objects.filter(pk=self.planner.pk).values(
+            'password',
+            'is_active',
+            'last_login',
+        ).get()
+        profile_before = Profile.objects.filter(user=self.planner).values(
+            'is_showcase',
+            'last_password_changed',
+        ).get()
+
+        with mock.patch('inpa.accounts.views._send_reset_email') as sender:
+            response = self.client_admin.post(
+                f'/api/v1/admin/users/{self.planner.id}/send_reset_email/',
+            )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()['code'], 'SHOWCASE_ACTION_RESTRICTED')
+        sender.assert_not_called()
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(
+            User.objects.filter(pk=self.planner.pk).values(
+                'password',
+                'is_active',
+                'last_login',
+            ).get(),
+            user_before,
+        )
+        self.assertEqual(
+            Profile.objects.filter(user=self.planner).values(
+                'is_showcase',
+                'last_password_changed',
+            ).get(),
+            profile_before,
+        )
+
 
 # ─── 연구독 + 첫 유료 보너스 (spec 2026-07-15) ───────────────────────
 

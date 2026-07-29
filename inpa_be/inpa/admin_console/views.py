@@ -69,7 +69,10 @@ from inpa.boards.models import (
     Report,
 )
 from inpa.core.copyguard import scan_blog_content
-from inpa.core.internal_accounts import internal_user_q
+from inpa.core.internal_accounts import (
+    block_showcase_external_action,
+    internal_user_q,
+)
 from inpa.core.permissions import IsAdmin
 from inpa.customers.models import ConsentLog, Customer
 from inpa.consultations.cleanup import SOURCE_PRESENT_STATUSES
@@ -955,8 +958,9 @@ class AdminUserSendResetEmailView(APIView):
     permission_classes = [IsAdmin]
 
     def post(self, request, user_id):
-        from inpa.accounts.views import _send_reset_email
         user = get_object_or_404(User, pk=user_id)
+        block_showcase_external_action(user)
+        from inpa.accounts.views import _send_reset_email
         _send_reset_email(user)
         return Response({'sent': True, 'email': user.email})
 
