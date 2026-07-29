@@ -266,6 +266,31 @@ class ShowcaseConsultationGuardTests(TestCase):
             r'name: inpa-be\s+envVarKey: SHOWCASE_ACCOUNT_EMAIL',
         )
 
+    def test_render_consultation_jobs_do_not_require_closed_payment_secrets(self):
+        repo_root = Path(__file__).resolve().parents[4]
+        blueprint = (repo_root / 'render.yaml').read_text(encoding='utf-8')
+        worker = blueprint.split(
+            '  - type: worker\n    name: inpa-insurance-worker',
+            1,
+        )[1].split('\n  - type: cron', 1)[0]
+        cleanup = blueprint.split(
+            '  - type: cron\n    name: inpa-consultation-recording-cleanup',
+            1,
+        )[1]
+
+        optional_payment_keys = (
+            'KICC_MALL_ID',
+            'KICC_CLIENT_SECRET',
+            'KICC_API_BASE_URL',
+            'PAYMENT_TOKEN_ENCRYPTION_KEY',
+            'PAYMENT_TOKEN_KEY_VERSION',
+        )
+        for key in optional_payment_keys:
+            self.assertNotIn(f'- key: {key}', worker)
+            self.assertNotIn(f'- key: {key}', cleanup)
+        self.assertIn('- key: CONSULTATION_RETENTION_HOURS', cleanup)
+        self.assertIn('- key: CONSULTATION_STORAGE_BUCKET', cleanup)
+
     @patch('inpa.consultations.views.process_consultation_summary.apply_async')
     def test_signed_callback_for_showcase_pilot_wakes_only_the_signed_run(
         self,
