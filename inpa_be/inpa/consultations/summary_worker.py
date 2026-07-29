@@ -7,13 +7,16 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
 
-from inpa.billing.pricing import estimate_cost_krw
+from inpa.billing.pricing import (
+    estimate_cost_krw,
+    estimate_openai_consultation_cost_krw,
+)
 from inpa.customers.consent_texts import (
     has_current_consultation_summary_consents,
 )
 from inpa.customers.models import CustomerMemo
 
-from .audio import AudioTranscodeError, open_clova_wav
+from .audio import AudioTranscodeError, open_clova_wav, open_openai_audio
 from .callbacks import make_clova_callback_url
 from .gates import summary_feature_enabled
 from .models import (
@@ -31,6 +34,10 @@ from .providers.base import (
     SummaryOutcomeUnknown,
 )
 from .providers.clova import ClovaSpeechProvider
+from .providers.openai_summary import (
+    OpenAIConsultationSummarizer,
+    OpenAIConsultationTranscriber,
+)
 from .services import get_recording_storage
 from .summary_schema import InvalidSummary, render_summary_memo
 from .summary_service import settle_summary_failure, settle_summary_success
@@ -410,7 +417,7 @@ def _reserve_summary(run_id):
             return None
         run.summary_reserved_at = timezone.now()
         run.status = ConsultationSummaryRun.STATUS_SUMMARIZING
-        run.summary_provider = 'anthropic'
+        run.summary_provider = settings.CONSULTATION_SUMMARY_PROVIDER
         run.save(update_fields=[
             'summary_reserved_at',
             'status',
@@ -478,13 +485,22 @@ def _complete_success(run_id, provider_result):
         run.summary_model = provider_result.model[:100]
         run.input_tokens = provider_result.input_tokens
         run.output_tokens = provider_result.output_tokens
-        run.estimated_cost_krw = int(math.ceil(estimate_cost_krw(
-            provider_result.model,
-            {
-                'input_tokens': provider_result.input_tokens,
-                'output_tokens': provider_result.output_tokens,
-            },
-        )))
+        usage = {
+            'input_tokens': provider_result.input_tokens,
+            'output_tokens': provider_result.output_tokens,
+        }
+        if run.summary_provider == 'openai':
+            estimated_cost = estimate_openai_consultation_cost_krw(
+                model=provider_result.model,
+                usage=usage,
+                duration_ms=recording.duration_ms,
+            )
+        else:
+            estimated_cost = estimate_cost_krw(
+                provider_result.model,
+                usage,
+            )
+        run.estimated_cost_krw = int(math.ceil(estimated_cost))
         run.processing_seconds = max(
             0,
             int((now - (run.started_at or now)).total_seconds()),
@@ -607,7 +623,7 @@ def _poll_and_summarize(run):
         )
         return StepResult('ambiguous')
     try:
-        summary_result = AnthropicConsultationSummarizer().summarize(
+        summary_result = _summary_provider().summarize(
             masked.text,
         )
     except SummaryOutcomeUnknown as exc:
@@ -644,6 +660,182 @@ def _poll_and_summarize(run):
     return StepResult('succeeded')
 
 
+def _summary_provider():
+    provider = settings.CONSULTATION_SUMMARY_PROVIDER
+    if provider == 'openai':
+        return OpenAIConsultationSummarizer()
+    if provider == 'anthropic':
+        return AnthropicConsultationSummarizer()
+    raise ImproperlyConfigured(
+        'CONSULTATION_SUMMARY_PROVIDER must be openai or anthropic',
+    )
+
+
+def _reset_explicit_stt_nonreceipt(run_id, exc):
+    with transaction.atomic():
+        run = ConsultationSummaryRun.objects.select_for_update().get(pk=run_id)
+        if run.status in TERMINAL_STATUSES:
+            return run, StepResult('terminal')
+        run.provider_reserved_at = None
+        run.stt_provider = ''
+        run.status = ConsultationSummaryRun.STATUS_QUEUED
+        run.lease_expires_at = None
+        run.error_code = 'STT_EXPLICIT_NON_RECEIPT'
+        run.error_type = type(exc).__name__
+        run.save(update_fields=[
+            'provider_reserved_at',
+            'stt_provider',
+            'status',
+            'lease_expires_at',
+            'error_code',
+            'error_type',
+            'updated_at',
+        ])
+        attempts = run.attempt_count
+    if attempts >= 3:
+        _terminal_failure(
+            run_id,
+            status=ConsultationSummaryRun.STATUS_FAILED,
+            outcome='failed',
+            error_code='STT_CONNECT_RETRY_EXHAUSTED',
+            error_type=type(exc).__name__,
+            provider_started=False,
+        )
+        return run, StepResult('failed')
+    return run, StepResult('retry', min(4, 2 ** (attempts - 1)))
+
+
+def _run_openai_pipeline(run):
+    reserved = _reserve_stt(run.id)
+    if reserved is None:
+        _terminal_failure(
+            run.id,
+            status=ConsultationSummaryRun.STATUS_AMBIGUOUS,
+            outcome='ambiguous',
+            error_code='STT_SUBMISSION_OUTCOME_UNKNOWN',
+            provider_started=True,
+        )
+        return StepResult('ambiguous')
+    try:
+        storage = get_recording_storage()
+        with open_openai_audio(
+            storage,
+            reserved.recording.storage_key,
+        ) as prepared:
+            try:
+                transcription = OpenAIConsultationTranscriber().transcribe(
+                    prepared,
+                )
+            except ExplicitProviderNonReceipt as exc:
+                _, result = _reset_explicit_stt_nonreceipt(run.id, exc)
+                return result
+            except SpeechSubmitOutcomeUnknown as exc:
+                _terminal_failure(
+                    run.id,
+                    status=ConsultationSummaryRun.STATUS_AMBIGUOUS,
+                    outcome='ambiguous',
+                    error_code='STT_SUBMISSION_OUTCOME_UNKNOWN',
+                    error_type=type(exc).__name__,
+                    provider_started=True,
+                )
+                return StepResult('ambiguous')
+            except SpeechProviderProtocolError as exc:
+                _terminal_failure(
+                    run.id,
+                    status=ConsultationSummaryRun.STATUS_FAILED,
+                    outcome='failed',
+                    error_code='TRANSCRIPTION_FAILED',
+                    error_type=type(exc).__name__,
+                    provider_started=True,
+                )
+                return StepResult('failed')
+    except (
+        AudioTranscodeError,
+        ImproperlyConfigured,
+        OSError,
+        ValueError,
+    ) as exc:
+        _terminal_failure(
+            run.id,
+            status=ConsultationSummaryRun.STATUS_FAILED,
+            outcome='failed',
+            error_code='AUDIO_PREPARATION_FAILED',
+            error_type=type(exc).__name__,
+            provider_started=False,
+        )
+        return StepResult('failed')
+
+    current = (
+        ConsultationSummaryRun.objects
+        .select_related('recording__customer', 'recording__owner__profile')
+        .get(pk=run.id)
+    )
+    if not _source_is_current(current):
+        cancel_summary_run(
+            current.id,
+            reason='SUMMARY_PRECONDITION_CHANGED',
+        )
+        return StepResult('cancelled')
+    try:
+        masked = mask_transcript(
+            transcription.transcript,
+            _known_names(current.recording),
+        )
+    except UnsafeTranscript as exc:
+        _terminal_failure(
+            run.id,
+            status=ConsultationSummaryRun.STATUS_FAILED,
+            outcome='failed',
+            error_code='TRANSCRIPT_MASKING_FAILED',
+            error_type=type(exc).__name__,
+            provider_started=True,
+        )
+        return StepResult('failed')
+    if _reserve_summary(run.id) is None:
+        _terminal_failure(
+            run.id,
+            status=ConsultationSummaryRun.STATUS_AMBIGUOUS,
+            outcome='ambiguous',
+            error_code='SUMMARY_OUTCOME_UNKNOWN',
+            provider_started=True,
+        )
+        return StepResult('ambiguous')
+    try:
+        summary_result = _summary_provider().summarize(masked.text)
+    except SummaryOutcomeUnknown as exc:
+        _terminal_failure(
+            run.id,
+            status=ConsultationSummaryRun.STATUS_AMBIGUOUS,
+            outcome='ambiguous',
+            error_code='SUMMARY_OUTCOME_UNKNOWN',
+            error_type=type(exc).__name__,
+            provider_started=True,
+        )
+        return StepResult('ambiguous')
+    except ExplicitProviderNonReceipt as exc:
+        _terminal_failure(
+            run.id,
+            status=ConsultationSummaryRun.STATUS_FAILED,
+            outcome='failed',
+            error_code='SUMMARY_CONNECT_FAILED',
+            error_type=type(exc).__name__,
+            provider_started=True,
+        )
+        return StepResult('failed')
+    except (InvalidSummary, ImproperlyConfigured) as exc:
+        _terminal_failure(
+            run.id,
+            status=ConsultationSummaryRun.STATUS_FAILED,
+            outcome='failed',
+            error_code='SUMMARY_RESPONSE_INVALID',
+            error_type=type(exc).__name__,
+            provider_started=True,
+        )
+        return StepResult('failed')
+    _complete_success(run.id, summary_result)
+    return StepResult('succeeded')
+
+
 def run_summary_step(run_id):
     try:
         run, early = _claim(run_id)
@@ -657,6 +849,26 @@ def run_summary_step(run_id):
             reason='SUMMARY_PRECONDITION_CHANGED',
         )
         return StepResult('cancelled')
+    if settings.CONSULTATION_STT_PROVIDER == 'openai':
+        if not ai_cost_budget_available():
+            _terminal_failure(
+                run.id,
+                status=ConsultationSummaryRun.STATUS_FAILED,
+                outcome='failed',
+                error_code='SUMMARY_COST_LIMIT_REACHED',
+                provider_started=False,
+            )
+            return StepResult('failed')
+        if run.provider_reserved_at is not None:
+            _terminal_failure(
+                run.id,
+                status=ConsultationSummaryRun.STATUS_AMBIGUOUS,
+                outcome='ambiguous',
+                error_code='STT_SUBMISSION_OUTCOME_UNKNOWN',
+                provider_started=True,
+            )
+            return StepResult('ambiguous')
+        return _run_openai_pipeline(run)
     if not run.stt_job_id:
         if not ai_cost_budget_available():
             _terminal_failure(

@@ -798,6 +798,7 @@ export function ConsultationRecordingList({
             recording={recording}
             summaryEnabled={Boolean(capability?.summary_enabled)}
             summaryConsentReady={Boolean(capability?.summary_consent_ready)}
+            summaryProvider={capability?.summary_provider ?? null}
             onSummaryReady={onSummaryReady}
             onChanged={(changed) => setData((current) => current ? {
               ...current,

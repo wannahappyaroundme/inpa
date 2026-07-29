@@ -28,7 +28,7 @@ AllowedMethods: PUT, GET, HEAD
 AllowedHeaders: content-type
 ExposeHeaders: ETag
 Multipart abort: 1 day
-Object lifecycle: consultation-recordings/ after at least 31 days
+Object lifecycle: consultation-recordings/ after 30 days
 ```
 
 Keep public access disabled. Add CORS for the exact production origin above.
@@ -40,8 +40,8 @@ Success signal:
 2. A presigned play `GET` works before expiry.
 3. Direct bucket URLs remain inaccessible.
 4. An unfinished multipart upload is removed after one day.
-5. Application cleanup removes a v2 object after its exact 30-day expiry, and
-   the bucket lifecycle remains a later fallback rather than deleting it early.
+5. Application cleanup removes a v2 object after its exact 30-day expiry. The
+   bucket lifecycle uses the same 30-day value as a second deletion path.
 
 ## Environment variables
 
@@ -51,6 +51,7 @@ service that touches recordings:
 ```text
 CONSULTATION_RECORDING_ENABLED=false
 CONSULTATION_AI_SUMMARY_ENABLED=false
+CONSULTATION_SHOWCASE_PILOT_ENABLED=false
 CONSULTATION_PRESIGN_TTL_SECONDS=600
 CONSULTATION_STORAGE_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 CONSULTATION_STORAGE_ACCESS_KEY_ID=<R2_ACCESS_KEY_ID>
@@ -63,14 +64,28 @@ CONSULTATION_MAX_DURATION_SECONDS=3600
 CONSULTATION_MAX_BYTES=104857600
 CONSULTATION_UPLOAD_PART_BYTES=8388608
 CONSULTATION_SUMMARY_ACTIVE_LIMIT=1
-CONSULTATION_SUMMARY_MODEL=<ANTHROPIC_MODEL_ID>
-CLOVA_SPEECH_INVOKE_URL=<CLOVA_DOMAIN_INVOKE_URL>
-CLOVA_SPEECH_SECRET_KEY=<CLOVA_SECRET_KEY>
+CONSULTATION_STT_PROVIDER=openai
+CONSULTATION_SUMMARY_PROVIDER=openai
+CONSULTATION_AI_REQUEST_TIMEOUT_SECONDS=180
+OPENAI_API_KEY=<OPENAI_SERVER_KEY>
+OPENAI_TRANSCRIPTION_MODEL=<OPENAI_COMPARISON_TRANSCRIPTION_MODEL>
+OPENAI_CONSULTATION_TRANSCRIPTION_MODEL=gpt-4o-transcribe-diarize
+OPENAI_COMPARISON_MODEL=<OPENAI_SUMMARY_MODEL>
+# 선택값. 비우면 OPENAI_COMPARISON_MODEL을 사용한다.
+OPENAI_CONSULTATION_SUMMARY_MODEL=
 BACKEND_BASE_URL=https://inpa-be.onrender.com
 ```
 
 Secrets belong in Render secret environment values. Never place them in Git,
 Vercel public variables, browser code, logs, or support tickets.
+
+The worker converts the private source to a 16 kHz mono, 32 kbps MP3 before
+calling the transcription endpoint. This keeps a 60-minute meeting below the
+audio upload limit while preserving the original private R2 object unchanged.
+The raw audio is sent to OpenAI for transcription. Only after transcription
+does Inpa remove known names, phone numbers, email addresses, resident numbers,
+and account-number patterns before sending text to the summary model. Neither
+the raw transcript nor the masked transcript is stored in the database or logs.
 
 ## v2 retention preflight
 
@@ -126,8 +141,8 @@ this bounded window or lower the configured TTL.
 
 ## Deployment order
 
-1. Keep both environment gates closed.
-2. Deploy the database migration and application code.
+1. Keep all three environment gates closed.
+2. Deploy the application code. This pilot adds no retention migration.
 3. Verify `/healthz/`.
 4. Confirm the cleanup cron runs every 15 minutes.
 5. Configure the private R2 bucket and all consultation storage variables.
@@ -142,7 +157,7 @@ this bounded window or lower the configured TTL.
    - active upload, source, deleted, overdue, and failure counts render;
    - the response and page contain no playback URL, customer name, memo text,
      storage key, transcript, or recording contents.
-8. Open the environment gate for a preview/pilot environment only.
+8. Open the recording, AI summary, and exact showcase pilot environment gates.
 9. Add individual pilot planner accounts in `/admin/consultations`.
 10. Open the runtime recording switch.
 
@@ -152,18 +167,18 @@ The summary worker uses the shared PostgreSQL database as its coordination
 authority. Every run is one-to-one with a recording, and every recording is
 already bound to one owner and one customer. A database lease plus
 `CONSULTATION_SUMMARY_ACTIVE_LIMIT=1` prevents two Render processes from
-submitting different provider jobs for the same source. Provider job tokens are
-stored before polling, and a delivered callback only wakes that exact run. The
-callback body is never treated as a transcript.
+submitting different provider calls for the same source. An OpenAI call is
+reserved before transmission; a timeout with unknown receipt becomes terminal
+and is never submitted again.
 
 Before enabling summaries:
 
 1. Keep `CONSULTATION_AI_SUMMARY_ENABLED=false`.
-2. Set CLOVA Speech, Anthropic model, private R2, and HTTPS
-   `BACKEND_BASE_URL` variables on both web and worker.
+2. Set the OpenAI server key, diarized transcription model, summary model,
+   private R2, and HTTPS `BACKEND_BASE_URL` variables on both web and worker.
 3. Confirm the worker consumes `consultation_summaries`.
-4. Confirm one Chrome WebM recording is converted to mono 16 kHz WAV and CLOVA
-   reaches `COMPLETED`.
+4. Confirm one Chrome WebM recording is converted to mono 16 kHz WAV and
+   OpenAI returns speaker-separated segments.
 5. Confirm the saved memo contains only the four bullet sections and remains
    editable.
 6. Confirm the database contains token counts and status only, not transcript
@@ -172,10 +187,13 @@ Before enabling summaries:
    confirm no memo is created.
 8. Delete a source during processing and confirm late provider results are
    discarded.
-9. Retry a callback and worker delivery and confirm the provider submit and
-   memo counts both remain one.
-10. Enable only one planner's `summary_allowed` pilot access, then open the
-    runtime summary switch.
+9. Redeliver the worker job and confirm the OpenAI call and memo counts both
+   remain one.
+10. Add only `test@inpa.kr` as a pilot, enable its recording and summary
+    permissions, then open both runtime switches.
+11. In `/admin/consultations`, confirm the separate showcase-pilot table shows
+    provider, model, processing seconds, tokens, outcome, and estimated cost.
+    It must not show the customer, audio, transcript, prompt, or memo body.
 
 An unknown provider receipt becomes `ambiguous` and is never submitted again.
 The planner can write or edit a direct memo, but that recording cannot request

@@ -65,17 +65,29 @@ services:
       - key: HEATMAP_GRADING_ENABLED
         value: "True"                # 설계사가 직접 저장한 기준만 판정에 적용
       - key: CONSULTATION_RECORDING_ENABLED
-        value: "False"               # 전용 R2·동의·운영 점검 뒤 파일럿 계정부터 공개
+        value: "True"                # 런타임+계정별 권한을 추가로 통과한 파일럿만 사용
       - key: CONSULTATION_AI_SUMMARY_ENABLED
-        value: "False"               # 음성 전사·요약 공급자 설정과 검증 전까지 닫힘
+        value: "True"                # 런타임+계정별 권한을 추가로 통과한 파일럿만 사용
+      - key: CONSULTATION_SHOWCASE_PILOT_ENABLED
+        value: "True"                # SHOWCASE_ACCOUNT_EMAIL의 상담 API에만 한정한 예외
       - key: CONSULTATION_AI_COMPARISON_ENABLED
         value: "True"                # 관리자 가상 상담 음성 A/B 비교 운영
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_TRANSCRIPTION_MODEL
         sync: false
+      - key: OPENAI_CONSULTATION_TRANSCRIPTION_MODEL
+        sync: false                  # 화자 구분 전용 모델 ID
       - key: OPENAI_COMPARISON_MODEL
         sync: false
+      - key: OPENAI_CONSULTATION_SUMMARY_MODEL
+        sync: false                  # 비우면 코드가 OPENAI_COMPARISON_MODEL을 사용
+      - key: CONSULTATION_STT_PROVIDER
+        value: "openai"
+      - key: CONSULTATION_SUMMARY_PROVIDER
+        value: "openai"
+      - key: CONSULTATION_AI_REQUEST_TIMEOUT_SECONDS
+        value: "180"
       - key: ANTHROPIC_COMPARISON_MODEL
         sync: false
       - key: CONSULTATION_COMPARISON_MAX_BYTES
@@ -165,7 +177,7 @@ services:
         sync: false                  # [A] 시크릿 키
       - key: AWS_S3_ENDPOINT_URL
         sync: false                  # [A] R2/B2/Supabase 엔드포인트(AWS S3면 비움)
-      # ── 상담 녹음 전용 비공개 R2. 앱의 30일보다 긴 lifecycle(31일 이상) 적용 ──
+      # ── 상담 녹음 전용 비공개 R2. consultation-recordings/에 30일 lifecycle 적용 ──
       - key: CONSULTATION_STORAGE_BUCKET
         sync: false
       - key: CONSULTATION_STORAGE_ENDPOINT
@@ -213,6 +225,11 @@ services:
           type: web
           name: inpa-be
           envVarKey: CONSULTATION_AI_SUMMARY_ENABLED
+      - key: CONSULTATION_SHOWCASE_PILOT_ENABLED
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_SHOWCASE_PILOT_ENABLED
       - key: SHOWCASE_ACCOUNT_EMAIL
         fromService:
           type: web
@@ -298,6 +315,46 @@ services:
           type: web
           name: inpa-be
           envVarKey: CONSULTATION_SUMMARY_MODEL
+      - key: CONSULTATION_STT_PROVIDER
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_STT_PROVIDER
+      - key: CONSULTATION_SUMMARY_PROVIDER
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_SUMMARY_PROVIDER
+      - key: CONSULTATION_AI_REQUEST_TIMEOUT_SECONDS
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: CONSULTATION_AI_REQUEST_TIMEOUT_SECONDS
+      - key: OPENAI_API_KEY
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: OPENAI_API_KEY
+      - key: OPENAI_TRANSCRIPTION_MODEL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: OPENAI_TRANSCRIPTION_MODEL
+      - key: OPENAI_CONSULTATION_TRANSCRIPTION_MODEL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: OPENAI_CONSULTATION_TRANSCRIPTION_MODEL
+      - key: OPENAI_COMPARISON_MODEL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: OPENAI_COMPARISON_MODEL
+      - key: OPENAI_CONSULTATION_SUMMARY_MODEL
+        fromService:
+          type: web
+          name: inpa-be
+          envVarKey: OPENAI_CONSULTATION_SUMMARY_MODEL
       - key: CONSULTATION_RETENTION_HOURS
         fromService:
           type: web

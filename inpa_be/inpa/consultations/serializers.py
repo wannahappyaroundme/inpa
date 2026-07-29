@@ -60,12 +60,14 @@ class ConsultationRecordingSerializer(serializers.ModelSerializer):
 
 class ConsultationSummaryRunSerializer(serializers.ModelSerializer):
     memo_id = serializers.SerializerMethodField()
+    provider = serializers.SerializerMethodField()
 
     class Meta:
         model = ConsultationSummaryRun
         fields = (
             'id',
             'status',
+            'provider',
             'memo_id',
             'created_at',
             'completed_at',
@@ -77,6 +79,10 @@ class ConsultationSummaryRunSerializer(serializers.ModelSerializer):
             return obj.memo.id
         except CustomerMemo.DoesNotExist:
             return None
+
+    def get_provider(self, obj):
+        provider = obj.summary_provider or settings.CONSULTATION_SUMMARY_PROVIDER
+        return provider if provider in {'openai', 'anthropic'} else None
 
 
 class UploadSessionRequestSerializer(serializers.Serializer):

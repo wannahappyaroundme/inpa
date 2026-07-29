@@ -27,6 +27,7 @@ from inpa.customers.models import ConsentLog, Customer
     SHOWCASE_ACCOUNT_EMAIL='showcase-consultation@inpa.example',
     CONSULTATION_RECORDING_ENABLED=True,
     CONSULTATION_AI_SUMMARY_ENABLED=True,
+    CONSULTATION_SHOWCASE_PILOT_ENABLED=True,
     CONSULTATION_SUMMARY_PROMPT_VERSION='showcase-guard-v1',
     BACKEND_BASE_URL='https://api.inpa.example',
 )
@@ -113,6 +114,7 @@ class ShowcaseConsultationGuardTests(TestCase):
             )
         )
 
+    @override_settings(CONSULTATION_SHOWCASE_PILOT_ENABLED=False)
     @patch('inpa.consultations.services.get_recording_storage')
     @patch('inpa.consultations.summary_service.enqueue_summary_run')
     def test_every_recording_mutation_is_blocked_before_storage_or_ai_queue(
@@ -202,17 +204,36 @@ class ShowcaseConsultationGuardTests(TestCase):
         get_storage.assert_not_called()
         enqueue_summary.assert_not_called()
 
-    def test_capability_stays_closed_even_when_runtime_and_pilot_are_enabled(self):
+    def test_capability_opens_only_with_the_extra_showcase_pilot_gate(self):
         response = self.client.get(
             f'/api/v1/customers/{self.customer.id}/recordings/capability/',
         )
 
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertFalse(response.data['recording_enabled'])
-        self.assertFalse(response.data['summary_enabled'])
+        self.assertTrue(response.data['recording_enabled'])
+        self.assertTrue(response.data['summary_enabled'])
+
+    @patch('inpa.consultations.services.get_recording_storage')
+    def test_external_storage_actions_close_when_pilot_access_is_removed(
+        self,
+        get_storage,
+    ):
+        access = ConsultationPilotAccess.objects.get(user=self.user)
+        access.recording_allowed = False
+        access.save(update_fields=['recording_allowed', 'updated_at'])
+
+        response = self.client.post(
+            f'/api/v1/customers/{self.customer.id}/recordings/'
+            f'{self.ready.id}/play-url/',
+            {},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        get_storage.assert_not_called()
 
     @patch('inpa.consultations.tasks.process_consultation_summary.delay')
-    def test_direct_summary_enqueue_rejects_existing_showcase_run(self, enqueue):
+    def test_direct_summary_enqueue_accepts_exact_showcase_pilot_run(self, enqueue):
         from inpa.consultations.summary_service import enqueue_summary_run
 
         run = ConsultationSummaryRun.objects.create(
@@ -229,7 +250,7 @@ class ShowcaseConsultationGuardTests(TestCase):
 
         run.refresh_from_db()
         self.assertEqual(run.status, ConsultationSummaryRun.STATUS_QUEUED)
-        enqueue.assert_not_called()
+        enqueue.assert_called_once_with(str(run.id))
 
     def test_render_worker_receives_showcase_identity_from_web_service(self):
         repo_root = Path(__file__).resolve().parents[4]
@@ -246,7 +267,10 @@ class ShowcaseConsultationGuardTests(TestCase):
         )
 
     @patch('inpa.consultations.views.process_consultation_summary.apply_async')
-    def test_signed_callback_for_showcase_run_never_enqueues_ai_work(self, enqueue):
+    def test_signed_callback_for_showcase_pilot_wakes_only_the_signed_run(
+        self,
+        enqueue,
+    ):
         run = ConsultationSummaryRun.objects.create(
             recording=self.ready,
             status=ConsultationSummaryRun.STATUS_QUEUED,
@@ -264,7 +288,33 @@ class ShowcaseConsultationGuardTests(TestCase):
 
         response = APIClient().post(callback_path, {}, format='json')
 
-        self.assertEqual(response.status_code, 404, response.content)
+        self.assertEqual(response.status_code, 202, response.content)
         run.refresh_from_db()
         self.assertEqual(run.status, ConsultationSummaryRun.STATUS_QUEUED)
-        enqueue.assert_not_called()
+        enqueue.assert_called_once_with(
+            args=[str(run.id)],
+            queue='consultation_summaries',
+        )
+
+    def test_email_match_without_showcase_profile_marker_stays_closed(self):
+        self.user.profile.is_showcase = False
+        self.user.profile.save(update_fields=['is_showcase'])
+        ConsultationPilotAccess.objects.filter(user=self.user).delete()
+
+        response = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/recordings/capability/',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.data['recording_enabled'])
+        self.assertFalse(response.data['summary_enabled'])
+
+    @override_settings(CONSULTATION_SHOWCASE_PILOT_ENABLED=False)
+    def test_extra_showcase_pilot_environment_gate_defaults_closed(self):
+        response = self.client.get(
+            f'/api/v1/customers/{self.customer.id}/recordings/capability/',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.data['recording_enabled'])
+        self.assertFalse(response.data['summary_enabled'])

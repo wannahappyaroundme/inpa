@@ -10,6 +10,7 @@ import {
   adminRemoveConsultationPilot,
   adminUpdateConsultationPilot,
   adminUpdateConsultationSettings,
+  type AdminConsultationRun,
   type AdminConsultationResponse,
 } from "@/lib/adminApi";
 import { useAdminGuard } from "@/lib/useAdminGuard";
@@ -31,6 +32,54 @@ function CountCard({
       </p>
       <p className="mt-1 text-[11px] leading-5 text-ink3">{note}</p>
     </Card>
+  );
+}
+
+function providerLabel(provider?: string) {
+  if (provider === "openai") return "OpenAI";
+  if (provider === "anthropic") return "Anthropic";
+  if (provider === "clova") return "CLOVA";
+  return provider || "-";
+}
+
+function SummaryRunTable({ runs }: { runs: AdminConsultationRun[] }) {
+  return (
+    <div className="mt-3 overflow-x-auto rounded-2xl bg-surface">
+      <table className="min-w-full text-left text-[12px] text-ink2">
+        <thead className="border-b border-line text-ink3">
+          <tr>
+            <th className="px-3 py-3 font-semibold">작업 ID</th>
+            <th className="px-3 py-3 font-semibold">음성 변환</th>
+            <th className="px-3 py-3 font-semibold">요약 / 모델</th>
+            <th className="px-3 py-3 font-semibold">처리 시간</th>
+            <th className="px-3 py-3 font-semibold">입력/출력 토큰</th>
+            <th className="px-3 py-3 font-semibold">비용 추정</th>
+            <th className="px-3 py-3 font-semibold">결과</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {runs.map((run) => (
+            <tr key={run.id}>
+              <td className="px-3 py-3 font-mono">{run.id.slice(0, 8)}</td>
+              <td className="px-3 py-3">{providerLabel(run.stt_provider)}</td>
+              <td className="px-3 py-3">
+                {providerLabel(run.summary_provider)} / {run.summary_model || "-"}
+              </td>
+              <td className="px-3 py-3">
+                {(run.processing_seconds ?? 0).toLocaleString("ko-KR")}초
+              </td>
+              <td className="px-3 py-3">{run.input_tokens}/{run.output_tokens}</td>
+              <td className="px-3 py-3">
+                {run.estimated_cost_krw.toLocaleString("ko-KR")}원
+              </td>
+              <td className="px-3 py-3">
+                {run.error_code || run.outcome || run.status}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -339,31 +388,18 @@ export default function AdminConsultationsPage() {
         </div>
 
         {status.recent_summary_runs.length > 0 && (
-          <div className="mt-4 overflow-x-auto rounded-2xl bg-surface">
-            <table className="min-w-full text-left text-[12px] text-ink2">
-              <thead className="border-b border-line text-ink3">
-                <tr>
-                  <th className="px-3 py-3 font-semibold">작업 ID</th>
-                  <th className="px-3 py-3 font-semibold">상태</th>
-                  <th className="px-3 py-3 font-semibold">처리 분</th>
-                  <th className="px-3 py-3 font-semibold">입력/출력 토큰</th>
-                  <th className="px-3 py-3 font-semibold">비용 추정</th>
-                  <th className="px-3 py-3 font-semibold">상태 코드</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {status.recent_summary_runs.map((run) => (
-                  <tr key={run.id}>
-                    <td className="px-3 py-3 font-mono">{run.id.slice(0, 8)}</td>
-                    <td className="px-3 py-3">{run.status}</td>
-                    <td className="px-3 py-3">{run.processing_minutes_reserved}</td>
-                    <td className="px-3 py-3">{run.input_tokens}/{run.output_tokens}</td>
-                    <td className="px-3 py-3">{run.estimated_cost_krw.toLocaleString("ko-KR")}원</td>
-                    <td className="px-3 py-3">{run.error_code || "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <SummaryRunTable runs={status.recent_summary_runs} />
+        )}
+
+        {(status.pilot_recent_summary_runs?.length ?? 0) > 0 && (
+          <div className="mt-6">
+            <h3 className="text-[14px] font-extrabold text-ink">
+              시연 계정 파일럿 확인
+            </h3>
+            <p className="mt-1 text-[12px] leading-5 text-ink3">
+              실제 호출 시간과 비용은 확인하되, 서비스 운영 합계에는 포함하지 않습니다.
+            </p>
+            <SummaryRunTable runs={status.pilot_recent_summary_runs ?? []} />
           </div>
         )}
       </section>

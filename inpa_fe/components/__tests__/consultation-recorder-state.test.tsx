@@ -78,6 +78,7 @@ function capability() {
     recording_enabled: true,
     consent_ready: true,
     summary_enabled: true,
+    summary_provider: "openai",
     summary_consent_ready: true,
     summary_usage: {
       year_month: "2026-07",

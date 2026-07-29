@@ -26,10 +26,10 @@ SUMMARY_JSON_SCHEMA = {
     'additionalProperties': False,
 }
 
-# Anthropic raw JSON schemas do not accept length constraints such as
-# maxItems/maxLength. Keep the same shape in the provider request and enforce
-# the full contract in ConsultationSummary.from_payload after the response.
-ANTHROPIC_SUMMARY_JSON_SCHEMA = {
+# Provider strict-schema subsets can reject length constraints such as
+# maxItems/maxLength. Keep the same shape in the request and enforce the full
+# contract in ConsultationSummary.from_payload after the response.
+PROVIDER_SUMMARY_JSON_SCHEMA = {
     'type': 'object',
     'properties': {
         key: {
@@ -45,6 +45,8 @@ ANTHROPIC_SUMMARY_JSON_SCHEMA = {
     'required': list(SECTION_KEYS),
     'additionalProperties': False,
 }
+ANTHROPIC_SUMMARY_JSON_SCHEMA = PROVIDER_SUMMARY_JSON_SCHEMA
+OPENAI_SUMMARY_JSON_SCHEMA = PROVIDER_SUMMARY_JSON_SCHEMA
 
 
 def _validated_items(payload, key):

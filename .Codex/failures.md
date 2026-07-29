@@ -39,3 +39,9 @@ Symptom: Incremental import edits left names such as `ManualBenefitReview,` as v
 Cause: Patch hunks added import names in the correct block but also retained the added lines at the file-end context. Python accepts a trailing comma expression, so syntax and runtime tests did not reject it.
 Fix: Remove every file-end expression and inspect the complete diff, not only the import block.
 Prevention: After mechanical import edits, search changed Python files for unexpected top-level expressions at EOF and run a linter that flags useless expressions. Keep `git diff --check`, but do not treat it as sufficient for syntactically valid residue.
+
+### 2026-07-29 최신 30일 정책보다 과거 7일 요청을 우선함
+Symptom: 운영 `master`와 최신 사용자 결정은 `v2-30d`, 정확히 720시간이었지만 작업 설계와 미병합 변경에서 과거 7일 요청을 다시 선택했다.
+Cause: 긴 대화의 초기 요구를 최신 저장소 상태와 사용자의 후속 확정 사항보다 우선해 해석했다.
+Fix: 미배포 `v3-7d` 변경과 마이그레이션을 모두 제거하고 기존 `v2-30d` 고지, 제약, 테스트를 그대로 유지했다.
+Prevention: 보관·결제·동의처럼 데이터 의미가 바뀌는 작업은 구현 직전에 `master`의 현재 정책과 가장 최근의 명시적 사용자 결정을 함께 확인하고, 선택한 값을 사용자에게 숫자와 버전으로 먼저 고지한다.

@@ -22,6 +22,7 @@ from inpa.customers.models import ConsentLog, Customer
 
 @override_settings(
     CONSULTATION_AI_SUMMARY_ENABLED=True,
+    CONSULTATION_SUMMARY_PROVIDER='openai',
     CONSULTATION_SUMMARY_PROMPT_VERSION='api-prompt-v1',
 )
 class ConsultationSummaryApiTests(TestCase):
@@ -105,6 +106,7 @@ class ConsultationSummaryApiTests(TestCase):
         self.assertEqual(first.data['id'], second.data['id'])
         self.assertEqual(ConsultationSummaryRun.objects.count(), 1)
         self.assertEqual(enqueue.call_count, 1)
+        self.assertEqual(first.data['provider'], 'openai')
         for private_field in (
             'stt_provider',
             'stt_job_id',

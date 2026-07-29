@@ -1264,6 +1264,59 @@ class ClaudePricingTests(TestCase):
         self.assertEqual(cost, Decimal('2500.00'))  # $5/2 * 1000
 
 
+class OpenAIConsultationPricingTests(TestCase):
+    @override_settings(
+        OPENAI_USD_KRW_RATE=1000.0,
+        OPENAI_TRANSCRIPTION_USD_PER_MINUTE=0.006,
+        OPENAI_CONSULTATION_INPUT_USD_PER_MTOK=0,
+        OPENAI_CONSULTATION_OUTPUT_USD_PER_MTOK=0,
+    )
+    def test_luna_uses_catalog_summary_rates_plus_transcription(self):
+        from .pricing import estimate_openai_consultation_cost_krw
+
+        cost = estimate_openai_consultation_cost_krw(
+            model='gpt-5.6-luna',
+            usage={'input_tokens': 1_000_000, 'output_tokens': 1_000_000},
+            duration_ms=60_000,
+        )
+
+        self.assertEqual(cost, Decimal('7006.00'))
+
+    @override_settings(
+        OPENAI_USD_KRW_RATE=1000.0,
+        OPENAI_TRANSCRIPTION_USD_PER_MINUTE=0,
+        OPENAI_CONSULTATION_INPUT_USD_PER_MTOK=0,
+        OPENAI_CONSULTATION_OUTPUT_USD_PER_MTOK=0,
+    )
+    def test_unknown_model_uses_conservative_summary_fallback(self):
+        from .pricing import estimate_openai_consultation_cost_krw
+
+        cost = estimate_openai_consultation_cost_krw(
+            model='unknown-openai-model',
+            usage={'input_tokens': 1_000_000, 'output_tokens': 1_000_000},
+            duration_ms=0,
+        )
+
+        self.assertEqual(cost, Decimal('35000.00'))
+
+    @override_settings(
+        OPENAI_USD_KRW_RATE=1000.0,
+        OPENAI_TRANSCRIPTION_USD_PER_MINUTE=0,
+        OPENAI_CONSULTATION_INPUT_USD_PER_MTOK=2,
+        OPENAI_CONSULTATION_OUTPUT_USD_PER_MTOK=3,
+    )
+    def test_explicit_environment_rates_override_catalog(self):
+        from .pricing import estimate_openai_consultation_cost_krw
+
+        cost = estimate_openai_consultation_cost_krw(
+            model='gpt-5.6-luna',
+            usage={'input_tokens': 1_000_000, 'output_tokens': 1_000_000},
+            duration_ms=0,
+        )
+
+        self.assertEqual(cost, Decimal('5000.00'))
+
+
 class LogClaudeUsageExtendedTests(TestCase):
     """credit.py::log_claude_usage 확장 — user/cost_krw/outcome/carrier/matched·unmatched 기록."""
 

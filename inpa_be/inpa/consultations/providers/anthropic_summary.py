@@ -30,6 +30,7 @@ class SummaryProviderResult:
     input_tokens: int
     output_tokens: int
     model: str
+    latency_ms: int = 0
 
 
 class AnthropicConsultationSummarizer:

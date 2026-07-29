@@ -54,6 +54,44 @@ if (
         'CONSULTATION_RETENTION_HOURS must be exactly 720.'
     )
 
+if CONSULTATION_AI_SUMMARY_ENABLED:  # noqa: F405
+    if CONSULTATION_STT_PROVIDER not in {'clova', 'openai'}:  # noqa: F405
+        raise ImproperlyConfigured(
+            'CONSULTATION_STT_PROVIDER must be clova or openai.'
+        )
+    if CONSULTATION_SUMMARY_PROVIDER not in {'anthropic', 'openai'}:  # noqa: F405
+        raise ImproperlyConfigured(
+            'CONSULTATION_SUMMARY_PROVIDER must be anthropic or openai.'
+        )
+    _consultation_ai_required = {}
+    if CONSULTATION_STT_PROVIDER == 'openai':  # noqa: F405
+        _consultation_ai_required.update({
+            'OPENAI_API_KEY': OPENAI_API_KEY,  # noqa: F405
+            'OPENAI_CONSULTATION_TRANSCRIPTION_MODEL':
+                OPENAI_CONSULTATION_TRANSCRIPTION_MODEL,  # noqa: F405
+        })
+    if CONSULTATION_SUMMARY_PROVIDER == 'openai':  # noqa: F405
+        _consultation_ai_required.update({
+            'OPENAI_API_KEY': OPENAI_API_KEY,  # noqa: F405
+            'OPENAI_CONSULTATION_SUMMARY_MODEL':
+                OPENAI_CONSULTATION_SUMMARY_MODEL,  # noqa: F405
+        })
+    elif CONSULTATION_SUMMARY_PROVIDER == 'anthropic':  # noqa: F405
+        _consultation_ai_required.update({
+            'ANTHROPIC_API_KEY': ANTHROPIC_API_KEY,  # noqa: F405
+            'CONSULTATION_SUMMARY_MODEL': CONSULTATION_SUMMARY_MODEL,  # noqa: F405
+        })
+    _consultation_ai_missing = [
+        name
+        for name, value in _consultation_ai_required.items()
+        if not value
+    ]
+    if _consultation_ai_missing:
+        raise ImproperlyConfigured(
+            'CONSULTATION_AI_SUMMARY_ENABLED 를 열려면 '
+            f"{', '.join(_consultation_ai_missing)} 설정이 필요합니다."
+        )
+
 # ── 보안 하드닝 (보안 감사 2026-06-28) ─────────────────────────────
 # (1) DRF NUM_PROXIES — Render 역방향 프록시 1단 뒤. throttle/감사 IP가 X-Forwarded-For의
 #     '끝에서 1번째'(실 클라이언트)만 신뢰 → XFF 위조로 throttle 우회하는 공격 차단.

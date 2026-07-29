@@ -64,8 +64,8 @@ _SCOPE_META = {
     },
     ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY: {
         'required': True,
-        'purpose': '상담 요약을 위한 국외 처리 동의(고객 본인)',
-        'notice': '이름과 연락처를 가린 상담 내용을 요약하는 데 사용됩니다.',
+        'purpose': '상담 요약을 위한 국외 처리 동의(OpenAI API, 미국)',
+        'notice': '상담 음성을 글로 바꾼 뒤 이름과 연락처를 가리고 핵심 메모를 만듭니다.',
     },
 }
 

@@ -1,6 +1,6 @@
 from django.test import TestCase, override_settings
 
-from inpa.accounts.models import User
+from inpa.accounts.models import Profile, User
 from inpa.consultations.gates import summary_feature_enabled
 from inpa.consultations.models import (
     ConsultationPilotAccess,
@@ -8,6 +8,7 @@ from inpa.consultations.models import (
 )
 from inpa.customers.consent_texts import (
     CONSULTATION_CONSENT_VERSIONS,
+    CONSULTATION_SUMMARY_CONSENT_VERSION,
     has_current_consultation_summary_consents,
 )
 from inpa.customers.models import ConsentLog, Customer
@@ -42,7 +43,7 @@ class ConsultationSummaryGateTests(TestCase):
 
         self._grant(
             ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY,
-            'v1-2026-07-22',
+            CONSULTATION_SUMMARY_CONSENT_VERSION,
         )
 
         self.assertTrue(
@@ -77,3 +78,24 @@ class ConsultationSummaryGateTests(TestCase):
         access.summary_allowed = True
         access.save(update_fields=['summary_allowed', 'updated_at'])
         self.assertTrue(summary_feature_enabled(self.user))
+
+    @override_settings(
+        SHOWCASE_ACCOUNT_EMAIL='summary-gate@example.com',
+        CONSULTATION_AI_SUMMARY_ENABLED=True,
+        CONSULTATION_SHOWCASE_PILOT_ENABLED=False,
+    )
+    def test_showcase_summary_requires_the_extra_environment_gate(self):
+        Profile.objects.create(user=self.user, is_showcase=True)
+        config = ConsultationRuntimeConfig.solo()
+        config.ai_summary_enabled = True
+        config.save(update_fields=['ai_summary_enabled', 'updated_at'])
+        ConsultationPilotAccess.objects.create(
+            user=self.user,
+            recording_allowed=True,
+            summary_allowed=True,
+        )
+
+        self.assertFalse(summary_feature_enabled(self.user))
+
+        with self.settings(CONSULTATION_SHOWCASE_PILOT_ENABLED=True):
+            self.assertTrue(summary_feature_enabled(self.user))

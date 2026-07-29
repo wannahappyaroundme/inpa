@@ -5,6 +5,13 @@ from inpa.core.internal_accounts import is_showcase_user
 from .models import ConsultationPilotAccess, ConsultationRuntimeConfig
 
 
+def showcase_consultation_pilot_enabled(user):
+    return bool(
+        is_showcase_user(user)
+        and settings.CONSULTATION_SHOWCASE_PILOT_ENABLED
+    )
+
+
 def recording_feature_enabled(user=None):
     if not settings.CONSULTATION_RECORDING_ENABLED:
         return False
@@ -12,7 +19,10 @@ def recording_feature_enabled(user=None):
         return False
     if user is None:
         return True
-    if is_showcase_user(user):
+    if (
+        is_showcase_user(user)
+        and not showcase_consultation_pilot_enabled(user)
+    ):
         return False
     profile = getattr(user, 'profile', None)
     if profile is not None and profile.is_admin:
@@ -28,7 +38,10 @@ def summary_feature_enabled(user=None):
         return False
     if user is None:
         return True
-    if is_showcase_user(user):
+    if (
+        is_showcase_user(user)
+        and not showcase_consultation_pilot_enabled(user)
+    ):
         return False
     profile = getattr(user, 'profile', None)
     if profile is not None and profile.is_admin:
