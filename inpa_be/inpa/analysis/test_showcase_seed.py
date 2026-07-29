@@ -102,6 +102,65 @@ _SEMANTIC_EQUIVALENCE_ALLOWLIST = {
     '허혈성심장질환진단': '허혈성심장질환진단비',
     '화상수술': '화상수술비',
 }
+_EXPECTED_JOB_CATALOG_KEYS = {
+    '퇴직 후 재취업 준비': ('9421', '경비원'),
+    '의류 매장 운영': ('5211', '소규모 상점 경영 및 일선 관리 종사원'),
+    '사무 관리직': ('1202', '경영지원 사무직 관리자'),
+    '중학교 교사': ('2521', '중·고등학교 교사'),
+    '소프트웨어 개발자': (
+        '2221',
+        '정보통신(IT)관련 개발자 및 프로그래머'
+        '(모바일 애플리케이션 프로그래머 제외)',
+    ),
+    '제품 디자이너': ('2851', '제품 디자이너'),
+    '화물차 운전원': ('8731', '자가용화물차운전자(2.5톤미만)'),
+    '음식점 운영 보조': ('9522', '주방 보조원'),
+    '기계 설비 기사': ('7531', '공업기계 설치 및 정비원'),
+    '도서관 사서': ('2822', '사서'),
+    '가구 제작자': ('7302', '가구 제조원 및 수리원'),
+    '온라인 판매 운영': ('5304', '온라인 쇼핑 판매원'),
+    '건물 관리원': ('9421', '건물 관리인'),
+    '학원 강사': ('2544', '예능 강사'),
+    '영상 편집자': ('2836', '영상·녹화 및 편집 기사'),
+    '꽃집 운영': ('5211', '소규모 상점 경영 및 일선 관리 종사원'),
+    '전기 기술자': ('7622', '건물내 전기 설치 및 정비원(내선전공)'),
+    '반려동물 미용사': ('4225', '반려동물 미용사'),
+    '인쇄소 운영': ('8921', '인쇄기기관련 조작원'),
+    '세무 사무원': ('3111', '회사 사무직 종사자'),
+    '물류 관리직': ('1202', '경영지원 사무직 관리자'),
+    '편집 기획자': ('2815', '출판물 기획 및 편집가'),
+    '주방 설비 운영': ('4411', '주방장 및 조리사(선박 조리사 제외)'),
+    '초등학교 교사': ('2522', '초등학교 교사'),
+    '조경 관리사': ('6122', '정원사,조경사 및 원예사'),
+    '공연 기획자': (
+        '1340',
+        '문화/예술/디자인 및 영상 관련 사무직 관리자',
+    ),
+    '자동차 정비사': ('7510', '자동차 경정비원(튜닝포함)'),
+    '식품 연구원': ('2391', '식품공학 기술자, 연구원 및 시험원'),
+    '택배 영업소 운영': ('1512', '육상운송업체 사무직 관리자'),
+    '제과사': ('7101', '제빵사 및 제과원'),
+    '공장 품질 관리자': ('2354', '품질검사원'),
+    '요가 강사': ('2864', '스포츠 강사 및 트레이너'),
+    '냉동 설비 기사': ('7534', '냉동/냉장/공조기 설치 및 정비원'),
+    '출판 편집자': ('2815', '출판물 기획 및 편집가'),
+    '농산물 판매 운영': ('5211', '소규모 상점 경영 및 일선 관리 종사원'),
+    '치과 위생사': ('2454', '치과위생사'),
+    '소방 설비 점검원': ('2394', '소방공학 기술자 및 연구원'),
+    '공방 운영': ('7911', '기타 공예원(목석공예원 제외)'),
+    '버스 운전원': ('8732', '영업용승합차운전자(26인승 이상)'),
+    '아동 상담사': ('2474', '상담 전문가 및 청소년 지도사'),
+    '목공소 운영': ('7724', '건축목공원'),
+    '호텔 서비스 담당': ('4322', '호텔 서비스원'),
+    '세탁소 운영': ('9992', '세탁원 및 다림질원'),
+    '행정 사무원': ('3111', '회사 사무직 종사자'),
+    '사진 스튜디오 운영': ('2842', '사진기자 및 사진가'),
+    '보육 교사': ('2472', '보육 교사'),
+    '금속 가공 기술자': ('8415', '금속가공 기계조작원'),
+    '공인중개사': ('2745', '부동산 컨설턴트 및 중개사'),
+    '건축 설계사': ('2311', '건축가'),
+    '공예 강사': ('2544', '예능 강사'),
+}
 _PUBLIC_MODELS = (
     Post,
     Notice,
@@ -481,6 +540,28 @@ class ShowcaseSeedCommandTests(TestCase):
     def test_missing_job_catalog_fails_without_database_change(self):
         JobRiskCode.objects.all().delete()
         self._assert_error_without_changes('직업급수', '--apply')
+
+    def test_all_customer_jobs_use_reviewed_exact_catalog_keys(self):
+        self.assertEqual(
+            set(_EXPECTED_JOB_CATALOG_KEYS),
+            {spec.occupation for spec in CUSTOMERS},
+        )
+
+        self._seed()
+
+        customers_by_name = {
+            customer.name: customer
+            for customer in Customer.objects.filter(
+                owner=self._showcase_user(),
+            ).select_related('job_code')
+        }
+        for spec in CUSTOMERS:
+            with self.subTest(occupation=spec.occupation):
+                job = customers_by_name[spec.name].job_code
+                self.assertEqual(
+                    (job.sctg_cd, job.name),
+                    _EXPECTED_JOB_CATALOG_KEYS[spec.occupation],
+                )
 
     def test_all_missing_standard_prerequisites_are_reported_before_writes(self):
         AnalysisDetail.objects.filter(
@@ -928,6 +1009,38 @@ class ShowcaseSeedCommandTests(TestCase):
         )
         self.assertEqual(relogin.status_code, 200, relogin.content)
         self.assertNotEqual(relogin.json()['token'], old_token)
+
+    def test_second_apply_restores_every_subscription_operations_field(self):
+        self._seed()
+        user = self._showcase_user()
+        free_plan = Plan.objects.get(code='free')
+        changed_at = timezone.now()
+        Subscription.objects.filter(user=user).update(
+            plan=free_plan,
+            status='cancelled',
+            billing_cycle='annual',
+            first_paid_bonus_used=True,
+            expires_at=changed_at,
+            cancelled_at=changed_at,
+            pg_subscription_id='changed-local-reference',
+            auto_renew=True,
+            next_billing_at=changed_at,
+        )
+
+        self._seed()
+
+        subscription = Subscription.objects.select_related('plan').get(
+            user=user,
+        )
+        self.assertEqual(subscription.plan.code, 'super')
+        self.assertEqual(subscription.status, 'active')
+        self.assertEqual(subscription.billing_cycle, 'monthly')
+        self.assertFalse(subscription.first_paid_bonus_used)
+        self.assertIsNone(subscription.expires_at)
+        self.assertIsNone(subscription.cancelled_at)
+        self.assertEqual(subscription.pg_subscription_id, '')
+        self.assertFalse(subscription.auto_renew)
+        self.assertIsNone(subscription.next_billing_at)
 
     def test_reset_preserves_foreign_manager_link_and_purge_refuses_it(self):
         self._seed()
