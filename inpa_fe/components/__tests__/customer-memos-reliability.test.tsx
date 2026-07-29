@@ -417,7 +417,9 @@ describe("상담 메모 신뢰성", () => {
     updating.resolve(memo({ body: "수정함", revision: 2 }));
     expect(await screen.findByText("수정함")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "메모 삭제: 수정함" }));
+    await user.click(
+      await screen.findByRole("button", { name: "메모 삭제: 수정함" }),
+    );
     await user.dblClick(screen.getByRole("button", { name: "삭제할게요" }));
     expect(deleteCustomerMemo).toHaveBeenCalledOnce();
     deleting.resolve();
