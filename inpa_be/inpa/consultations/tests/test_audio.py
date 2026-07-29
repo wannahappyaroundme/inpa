@@ -6,7 +6,7 @@ import av
 import numpy as np
 from django.test import SimpleTestCase
 
-from inpa.consultations.audio import open_clova_wav
+from inpa.consultations.audio import open_clova_wav, open_openai_audio
 
 
 def _write_webm(path):
@@ -65,5 +65,27 @@ class ConsultationAudioTests(SimpleTestCase):
                     self.assertEqual(streams[0].codec_context.name, 'pcm_s16le')
                     self.assertEqual(streams[0].sample_rate, 16_000)
                     self.assertEqual(streams[0].codec_context.channels, 1)
+
+            self.assertFalse(prepared_path.exists())
+
+    def test_webm_is_compressed_for_long_openai_meetings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / 'source.webm'
+            _write_webm(source)
+
+            with open_openai_audio(
+                _FakeStorage(source),
+                'consultation-recordings/ignored/source',
+            ) as prepared:
+                prepared_path = Path(prepared.name)
+                self.assertEqual(prepared_path.suffix, '.mp3')
+                self.assertLess(prepared_path.stat().st_size, 25 * 1024 * 1024)
+                with av.open(prepared) as container:
+                    stream = container.streams.audio[0]
+                    self.assertTrue(
+                        stream.codec_context.name.startswith('mp3'),
+                    )
+                    self.assertEqual(stream.sample_rate, 16_000)
+                    self.assertEqual(stream.codec_context.channels, 1)
 
             self.assertFalse(prepared_path.exists())

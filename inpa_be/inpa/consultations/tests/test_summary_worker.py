@@ -8,6 +8,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from inpa.accounts.models import User
+from inpa.consultations.audio import AudioTranscodeError
 from inpa.consultations.callbacks import make_clova_callback_url
 from inpa.consultations.models import (
     ConsultationPilotAccess,
@@ -21,6 +22,9 @@ from inpa.consultations.providers.base import (
     SpeechJobResult,
     SummaryOutcomeUnknown,
 )
+from inpa.consultations.providers.openai_summary import (
+    OpenAITranscriptionResult,
+)
 from inpa.consultations.summary_schema import ConsultationSummary
 from inpa.consultations.summary_service import request_summary
 from inpa.consultations.summary_worker import run_summary_step
@@ -28,6 +32,7 @@ from inpa.customers.consent_texts import (
     CONSULTATION_CONSENT_VERSIONS,
     CONSULTATION_SUMMARY_CONSENT_VERSION,
 )
+from inpa.customers.memos import update_memo
 from inpa.customers.models import ConsentLog, Customer, CustomerMemo
 
 TEST_PROVIDER_CREDENTIAL = 'test-only'
@@ -178,7 +183,7 @@ class ConsultationSummaryWorkerTests(TestCase):
         _storage,
         open_wav,
     ):
-        open_wav.return_value = _prepared_audio()
+        open_wav.side_effect = lambda *_args, **_kwargs: _prepared_audio()
         provider_cls.return_value.submit.side_effect = (
             ExplicitProviderNonReceipt('ConnectError')
         )
@@ -247,7 +252,167 @@ class ConsultationSummaryWorkerTests(TestCase):
                 for field in self.run._meta.fields
             ),
         )
+        original_revision = memo.revision
+        edited = update_memo(
+            memo=memo,
+            body='설계사가 직접 고친 메모',
+            expected_revision=original_revision,
+        )
+        self.assertEqual(edited.body, '설계사가 직접 고친 메모')
+        self.assertEqual(edited.revision, original_revision + 1)
         summarizer_cls.return_value.summarize.assert_called_once()
+
+    @override_settings(
+        CONSULTATION_STT_PROVIDER='openai',
+        CONSULTATION_SUMMARY_PROVIDER='openai',
+        OPENAI_API_KEY=TEST_PROVIDER_CREDENTIAL,
+        OPENAI_TRANSCRIPTION_MODEL='openai-transcribe-test',
+        OPENAI_CONSULTATION_SUMMARY_MODEL='openai-summary-test',
+        OPENAI_TRANSCRIPTION_USD_PER_MINUTE=0.006,
+        OPENAI_CONSULTATION_INPUT_USD_PER_MTOK=1.25,
+        OPENAI_CONSULTATION_OUTPUT_USD_PER_MTOK=10.0,
+        OPENAI_USD_KRW_RATE=1400.0,
+    )
+    @patch('inpa.consultations.summary_worker.OpenAIConsultationSummarizer')
+    @patch('inpa.consultations.summary_worker.OpenAIConsultationTranscriber')
+    @patch('inpa.consultations.summary_worker.open_openai_audio')
+    @patch('inpa.consultations.summary_worker.get_recording_storage')
+    def test_openai_path_creates_one_memo_and_never_replays_on_redelivery(
+        self,
+        _storage,
+        open_wav,
+        transcriber_cls,
+        summarizer_cls,
+    ):
+        open_wav.return_value = _prepared_audio()
+        transcriber_cls.return_value.transcribe.return_value = (
+            OpenAITranscriptionResult(
+                transcript='[화자 1] 김고객 전화번호 010-1234-5678 상담',
+                model='openai-transcribe-actual',
+                latency_ms=320,
+            )
+        )
+        summarizer_cls.return_value.summarize.return_value = (
+            SummaryProviderResult(
+                summary=self._summary_result().summary,
+                input_tokens=140,
+                output_tokens=50,
+                model='openai-summary-actual',
+                latency_ms=450,
+            )
+        )
+
+        first = run_summary_step(self.run.id)
+        second = run_summary_step(self.run.id)
+
+        self.assertEqual(first.outcome, 'succeeded')
+        self.assertEqual(second.outcome, 'terminal')
+        memo = CustomerMemo.objects.get(summary_run=self.run)
+        self.assertNotIn('010-1234-5678', memo.body)
+        self.run.refresh_from_db()
+        self.assertEqual(self.run.stt_provider, 'openai')
+        self.assertEqual(self.run.summary_provider, 'openai')
+        self.assertEqual(self.run.summary_model, 'openai-summary-actual')
+        self.assertEqual(self.run.estimated_cost_krw, 10)
+        transcriber_cls.return_value.transcribe.assert_called_once()
+        summarizer_cls.return_value.summarize.assert_called_once()
+        masked_input = (
+            summarizer_cls.return_value.summarize.call_args.args[0]
+        )
+        self.assertNotIn('김고객', masked_input)
+        self.assertNotIn('010-1234-5678', masked_input)
+
+    @override_settings(
+        CONSULTATION_STT_PROVIDER='openai',
+        CONSULTATION_SUMMARY_PROVIDER='openai',
+        OPENAI_API_KEY=TEST_PROVIDER_CREDENTIAL,
+        OPENAI_TRANSCRIPTION_MODEL='openai-transcribe-test',
+        OPENAI_CONSULTATION_SUMMARY_MODEL='openai-summary-test',
+    )
+    @patch('inpa.consultations.summary_worker.OpenAIConsultationTranscriber')
+    @patch('inpa.consultations.summary_worker.open_openai_audio')
+    @patch('inpa.consultations.summary_worker.get_recording_storage')
+    def test_openai_transcription_timeout_is_terminal_without_second_call(
+        self,
+        _storage,
+        open_wav,
+        transcriber_cls,
+    ):
+        from inpa.consultations.providers.base import SpeechSubmitOutcomeUnknown
+
+        open_wav.return_value = _prepared_audio()
+        transcriber_cls.return_value.transcribe.side_effect = (
+            SpeechSubmitOutcomeUnknown('TRANSCRIPTION_TIMEOUT')
+        )
+
+        first = run_summary_step(self.run.id)
+        second = run_summary_step(self.run.id)
+
+        self.assertEqual(first.outcome, 'ambiguous')
+        self.assertEqual(second.outcome, 'terminal')
+        transcriber_cls.return_value.transcribe.assert_called_once()
+        self.assertEqual(CustomerMemo.objects.count(), 0)
+
+    @override_settings(
+        CONSULTATION_STT_PROVIDER='openai',
+        CONSULTATION_SUMMARY_PROVIDER='openai',
+        OPENAI_API_KEY=TEST_PROVIDER_CREDENTIAL,
+        OPENAI_TRANSCRIPTION_MODEL='openai-transcribe-test',
+        OPENAI_CONSULTATION_SUMMARY_MODEL='openai-summary-test',
+    )
+    @patch('inpa.consultations.summary_worker.OpenAIConsultationTranscriber')
+    @patch('inpa.consultations.summary_worker.open_openai_audio')
+    @patch('inpa.consultations.summary_worker.get_recording_storage')
+    def test_openai_explicit_connect_nonreceipt_retries_three_times_only(
+        self,
+        _storage,
+        open_wav,
+        transcriber_cls,
+    ):
+        open_wav.side_effect = lambda *_args, **_kwargs: _prepared_audio()
+        transcriber_cls.return_value.transcribe.side_effect = (
+            ExplicitProviderNonReceipt('TRANSCRIPTION_CONNECT_FAILED')
+        )
+
+        outcomes = [
+            run_summary_step(self.run.id).outcome
+            for _ in range(4)
+        ]
+
+        self.assertEqual(outcomes, ['retry', 'retry', 'failed', 'terminal'])
+        self.assertEqual(
+            transcriber_cls.return_value.transcribe.call_count,
+            3,
+        )
+        self.run.refresh_from_db()
+        self.assertEqual(
+            self.run.error_code,
+            'STT_CONNECT_RETRY_EXHAUSTED',
+        )
+        self.assertEqual(CustomerMemo.objects.count(), 0)
+
+    @override_settings(
+        CONSULTATION_STT_PROVIDER='openai',
+        CONSULTATION_SUMMARY_PROVIDER='openai',
+        OPENAI_API_KEY=TEST_PROVIDER_CREDENTIAL,
+        OPENAI_TRANSCRIPTION_MODEL='openai-transcribe-test',
+        OPENAI_CONSULTATION_SUMMARY_MODEL='openai-summary-test',
+    )
+    @patch('inpa.consultations.summary_worker.open_openai_audio')
+    @patch('inpa.consultations.summary_worker.get_recording_storage')
+    def test_openai_audio_preparation_failure_releases_reserved_minutes(
+        self,
+        _storage,
+        open_wav,
+    ):
+        open_wav.side_effect = AudioTranscodeError('AUDIO_ONLY_REQUIRED')
+
+        result = run_summary_step(self.run.id)
+
+        self.assertEqual(result.outcome, 'failed')
+        self.run.refresh_from_db()
+        self.assertIsNotNone(self.run.minute_reservation_released_at)
+        self.assertEqual(self.run.error_code, 'AUDIO_PREPARATION_FAILED')
 
     @patch('inpa.consultations.views.process_consultation_summary.apply_async')
     def test_signed_callback_ignores_provider_body_and_only_wakes_same_run(

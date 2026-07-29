@@ -674,6 +674,29 @@ def consultation_status_snapshot():
         processing_minutes=Sum('processing_minutes_reserved'),
         estimated_cost_krw=Sum('estimated_cost_krw'),
     )
+    summary_run_fields = (
+        'id',
+        'status',
+        'stt_provider',
+        'summary_provider',
+        'summary_model',
+        'processing_minutes_reserved',
+        'processing_seconds',
+        'input_tokens',
+        'output_tokens',
+        'estimated_cost_krw',
+        'outcome',
+        'error_code',
+        'created_at',
+        'completed_at',
+    )
+    showcase_email = django_settings.SHOWCASE_ACCOUNT_EMAIL
+    pilot_summary_rows = ConsultationSummaryRun.objects.none()
+    if showcase_email:
+        pilot_summary_rows = ConsultationSummaryRun.objects.filter(
+            recording__owner__email=showcase_email,
+            recording__owner__profile__is_showcase=True,
+        )
     return {
         'active_upload_count': recording_rows.filter(
             status=ConsultationRecording.STATUS_UPLOADING,
@@ -720,16 +743,12 @@ def consultation_status_snapshot():
         'summary_p95_seconds': percentile(succeeded_seconds, 0.95),
         'recent_summary_runs': list(
             summary_rows.order_by('-created_at').values(
-                'id',
-                'status',
-                'processing_minutes_reserved',
-                'input_tokens',
-                'output_tokens',
-                'estimated_cost_krw',
-                'outcome',
-                'error_code',
-                'created_at',
-                'completed_at',
+                *summary_run_fields,
+            )[:20]
+        ),
+        'pilot_recent_summary_runs': list(
+            pilot_summary_rows.order_by('-created_at').values(
+                *summary_run_fields,
             )[:20]
         ),
         **storage_audit,

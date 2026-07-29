@@ -12,6 +12,9 @@ class AudioTranscodeError(RuntimeError):
     pass
 
 
+OPENAI_AUDIO_MAX_BYTES = 25 * 1024 * 1024
+
+
 def _mux_encoded(output, stream, frame):
     for packet in stream.encode(frame):
         output.mux(packet)
@@ -57,6 +60,60 @@ def open_clova_wav(storage, storage_key):
                     _mux_encoded(output, output_stream, None)
                 if not output_path.exists() or output_path.stat().st_size <= 44:
                     raise AudioTranscodeError('TRANSCODED_AUDIO_EMPTY')
+                with output_path.open('rb') as prepared:
+                    yield prepared
+    except AudioTranscodeError:
+        raise
+    except (FFmpegError, OSError, ValueError, EOFError) as exc:
+        raise AudioTranscodeError(type(exc).__name__) from exc
+
+
+@contextmanager
+def open_openai_audio(storage, storage_key):
+    """Yield a speech-optimized MP3 that stays below OpenAI's upload limit."""
+    try:
+        with storage.open_temp(storage_key) as source_path:
+            with tempfile.TemporaryDirectory(
+                prefix='inpa-consultation-openai-',
+            ) as output_dir:
+                output_path = Path(output_dir) / 'consultation-audio.mp3'
+                with (
+                    av.open(str(source_path), mode='r') as source,
+                    av.open(str(output_path), mode='w', format='mp3') as output,
+                ):
+                    audio_streams = [
+                        stream for stream in source.streams
+                        if stream.type == 'audio'
+                    ]
+                    if (
+                        len(audio_streams) != 1
+                        or any(
+                            stream.type == 'video'
+                            for stream in source.streams
+                        )
+                    ):
+                        raise AudioTranscodeError('AUDIO_ONLY_REQUIRED')
+                    output_stream = output.add_stream(
+                        'libmp3lame',
+                        rate=16_000,
+                    )
+                    output_stream.layout = 'mono'
+                    output_stream.bit_rate = 32_000
+                    resampler = av.AudioResampler(
+                        format='fltp',
+                        layout='mono',
+                        rate=16_000,
+                    )
+                    for frame in source.decode(audio=0):
+                        for converted in resampler.resample(frame):
+                            _mux_encoded(output, output_stream, converted)
+                    for converted in resampler.resample(None):
+                        _mux_encoded(output, output_stream, converted)
+                    _mux_encoded(output, output_stream, None)
+                if not output_path.exists() or output_path.stat().st_size <= 0:
+                    raise AudioTranscodeError('TRANSCODED_AUDIO_EMPTY')
+                if output_path.stat().st_size >= OPENAI_AUDIO_MAX_BYTES:
+                    raise AudioTranscodeError('TRANSCODED_AUDIO_TOO_LARGE')
                 with output_path.open('rb') as prepared:
                     yield prepared
     except AudioTranscodeError:

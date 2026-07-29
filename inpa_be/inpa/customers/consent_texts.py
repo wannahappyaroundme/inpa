@@ -22,7 +22,7 @@ CONSULTATION_CONSENT_VERSIONS = {
     ConsentLog.SCOPE_CONSULTATION_RECORDING: 'v2-2026-07-28',
     ConsentLog.SCOPE_CONSULTATION_SENSITIVE: 'v1-2026-07-22',
 }
-CONSULTATION_SUMMARY_CONSENT_VERSION = 'v1-2026-07-22'
+CONSULTATION_SUMMARY_CONSENT_VERSION = 'v2-2026-07-29'
 
 CONSULTATION_CONSENT_TEXTS = {
     ConsentLog.SCOPE_CONSULTATION_RECORDING: {
@@ -45,12 +45,12 @@ CONSULTATION_CONSENT_TEXTS = {
     ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY: {
         'title': '상담 요약을 위한 국외 처리',
         'body': [
-            '요약을 위해 이름과 연락처를 가린 상담 내용이 '
-            '미국 Anthropic으로 전달될 수 있습니다.',
+            '상담 음성이 요약을 위해 미국 OpenAI로 전달될 수 있습니다.',
+            '음성을 글로 바꾼 뒤 이름과 연락처를 가리고 핵심 메모를 만듭니다.',
         ],
         'retention': (
-            '보유 기간: 전달된 내용은 해당 업체 기준에 따라 '
-            '최대 30일 보관될 수 있습니다.'
+            '보유 기간: OpenAI 제공사 정책에 따라 최대 30일 보관될 수 있으며, '
+            '인파는 요약을 마치면 전사 원문을 따로 저장하지 않습니다.'
         ),
     },
 }

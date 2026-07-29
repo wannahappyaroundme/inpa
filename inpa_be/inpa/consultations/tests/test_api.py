@@ -58,6 +58,7 @@ def _mock_av_container(format_name, codec):
 
 @override_settings(
     CONSULTATION_RECORDING_ENABLED=True,
+    CONSULTATION_SUMMARY_PROVIDER='openai',
     CONSULTATION_MAX_DURATION_SECONDS=3600,
     CONSULTATION_MAX_BYTES=100 * 1024 * 1024,
     CONSULTATION_UPLOAD_PART_BYTES=8 * 1024 * 1024,
@@ -245,6 +246,7 @@ class ConsultationRecordingApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.data['retention_days'], 30)
+        self.assertEqual(response.data['summary_provider'], 'openai')
         self.assertEqual(
             response.data['planner_notice_version'],
             self.NOTICE_VERSION,

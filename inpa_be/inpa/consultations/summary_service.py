@@ -6,7 +6,6 @@ from django.utils import timezone
 
 from inpa.billing.credit import resolve_effective_plan
 from inpa.billing.models import UsageMeter
-from inpa.core.internal_accounts import internal_user_q
 from inpa.customers.consent_texts import (
     CONSULTATION_CONSENT_VERSIONS,
     CONSULTATION_SUMMARY_CONSENT_VERSION,
@@ -38,9 +37,14 @@ class SummaryPrecondition(RuntimeError):
 
 def enqueue_summary_run(run_id):
     from .tasks import process_consultation_summary
-    if not ConsultationSummaryRun.objects.filter(pk=run_id).exclude(
-        internal_user_q('recording__owner'),
-    ).exists():
+    run = ConsultationSummaryRun.objects.select_related(
+        'recording__owner__profile',
+    ).filter(pk=run_id).first()
+    if (
+        run is None
+        or run.recording.owner.email.lower().endswith('@inpa.local')
+        or not summary_feature_enabled(run.recording.owner)
+    ):
         return
     process_consultation_summary.delay(str(run_id))
 

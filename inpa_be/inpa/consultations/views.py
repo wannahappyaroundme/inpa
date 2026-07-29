@@ -7,15 +7,17 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from inpa.billing.credit import LimitExceeded
-from inpa.core.internal_accounts import internal_user_q
+from inpa.core.internal_accounts import (
+    ShowcaseActionRestricted,
+    is_showcase_user,
+)
 from inpa.core.permissions import (
-    BlocksShowcaseExternalActions,
     IsEmailVerified,
 )
 from inpa.customers.consent_texts import (
@@ -26,7 +28,11 @@ from inpa.customers.consent_texts import (
 from inpa.customers.models import Customer
 
 from .callbacks import read_clova_callback_token
-from .gates import recording_feature_enabled, summary_feature_enabled
+from .gates import (
+    recording_feature_enabled,
+    showcase_consultation_pilot_enabled,
+    summary_feature_enabled,
+)
 from .models import (
     ConsultationCustomerBenefit,
     ConsultationRecording,
@@ -111,11 +117,26 @@ class CustomerRecordingMixin:
         )
 
 
+class AllowsExactShowcaseConsultationPilot(BasePermission):
+    """Keep showcase actions closed except for the explicit consultation pilot."""
+
+    def has_permission(self, request, view):
+        if (
+            is_showcase_user(request.user)
+            and (
+                not showcase_consultation_pilot_enabled(request.user)
+                or not recording_feature_enabled(request.user)
+            )
+        ):
+            raise ShowcaseActionRestricted()
+        return True
+
+
 class ExternalRecordingActionMixin(CustomerRecordingMixin):
     permission_classes = [
         IsAuthenticated,
         IsEmailVerified,
-        BlocksShowcaseExternalActions,
+        AllowsExactShowcaseConsultationPilot,
     ]
 
 
@@ -142,6 +163,12 @@ class RecordingCapabilityView(CustomerRecordingMixin, APIView):
             'recording_enabled': recording_feature_enabled(request.user),
             'consent_ready': has_current_consultation_recording_consent(customer),
             'summary_enabled': summary_enabled,
+            'summary_provider': (
+                settings.CONSULTATION_SUMMARY_PROVIDER
+                if settings.CONSULTATION_SUMMARY_PROVIDER
+                in {'openai', 'anthropic'}
+                else None
+            ),
             'summary_consent_ready':
                 has_current_consultation_summary_consents(customer),
             'summary_usage': summary_usage,
@@ -466,13 +493,17 @@ class ClovaCallbackView(APIView):
             run_id, attempt_uuid = read_clova_callback_token(token)
         except Exception:
             raise NotFound('요청 정보를 찾을 수 없어요.')
-        exists = ConsultationSummaryRun.objects.filter(
+        run = ConsultationSummaryRun.objects.select_related(
+            'recording__owner__profile',
+        ).filter(
             pk=run_id,
             attempt_uuid=attempt_uuid,
-        ).exclude(
-            internal_user_q('recording__owner'),
-        ).exists()
-        if not exists:
+        ).first()
+        if (
+            run is None
+            or run.recording.owner.email.lower().endswith('@inpa.local')
+            or not summary_feature_enabled(run.recording.owner)
+        ):
             raise NotFound('요청 정보를 찾을 수 없어요.')
         process_consultation_summary.apply_async(
             args=[str(run_id)],

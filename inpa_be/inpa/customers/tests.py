@@ -2722,6 +2722,22 @@ class ConsultationRecordingConsentTests(TestCase):
         recording = items[0]
         self.assertIn('30일', ' '.join(recording['lines']))
 
+    def test_openai_summary_disclosure_explains_raw_audio_transfer_and_masking(self):
+        token = make_consent_token(
+            self.customer,
+            scopes=[ConsentLog.SCOPE_CONSULTATION_OVERSEAS_SUMMARY],
+        )
+
+        response = self.anon.get(f'/api/v1/c/{token}/')
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()['items'][0]
+        disclosure = ' '.join(item['lines'])
+        self.assertIn('상담 음성', disclosure)
+        self.assertIn('OpenAI', disclosure)
+        self.assertIn('이름과 연락처를 가리고', disclosure)
+        self.assertIn('최대 30일', disclosure)
+
     def test_old_recording_consent_is_immutable_and_cannot_open_new_gate(self):
         old_recording = ConsentLog.objects.create(
             customer=self.customer,

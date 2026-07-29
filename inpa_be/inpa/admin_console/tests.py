@@ -2517,6 +2517,9 @@ class AdminConsultationSettingsTest(TestCase):
             sensitive_consent_version='sensitive-v1',
             overseas_consent_version='overseas-v1',
             processing_minutes_reserved=3,
+            stt_provider='openai',
+            summary_provider='openai',
+            summary_model='summary-model-from-env',
             input_tokens=100,
             output_tokens=30,
             estimated_cost_krw=12,
@@ -2546,6 +2549,68 @@ class AdminConsultationSettingsTest(TestCase):
             response.data['status']['recent_summary_runs'][0]['input_tokens'],
             100,
         )
+        recent = response.data['status']['recent_summary_runs'][0]
+        self.assertEqual(recent['stt_provider'], 'openai')
+        self.assertEqual(recent['summary_provider'], 'openai')
+        self.assertEqual(recent['summary_model'], 'summary-model-from-env')
+        self.assertEqual(recent['processing_seconds'], 20)
+        self.assertNotIn('prompt_version', recent)
+        self.assertNotIn('transcript', encoded)
+
+    @override_settings(
+        SHOWCASE_ACCOUNT_EMAIL='test@inpa.kr',
+        CONSULTATION_SHOWCASE_PILOT_ENABLED=True,
+    )
+    def test_showcase_pilot_run_is_separate_from_service_totals_but_observable(self):
+        showcase = _make_user('test@inpa.kr')
+        showcase.profile.is_showcase = True
+        showcase.profile.save(update_fields=['is_showcase'])
+        customer = Customer.objects.create(
+            owner=showcase,
+            name='파일럿 고객 이름은 응답에 나오면 안 됨',
+        )
+        recording = ConsultationRecording.objects.create(
+            owner=showcase,
+            customer=customer,
+            status=ConsultationRecording.STATUS_COMPLETED,
+            mime_type='audio/webm',
+        )
+        run = ConsultationSummaryRun.objects.create(
+            recording=recording,
+            status=ConsultationSummaryRun.STATUS_SUCCEEDED,
+            idempotency_key='showcase-pilot-observability',
+            prompt_version='private-prompt-version',
+            recording_consent_version='recording-v1',
+            sensitive_consent_version='sensitive-v1',
+            overseas_consent_version='overseas-v1',
+            stt_provider='openai',
+            summary_provider='openai',
+            summary_model='summary-model-from-env',
+            input_tokens=120,
+            output_tokens=40,
+            estimated_cost_krw=18,
+            processing_seconds=23,
+            outcome='succeeded',
+            completed_at=timezone.now(),
+        )
+
+        response = self.client_admin.get('/api/v1/admin/consultations/')
+
+        self.assertEqual(response.status_code, 200)
+        status_data = response.data['status']
+        self.assertEqual(status_data['summary_success_count'], 0)
+        self.assertEqual(status_data['recent_summary_runs'], [])
+        self.assertEqual(len(status_data['pilot_recent_summary_runs']), 1)
+        pilot = status_data['pilot_recent_summary_runs'][0]
+        self.assertEqual(str(pilot['id']), str(run.id))
+        self.assertEqual(pilot['stt_provider'], 'openai')
+        self.assertEqual(pilot['summary_provider'], 'openai')
+        self.assertEqual(pilot['summary_model'], 'summary-model-from-env')
+        self.assertEqual(pilot['processing_seconds'], 23)
+        self.assertEqual(pilot['estimated_cost_krw'], 18)
+        encoded = response.content.decode()
+        self.assertNotIn(customer.name, encoded)
+        self.assertNotIn('private-prompt-version', encoded)
 
     @override_settings(CONSULTATION_RECORDING_ENABLED=False)
     def test_runtime_switch_cannot_open_while_environment_gate_is_closed(self):

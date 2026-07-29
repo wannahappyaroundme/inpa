@@ -23,16 +23,15 @@ User = get_user_model()
 
 
 class ConsultationRetentionSettingsTests(SimpleTestCase):
-    def test_production_recording_gate_rejects_non_720_hour_policy(self):
+    def _load_production_settings(self, **overrides):
         environment = os.environ.copy()
         environment.update({
             'DJANGO_SETTINGS_MODULE': 'config.settings.prod',
             'SECRET_KEY': 'test-' + 'only-settings-value',
             'DATABASE_URL': 'sqlite:///:memory:',
-            'CONSULTATION_RECORDING_ENABLED': 'True',
-            'CONSULTATION_RETENTION_HOURS': '719',
+            **overrides,
         })
-        result = subprocess.run(
+        return subprocess.run(
             [
                 sys.executable,
                 '-c',
@@ -46,6 +45,12 @@ class ConsultationRetentionSettingsTests(SimpleTestCase):
             check=False,
         )
 
+    def test_production_recording_gate_rejects_non_720_hour_policy(self):
+        result = self._load_production_settings(
+            CONSULTATION_RECORDING_ENABLED='True',
+            CONSULTATION_RETENTION_HOURS='719',
+        )
+
         self.assertNotEqual(result.returncode, 0)
         output = f'{result.stdout}\n{result.stderr}'
         self.assertIn(
@@ -53,6 +58,43 @@ class ConsultationRetentionSettingsTests(SimpleTestCase):
             output,
         )
         self.assertNotIn('test-only-settings-value', output)
+
+    def test_openai_summary_gate_requires_every_server_only_setting(self):
+        placeholder = 'not-a-secret-test-value'
+        result = self._load_production_settings(
+            CONSULTATION_AI_SUMMARY_ENABLED='True',
+            CONSULTATION_STT_PROVIDER='openai',
+            CONSULTATION_SUMMARY_PROVIDER='openai',
+            OPENAI_API_KEY=placeholder,
+            OPENAI_TRANSCRIPTION_MODEL='transcription-from-environment',
+            OPENAI_COMPARISON_MODEL='',
+            OPENAI_CONSULTATION_SUMMARY_MODEL='',
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        output = f'{result.stdout}\n{result.stderr}'
+        self.assertIn(
+            'OPENAI_CONSULTATION_SUMMARY_MODEL',
+            output,
+        )
+        self.assertNotIn(placeholder, output)
+
+    def test_openai_summary_gate_accepts_model_fallback_from_comparison(self):
+        placeholder = 'not-a-secret-test-value'
+        result = self._load_production_settings(
+            CONSULTATION_AI_SUMMARY_ENABLED='True',
+            CONSULTATION_STT_PROVIDER='openai',
+            CONSULTATION_SUMMARY_PROVIDER='openai',
+            OPENAI_API_KEY=placeholder,
+            OPENAI_TRANSCRIPTION_MODEL='transcription-from-environment',
+            OPENAI_COMPARISON_MODEL='summary-from-environment',
+        )
+
+        self.assertEqual(
+            result.returncode,
+            0,
+            f'{result.stdout}\n{result.stderr}',
+        )
 
 
 class ConsultationRecordingModelTests(TestCase):

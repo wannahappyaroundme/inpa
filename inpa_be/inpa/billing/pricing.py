@@ -30,6 +30,14 @@ CACHE_WRITE_MULT = Decimal('1.25')
 _DEFAULT_FAMILY = 'opus'
 
 _MTOK = Decimal(1_000_000)
+OPENAI_SUMMARY_PRICING = (
+    ('gpt-5.6-luna', Decimal('1'), Decimal('6')),
+    ('gpt-5.6-terra', Decimal('2.5'), Decimal('15')),
+    ('gpt-5.6-sol', Decimal('5'), Decimal('30')),
+    ('gpt-5.6', Decimal('5'), Decimal('30')),
+)
+_OPENAI_CONSERVATIVE_INPUT_USD_PER_MTOK = Decimal('5')
+_OPENAI_CONSERVATIVE_OUTPUT_USD_PER_MTOK = Decimal('30')
 
 
 def _resolve_family(model: str) -> str:
@@ -79,4 +87,48 @@ def estimate_cost_krw(model: str, usage) -> Decimal:
         + Decimal(tokens['cache_creation_input_tokens']) / _MTOK * in_price * CACHE_WRITE_MULT
     )
     usd_krw_rate = Decimal(str(getattr(settings, 'CLAUDE_USD_KRW_RATE', 1400.0)))
+    return (usd * usd_krw_rate).quantize(Decimal('0.01'))
+
+
+def _openai_summary_rates(model):
+    normalized = (model or '').lower()
+    for family, input_rate, output_rate in OPENAI_SUMMARY_PRICING:
+        if family in normalized:
+            return input_rate, output_rate
+    return (
+        _OPENAI_CONSERVATIVE_INPUT_USD_PER_MTOK,
+        _OPENAI_CONSERVATIVE_OUTPUT_USD_PER_MTOK,
+    )
+
+
+def estimate_openai_consultation_cost_krw(
+    *,
+    model,
+    usage,
+    duration_ms,
+) -> Decimal:
+    """Estimate OpenAI transcription plus summary cost without undercounting."""
+    tokens = _usage_tokens(usage)
+    catalog_input_rate, catalog_output_rate = _openai_summary_rates(model)
+    configured_input_rate = Decimal(str(
+        getattr(settings, 'OPENAI_CONSULTATION_INPUT_USD_PER_MTOK', 0),
+    ))
+    configured_output_rate = Decimal(str(
+        getattr(settings, 'OPENAI_CONSULTATION_OUTPUT_USD_PER_MTOK', 0),
+    ))
+    input_rate = configured_input_rate or catalog_input_rate
+    output_rate = configured_output_rate or catalog_output_rate
+    transcription_rate = Decimal(str(
+        getattr(settings, 'OPENAI_TRANSCRIPTION_USD_PER_MINUTE', 0.006),
+    ))
+    safe_duration_ms = max(0, int(duration_ms or 0))
+    minutes = Decimal(safe_duration_ms) / Decimal(60_000)
+    usd = (
+        Decimal(tokens['input_tokens']) / _MTOK * input_rate
+        + Decimal(tokens['output_tokens']) / _MTOK * output_rate
+        + minutes * transcription_rate
+    )
+    usd_krw_rate = Decimal(str(
+        getattr(settings, 'OPENAI_USD_KRW_RATE', 1400.0),
+    ))
     return (usd * usd_krw_rate).quantize(Decimal('0.01'))
