@@ -4,26 +4,25 @@
 
 **Goal:** Let only `test@inpa.kr` record a customer consultation, create exactly one OpenAI summary per recording, and save it as an editable item in the existing multi-memo timeline.
 
-**Architecture:** Keep the existing recording/R2/memo pipeline and add a consultation-only showcase exception guarded by environment, runtime, and per-user switches. Route the worker through provider adapters selected by environment, use OpenAI diarized transcription and strict structured summary output, and preserve the current one-to-one summary run as the one-shot authority. Introduce a new immutable 7-day retention policy version for new recordings without rewriting older policy snapshots.
+**Architecture:** Keep the existing recording/R2/memo pipeline and add a consultation-only showcase exception guarded by environment, runtime, and per-user switches. Route the worker through provider adapters selected by environment, use OpenAI diarized transcription and strict structured summary output, and preserve the current one-to-one summary run as the one-shot authority. Preserve the current immutable `v2-30d` retention policy and its exact 720-hour enforcement without adding a migration.
 
 **Tech Stack:** Django 5.2, DRF, Celery, PostgreSQL, private Cloudflare R2, OpenAI Python SDK, Next.js 16, React 19, TypeScript.
 
 ---
 
-### Task 1: Lock the new 7-day policy in tests and data constraints
+### Task 1: Preserve the exact 30-day policy
 
 **Files:**
 - Modify: `inpa_be/inpa/consultations/tests/test_models.py`
 - Modify: `inpa_be/inpa/consultations/tests/test_migrations.py`
-- Modify: `inpa_be/inpa/customers/tests/test_consultation_consent.py`
+- Modify: `inpa_be/inpa/customers/tests.py`
 - Modify: `inpa_be/inpa/consultations/recording_policy.py`
 - Modify: `inpa_be/inpa/customers/consent_texts.py`
 - Modify: `inpa_be/inpa/consultations/models.py`
-- Create: `inpa_be/inpa/consultations/migrations/0008_recording_retention_v3.py`
 
-- [ ] Write failing tests for a new `v3-7d` snapshot, the 7-day planner notice, and invalid v3 retention evidence.
-- [ ] Run the focused tests and confirm they fail for the expected 30-day assumptions.
-- [ ] Add the v3 notice/version constants, switch new recording defaults to 168 hours, bump consultation consent versions, and add the exact DB constraint.
+- [ ] Prove the existing `v2-30d` snapshot, 30-day planner notice, and exact 720-hour production check.
+- [ ] Keep the recording consent version and current database constraint unchanged.
+- [ ] Confirm this feature creates no retention migration.
 - [ ] Run focused tests and `python manage.py makemigrations --check`.
 
 ### Task 2: Permit only the exact showcase consultation pilot
@@ -54,7 +53,7 @@
 - [ ] Write failing unit tests for diarized Korean transcription, stable speaker labels, strict JSON summary, `store=False`, token/model extraction, empty and malformed responses, explicit non-receipt, and ambiguous timeout handling.
 - [ ] Add `CONSULTATION_SUMMARY_PROVIDER` and `OPENAI_CONSULTATION_SUMMARY_MODEL`, both environment-selected.
 - [ ] Implement direct OpenAI transcription and summary adapters without persisting transcript text.
-- [ ] Reuse the private-object audio preparation path under a provider-neutral name.
+- [ ] Convert the private object to a 16 kHz mono, 32 kbps MP3 so a 60-minute meeting stays under the OpenAI upload limit.
 - [ ] Run the provider tests.
 
 ### Task 4: Route the background worker and preserve one-shot semantics
@@ -82,7 +81,7 @@
 - Modify: `inpa_fe/tests/consultation-recorder.test.tsx`
 - Modify: `inpa_fe/tests/customer-memos.test.tsx`
 
-- [ ] Write failing API and component tests for OpenAI labels, one-shot completed state, multi-memo reload, manual edit retention, 7-day copy, mobile states, and consent guidance.
+- [ ] Write failing API and component tests for OpenAI labels, one-shot completed state, multi-memo reload, manual edit retention, 30-day copy, mobile states, and consent guidance.
 - [ ] Add a safe provider enum to capability and summary status responses without exposing model IDs or prompts.
 - [ ] Render `OpenAI로 핵심 메모 만들기`, keep the success card terminal, and refresh the existing memo timeline when the memo arrives.
 - [ ] Run focused front-end tests and the full unit suite.
@@ -102,7 +101,7 @@
 
 - [ ] Write failing tests that the admin snapshot includes provider, model, tokens, processing seconds, outcome, and estimated cost without raw transcript or prompt.
 - [ ] Add the metadata to the admin API and table with honest estimated-cost labeling.
-- [ ] Change production retention validation to exact v3 168 hours and propagate OpenAI/pilot settings to the consultation worker.
+- [ ] Preserve production retention validation at exact v2 720 hours and propagate OpenAI/pilot settings to the consultation worker.
 - [ ] Document exact Render values, R2 lifecycle expectations, rollback switches, and the synthetic-audio production check.
 - [ ] Run configuration and admin tests.
 
