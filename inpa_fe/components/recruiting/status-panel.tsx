@@ -23,6 +23,7 @@ import {
   CAREER_LABELS,
   STAGE_LABELS,
   friendlyRecruitingError,
+  isShowcaseActionRestricted,
 } from "./recruiting-labels";
 import { RecruitingEmpty, RecruitingError, RecruitingLoading } from "./recruiting-states";
 import {
@@ -49,6 +50,7 @@ export function StatusPanel() {
   const [contextLoading, setContextLoading] = useState(true);
   const [listLoading, setListLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [publicActionsRestricted, setPublicActionsRestricted] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState<RecruitingStage | "">("");
@@ -65,15 +67,33 @@ export function StatusPanel() {
   const loadContext = useCallback(async () => {
     setContextLoading(true);
     setError(null);
+    setPublicActionsRestricted(false);
     try {
-      const [summaryResult, pageResult, campaignResult] = await Promise.all([
+      const [summaryResult, pageResult, campaignResult] = await Promise.allSettled([
         getRecruitingSummary(),
         getRecruitingPage(),
         getRecruitingCampaign(),
       ]);
-      setSummary(summaryResult);
-      setPageInfo(pageResult);
-      setCampaign(campaignResult);
+      if (summaryResult.status === "rejected") throw summaryResult.reason;
+      setSummary(summaryResult.value);
+
+      const publicResults = [pageResult, campaignResult];
+      const regularFailure = publicResults.find(
+        (result) =>
+          result.status === "rejected" &&
+          !isShowcaseActionRestricted(result.reason),
+      );
+      if (regularFailure?.status === "rejected") throw regularFailure.reason;
+
+      setPublicActionsRestricted(
+        publicResults.some(
+          (result) =>
+            result.status === "rejected" &&
+            isShowcaseActionRestricted(result.reason),
+        ),
+      );
+      setPageInfo(pageResult.status === "fulfilled" ? pageResult.value : null);
+      setCampaign(campaignResult.status === "fulfilled" ? campaignResult.value : null);
     } catch (reason) {
       setError(friendlyRecruitingError(reason));
     } finally {
@@ -188,6 +208,21 @@ export function StatusPanel() {
         <RecruitingError message={error} onRetry={() => { void loadContext(); void loadCandidates(); }} />
       )}
 
+      {publicActionsRestricted && (
+        <section
+          aria-label="시연 계정 영입 안내"
+          className="rounded-2xl border border-brand/20 bg-brand-soft px-5 py-4"
+        >
+          <p className="text-[14px] font-bold text-ink">
+            시연 계정에서는 등록된 자료로 영입 흐름을 확인할 수 있어요.
+          </p>
+          <p className="mt-1.5 text-[12px] leading-5 text-ink3">
+            지원자가 연결되면 단계별 현황과 다음 연락이 이 화면에 표시돼요. 나의 영입
+            페이지 공개와 캠페인 링크는 일반 계정에서 이어갈 수 있어요.
+          </p>
+        </section>
+      )}
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {summaryCards.map((item) => (
           <Card key={item.label} className="p-4">
@@ -275,7 +310,8 @@ export function StatusPanel() {
           <p className="mt-2 text-[13px] text-ink3">조건을 지우면 전체 영입 대화를 다시 볼 수 있어요.</p>
           <button type="button" onClick={clearFilters} className="mt-4 min-h-11 rounded-xl bg-brand px-5 text-[13px] font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">전체 지원 보기</button>
         </div>
-      ) : !listLoading && candidates.count === 0 ? (
+      ) : !listLoading && candidates.count === 0 && publicActionsRestricted ? null
+      : !listLoading && candidates.count === 0 ? (
         <div className="space-y-3">
           <RecruitingEmpty />
           {pageInfo?.is_published && campaign?.is_active ? (
