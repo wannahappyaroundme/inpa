@@ -1415,18 +1415,25 @@ export interface AdminConsultationStatus {
   summary_estimated_cost_krw: number;
   summary_p50_seconds: number | null;
   summary_p95_seconds: number | null;
-  recent_summary_runs: Array<{
-    id: string;
-    status: string;
-    processing_minutes_reserved: number;
-    input_tokens: number;
-    output_tokens: number;
-    estimated_cost_krw: number;
-    outcome: string;
-    error_code: string;
-    created_at: string;
-    completed_at: string | null;
-  }>;
+  recent_summary_runs: AdminConsultationRun[];
+  pilot_recent_summary_runs?: AdminConsultationRun[];
+}
+
+export interface AdminConsultationRun {
+  id: string;
+  status: string;
+  stt_provider?: string;
+  summary_provider?: string;
+  summary_model?: string;
+  processing_minutes_reserved: number;
+  processing_seconds?: number;
+  input_tokens: number;
+  output_tokens: number;
+  estimated_cost_krw: number;
+  outcome: string;
+  error_code: string;
+  created_at: string;
+  completed_at: string | null;
 }
 
 export interface AdminConsultationPilot {

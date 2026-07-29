@@ -65,6 +65,7 @@ function capability(consentReady: boolean) {
     recording_enabled: true,
     consent_ready: consentReady,
     summary_enabled: true,
+    summary_provider: "openai",
     summary_consent_ready: true,
     summary_usage: {
       year_month: "2026-07",
@@ -607,11 +608,12 @@ describe("고객 상담 녹음", () => {
     )).toBeInTheDocument();
   });
 
-  it("확인 뒤 녹음별 AI 요약을 정확히 한 번 요청한다", async () => {
+  it("확인 뒤 녹음별 OpenAI 요약을 정확히 한 번 요청한다", async () => {
     api.listConsultationRecordings.mockResolvedValue(recordings([recording()]));
     api.summarizeConsultationRecording.mockResolvedValue({
       id: "00000000-0000-4000-8000-000000000888",
       status: "queued",
+      provider: "openai",
       memo_id: null,
       created_at: "2026-07-26T01:02:00Z",
       completed_at: null,
@@ -619,10 +621,10 @@ describe("고객 상담 녹음", () => {
 
     render(<ConsultationRecordingList customerId={31} />);
     await userEvent.click(await screen.findByRole("button", {
-      name: "AI로 핵심 메모 만들기",
+      name: "OpenAI로 핵심 메모 만들기",
     }));
     expect(screen.getByText(/한 번만 만들 수 있어요/)).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "한 번 요약하기" }));
+    await userEvent.click(screen.getByRole("button", { name: "OpenAI로 한 번 요약하기" }));
 
     expect(api.summarizeConsultationRecording).toHaveBeenCalledOnce();
     expect(api.summarizeConsultationRecording).toHaveBeenCalledWith(
@@ -631,7 +633,7 @@ describe("고객 상담 녹음", () => {
       "00000000-0000-4000-8000-000000000777",
     );
     expect(await screen.findByText("상담 핵심을 정리하고 있어요.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "AI로 핵심 메모 만들기" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "OpenAI로 핵심 메모 만들기" })).toBeNull();
   });
 
   it("ready와 completed 원본만 다운로드할 수 있고 그 밖의 상태는 숨긴다", async () => {

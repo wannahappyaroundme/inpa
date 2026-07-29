@@ -4923,6 +4923,7 @@ export type ConsultationSummaryStatus =
 export interface ConsultationSummaryRun {
   id: string;
   status: ConsultationSummaryStatus;
+  provider: "openai" | "anthropic" | null;
   memo_id: number | null;
   created_at: string;
   completed_at: string | null;
@@ -4952,6 +4953,7 @@ export interface RecordingCapability {
   recording_enabled: boolean;
   consent_ready: boolean;
   summary_enabled: boolean;
+  summary_provider: "openai" | "anthropic" | null;
   summary_consent_ready: boolean;
   summary_usage: {
     year_month: string;

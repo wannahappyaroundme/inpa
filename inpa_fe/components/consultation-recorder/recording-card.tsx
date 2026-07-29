@@ -65,6 +65,7 @@ export function RecordingCard({
   onSummaryReady,
   summaryEnabled,
   summaryConsentReady,
+  summaryProvider,
 }: {
   customerId: number;
   recording: ConsultationRecording;
@@ -72,6 +73,7 @@ export function RecordingCard({
   onSummaryReady: () => void;
   summaryEnabled: boolean;
   summaryConsentReady: boolean;
+  summaryProvider: "openai" | "anthropic" | null;
 }) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [loadingAudio, setLoadingAudio] = useState(false);
@@ -242,6 +244,12 @@ export function RecordingCard({
     && ["ready", "completed"].includes(recording.status)
     && !downloadUnavailable
   );
+  const summaryActionLabel = summaryProvider === "openai"
+    ? "OpenAI로 핵심 메모 만들기"
+    : "AI로 핵심 메모 만들기";
+  const summaryConfirmLabel = summaryProvider === "openai"
+    ? "OpenAI로 한 번 요약하기"
+    : "한 번 요약하기";
 
   return (
     <article className="rounded-2xl border border-line bg-surface p-4">
@@ -343,13 +351,17 @@ export function RecordingCard({
           onClick={() => setSummaryConfirm(true)}
           className="mt-3 min-h-11 rounded-xl bg-brand px-4 text-[13px] font-bold text-white"
         >
-          AI로 핵심 메모 만들기
+          {summaryActionLabel}
         </button>
       )}
 
       {summaryConfirm && !recording.summary && (
         <div className="mt-3 rounded-xl bg-brand-soft p-3">
-          <p className="text-[13px] font-bold text-ink">이 녹음을 요약할까요?</p>
+          <p className="text-[13px] font-bold text-ink">
+            {summaryProvider === "openai"
+              ? "OpenAI로 이 녹음을 요약할까요?"
+              : "이 녹음을 요약할까요?"}
+          </p>
           <p className="mt-1 text-[12px] leading-5 text-ink2">
             AI 요약은 이 녹음에서 한 번만 만들 수 있어요. 만들어진 메모는 직접 수정할 수 있습니다.
           </p>
@@ -360,7 +372,7 @@ export function RecordingCard({
               disabled={summaryBusy}
               className="min-h-11 rounded-xl bg-brand px-3 text-[13px] font-bold text-white disabled:opacity-60"
             >
-              {summaryBusy ? "핵심 내용 정리 시작 중" : "한 번 요약하기"}
+              {summaryBusy ? "핵심 내용 정리 시작 중" : summaryConfirmLabel}
             </button>
             <button
               type="button"

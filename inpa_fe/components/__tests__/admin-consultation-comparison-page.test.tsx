@@ -593,6 +593,22 @@ describe("상담 녹음 운영 화면의 비교 진입점", () => {
         summary_p50_seconds: null,
         summary_p95_seconds: null,
         recent_summary_runs: [],
+        pilot_recent_summary_runs: [{
+          id: "00000000-0000-4000-8000-000000000123",
+          status: "succeeded",
+          stt_provider: "openai",
+          summary_provider: "openai",
+          summary_model: "summary-model-from-env",
+          processing_minutes_reserved: 2,
+          processing_seconds: 23,
+          input_tokens: 120,
+          output_tokens: 40,
+          estimated_cost_krw: 18,
+          outcome: "succeeded",
+          error_code: "",
+          created_at: "2026-07-29T08:00:00Z",
+          completed_at: "2026-07-29T08:00:23Z",
+        }],
       },
       pilot_users: [],
     });
@@ -600,6 +616,11 @@ describe("상담 녹음 운영 화면의 비교 진입점", () => {
 
     const link = await screen.findByRole("link", { name: "상담 AI 비교" });
     expect(link).toHaveAttribute("href", "/admin/consultations/compare");
+    expect(screen.getByText("시연 계정 파일럿 확인")).toBeInTheDocument();
+    expect(screen.getByText("OpenAI / summary-model-from-env")).toBeInTheDocument();
+    expect(screen.getByText("23초")).toBeInTheDocument();
+    expect(screen.getByText("120/40")).toBeInTheDocument();
+    expect(screen.getByText("18원")).toBeInTheDocument();
   });
 });
 

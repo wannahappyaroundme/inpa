@@ -51,6 +51,7 @@ const response = {
     summary_p50_seconds: 18,
     summary_p95_seconds: 55,
     recent_summary_runs: [],
+    pilot_recent_summary_runs: [],
   },
   pilot_users: [],
 };
@@ -123,5 +124,32 @@ describe("상담 녹음 관리자 화면", () => {
         ai_summary_enabled: true,
       });
     });
+  });
+
+  it("백엔드가 먼저 교체되는 동안 이전 작업 응답도 안전하게 표시한다", async () => {
+    const { pilot_recent_summary_runs: _pilot, ...legacyStatus } = response.status;
+    adminApi.adminGetConsultationSettings.mockResolvedValue({
+      ...response,
+      status: {
+        ...legacyStatus,
+        recent_summary_runs: [{
+          id: "12345678-0000-4000-8000-000000000001",
+          status: "succeeded",
+          processing_minutes_reserved: 1,
+          input_tokens: 10,
+          output_tokens: 5,
+          estimated_cost_krw: 3,
+          outcome: "succeeded",
+          error_code: "",
+          created_at: "2026-07-29T09:00:00Z",
+          completed_at: "2026-07-29T09:00:10Z",
+        }],
+      },
+    });
+
+    render(<AdminConsultationsPage />);
+
+    expect(await screen.findByText("12345678")).toBeInTheDocument();
+    expect(screen.getByText("0초")).toBeInTheDocument();
   });
 });
