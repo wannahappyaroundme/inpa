@@ -40,6 +40,30 @@ const emptyCandidates = {
   results: [],
 };
 
+const activeCandidate = {
+  id: 17,
+  campaign_id: null,
+  campaign: null,
+  name: "이설계",
+  phone: "010-1234-5678",
+  career_band: "1_3" as const,
+  current_affiliation: "인파금융",
+  region: "서울",
+  contact_window: "anytime" as const,
+  stage: "new" as const,
+  selection_status: "active" as const,
+  next_action: "",
+  next_action_at: null,
+  last_contacted_at: null,
+  ended_at: null,
+  joined_at: null,
+  joined_agent: null,
+  created_at: "2026-07-30T00:00:00+09:00",
+  updated_at: "2026-07-30T00:00:00+09:00",
+  duplicate_contact: false,
+  closed_message: "",
+};
+
 const recruitingPage = {
   planner: {
     display_name: "김인파",
@@ -96,6 +120,11 @@ describe("시연 계정 영입 현황", () => {
   });
 
   it("일반 서버 오류는 기존 재시도 안내를 유지한다", async () => {
+    api.listRecruitingCandidates.mockResolvedValue({
+      ...emptyCandidates,
+      count: 1,
+      results: [activeCandidate],
+    });
     api.getRecruitingPage.mockRejectedValue(
       new ApiError(500, "SERVER_ERROR", "서버 오류"),
     );
@@ -109,5 +138,6 @@ describe("시연 계정 영입 현황", () => {
     expect(
       screen.queryByText("시연 계정에서는 등록된 자료로 영입 흐름을 확인할 수 있어요."),
     ).not.toBeInTheDocument();
+    expect(screen.queryByText("오늘 확인")).not.toBeInTheDocument();
   });
 });

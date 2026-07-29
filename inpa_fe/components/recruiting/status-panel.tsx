@@ -75,7 +75,6 @@ export function StatusPanel() {
         getRecruitingCampaign(),
       ]);
       if (summaryResult.status === "rejected") throw summaryResult.reason;
-      setSummary(summaryResult.value);
 
       const publicResults = [pageResult, campaignResult];
       const regularFailure = publicResults.find(
@@ -85,6 +84,7 @@ export function StatusPanel() {
       );
       if (regularFailure?.status === "rejected") throw regularFailure.reason;
 
+      setSummary(summaryResult.value);
       setPublicActionsRestricted(
         publicResults.some(
           (result) =>
