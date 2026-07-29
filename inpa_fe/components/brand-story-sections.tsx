@@ -357,21 +357,18 @@ export function PersonaSection() {
   );
 }
 
-// 요금제 4단 (시안 p14 + VAT 별도 병기). 표기 한도는 시안 그대로(마케팅 문안).
+// 요금제 3단 (시안 p14 + VAT 별도 병기). 표기 한도는 시안 그대로(마케팅 문안).
 // annual = 연 결제 금액(2개월 무료 · 약 17% 할인, VAT 별도). 무료는 없음.
 const TIERS: {
-  name: string; badge?: string; managerOnly?: boolean; price: string; vat?: boolean;
+  name: string; badge?: string; price: string; vat?: boolean;
   annual?: string; features: string[]; footnote: string; highlight?: boolean;
 }[] = [
   { name: "무료", price: "0원",
     features: ["증권 자동 분석 월 5건", "증권 비교 월 1건 체험", "영업 리포트 생성 월 5건", "신규 고객 추가 월 5명"],
     footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
-  { name: "Manager", managerOnly: true, price: "19,900원", vat: true, annual: "연 199,000원 · 2개월 무료",
-    features: ["Plus 모든 기능 사용 가능", "팀원 인사 관리", "팀원 개별 실적 관리", "팀 전체 실적 관리"],
-    footnote: "팀장, 지점장, 지사장 등 관리자만 사용할 수 있는 기능입니다." },
   { name: "Plus", badge: "추천", highlight: true, price: "19,900원", vat: true, annual: "연 199,000원 · 2개월 무료",
-    features: ["증권 자동 분석 월 100건", "증권 비교 월 50건", "영업 리포트 생성 월 50건", "신규 고객 추가 월 30명"],
-    footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
+    features: ["증권 자동 분석 월 100건", "증권 비교 월 50건", "영업 리포트 생성 월 50건", "신규 고객 추가 월 30명", "첫 설계사 합류 시 Manager 역할 자동 활성화", "팀원과 팀 전체 흐름 관리"],
+    footnote: "개인 설계 업무와 팀 관리를 같은 Plus에서 이용합니다." },
   { name: "Super", price: "39,900원", vat: true, annual: "연 399,000원 · 2개월 무료",
     features: ["증권 자동 분석 무제한", "증권 비교 무제한", "영업 리포트 생성 무제한", "신규 고객 추가 무제한"],
     footnote: "모든 설계사(관리직 포함)가 사용할 수 있는 기능입니다." },
@@ -402,7 +399,7 @@ export function PricingFourTiers({
     <section id={id} className="scroll-mt-20 py-20 md:py-28 bg-[var(--surface)]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
-          <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] text-center tracking-tight">인파 for 설계사 / 관리자 요금제</h2>
+          <h2 className="text-[28px] sm:text-[36px] font-extrabold text-[var(--brand)] text-center tracking-tight">인파 요금제</h2>
           <p className="mt-3 text-center text-[15px] sm:text-[17px] text-[var(--ink-3)]">지금은 베타 기간이라 모든 기능을 무료로 이용할 수 있어요</p>
           <div className="mt-5 mx-auto max-w-2xl rounded-2xl border border-[var(--brand)] bg-[var(--accent-tint)] px-5 py-3 text-center">
             {bonusEnabled && (
@@ -411,14 +408,13 @@ export function PricingFourTiers({
             <p className="mt-0.5 text-[13px] sm:text-[14px] text-[var(--ink-2)]">연 결제 시 2개월 무료 · 약 17% 할인</p>
           </div>
         </Reveal>
-        <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-5">
           {TIERS.map((t, i) => (
             <Reveal key={t.name} delay={i * 80}
               className={`rounded-2xl bg-[var(--surface)] p-6 flex flex-col gap-3 ${t.highlight ? "border-2 border-[var(--brand)]" : "border border-[var(--line)]"}`}>
               <div className="flex items-center gap-2">
                 <span className={`text-[14px] font-bold ${t.highlight ? "text-[var(--brand)]" : "text-[var(--ink-3)]"}`}>{t.name}</span>
                 {t.badge ? <span className="px-2 py-0.5 rounded-full bg-[var(--accent-tint)] text-[var(--brand)] text-[11px] font-bold">{t.badge}</span> : null}
-                {t.managerOnly ? <span className="px-2 py-0.5 rounded-full bg-[var(--warning-tint)] text-[var(--warning-ink)] text-[11px] font-bold">관리자 전용</span> : null}
               </div>
               <div className="text-[26px] font-extrabold text-[var(--ink)]">
                 {t.price}{t.vat ? <span className="ml-1 text-[12px] font-semibold text-[var(--ink-3)]">월 (VAT 별도)</span> : null}

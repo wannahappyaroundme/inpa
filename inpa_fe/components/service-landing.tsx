@@ -8,14 +8,12 @@ import {
   Check,
   ChevronDown,
   LayoutGrid,
-  Menu,
   ScanLine,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Target,
   Users,
-  X,
 } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
@@ -72,7 +70,6 @@ function CtaLink({
 }
 
 export function ServiceLanding() {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -96,20 +93,18 @@ export function ServiceLanding() {
             <span className="text-lg font-extrabold tracking-tight text-[var(--brand-ink)]">인파</span>
           </a>
 
-          <nav className="hidden items-center gap-1 md:flex" aria-label="주요 메뉴">
-            <a href="#product" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">실제 화면</a>
-            <a href="#workflow" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">주요 기능</a>
-            <a href="#pricing" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">요금</a>
-            <a href="/blog" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">인파 노트</a>
-            <a href="#faq" className="rounded-xl px-3 py-3 text-sm font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)]">자주 묻는 질문</a>
-          </nav>
-
-          <div className="hidden items-center gap-2 md:flex">
+          <nav className="ml-auto flex items-center gap-0.5 sm:gap-1" aria-label="주요 메뉴">
+            <a
+              href="/blog"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl px-2 text-xs font-bold text-[var(--ink-2)] hover:bg-[var(--surface-2)] sm:px-4 sm:text-sm"
+            >
+              블로그
+            </a>
             <CtaLink
               href={loginUrl}
               position="header"
               action="login"
-              className="inline-flex min-h-11 items-center justify-center rounded-xl px-4 text-sm font-bold text-[var(--ink-2)] hover:bg-[var(--surface-2)]"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl px-2 text-xs font-bold text-[var(--ink-2)] hover:bg-[var(--surface-2)] sm:px-4 sm:text-sm"
             >
               로그인
             </CtaLink>
@@ -117,64 +112,12 @@ export function ServiceLanding() {
               href={registerUrl}
               position="header"
               action="register"
-              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--brand)] px-5 text-sm font-bold text-white shadow-sm hover:bg-[var(--brand-ink)]"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--brand)] px-3 text-xs font-bold text-white shadow-sm hover:bg-[var(--brand-ink)] sm:px-5 sm:text-sm"
             >
               무료로 시작하기
             </CtaLink>
-          </div>
-
-          <button
-            type="button"
-            className="inline-flex size-11 items-center justify-center rounded-xl border border-[var(--line)] text-[var(--ink)] md:hidden"
-            aria-label={menuOpen ? "메뉴 닫기" : "메뉴 열기"}
-            aria-controls="service-landing-mobile-menu"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            {menuOpen ? <X size={22} aria-hidden /> : <Menu size={22} aria-hidden />}
-          </button>
+          </nav>
         </div>
-
-        {menuOpen && (
-          <div id="service-landing-mobile-menu" className="border-b border-[var(--line)] bg-white px-4 py-4 shadow-lg md:hidden">
-            <nav className="mx-auto grid max-w-7xl gap-1" aria-label="모바일 메뉴">
-              {[
-                ["#product", "실제 화면"],
-                ["#workflow", "주요 기능"],
-                ["#pricing", "요금"],
-                ["/blog", "인파 노트"],
-                ["#faq", "자주 묻는 질문"],
-              ].map(([href, label]) => (
-                <a
-                  key={href}
-                  href={href}
-                  className="flex min-h-11 items-center rounded-xl px-3 text-sm font-bold text-[var(--ink-2)] hover:bg-[var(--surface-2)]"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  {label}
-                </a>
-              ))}
-              <div className="mt-2 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-4">
-                <CtaLink
-                  href={loginUrl}
-                  position="header"
-                  action="login"
-                  className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--line)] text-sm font-bold text-[var(--ink-2)]"
-                >
-                  로그인
-                </CtaLink>
-                <CtaLink
-                  href={registerUrl}
-                  position="header"
-                  action="register"
-                  className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--brand)] text-sm font-bold text-white"
-                >
-                  무료로 시작하기
-                </CtaLink>
-              </div>
-            </nav>
-          </div>
-        )}
       </header>
 
       <main>
@@ -450,7 +393,7 @@ export function ServiceLanding() {
               <p className="mt-3 max-w-sm break-keep text-sm leading-6 text-white/60">내 손안의 인슈어 파트너, 고객 관리부터 다음 일정까지 한곳에서 이어갑니다.</p>
             </div>
             <nav className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm" aria-label="정책 메뉴">
-              <a href="/blog" className="text-white/70 hover:text-white">인파 노트</a>
+              <a href="/blog" className="text-white/70 hover:text-white">블로그</a>
               <a href="/faq" className="text-white/70 hover:text-white">자주 묻는 질문</a>
               <a href="/legal/terms" className="text-white/70 hover:text-white">이용약관</a>
               <a href="/legal/privacy" className="text-white/70 hover:text-white">개인정보처리방침</a>
