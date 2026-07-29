@@ -174,6 +174,16 @@ describe("담보 전체 기준표 페이지 상태", () => {
     ).toHaveValue("3000");
   });
 
+  it("상세 설정 아이콘과 문구를 한 줄로 유지한다", async () => {
+    render(<BaselineSettingsPage />);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "일반암 진단비 상세 설정",
+      }),
+    ).toHaveClass("whitespace-nowrap");
+  });
+
   it("기존 직접 입력의 적용 상태와 이름 충돌 이유를 보여주고 선택한 담보에 연결한다", async () => {
     const user = userEvent.setup();
     apiGet.mockResolvedValue({

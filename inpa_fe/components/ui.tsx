@@ -74,13 +74,16 @@ export function StatCard({
           <Icon className="w-[22px] h-[22px]" strokeWidth={2} />
         </span>
       )}
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 [container-type:inline-size]">
         <div className="flex items-center gap-1 text-[12px] font-medium text-ink3">
           <span className="truncate">{label}</span>
           {hint && <InfoDot text={hint} />}
         </div>
-        <p className="mt-1 flex items-baseline gap-1">
-          <span className={`text-[22px] sm:text-[26px] lg:text-[28px] font-extrabold leading-none tnum tracking-tight ${accent ? "text-danger" : "text-ink"}`}>
+        <p className="mt-1 flex items-baseline gap-1 whitespace-nowrap">
+          <span
+            className={`text-[22px] sm:text-[26px] lg:text-[28px] font-extrabold leading-none tnum tracking-tight ${accent ? "text-danger" : "text-ink"}`}
+            style={{ fontSize: "clamp(16px, 22cqw, 28px)" }}
+          >
             {value}
           </span>
           {unit && <span className="text-[12px] font-medium text-ink3">{unit}</span>}
