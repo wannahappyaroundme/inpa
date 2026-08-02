@@ -179,6 +179,20 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
         with self.assertRaisesRegex(ReleaseError, 'review_gate'):
             load_release(self.content_dir, self.manifest_path)
 
+    def test_parser_rejects_non_string_review_gate_without_type_error(self):
+        self.metadata[0]['review_gate'] = ['legal']
+        self.flush_package()
+
+        with self.assertRaisesRegex(ReleaseError, 'review_gate'):
+            load_release(self.content_dir, self.manifest_path)
+
+    def test_parser_rejects_category_outside_blog_model_choices(self):
+        self.metadata[0]['category'] = 'arbitrary'
+        self.flush_package()
+
+        with self.assertRaisesRegex(ReleaseError, 'category'):
+            load_release(self.content_dir, self.manifest_path)
+
     def test_parser_rejects_incomplete_legal_review(self):
         self.metadata[0]['legal_review'] = {'reviewer': '검토자'}
         self.flush_package()
@@ -459,6 +473,29 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
         post.refresh_from_db()
         self.assertEqual(post.title, '관리자가 나중에 고친 제목')
 
+    def test_same_release_retry_with_different_backup_directory_is_noop(self):
+        self.create_existing_targets()
+        apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+        canonical_after = self.backup_path.parent / f'{RELEASE_VERSION}-after.json'
+        canonical_bytes = canonical_after.read_bytes()
+        post = BlogPost.objects.get(slug=PRIMARY_EXISTING_SLUG)
+        post.title = '관리자 후속 편집 유지'
+        post.save(update_fields=['title', 'updated_at'])
+        alternate_dir = self.backup_path.parent / 'alternate'
+        alternate_backup = alternate_dir / 'before.json'
+
+        result = apply_release(
+            items=self.items,
+            digest=self.digest,
+            backup_path=alternate_backup,
+        )
+
+        self.assertEqual(result, {'created': 0, 'updated': 0})
+        post.refresh_from_db()
+        self.assertEqual(post.title, '관리자 후속 편집 유지')
+        self.assertEqual(canonical_after.read_bytes(), canonical_bytes)
+        self.assertFalse(alternate_dir.exists())
+
     def test_same_version_with_different_digest_aborts(self):
         self.create_existing_targets()
         apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
@@ -554,6 +591,27 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
         after_path = self.backup_path.parent / f'{RELEASE_VERSION}-after.json'
         after_snapshot = json.loads(after_path.read_text(encoding='utf-8'))
         after_snapshot['posts'][0]['fields']['title'] = ['잘못된', '타입']
+        unsigned = {
+            key: value for key, value in after_snapshot.items()
+            if key != 'snapshot_digest'
+        }
+        canonical = json.dumps(
+            unsigned, ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+        ).encode('utf-8')
+        after_snapshot['snapshot_digest'] = hashlib.sha256(canonical).hexdigest()
+        after_path.write_text(
+            json.dumps(after_snapshot, ensure_ascii=False), encoding='utf-8',
+        )
+
+        with self.assertRaisesRegex(ReleaseError, 'after snapshot'):
+            apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+
+    def test_idempotent_retry_rejects_duplicate_after_created_slugs(self):
+        self.create_existing_targets()
+        apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+        after_path = self.backup_path.parent / f'{RELEASE_VERSION}-after.json'
+        after_snapshot = json.loads(after_path.read_text(encoding='utf-8'))
+        after_snapshot['created_slugs'].append(after_snapshot['created_slugs'][0])
         unsigned = {
             key: value for key, value in after_snapshot.items()
             if key != 'snapshot_digest'
@@ -843,3 +901,14 @@ class RefreshBlogContentCommandTests(ReleasePackageMixin, TestCase):
             )
 
         self.assertNotIn('private-value', str(raised.exception))
+
+    def test_non_string_review_gate_becomes_command_error(self):
+        self.metadata[0]['review_gate'] = {'mode': 'legal'}
+        self.flush_package()
+
+        with self.assertRaisesRegex(CommandError, 'review_gate'):
+            call_command(
+                'refresh_blog_content',
+                content_dir=str(self.content_dir),
+                manifest_path=str(self.manifest_path),
+            )

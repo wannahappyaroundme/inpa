@@ -196,6 +196,8 @@ def _parse_source(path, source_bytes):
     )
     if any(not _is_nonempty_string(metadata[field]) for field in string_fields):
         raise ReleaseError(f'{path.name}: 필수 문자열 메타데이터가 비어 있습니다')
+    if metadata['category'] not in dict(BlogPost.CATEGORY_CHOICES):
+        raise ReleaseError(f'{path.name}: category가 올바르지 않습니다')
     if type(metadata['cover_asset_path']) is not str:
         raise ReleaseError(f'{path.name}: cover_asset_path는 문자열이어야 합니다')
     if type(metadata['tags']) is not list or any(
@@ -204,7 +206,9 @@ def _parse_source(path, source_bytes):
         raise ReleaseError(f'{path.name}: tags는 비어 있지 않은 문자열 목록이어야 합니다')
     if type(metadata['is_published']) is not bool:
         raise ReleaseError(f'{path.name}: is_published는 bool이어야 합니다')
-    if metadata['review_gate'] not in {'none', 'legal'}:
+    if type(metadata['review_gate']) is not str or metadata['review_gate'] not in {
+        'none', 'legal',
+    }:
         raise ReleaseError(f'{path.name}: review_gate는 none 또는 legal이어야 합니다')
     if metadata['legal_review'] is not None and not _valid_legal_review(metadata['legal_review']):
         raise ReleaseError(f'{path.name}: legal_review 기록이 완전하지 않습니다')
@@ -572,6 +576,8 @@ def _validate_after_snapshot(after_path, digest):
         not _is_nonempty_string(slug) for slug in payload['created_slugs']
     ):
         raise ReleaseError('after snapshot release 구성이 올바르지 않습니다')
+    if len(payload['created_slugs']) != 7 or len(set(payload['created_slugs'])) != 7:
+        raise ReleaseError('after snapshot release 구성이 올바르지 않습니다')
     if (
         payload['kind'] != 'after'
         or payload['version'] != RELEASE_VERSION
@@ -610,9 +616,13 @@ def apply_release(*, items, digest, backup_path):
     marker = BlogContentRelease.objects.filter(version=RELEASE_VERSION).first()
     if marker is not None:
         if marker.digest == digest:
-            if not after_path.is_file():
+            staged_candidates = sorted(
+                after_path.parent.glob(f'.{after_path.name}.tmp-*')
+            )
+            if not after_path.is_file() and staged_candidates:
                 _recover_staged_after_snapshot(after_path, digest)
-            _validate_after_snapshot(after_path, digest)
+            if after_path.is_file():
+                _validate_after_snapshot(after_path, digest)
             return {'created': 0, 'updated': 0}
         raise ReleaseError('같은 release version에 다른 digest가 이미 적용되었습니다')
 
