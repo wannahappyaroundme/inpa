@@ -921,6 +921,27 @@ class AdviceCopyGuardTests(TestCase):
             {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
         ])
 
+    def test_blog_scan_separates_paragraph_blocks(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({'body': '갈아\n\n타'}), [])
+
+    def test_blog_scan_separates_list_items(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({'body': '- 갈아\n- 타'}), [])
+
+    def test_blog_scan_separates_heading_blocks(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({'body': '# 갈아\n\n# 타'}), [])
+
+    def test_blog_scan_separates_thematic_break_blocks(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({'body': '갈아\n\n---\n\n타'}), [])
+
+    def test_blog_scan_preserves_inline_and_code_line_breaks(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({'body': '갈아\n타'}), [])
+        self.assertEqual(scan_blog_content({'body': '```\n갈아\n타\n```'}), [])
+
     def test_blog_scan_keeps_raw_http_url_visible_inside_and_outside_code(self):
         from inpa.core.copyguard import scan_blog_content
         raw_url = 'https://example.com/보험-갈아타기-비교'

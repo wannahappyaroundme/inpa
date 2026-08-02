@@ -86,6 +86,8 @@ def _markdown_visible_text(text):
             visible.append(token.content)
         elif token.type == 'image':
             visible.append(token.content)
+        elif token.type == 'hr' or (token.block and token.nesting == -1):
+            visible.append('\n')
         elif token.type in {'softbreak', 'hardbreak'}:
             visible.append('\n')
     return ''.join(visible)
