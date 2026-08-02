@@ -1054,6 +1054,7 @@ export interface BlogAdmin {
   body: string;
   excerpt: string;
   cover_image: string | null;
+  cover_asset_path: string;
   category: BlogCategory;
   category_label: string;
   tags: string;         // RAW 콤마 문자열(입력 편집용)

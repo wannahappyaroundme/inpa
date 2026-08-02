@@ -1746,7 +1746,7 @@ export interface BlogListItem {
   title: string;
   slug: string;
   excerpt: string;
-  cover_image: string | null; // 절대 URL(R2) 또는 null
+  cover_image: string | null; // 소유 정적 상대 경로 또는 기존 R2 절대 URL
   category: BlogCategory;
   category_label: string;
   tags: string[];
@@ -1754,6 +1754,8 @@ export interface BlogListItem {
   published_at: string | null; // ISO
   view_count: number;
 }
+
+export interface BlogRelatedPost extends Omit<BlogListItem, "tags" | "author_name" | "view_count"> {}
 
 /** 상세(본문 마크다운 포함). */
 export interface BlogDetail {
@@ -1774,6 +1776,7 @@ export interface BlogDetail {
   seo_title: string;
   seo_description: string;
   is_noindex: boolean;
+  related_posts: BlogRelatedPost[];
 }
 
 /** GET /api/v1/board/blog/?category=&page=&page_size= — 게시글 목록(페이지네이션). */
