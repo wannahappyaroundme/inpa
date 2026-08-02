@@ -172,6 +172,7 @@ export function validateBlogRelease({ frontendRoot, contentRoot }) {
 
   const byPath = new Map();
   const coverHashes = new Map();
+  const digestByPath = new Map();
   const actualUsage = new Map();
   const addUsage = (assetPath, slug) => {
     if (!actualUsage.has(assetPath)) actualUsage.set(assetPath, new Set());
@@ -239,6 +240,7 @@ export function validateBlogRelease({ frontendRoot, contentRoot }) {
       errors.push(`${assetPath}: manifest 크기 ${record.width}×${record.height}와 실제 WebP 크기 ${dimensions.width}×${dimensions.height}가 다릅니다`);
     }
     const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+    digestByPath.set(assetPath, digest);
     if (record.role === "cover") {
       if (dimensions.width !== 1600 || dimensions.height !== 900) errors.push(`${assetPath}: 대표 이미지는 1600×900이어야 합니다`);
       if (bytes.length > COVER_BYTES) errors.push(`${assetPath}: 대표 이미지 용량은 200KB 이하여야 합니다 (${bytes.length} bytes)`);
@@ -260,6 +262,7 @@ export function validateBlogRelease({ frontendRoot, contentRoot }) {
 
   for (const post of posts) {
     const cover = post.meta.cover_asset_path;
+    const coverDigest = digestByPath.get(cover);
     if (!safeAssetPath(cover)) errors.push(`${post.filename}: cover_asset_path는 /blog-assets/ 아래의 안전한 로컬 경로여야 합니다`);
     else if (!byPath.has(cover)) errors.push(`${post.filename}: 대표 이미지가 manifest에 없습니다 (${cover})`);
     else if (byPath.get(cover).role !== "cover") errors.push(`${post.filename}: cover_asset_path 항목의 role은 cover여야 합니다`);
@@ -267,6 +270,7 @@ export function validateBlogRelease({ frontendRoot, contentRoot }) {
       if (!safeAssetPath(imagePath)) errors.push(`${post.filename}: 본문 이미지는 /blog-assets/ 아래의 안전한 로컬 경로만 허용합니다 (${imagePath})`);
       else if (!byPath.has(imagePath)) errors.push(`${post.filename}: 본문 이미지가 manifest에 없습니다 (${imagePath})`);
       else if (byPath.get(imagePath).role === "cover") errors.push(`${post.filename}: 본문에서 대표 이미지를 반복 사용하지 마세요 (${imagePath})`);
+      else if (coverDigest && digestByPath.get(imagePath) === coverDigest) errors.push(`${post.filename}: 본문 이미지가 같은 글의 대표 이미지와 바이트가 같습니다 (${imagePath})`);
     }
   }
 

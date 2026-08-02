@@ -165,6 +165,17 @@ function expectFailure(mutate, expected) {
 test("accepts a complete 20-post fixture with Unicode paths", () => {
   const fixture = createFixture();
   try {
+    const shared = inlineEntry(fixture);
+    shared.used_by.push(fixture.slugs[1]);
+    const secondDoc = path.join(fixture.contentRoot, `02-${fixture.slugs[1]}.md`);
+    fs.writeFileSync(
+      secondDoc,
+      fs.readFileSync(secondDoc, "utf8").replace(
+        "본문입니다.",
+        `![상담 준비 순서를 항목별로 차례대로 보여주는 설명 도식](${shared.path})`,
+      ),
+    );
+    writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
     const result = run(fixture);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   } finally {
@@ -210,6 +221,28 @@ test("fails for byte-identical covers", () => {
     const first = fs.readFileSync(path.join(assetsRoot, slugs[0], "cover.webp"));
     fs.writeFileSync(path.join(assetsRoot, slugs[1], "cover.webp"), first);
   }, /대표 이미지가 바이트 단위로 중복/);
+});
+
+test("fails when a post repeats its cover bytes as an inline image", () => {
+  expectFailure((fixture) => {
+    const entry = inlineEntry(fixture);
+    const coverFile = path.join(fixture.assetsRoot, fixture.slugs[0], "cover.webp");
+    const cover = fs.readFileSync(coverFile);
+    const digest = crypto.createHash("sha256").update(cover).digest("hex").slice(0, 8);
+    const oldPath = entry.path;
+    const oldFile = path.join(fixture.frontendRoot, "public", ...oldPath.slice(1).split("/"));
+    const filename = `diagram-${digest}.webp`;
+    const newPath = `/blog-assets/${fixture.slugs[0]}/${filename}`;
+    const newFile = path.join(path.dirname(oldFile), filename);
+    fs.unlinkSync(oldFile);
+    fs.writeFileSync(newFile, cover);
+    entry.path = newPath;
+    entry.width = 1600;
+    entry.height = 900;
+    const doc = path.join(fixture.contentRoot, `01-${fixture.slugs[0]}.md`);
+    fs.writeFileSync(doc, fs.readFileSync(doc, "utf8").replace(oldPath, newPath));
+    writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
+  }, /같은 글의 대표 이미지와 바이트가 같습니다/);
 });
 
 test("fails for a cover that is not exactly 1600 by 900", () => {
