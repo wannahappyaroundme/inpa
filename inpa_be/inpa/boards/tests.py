@@ -1041,6 +1041,18 @@ class BlogPublicReadTests(TestCase):
         self.assertIn('category_label', row)
         self.assertIsInstance(row['tags'], list)
 
+    def test_public_author_is_inpa_manager_not_login_email(self):
+        author, _ = _make_planner('private-editor@example.com')
+        _make_blog(title='작성자 글', author=author)
+        row = self.anon.get('/api/v1/board/blog/').json()['results'][0]
+        self.assertEqual(row['author_name'], '인파 담당자')
+        self.assertNotIn('private-editor', str(row))
+
+    def test_static_cover_path_precedes_legacy_upload(self):
+        _make_blog(title='정적 커버', cover_asset_path='/blog-assets/정적-커버/cover.webp')
+        row = self.anon.get('/api/v1/board/blog/').json()['results'][0]
+        self.assertEqual(row['cover_image'], '/blog-assets/정적-커버/cover.webp')
+
     def test_category_filter(self):
         """?category= 필터."""
         _make_blog(title='영업 글', category=BlogPost.CATEGORY_SALES)
@@ -1056,6 +1068,17 @@ class BlogPublicReadTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['id'], post.id)
         self.assertIn('body', r.json())
+
+    def test_related_posts_prefer_same_category_and_exclude_drafts_and_self(self):
+        current = _make_blog(title='현재', slug='current', category='coverage')
+        same = _make_blog(title='같은 분류', slug='same', category='coverage')
+        other = _make_blog(title='다른 분류', slug='other', category='sales')
+        _make_blog(title='초안', slug='draft-related', category='coverage', is_published=False)
+        data = self.anon.get('/api/v1/board/blog/current/').json()
+        self.assertEqual(data['related_posts'][0]['id'], same.id)
+        self.assertNotIn(current.id, [row['id'] for row in data['related_posts']])
+        self.assertNotIn('draft-related', [row['slug'] for row in data['related_posts']])
+        self.assertIn(other.id, [row['id'] for row in data['related_posts']])
 
     def test_draft_404_for_anon_200_for_admin(self):
         """초안: 비로그인/일반 404, 관리자 200."""

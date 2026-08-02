@@ -421,6 +421,9 @@ class BlogPost(models.Model):
     body = models.TextField('본문(마크다운)')
     excerpt = models.CharField('요약', max_length=300, blank=True, default='')
     cover_image = models.ImageField('커버 이미지', upload_to='blog/', null=True, blank=True)
+    cover_asset_path = models.CharField(
+        '공개 정적 커버 경로', max_length=300, blank=True, default='',
+    )
     category = models.CharField(
         '카테고리', max_length=30, choices=CATEGORY_CHOICES, default=CATEGORY_SALES,
     )
@@ -474,3 +477,15 @@ class BlogPost(models.Model):
             slug = f'{base}-{n}'
             n += 1
         return slug
+
+
+class BlogContentRelease(models.Model):
+    version = models.CharField(max_length=80, unique=True)
+    digest = models.CharField(max_length=64)
+    item_count = models.PositiveSmallIntegerField()
+    applied_at = models.DateTimeField(auto_now_add=True)
+    reverted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'board_blog_content_release'
+        ordering = ['-applied_at']

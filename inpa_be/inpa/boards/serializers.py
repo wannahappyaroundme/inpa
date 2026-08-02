@@ -31,6 +31,7 @@ from .models import (
 )
 
 _BODY_PREVIEW_LEN = 150
+BLOG_PUBLIC_AUTHOR = '인파 담당자'
 
 
 def _split_tags(raw):
@@ -44,6 +45,15 @@ def _author_display(author):
         return '탈퇴한 사용자'
     name = (getattr(getattr(author, 'profile', None), 'name', '') or '').strip()
     return name or '이름 미입력'
+
+
+def _blog_cover_url(obj, request):
+    if obj.cover_asset_path:
+        return obj.cover_asset_path
+    if not obj.cover_image:
+        return None
+    url = obj.cover_image.url
+    return request.build_absolute_uri(url) if request else url
 
 
 def _can_manage(obj, request):
@@ -421,6 +431,7 @@ class InquiryReplyWriteSerializer(serializers.ModelSerializer):
 
 class BlogPostListSerializer(serializers.ModelSerializer):
     """인파 노트 목록 — 본문(body) 제외, cover_image 는 절대 URL (context request 필요)."""
+    cover_image = serializers.SerializerMethodField()
     category_label = serializers.CharField(source='get_category_display', read_only=True)
     tags = serializers.SerializerMethodField()
     author_name = serializers.SerializerMethodField()
@@ -436,12 +447,16 @@ class BlogPostListSerializer(serializers.ModelSerializer):
     def get_tags(self, obj):
         return _split_tags(obj.tags)
 
+    def get_cover_image(self, obj):
+        return _blog_cover_url(obj, self.context.get('request'))
+
     def get_author_name(self, obj):
-        return _author_display(obj.author)
+        return BLOG_PUBLIC_AUTHOR
 
 
 class BlogPostDetailSerializer(serializers.ModelSerializer):
     """인파 노트 상세 — 본문 + SEO 필드 포함."""
+    cover_image = serializers.SerializerMethodField()
     category_label = serializers.CharField(source='get_category_display', read_only=True)
     tags = serializers.SerializerMethodField()
     author_name = serializers.SerializerMethodField()
@@ -458,8 +473,27 @@ class BlogPostDetailSerializer(serializers.ModelSerializer):
     def get_tags(self, obj):
         return _split_tags(obj.tags)
 
+    def get_cover_image(self, obj):
+        return _blog_cover_url(obj, self.context.get('request'))
+
     def get_author_name(self, obj):
-        return _author_display(obj.author)
+        return BLOG_PUBLIC_AUTHOR
+
+
+class BlogRelatedSerializer(serializers.ModelSerializer):
+    cover_image = serializers.SerializerMethodField()
+    category_label = serializers.CharField(source='get_category_display', read_only=True)
+
+    class Meta:
+        model = BlogPost
+        fields = [
+            'id', 'title', 'slug', 'excerpt', 'cover_image', 'category',
+            'category_label', 'published_at',
+        ]
+        read_only_fields = fields
+
+    def get_cover_image(self, obj):
+        return _blog_cover_url(obj, self.context.get('request'))
 
 
 class BlogPostAdminSerializer(serializers.ModelSerializer):
@@ -495,7 +529,7 @@ class BlogPostAdminSerializer(serializers.ModelSerializer):
         }
 
     def get_author_name(self, obj):
-        return _author_display(obj.author)
+        return BLOG_PUBLIC_AUTHOR
 
     def get_author_email(self, obj):
         return obj.author.email if obj.author_id else None

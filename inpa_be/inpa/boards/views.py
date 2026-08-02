@@ -54,6 +54,7 @@ from .serializers import (
     AttachmentSerializer,
     BlogPostDetailSerializer,
     BlogPostListSerializer,
+    BlogRelatedSerializer,
     CommentSerializer,
     CommentUpdateSerializer,
     FaqSerializer,
@@ -706,7 +707,15 @@ class BlogPostViewSet(viewsets.GenericViewSet):
         if post.is_published and not is_admin and not is_showcase_user(user):
             BlogPost.objects.filter(pk=post.pk).update(view_count=F('view_count') + 1)
             post.refresh_from_db(fields=['view_count'])
-        return Response(BlogPostDetailSerializer(post, context={'request': request}).data)
+        published = BlogPost.objects.filter(is_published=True).exclude(pk=post.pk)
+        same_category = list(published.filter(category=post.category)[:3])
+        missing = 3 - len(same_category)
+        others = list(published.exclude(category=post.category)[:missing]) if missing else []
+        data = BlogPostDetailSerializer(post, context={'request': request}).data
+        data['related_posts'] = BlogRelatedSerializer(
+            same_category + others, many=True, context={'request': request},
+        ).data
+        return Response(data)
 
     # ── GET /board/blog/sitemap/ ────────────────────────────────
     def sitemap(self, request):

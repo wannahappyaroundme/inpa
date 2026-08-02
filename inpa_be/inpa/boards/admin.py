@@ -2,6 +2,7 @@
 from django.contrib import admin
 
 from .models import (
+    BlogContentRelease,
     BlogPost,
     Comment,
     Faq,
@@ -93,8 +94,15 @@ class InquiryReplyAdmin(admin.ModelAdmin):
 
 @admin.register(BlogPost)
 class BlogPostAdmin(admin.ModelAdmin):
-    list_display = ['id', 'title', 'category', 'is_published', 'published_at', 'view_count', 'author', 'created_at']
+    list_display = ['id', 'title', 'category', 'cover_asset_path', 'is_published', 'published_at', 'view_count', 'author', 'created_at']
     list_filter = ['category', 'is_published', 'is_noindex']
     search_fields = ['title', 'body', 'excerpt', 'tags', 'slug']
     prepopulated_fields = {'slug': ('title',)}
     readonly_fields = ['view_count', 'created_at', 'updated_at']
+
+
+@admin.register(BlogContentRelease)
+class BlogContentReleaseAdmin(admin.ModelAdmin):
+    list_display = ['version', 'digest', 'item_count', 'applied_at', 'reverted_at']
+    search_fields = ['version', 'digest']
+    readonly_fields = ['applied_at']
