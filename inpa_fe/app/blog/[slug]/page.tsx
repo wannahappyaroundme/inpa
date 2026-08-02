@@ -141,16 +141,10 @@ export default async function BlogPostPage({
 
       {/* 헤더 */}
       <header className="border-b border-line bg-surface">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-3xl items-center px-4 py-4 sm:px-6">
           <Link href="/blog" className="flex items-center gap-2" aria-label="블로그 목록으로">
             <InpaMark size={26} />
             <span className="text-[15px] font-extrabold text-brand-ink">블로그</span>
-          </Link>
-          <Link
-            href="/register"
-            className="flex min-h-[44px] items-center rounded-xl bg-brand px-4 py-2 text-[14px] font-semibold text-white transition hover:opacity-90"
-          >
-            무료로 시작하기
           </Link>
         </div>
       </header>

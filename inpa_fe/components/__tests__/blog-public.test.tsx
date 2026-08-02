@@ -263,6 +263,24 @@ it("상세는 작성자·발행 및 수정일·관련 글 세 편·공식 안내
   ).toHaveLength(1);
 });
 
+it("상세 페이지에는 추적되는 가입 CTA 하나만 보여준다", async () => {
+  api.getBlogPost.mockResolvedValue(detailPost);
+  render(await BlogPostPage({ params: Promise.resolve({ slug: detailPost.slug }) }));
+
+  const registerCtas = screen.getAllByRole("link").filter((link) => link.getAttribute("href") === "/register");
+  expect(registerCtas).toHaveLength(1);
+  expect(registerCtas[0]).toHaveTextContent("무료로 먼저 확인해보기");
+
+  analytics.track.mockReset();
+  registerCtas[0].addEventListener("click", (event) => event.preventDefault(), { once: true });
+  fireEvent.click(registerCtas[0]);
+  expect(analytics.track).toHaveBeenCalledWith("blog_cta_click", expect.objectContaining({
+    slug: detailPost.slug,
+    category: detailPost.category,
+    destination: "register",
+  }));
+});
+
 it("안심 가이드도 별도 법률 안내를 더하지 않고 공식 안내만 한 번 보여준다", async () => {
   const safetyPost = {
     ...detailPost,
