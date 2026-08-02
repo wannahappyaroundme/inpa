@@ -23,6 +23,7 @@ vi.mock("@/public/blog-assets/manifest.json", () => ({
 }));
 
 import { BlogCoverImage } from "@/components/blog-image";
+import { BlogContentImage } from "@/components/blog-content-image";
 import { BlogMarkdown } from "@/components/blog-markdown";
 import { blogPosting } from "@/components/structured-data";
 import { getBlogAsset } from "@/lib/blog-assets";
@@ -62,10 +63,32 @@ it("소유 커버는 장식 이미지로 크기와 반응형 sizes를 제공한�
   expect(image).toHaveAttribute("sizes");
 });
 
-it("마크다운의 소유 이미지는 대체 설명과 캡션이 있는 figure로 렌더한다", () => {
-  render(<BlogMarkdown body={`![임의 텍스트](${ownedImagePath})`} />);
+it("서버 호환 본문 이미지 렌더러는 대체 설명과 캡션이 있는 figure를 만든다", () => {
+  render(<BlogContentImage src={ownedImagePath} />);
 
   expect(document.querySelector("figure")).toBeInTheDocument();
   expect(screen.getByRole("img", { name: "달력과 보험 증서를 상징하는 파란색 정물" })).toBeInTheDocument();
   expect(screen.getByText("보험나이 계산의 기준이 되는 생일 전후 6개월")).toBeInTheDocument();
+});
+
+it("마크다운의 독립된 소유 이미지는 문단 안에 figure를 넣지 않는다", () => {
+  render(<BlogMarkdown body={`![임의 텍스트](${ownedImagePath})`} />);
+
+  const figure = document.querySelector("figure");
+  expect(figure).toBeInTheDocument();
+  expect(figure?.parentElement?.tagName).not.toBe("P");
+});
+
+it("매니페스트에 없는 본문 자산 경로는 이미지를 렌더하지 않는다", () => {
+  render(<BlogMarkdown body="![](/blog-assets/없는-자산.webp)" />);
+
+  expect(document.querySelector("figure")).not.toBeInTheDocument();
+  expect(document.querySelector("img")).not.toBeInTheDocument();
+});
+
+it("외부 본문 이미지 URL은 이미지를 렌더하지 않는다", () => {
+  render(<BlogMarkdown body="![](https://example.com/external.webp)" />);
+
+  expect(document.querySelector("figure")).not.toBeInTheDocument();
+  expect(document.querySelector("img")).not.toBeInTheDocument();
 });

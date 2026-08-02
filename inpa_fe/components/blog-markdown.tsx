@@ -8,7 +8,7 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
-import { BlogContentImage } from "@/components/blog-image";
+import { BlogContentImage } from "@/components/blog-content-image";
 
 const components: Components = {
   h1: ({ children }) => (
@@ -23,9 +23,14 @@ const components: Components = {
   h4: ({ children }) => (
     <h4 className="mt-5 mb-2 text-[15px] font-bold text-ink2">{children}</h4>
   ),
-  p: ({ children }) => (
-    <p className="my-5 text-[17px] leading-[1.8] text-ink2">{children}</p>
-  ),
+  p: ({ children, node }) => {
+    const child = node?.children[0];
+    const isStandaloneImage = node?.children.length === 1 && child?.type === "element" && child.tagName === "img";
+
+    if (isStandaloneImage) return <>{children}</>;
+
+    return <p className="my-5 text-[17px] leading-[1.8] text-ink2">{children}</p>;
+  },
   a: ({ children, href }) => {
     const external = !!href && /^https?:\/\//.test(href);
     return (
