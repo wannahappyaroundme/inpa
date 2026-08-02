@@ -54,6 +54,33 @@ def warn_if_advice_words(fields, where):
 # em-dash(U+2014) — PM 규칙상 사용자 대면 카피 금지("AI 티가 난다"). 콤마/마침표/괄호로.
 EM_DASH = '—'
 
+# 블로그 Markdown의 화면 비노출 목적지. 완성된 표준 문법만 가려서, 깨진 Markdown은
+# 원문 그대로 검사한다. 링크 문구와 이미지 대체 문구는 치환 결과에 남는다.
+_REFERENCE_DEFINITION_RE = re.compile(
+    r'(?m)^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*'
+    r'(?:<[^>\n]*>|[^\s\n]+)'
+    r'(?:[ \t]+(?:"[^"\n]*"|\'[^\'\n]*\'|\([^\)\n]*\)))?'
+    r'[ \t]*(?=\n|$)'
+)
+_INLINE_LINK_RE = re.compile(
+    r'!?\[([^\]\n]*)\]\('
+    r'(?:<[^>\n]*>|[^\s\)\n]*)'
+    r'(?:[ \t]+(?:"[^"\n]*"|\'[^\'\n]*\'|\([^\)\n]*\)))?'
+    r'[ \t]*\)'
+)
+_REFERENCE_LINK_RE = re.compile(r'!?\[([^\]\n]*)\]\[[^\]\n]*\]')
+_AUTOLINK_RE = re.compile(r'<https?://[^<>\s]+>', re.IGNORECASE)
+_RAW_HTTP_URL_RE = re.compile(r'https?://[^\s<>]+', re.IGNORECASE)
+
+
+def _markdown_visible_text(text):
+    """Copyguard input with non-rendered Markdown/URL destinations removed."""
+    visible = _REFERENCE_DEFINITION_RE.sub('', text)
+    visible = _INLINE_LINK_RE.sub(lambda match: match.group(1), visible)
+    visible = _REFERENCE_LINK_RE.sub(lambda match: match.group(1), visible)
+    visible = _AUTOLINK_RE.sub('', visible)
+    return _RAW_HTTP_URL_RE.sub('', visible)
+
 
 def scan_blog_content(fields):
     """PM 작성 블로그 콘텐츠 게시 전 카피 검사 — 비차단 경고 리스트 반환.
@@ -72,9 +99,10 @@ def scan_blog_content(fields):
     for name, text in fields.items():
         if not text:
             continue
-        if EM_DASH in text:
+        visible_text = _markdown_visible_text(text)
+        if EM_DASH in visible_text:
             warnings.append({'field': name, 'issue': 'em_dash', 'match': EM_DASH})
-        matched = contains_advice_words(text)
+        matched = contains_advice_words(visible_text)
         if matched:
             warnings.append({'field': name, 'issue': 'advice_word', 'match': matched})
     return warnings

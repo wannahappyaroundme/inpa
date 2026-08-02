@@ -732,6 +732,51 @@ class AdviceCopyGuardTests(TestCase):
         self.assertEqual(hits, [('disclaimer', '갈아타')])
         self.assertIn('권유 단어 가드', cm.output[0])
 
+    def test_blog_scan_ignores_markdown_and_url_destinations(self):
+        from inpa.core.copyguard import scan_blog_content
+        body = '''
+[비교 기준 보기](/blog-assets/보험-갈아타기-비교/link—draft.webp)
+![비교 흐름](/blog-assets/보험-갈아타기-비교/image.webp)
+![참고 그림][cover]
+[cover]: /blog-assets/보험-갈아타기-비교/reference.webp
+<https://example.com/보험-갈아타기-비교>
+https://example.com/보험-갈아타기-비교
+'''
+        self.assertEqual(scan_blog_content({'body': body}), [])
+
+    def test_blog_scan_checks_link_labels_and_image_alt_text(self):
+        from inpa.core.copyguard import scan_blog_content
+        warnings = scan_blog_content({
+            'link': '[보험 갈아타기 안내](/safe-link)',
+            'image': '![전환하세요 — 안내 그림](/safe-image.webp)',
+            'reference': '![보험 갈아타기 안내][cover]\n[cover]: /safe.webp',
+        })
+        self.assertEqual(warnings, [
+            {'field': 'link', 'issue': 'advice_word', 'match': '갈아타'},
+            {'field': 'image', 'issue': 'em_dash', 'match': '—'},
+            {'field': 'image', 'issue': 'advice_word', 'match': '전환하세요'},
+            {'field': 'reference', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_plain_text_fields_unchanged(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'title': '보험 갈아타기',
+            'excerpt': '읽기 쉬운 설명 — 다음 단계',
+        }), [
+            {'field': 'title', 'issue': 'advice_word', 'match': '갈아타'},
+            {'field': 'excerpt', 'issue': 'em_dash', 'match': '—'},
+        ])
+
+    def test_blog_scan_warns_for_unclosed_markdown_destination(self):
+        from inpa.core.copyguard import scan_blog_content
+        warnings = scan_blog_content({
+            'body': '![비교 흐름](/blog-assets/보험-갈아타기-비교/image.webp',
+        })
+        self.assertEqual(warnings, [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
     def test_current_share_disclaimer_clean(self):
         """현행 공유뷰 고정 카피(SHARE_DISCLAIMER)는 클린해야 한다."""
         from inpa.analytics.views import SHARE_DISCLAIMER
