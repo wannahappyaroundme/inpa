@@ -1,5 +1,5 @@
 <!-- blog-meta
-{"slug":"갱신형-비갱신형-차이","category":"coverage","excerpt":"갱신형과 비갱신형을 초기 보험료나 고정 여부 한 문장으로 나누지 않고, 갱신 주기와 납입기간, 보험기간, 특약별 조건을 확인하는 법을 설명합니다.","tags":["갱신형","비갱신형","보험료 구조","보험기간"],"seo_title":"갱신형과 비갱신형 차이, 계약에서 볼 항목","seo_description":"갱신형과 비갱신형의 보험료 변경 조건은 계약마다 다릅니다. 갱신 주기, 납입기간, 보험기간, 특약별 보험료를 비교하는 표를 담았습니다.","cover_asset_path":"/blog-assets/갱신형-비갱신형-차이/cover.webp","is_published":true,"review_gate":"none","legal_review":null,"sources":[{"title":"보험단계 안내: 보험계약시 알아둘 점","url":"https://edu.knia.or.kr/edu/step3_2.do","checked_at":"2026-08-03"},{"title":"장기보험 관련 안내","url":"https://consumer.knia.or.kr/m/consumer/insurance-guide/0201.do","checked_at":"2026-08-03"},{"title":"인파 공식 서비스 소개","url":"https://www.inpa.kr/","checked_at":"2026-08-03"}]}
+{"slug":"갱신형-비갱신형-차이","category":"coverage","excerpt":"갱신형과 비갱신형을 초기 보험료나 고정 여부 한 문장으로 나누지 않고, 갱신 주기와 납입기간, 보험기간, 특약별 조건을 확인하는 법을 설명합니다.","tags":["갱신형","비갱신형","보험료 구조","보험기간"],"seo_title":"갱신형과 비갱신형 차이, 계약에서 볼 항목","seo_description":"갱신형과 비갱신형의 보험료 변경 조건은 계약마다 다릅니다. 갱신 주기, 납입기간, 보험기간, 특약별 보험료를 비교하는 표를 담았습니다.","cover_asset_path":"/blog-assets/갱신형-비갱신형-차이/cover.webp","is_published":true,"review_gate":"none","legal_review":null,"sources":[{"title":"보험단계 안내: 보험계약시 알아둘 점","url":"https://edu.knia.or.kr/edu/step3_2.do","checked_at":"2026-08-03"},{"title":"장기보험 관련 안내","url":"https://consumer.knia.or.kr/m/consumer/insurance-guide/0201.do","checked_at":"2026-08-03"},{"title":"보(保)통(通)부부-ep4. 왜 내 보험료가 자꾸 올라가죠? (갱신형 VS 비갱신형)","url":"https://edu.knia.or.kr/edu/webtoon1/view.do?article_id=20180214141215608100&bbs_id=20170620150331971100","published_at":"2018-02-14","checked_at":"2026-08-03"},{"title":"인파 공식 서비스 소개","url":"https://www.inpa.kr/","checked_at":"2026-08-03"}]}
 -->
 # 갱신형과 비갱신형 차이, 계약에서 볼 항목
 
@@ -16,9 +16,11 @@
 | 보험료가 다시 정해지는 시점 | 갱신 주기마다 가능 | 해당 담보는 갱신을 전제로 다시 산정하지 않음 |
 | 확인할 기간 | 갱신 주기와 갱신 종료 나이 | 보험료 납입기간과 보장 종료 시점 |
 | 앞으로의 금액 | 갱신 때 달라질 수 있어 사전 확정이 어려움 | 해당 담보의 약정 보험료와 납입 조건 확인 |
-| 함께 볼 내용 | 연령, 위험률, 이용량 등 계약에 적힌 반영 조건 | 특약 변경, 할인 종료, 적립보험료 등 계약 전체의 다른 요소 |
+| 함께 볼 내용 | 연령, 위험률 등 해당 계약에 적힌 갱신 보험료 산정 기준 | 특약 변경, 할인 종료, 적립보험료 등 계약 전체의 다른 요소 |
 
 표의 목적은 어느 쪽을 고르는 결론이 아니라, 고객이 부담할 기간과 바뀔 수 있는 조건을 빠뜨리지 않고 펼치는 것입니다.
+
+의료 이용량처럼 개인별로 보험료를 달리 정하는 요소는 해당 산정 방식이 계약에 명시된 상품에서만 확인합니다. 모든 갱신형 계약에 개인별 이용량이 반영된다고 넓혀 말하지 않습니다.
 
 ## 보험료 흐름은 어떻게 설명하면 될까요?
 
