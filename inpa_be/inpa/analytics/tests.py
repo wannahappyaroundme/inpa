@@ -758,6 +758,15 @@ https://example.com/보험-갈아타기-비교
             {'field': 'reference', 'issue': 'advice_word', 'match': '갈아타'},
         ])
 
+    def test_blog_scan_keeps_raw_url_link_label_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[https://example.com/보험-갈아타기—안내](/safe-link)',
+        }), [
+            {'field': 'body', 'issue': 'em_dash', 'match': '—'},
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
     def test_blog_scan_keeps_plain_text_fields_unchanged(self):
         from inpa.core.copyguard import scan_blog_content
         self.assertEqual(scan_blog_content({
@@ -766,6 +775,77 @@ https://example.com/보험-갈아타기-비교
         }), [
             {'field': 'title', 'issue': 'advice_word', 'match': '갈아타'},
             {'field': 'excerpt', 'issue': 'em_dash', 'match': '—'},
+        ])
+
+    def test_blog_scan_does_not_parse_markdown_in_plain_text_fields(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'title': '[보험 갈아타기]: /safe',
+        }), [
+            {'field': 'title', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_handles_balanced_parentheses_in_inline_destination(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[비교 기준](/blog-assets/file(1)-보험-갈아타기-비교.webp)',
+        }), [])
+
+    def test_blog_scan_handles_nested_link_label(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[비교 [기준] 보기](/blog-assets/보험-갈아타기-비교/file.webp)',
+        }), [])
+
+    def test_blog_scan_handles_escaped_brackets_in_link_label(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': r'[비교 \[기준\] 보기](/blog-assets/보험-갈아타기-비교/file.webp)',
+        }), [])
+
+    def test_blog_scan_strips_nested_image_destination_inside_link(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[![비교](/blog-assets/보험-갈아타기-비교/img.webp)](/safe)',
+        }), [])
+        self.assertEqual(scan_blog_content({
+            'body': '[![보험 갈아타기](/safe-image)](/safe-link)',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_inline_code_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '`[비교](/blog-assets/보험-갈아타기-비교/file.webp)`',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_fenced_code_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        fenced = '```md\n[비교](/blog-assets/보험-갈아타기-비교/file.webp)\n```'
+        tilde_fenced = '~~~md\n[비교](/blog-assets/보험-갈아타기-비교/file.webp)\n~~~'
+        expected = [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ]
+        self.assertEqual(scan_blog_content({'body': fenced}), expected)
+        self.assertEqual(scan_blog_content({'body': tilde_fenced}), expected)
+
+    def test_blog_scan_keeps_undefined_reference_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '![비교 흐름][보험-갈아타기-비교]',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_warns_for_malformed_reference_definition(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[cover]: /blog-assets/보험-갈아타기-비교/image.webp(',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
         ])
 
     def test_blog_scan_warns_for_unclosed_markdown_destination(self):
