@@ -59,73 +59,31 @@ EM_DASH = '—'
 # CommonMark가 확정한 화면 텍스트만 검사한다. 링크 목적지는 token attrs에만 남고,
 # 유효한 reference 정의는 block parser 단계에서 사라진다.
 _BLOG_MARKDOWN = MarkdownIt('commonmark')
-_RAW_HTTP_URL_RE = re.compile(r'(?<![\w/])https?://[^\s<>]+', re.IGNORECASE)
-_VERBATIM_TOKEN_TYPES = frozenset({
-    'code_inline', 'fence', 'code_block', 'html_inline', 'html_block',
+_VISIBLE_CONTENT_TOKEN_TYPES = frozenset({
+    'text', 'text_special', 'code_inline', 'fence', 'code_block',
+    'html_inline', 'html_block',
 })
-
-
-def _strip_standalone_http_urls(text):
-    def replace_url(match):
-        index = match.start() - 1
-        while index >= 0 and text[index].isspace():
-            index -= 1
-        if index >= 0 and text[index] == '<':
-            return match.group(0)
-        if index >= 0 and text[index] == '(':
-            index -= 1
-            while index >= 0 and text[index].isspace():
-                index -= 1
-            if index >= 0 and text[index] == ']':
-                return match.group(0)
-        return ''
-
-    return _RAW_HTTP_URL_RE.sub(replace_url, text)
 
 
 def _markdown_visible_text(text):
     """Return rendered-visible CommonMark text using an iterative token walk."""
     visible = []
-    # frame: [tokens, next index, autolink depth, link depth, preserve raw URLs]
-    stack = [[_BLOG_MARKDOWN.parse(text), 0, 0, 0, False]]
+    # frame: [tokens, next index]. Token attrs hold non-visible destinations.
+    stack = [[_BLOG_MARKDOWN.parse(text), 0]]
     while stack:
         frame = stack[-1]
-        tokens, index, autolink_depth, link_depth, preserve_raw_urls = frame
+        tokens, index = frame
         if index >= len(tokens):
             stack.pop()
             continue
         token = tokens[index]
         frame[1] += 1
 
-        if token.type == 'link_open':
-            frame[3] += 1
-            if token.markup == 'autolink':
-                frame[2] += 1
-            continue
-        if token.type == 'link_close':
-            frame[3] = max(0, link_depth - 1)
-            if token.markup == 'autolink':
-                frame[2] = max(0, autolink_depth - 1)
-            continue
-
         if token.children:
-            stack.append([
-                token.children,
-                0,
-                autolink_depth,
-                link_depth,
-                preserve_raw_urls or token.type == 'image',
-            ])
+            stack.append([token.children, 0])
             continue
-        if autolink_depth:
-            continue
-        if token.type in _VERBATIM_TOKEN_TYPES:
+        if token.type in _VISIBLE_CONTENT_TOKEN_TYPES:
             visible.append(token.content)
-        elif token.type in {'text', 'text_special'}:
-            if preserve_raw_urls or link_depth:
-                visible.append(token.content)
-            else:
-                visible.append(_strip_standalone_http_urls(token.content))
         elif token.type == 'image':
             visible.append(token.content)
         elif token.type in {'softbreak', 'hardbreak'}:

@@ -732,7 +732,7 @@ class AdviceCopyGuardTests(TestCase):
         self.assertEqual(hits, [('disclaimer', '갈아타')])
         self.assertIn('권유 단어 가드', cm.output[0])
 
-    def test_blog_scan_ignores_markdown_and_url_destinations(self):
+    def test_blog_scan_ignores_markdown_destinations(self):
         from inpa.core.copyguard import scan_blog_content
         body = '''
 [비교 기준 보기](/blog-assets/보험-갈아타기-비교/link—draft.webp)
@@ -740,10 +740,18 @@ class AdviceCopyGuardTests(TestCase):
 ![참고 그림][cover]
 
 [cover]: /blog-assets/보험-갈아타기-비교/reference.webp
-<https://example.com/보험-갈아타기-비교>
-https://example.com/보험-갈아타기-비교
 '''
         self.assertEqual(scan_blog_content({'body': body}), [])
+
+    def test_blog_scan_keeps_angle_and_raw_urls_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        angle = '<https://example.com/보험-갈아타기-비교>'
+        raw = 'https://example.com/보험-갈아타기-비교'
+        expected = [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ]
+        self.assertEqual(scan_blog_content({'body': angle}), expected)
+        self.assertEqual(scan_blog_content({'body': raw}), expected)
 
     def test_blog_scan_checks_link_labels_and_image_alt_text(self):
         from inpa.core.copyguard import scan_blog_content
@@ -874,6 +882,30 @@ https://example.com/보험-갈아타기-비교
         self.assertEqual(scan_blog_content({'body': malformed_spaced_link}), expected)
         self.assertEqual(scan_blog_content({'body': malformed_autolink}), expected)
 
+    def test_blog_scan_keeps_malformed_http_reference_definition_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[cover]: https://example.com/보험-갈아타기-비교/file.webp(',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_undefined_reference_url_label_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[https://example.com/보험-갈아타기-비교][missing]',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_raw_url_after_escaped_literal_bracket_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': r'\[참고: https://example.com/보험-갈아타기-비교',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
     def test_blog_scan_hides_escaped_reference_definition_destination(self):
         from inpa.core.copyguard import scan_blog_content
         self.assertEqual(scan_blog_content({
@@ -889,14 +921,15 @@ https://example.com/보험-갈아타기-비교
             {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
         ])
 
-    def test_blog_scan_ignores_raw_http_url_only_outside_code(self):
+    def test_blog_scan_keeps_raw_http_url_visible_inside_and_outside_code(self):
         from inpa.core.copyguard import scan_blog_content
         raw_url = 'https://example.com/보험-갈아타기-비교'
-        self.assertEqual(scan_blog_content({'body': raw_url}), [])
-        self.assertEqual(scan_blog_content({'body': f'참고: ({raw_url}).'}), [])
-        self.assertEqual(scan_blog_content({'body': f'`{raw_url}`'}), [
+        expected = [
             {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
-        ])
+        ]
+        self.assertEqual(scan_blog_content({'body': raw_url}), expected)
+        self.assertEqual(scan_blog_content({'body': f'참고: ({raw_url}).'}), expected)
+        self.assertEqual(scan_blog_content({'body': f'`{raw_url}`'}), expected)
 
     def test_blog_scan_keeps_undefined_reference_visible(self):
         from inpa.core.copyguard import scan_blog_content
