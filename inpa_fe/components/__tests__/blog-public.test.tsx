@@ -159,7 +159,9 @@ it("글 CTA는 허용된 UTM 분류만 보내고 임의 원문은 남기지 않�
     </div>
   );
 
-  await user.click(screen.getByRole("link", { name: "무료로 먼저 확인해보기" }));
+  const cta = screen.getByRole("link", { name: "무료로 먼저 확인해보기" });
+  expect(cta).toHaveAttribute("href", "/register");
+  await user.click(cta);
 
   expect(analytics.track).toHaveBeenCalledTimes(1);
   expect(analytics.track).toHaveBeenCalledWith("blog_cta_click", {
@@ -188,6 +190,30 @@ it("대소문자가 섞인 허용 UTM은 정규화된 enum으로 전송한다", 
     utm_medium: "cpc",
     utm_campaign: "present",
   });
+});
+
+it("빈 캠페인은 absent로 전송한다", () => {
+  window.history.replaceState({}, "", "/blog?utm_campaign=");
+  render(<BlogAnalytics slug="보험나이-계산법-6개월-예시" category="coverage" />);
+
+  expect(analytics.track).toHaveBeenLastCalledWith("blog_view", expect.objectContaining({ utm_campaign: "absent" }));
+});
+
+it("공백뿐인 캠페인은 absent로 전송한다", () => {
+  window.history.replaceState({}, "", "/blog?utm_campaign=%20%20%20");
+  render(<BlogAnalytics slug="보험나이-계산법-6개월-예시" category="coverage" />);
+
+  expect(analytics.track).toHaveBeenLastCalledWith("blog_view", expect.objectContaining({ utm_campaign: "absent" }));
+});
+
+it("80자를 넘는 PII 형태 캠페인도 present enum만 전송한다", () => {
+  const rawCampaign = `jane.doe+${"x".repeat(90)}@example.com`;
+  window.history.replaceState({}, "", `/blog?utm_campaign=${encodeURIComponent(rawCampaign)}`);
+  render(<BlogAnalytics slug="보험나이-계산법-6개월-예시" category="coverage" />);
+
+  expect(analytics.track).toHaveBeenCalledWith("blog_view", expect.objectContaining({ utm_campaign: "present" }));
+  expect(JSON.stringify(analytics.track.mock.calls)).not.toContain(rawCampaign);
+  expect(JSON.stringify(analytics.track.mock.calls)).not.toContain(rawCampaign.slice(0, 80));
 });
 
 it("분석 전송 실패도 CTA의 기본 이동을 취소하지 않는다", () => {
@@ -230,7 +256,7 @@ it("상세는 작성자·발행 및 수정일·관련 글 세 편·공식 안내
   expect(screen.getByText("발행 2026년 8월 1일")).toBeInTheDocument();
   expect(screen.getByText("수정 2026년 8월 2일")).toBeInTheDocument();
   for (const post of relatedPosts) {
-    expect(screen.getByRole("heading", { name: post.title }).closest("a")).toHaveAttribute("href", `/blog/${post.slug}`);
+    expect(screen.getByRole("heading", { name: post.title, level: 3 }).closest("a")).toHaveAttribute("href", `/blog/${post.slug}`);
   }
   expect(
     screen.getAllByText("인파는 보험을 중개·권유하지 않는 분석·정리 소프트웨어입니다. 보장 판단과 고객 안내는 설계사님의 업무입니다.")

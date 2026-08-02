@@ -1,6 +1,7 @@
 "use client";
 
 import { track } from "@vercel/analytics";
+import Link from "next/link";
 import { useEffect, useRef, type ReactNode } from "react";
 import type { BlogCategory } from "@/lib/api";
 
@@ -48,10 +49,11 @@ function classifyUtmValue(value: string | null, allowed: readonly string[]): str
 
 export function readAllowedUtm(search: string): Record<"utm_source" | "utm_medium" | "utm_campaign", string> {
   const params = new URLSearchParams(search);
+  const campaign = params.get("utm_campaign")?.slice(0, 80).trim();
   return {
     utm_source: classifyUtmValue(params.get("utm_source"), UTM_SOURCES),
     utm_medium: classifyUtmValue(params.get("utm_medium"), UTM_MEDIA),
-    utm_campaign: params.get("utm_campaign") ? "present" : "absent",
+    utm_campaign: campaign ? "present" : "absent",
   };
 }
 
@@ -82,7 +84,7 @@ export function BlogAnalytics({ slug, category }: BlogAnalyticsProps) {
 
 export function TrackedBlogCta({ href, slug, category, children, className }: TrackedBlogCtaProps) {
   return (
-    <a
+    <Link
       href={href}
       className={className}
       onClick={() => safeTrack("blog_cta_click", {
@@ -91,6 +93,6 @@ export function TrackedBlogCta({ href, slug, category, children, className }: Tr
       })}
     >
       {children}
-    </a>
+    </Link>
   );
 }

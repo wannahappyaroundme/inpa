@@ -58,9 +58,9 @@ function RelatedPostCard({ post }: { post: BlogRelatedPost }) {
       </div>
       <div className="flex flex-1 flex-col p-4">
         <span className="mb-2 text-[11px] font-bold text-brand">{post.category_label}</span>
-        <h2 className="line-clamp-2 text-[14px] font-bold leading-snug text-ink group-hover:text-brand-ink">
+        <h3 className="line-clamp-2 text-[14px] font-bold leading-snug text-ink group-hover:text-brand-ink">
           {post.title}
-        </h2>
+        </h3>
         {post.excerpt && <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-ink3">{post.excerpt}</p>}
         {post.published_at && (
           <time className="mt-auto pt-3 text-[11px] text-muted" dateTime={post.published_at}>
