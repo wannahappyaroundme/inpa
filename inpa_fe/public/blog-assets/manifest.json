@@ -1,1 +1,738 @@
-[]
+[
+  {
+    "path": "/blog-assets/3대-진단비란-암-뇌-심장/cover.webp",
+    "role": "cover",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "3대-진단비란-암-뇌-심장"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "암·뇌·심장 진단비의 확인 범위를 설명하는 장식용 도식"
+  },
+  {
+    "path": "/blog-assets/3대-진단비란-암-뇌-심장/diagnosis-three-areas-4697ee3c.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "3대-진단비란-암-뇌-심장"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "암·뇌·심장 진단비를 범위와 지급 조건으로 확인하는 그림",
+    "caption": "진단비는 이름보다 질병 범위와 지급 조건을 함께 확인한다"
+  },
+  {
+    "path": "/blog-assets/갱신형-비갱신형-차이/cover.webp",
+    "role": "cover",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "갱신형-비갱신형-차이"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "갱신형과 비갱신형 보험료 구조를 설명하는 장식용 도식"
+  },
+  {
+    "path": "/blog-assets/갱신형-비갱신형-차이/premium-flow-46d8375d.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "갱신형-비갱신형-차이"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "갱신 시점과 납입기간을 분리해 보는 보험료 흐름",
+    "caption": "갱신 시점, 납입기간, 보험기간을 나눠 보는 순서"
+  },
+  {
+    "path": "/blog-assets/갱신형-비갱신형-차이/premium-split-screen-ead78c7c.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "갱신형-비갱신형-차이"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "갱신형·비갱신형·적립을 나눠 보는 화면 구성 예시",
+    "caption": "보험료를 갱신형, 비갱신형, 적립으로 나눈 화면 예시"
+  },
+  {
+    "path": "/blog-assets/보험-가입-전-확인사항/cover.webp",
+    "role": "cover",
+    "source_type": "generated-object",
+    "license": "generated-for-inpa",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-가입-전-확인사항"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "가입 전 질문을 정리하는 빈 점검표 소품의 연출 장면"
+  },
+  {
+    "path": "/blog-assets/보험-가입-전-확인사항/five-questions-2ed62021.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-가입-전-확인사항"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "보험 가입 전에 고객과 확인할 다섯 질문",
+    "caption": "가입 전에 필요, 부담, 조건, 기존 계약, 고지를 묻는 다섯 질문"
+  },
+  {
+    "path": "/blog-assets/보험-갈아타기-비교/contract-change-checklist-badd0472.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-갈아타기-비교"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "보험 계약 변경 전에 문서와 조건을 차례로 확인하는 점검표",
+    "caption": "계약 변경 전 원문과 비교 항목을 확인하는 점검 순서"
+  },
+  {
+    "path": "/blog-assets/보험-갈아타기-비교/cover.webp",
+    "role": "cover",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-갈아타기-비교"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "증권 A와 증권 B의 비교 항목을 설명하는 장식용 도식"
+  },
+  {
+    "path": "/blog-assets/보험-갈아타기-비교/neutral-comparison-screen-76f28843.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-갈아타기-비교"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "증권 A와 증권 B를 같은 항목으로 나란히 놓는 화면 구성 예시",
+    "caption": "증권 A와 B의 보험료와 보장을 같은 기준으로 놓은 예시"
+  },
+  {
+    "path": "/blog-assets/보험-갈아타기-설계사-순서/cover.webp",
+    "role": "cover",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-갈아타기-설계사-순서"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "보험 계약 변경 상담의 네 단계를 설명하는 장식용 도식"
+  },
+  {
+    "path": "/blog-assets/보험-갈아타기-설계사-순서/four-step-review-119a3846.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-갈아타기-설계사-순서"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "현재 계약 확인부터 고객 결정 기록까지 이어지는 네 단계",
+    "caption": "현재 계약부터 고객 결정 기록까지 이어지는 네 단계"
+  },
+  {
+    "path": "/blog-assets/보험-갈아타기-설계사-순서/neutral-comparison-screen-400f7301.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-갈아타기-설계사-순서"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "보험료와 보장 내용을 증권 A·B로 나란히 확인하는 화면 구성 예시",
+    "caption": "증권 A와 B를 나란히 확인하는 중립 비교 화면 예시"
+  },
+  {
+    "path": "/blog-assets/보험-상담-준비-체크리스트/cover.webp",
+    "role": "cover",
+    "source_type": "product-capture",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-상담-준비-체크리스트"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "상담 전 보장 확인에 쓰는 인파 보장 분석 화면"
+  },
+  {
+    "path": "/blog-assets/보험-상담-준비-체크리스트/preparation-checklist-52081ad0.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-상담-준비-체크리스트"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "문서가 갖춰졌는지와 보장 내용을 어떻게 읽을지를 나누는 상담 준비표",
+    "caption": "상담 준비를 문서 확인과 내용 해석으로 나눈 체크표"
+  },
+  {
+    "path": "/blog-assets/보험-상담-후-기록-다음-연락/cover.webp",
+    "role": "cover",
+    "source_type": "product-capture",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-상담-후-기록-다음-연락"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "상담 뒤 다음 행동을 관리하는 인파 고객 단계 화면"
+  },
+  {
+    "path": "/blog-assets/보험-상담-후-기록-다음-연락/record-next-action-flow-c016afc0.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-상담-후-기록-다음-연락"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "상담 핵심 다섯 칸을 다음 행동과 연락 날짜로 잇는 기록 흐름",
+    "caption": "상담 메모를 다음 행동과 연락 날짜로 잇는 기록 구조"
+  },
+  {
+    "path": "/blog-assets/보험-증권-보는-법-3분-체크리스트/analysis-screen-9d10d26f.webp",
+    "role": "product-screen",
+    "source_type": "product-capture",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-증권-보는-법-3분-체크리스트"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "보장 항목과 보유 금액을 정리한 인파 분석 실제 화면",
+    "caption": "가상 데이터로 구성한 인파 보장 분석 실제 화면"
+  },
+  {
+    "path": "/blog-assets/보험-증권-보는-법-3분-체크리스트/cover.webp",
+    "role": "cover",
+    "source_type": "generated-object",
+    "license": "generated-for-inpa",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-증권-보는-법-3분-체크리스트"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "증권 확인 과정을 연상시키는 종이와 확대경 소품 연출 장면"
+  },
+  {
+    "path": "/blog-assets/보험-증권-보는-법-3분-체크리스트/policy-five-checks-ca2aa493.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-증권-보는-법-3분-체크리스트"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "개인 식별정보 없이 증권에서 먼저 찾을 다섯 항목",
+    "caption": "증권에서 먼저 확인할 대상자, 상태, 보험료, 기간, 담보"
+  },
+  {
+    "path": "/blog-assets/보험-증권-요청-문자-안내/cover.webp",
+    "role": "cover",
+    "source_type": "generated-object",
+    "license": "generated-for-inpa",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-증권-요청-문자-안내"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "증권 전달과 정보 가림을 연상시키는 문서 소품 연출 장면"
+  },
+  {
+    "path": "/blog-assets/보험-증권-요청-문자-안내/request-five-points-a19f7f33.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-증권-요청-문자-안내"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "증권 요청 전에 목적, 필요한 면, 가릴 정보, 전달 방법과 다음 순서를 확인하는 도식",
+    "caption": "증권 요청 문자에 담을 목적과 전달 방법 등 다섯 항목"
+  },
+  {
+    "path": "/blog-assets/보험-직업급수-확인-순서/cover.webp",
+    "role": "cover",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-직업급수-확인-순서"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "실제 업무부터 회사 확인까지의 순서를 설명하는 장식용 도식"
+  },
+  {
+    "path": "/blog-assets/보험-직업급수-확인-순서/job-grade-flow-1aa003b0.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험-직업급수-확인-순서"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "실제 업무 확인부터 회사 분류와 변경 기록까지 이어지는 직업급수 확인 흐름",
+    "caption": "실제 업무 확인부터 회사 분류와 변경 기록까지의 순서"
+  },
+  {
+    "path": "/blog-assets/보험나이-계산법-6개월-예시/age-six-month-boundary-de9f39d4.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험나이-계산법-6개월-예시"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "1990년 2월 10일생의 보험나이가 8월 10일 6개월 경계에서 35세에서 36세로 바뀌는 날짜 도식",
+    "caption": "생일 뒤 6개월 경계에서 보험나이가 달라지는 날짜 예시"
+  },
+  {
+    "path": "/blog-assets/보험나이-계산법-6개월-예시/cover.webp",
+    "role": "cover",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험나이-계산법-6개월-예시"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "생일 뒤 6개월 경계를 설명하는 보험나이 장식용 도식"
+  },
+  {
+    "path": "/blog-assets/보험설계사-고객관리표-필수-항목/cover.webp",
+    "role": "cover",
+    "source_type": "product-capture",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험설계사-고객관리표-필수-항목"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "고객 단계와 다음 연락을 정리한 인파 고객 목록 화면"
+  },
+  {
+    "path": "/blog-assets/보험설계사-고객관리표-필수-항목/seven-fields-ee30deb5.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "보험설계사-고객관리표-필수-항목"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "가상 고객 세 명을 민감정보 없이 정리한 일곱 칸 고객관리표",
+    "caption": "민감정보를 덜어낸 고객관리표의 필수 일곱 칸 예시"
+  },
+  {
+    "path": "/blog-assets/비교안내서-한눈에-보는-비교표/comparison-document-map-f092e43c.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "비교안내서-한눈에-보는-비교표"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "법정 비교·고지 항목과 상담용 정리표의 관계를 보여주는 그림",
+    "caption": "공식 비교·고지 서류와 상담용 정리표의 역할 구분"
+  },
+  {
+    "path": "/blog-assets/비교안내서-한눈에-보는-비교표/cover.webp",
+    "role": "cover",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "비교안내서-한눈에-보는-비교표"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "공식 비교·고지 서류와 상담용 표의 관계를 설명하는 장식용 도식"
+  },
+  {
+    "path": "/blog-assets/비교안내서-한눈에-보는-비교표/official-verification-flow-575849cc.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "비교안내서-한눈에-보는-비교표"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "원문 확인부터 공식 양식 대조까지 이어지는 다섯 단계",
+    "caption": "계약 원문과 회사 공식 양식을 대조하는 다섯 단계"
+  },
+  {
+    "path": "/blog-assets/상담-예약-전날-당일-안내/booking-screen-f133e65d.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "상담-예약-전날-당일-안내"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "설계사가 연 시간에서 고객이 상담 일정을 고르는 예약 흐름 예시",
+    "caption": "상담 전날과 당일 안내로 이어지는 예약 선택 화면 예시"
+  },
+  {
+    "path": "/blog-assets/상담-예약-전날-당일-안내/cover.webp",
+    "role": "cover",
+    "source_type": "generated-object",
+    "license": "generated-for-inpa",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "상담-예약-전날-당일-안내"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "상담 일정을 떠올리게 하는 달력과 시계 소품의 연출 장면"
+  },
+  {
+    "path": "/blog-assets/상담-예약률-높이는-문자와-화법/booking-screen-fb312def.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "상담-예약률-높이는-문자와-화법"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "설계사가 연 시간에서 고객이 직접 고르는 예약 흐름 예시",
+    "caption": "고객이 가능한 시간을 직접 선택하는 예약 과정 예시"
+  },
+  {
+    "path": "/blog-assets/상담-예약률-높이는-문자와-화법/cover.webp",
+    "role": "cover",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "상담-예약률-높이는-문자와-화법"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "고객이 가능한 상담 시간을 고르는 과정을 설명하는 장식용 도식"
+  },
+  {
+    "path": "/blog-assets/상담-준비에-쫓기던-새내기-하루-각색/cover.webp",
+    "role": "cover",
+    "source_type": "generated-object",
+    "license": "generated-for-inpa",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "상담-준비에-쫓기던-새내기-하루-각색"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "상담을 준비하는 아침 책상 소품을 연출한 장식 이미지"
+  },
+  {
+    "path": "/blog-assets/상담-준비에-쫓기던-새내기-하루-각색/workflow-before-after-9b0255d0.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "상담-준비에-쫓기던-새내기-하루-각색"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "흩어진 메모와 증권을 고객 기록, 보장 정리, 다음 행동으로 모으는 가상 흐름",
+    "caption": "흩어진 업무 자료를 고객 기록과 다음 행동으로 모은 가상 흐름"
+  },
+  {
+    "path": "/blog-assets/신입-보험설계사-지인-영업-다음-할-일/cover.webp",
+    "role": "cover",
+    "source_type": "generated-object",
+    "license": "generated-for-inpa",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "신입-보험설계사-지인-영업-다음-할-일"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "소개 영업의 첫 대화를 연상시키는 책상 소품 연출 장면"
+  },
+  {
+    "path": "/blog-assets/신입-보험설계사-지인-영업-다음-할-일/referral-flow-930062b1.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "신입-보험설계사-지인-영업-다음-할-일"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "소개를 받은 고객이 무료 보장 점검이나 상담 신청을 직접 고르는 세 단계 흐름",
+    "caption": "소개받은 고객이 원하는 다음 행동을 직접 고르는 과정"
+  },
+  {
+    "path": "/blog-assets/실손의료비보험-기본-쉽게-짚어보기/cover.webp",
+    "role": "cover",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "실손의료비보험-기본-쉽게-짚어보기"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "실손의료비 보상 구조를 설명하는 장식용 도식"
+  },
+  {
+    "path": "/blog-assets/실손의료비보험-기본-쉽게-짚어보기/indemnity-duplication-flow-2ee29336.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "실손의료비보험-기본-쉽게-짚어보기"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "개인·단체 실손 중복 시 실제 부담액 안에서 나누어 보상되는 구조",
+    "caption": "중복 실손보험이 실제 부담액 범위에서 나누어 보상되는 구조"
+  },
+  {
+    "path": "/blog-assets/실손의료비보험-기본-쉽게-짚어보기/medical-expense-flow-d21248fe.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "실손의료비보험-기본-쉽게-짚어보기"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "실제 부담 의료비에서 자기부담과 계약별 보상 범위를 확인하는 흐름",
+    "caption": "실제 부담 의료비에서 자기부담과 보상 범위를 확인하는 순서"
+  },
+  {
+    "path": "/blog-assets/좋은-보험이란/cover.webp",
+    "role": "cover",
+    "source_type": "generated-object",
+    "license": "generated-for-inpa",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "좋은-보험이란"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "가계 계획을 떠올리게 하는 생활 소품의 연출 장면"
+  },
+  {
+    "path": "/blog-assets/좋은-보험이란/four-fit-questions-c0e6eda5.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "좋은-보험이란"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "보험이 내 상황에 맞는지 확인하는 네 가지 질문",
+    "caption": "필요, 보험료 부담, 지급 조건, 기존 준비를 묻는 네 질문"
+  },
+  {
+    "path": "/blog-assets/회사마다-보험-담보-이름-다른-이유/cover.webp",
+    "role": "cover",
+    "source_type": "product-capture",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "회사마다-보험-담보-이름-다른-이유"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "",
+    "caption": "담보명 정리 과정을 보여주는 인파 보장 분석 화면"
+  },
+  {
+    "path": "/blog-assets/회사마다-보험-담보-이름-다른-이유/normalization-flow-03c81356.webp",
+    "role": "diagram",
+    "source_type": "original-diagram",
+    "license": "project-owned",
+    "created_at": "2026-08-03",
+    "used_by": [
+      "회사마다-보험-담보-이름-다른-이유"
+    ],
+    "pii_reviewed": true,
+    "rights_reviewed": true,
+    "width": 1600,
+    "height": 900,
+    "alt": "회사별 담보명을 공통 항목으로 연결하고 원문 조건을 확인하는 흐름",
+    "caption": "서로 다른 담보명을 공통 항목에 연결한 뒤 원문을 확인하는 흐름"
+  }
+]
