@@ -24,19 +24,22 @@ def compute_insurance_age(birth_day, as_of=None):
     birth_day='YYYY-MM-DD'. 파싱 불가/미래 생일이면 None.
     """
     from datetime import date
+    import re
 
     from dateutil.relativedelta import relativedelta
 
-    if not birth_day:
+    raw_birth_day = str(birth_day or '')
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw_birth_day):
         return None
     try:
-        parts = str(birth_day).split('-')
+        parts = raw_birth_day.split('-')
         bd = date(int(parts[0]), int(parts[1]), int(parts[2]))
     except (ValueError, TypeError, IndexError):
         return None
-    rd = relativedelta(as_of or date.today(), bd)
-    if rd.years < 0:
+    reference = as_of or date.today()
+    if bd > reference:
         return None
+    rd = relativedelta(reference, bd)
     return rd.years + (1 if rd.months >= 6 else 0)
 
 

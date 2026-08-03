@@ -18,6 +18,7 @@ import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { Card, DisclaimerFooter, CustomerAvatar, AVATAR_PALETTE } from "@/components/ui";
 import { useAuthGuard } from "@/lib/useAuthGuard";
+import { computeInsuranceAge } from "@/lib/insurance-age";
 import {
   HeatmapGrid,
   AnalysisAuthoritySummary,
@@ -135,18 +136,15 @@ function gradeChip(grade: number): string {
   if (grade === 3) return "bg-rose-100 text-rose-700";
   return "bg-surface2 text-ink3";
 }
-// 보험나이 = 만 나이 + (직전 생일로부터 6개월 이상이면 +1). BE compute_insurance_age와 동일 규칙(실시간 미리보기).
-function computeInsuranceAge(birthStr: string): number | null {
-  const [y, m, d] = (birthStr || "").split("-").map(Number);
-  if (!y || !m || !d) return null;
-  const bd = new Date(y, m - 1, d);
-  const now = new Date();
-  let years = now.getFullYear() - bd.getFullYear();
-  let months = now.getMonth() - bd.getMonth();
-  if (now.getDate() < bd.getDate()) months -= 1;
-  if (months < 0) { years -= 1; months += 12; }
-  if (years < 0) return null;
-  return years + (months >= 6 ? 1 : 0);
+function currentKstDate(): string {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 const BIRTH_YEARS = Array.from({ length: 100 }, (_, i) => new Date().getFullYear() - i);
 const BIRTH_MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -887,7 +885,7 @@ function InfoTab({
           {/* 읽기 전용 파생 정보 */}
           <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-[13px]">
             <dt className="text-ink3">보험나이 <span className="text-[10px] text-muted">(생년월일 자동)</span></dt>
-            <dd className="text-ink2 text-right">{(() => { const a = computeInsuranceAge(birth) ?? customer.insurance_age; return a != null ? `${a}세` : "-"; })()}</dd>
+            <dd className="text-ink2 text-right">{(() => { const a = computeInsuranceAge(birth, currentKstDate()) ?? customer.insurance_age; return a != null ? `${a}세` : "-"; })()}</dd>
             <dt className="text-ink3">영업 단계</dt>
             <dd className="text-ink2 text-right">{customer.sales_stage.toUpperCase()}</dd>
           </dl>

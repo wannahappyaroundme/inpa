@@ -11,6 +11,7 @@ export default defineConfig({
       "lib/baseline-editor.test.ts",
       "lib/guided-talk-playbooks.test.ts",
       "lib/search-content.test.ts",
+      "lib/insurance-age.test.ts",
       "lib/talk-template-view-model.test.ts",
     ],
     setupFiles: ["./vitest.setup.ts"],
