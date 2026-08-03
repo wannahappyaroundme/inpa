@@ -9,6 +9,8 @@ FE 쪽 대응 가드: inpa_fe/scripts/check-copy.js (고객 대면 라우트 한
 import logging
 import re
 
+from markdown_it import MarkdownIt
+
 logger = logging.getLogger(__name__)
 
 # FE check-copy.js 의 고객 대면 금지 패턴과 동일 세트 (§97 부당승환·금소법 권유 규제).
@@ -54,6 +56,42 @@ def warn_if_advice_words(fields, where):
 # em-dash(U+2014) — PM 규칙상 사용자 대면 카피 금지("AI 티가 난다"). 콤마/마침표/괄호로.
 EM_DASH = '—'
 
+# CommonMark가 확정한 화면 텍스트만 검사한다. 링크 목적지는 token attrs에만 남고,
+# 유효한 reference 정의는 block parser 단계에서 사라진다.
+_BLOG_MARKDOWN = MarkdownIt('commonmark')
+_VISIBLE_CONTENT_TOKEN_TYPES = frozenset({
+    'text', 'text_special', 'code_inline', 'fence', 'code_block',
+    'html_inline', 'html_block',
+})
+
+
+def _markdown_visible_text(text):
+    """Return rendered-visible CommonMark text using an iterative token walk."""
+    visible = []
+    # frame: [tokens, next index]. Token attrs hold non-visible destinations.
+    stack = [[_BLOG_MARKDOWN.parse(text), 0]]
+    while stack:
+        frame = stack[-1]
+        tokens, index = frame
+        if index >= len(tokens):
+            stack.pop()
+            continue
+        token = tokens[index]
+        frame[1] += 1
+
+        if token.children:
+            stack.append([token.children, 0])
+            continue
+        if token.type in _VISIBLE_CONTENT_TOKEN_TYPES:
+            visible.append(token.content)
+        elif token.type == 'image':
+            visible.append(token.content)
+        elif token.type == 'hr' or (token.block and token.nesting == -1):
+            visible.append('\n')
+        elif token.type in {'softbreak', 'hardbreak'}:
+            visible.append('\n')
+    return ''.join(visible)
+
 
 def scan_blog_content(fields):
     """PM 작성 블로그 콘텐츠 게시 전 카피 검사 — 비차단 경고 리스트 반환.
@@ -72,9 +110,10 @@ def scan_blog_content(fields):
     for name, text in fields.items():
         if not text:
             continue
-        if EM_DASH in text:
+        visible_text = _markdown_visible_text(text) if name == 'body' else text
+        if EM_DASH in visible_text:
             warnings.append({'field': name, 'issue': 'em_dash', 'match': EM_DASH})
-        matched = contains_advice_words(text)
+        matched = contains_advice_words(visible_text)
         if matched:
             warnings.append({'field': name, 'issue': 'advice_word', 'match': matched})
     return warnings

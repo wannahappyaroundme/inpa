@@ -1054,11 +1054,17 @@ export interface BlogAdmin {
   body: string;
   excerpt: string;
   cover_image: string | null;
+  cover_asset_path: string;
   category: BlogCategory;
   category_label: string;
   tags: string;         // RAW 콤마 문자열(입력 편집용)
   tags_list: string[];  // 파싱된 배열(표시용)
   is_published: boolean;
+  review_gate: BlogReviewGate;
+  legal_review_required: boolean;
+  legal_review: BlogLegalReview | null;
+  review_content_digest: string;
+  legal_review_is_current: boolean;
   published_at: string | null;
   seo_title: string;
   seo_description: string;
@@ -1068,6 +1074,15 @@ export interface BlogAdmin {
   author_email: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type BlogReviewGate = "none" | "legal";
+
+export interface BlogLegalReview {
+  reviewer: string;
+  credential: string;
+  reviewed_at: string;
+  reference: string;
 }
 
 /** 게시 상태에서 저장할 때만 반환되는 비차단 카피 경고(고객 대면 문구 주의). */
@@ -1088,10 +1103,21 @@ export interface BlogWritePayload {
   category?: BlogCategory;
   tags?: string;              // 콤마 구분 문자열
   is_published?: boolean;
+  review_gate?: BlogReviewGate;
+  legal_review?: BlogLegalReview | null;
   seo_title?: string;
   seo_description?: string;
   is_noindex?: boolean;
   cover_image?: string | null; // null = 커버 제거(수정 시 명시 전송, JSON 경로). 파일 교체는 coverFile 인자로.
+  cover_asset_path?: string;
+}
+
+export interface BlogLegalReviewRecordPayload {
+  reviewer: string;
+  credential: string;
+  reference: string;
+  content_digest: string;
+  publish?: boolean;
 }
 
 /** 오류 본문 → 메시지. detail/message 우선, 없으면 DRF 필드 배열({slug:["..."]})의 첫 메시지(슬러그 중복 등). */
@@ -1121,7 +1147,7 @@ async function reqBlogWrite(
     const form = new FormData();
     for (const [k, v] of Object.entries(payload)) {
       if (v === undefined || v === null) continue;
-      form.append(k, typeof v === "boolean" ? String(v) : String(v));
+      form.append(k, typeof v === "object" ? JSON.stringify(v) : String(v));
     }
     form.append("cover_image", coverFile);
     body = form;
@@ -1174,6 +1200,14 @@ export async function adminUpdateBlogPost(
   return reqBlogWrite("PATCH", `/admin/blog/${id}/`, payload, coverFile);
 }
 
+/** 저장된 글 버전에 법률 검토를 명시적으로 기록한다. 확인 시각은 서버가 넣는다. */
+export async function adminRecordBlogLegalReview(
+  id: number,
+  payload: BlogLegalReviewRecordPayload,
+): Promise<BlogAdminSaveResult> {
+  return req<BlogAdminSaveResult>("POST", `/admin/blog/${id}/legal-review/`, payload);
+}
+
 /** DELETE /api/v1/admin/blog/<id>/ — 소프트 삭제(공개에서만 숨김, DB 보존). */
 export async function adminDeleteBlogPost(id: number): Promise<{ deleted: boolean; id: number }> {
   return req<{ deleted: boolean; id: number }>("DELETE", `/admin/blog/${id}/`);
@@ -1183,6 +1217,8 @@ export async function adminDeleteBlogPost(id: number): Promise<{ deleted: boolea
 export async function uploadBlogCover(id: number, file: File): Promise<BlogAdmin> {
   const form = new FormData();
   form.append("cover_image", file);
+  // 새 업로드를 공개 커버로 쓰도록 릴리스 정적 경로를 명시적으로 비운다.
+  form.append("cover_asset_path", "");
   const headers: Record<string, string> = {};
   const tok = tokenStore.get();
   if (tok) headers["Authorization"] = `Token ${tok}`;

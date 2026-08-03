@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { InpaMark } from "@/components/inpa-logo";
+import { BlogCoverImage } from "@/components/blog-image";
 import { listBlogPosts, BLOG_CATEGORIES, type BlogListItem } from "@/lib/api";
 
 // 블로그 목록 — 서버 컴포넌트, 라이트 고정(서비스 페이지 테마 가드 §6).
@@ -49,22 +50,14 @@ function PostCard({ post }: { post: BlogListItem }) {
       href={`/blog/${post.slug}`}
       className="group flex flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card transition hover:-translate-y-0.5 hover:shadow-lg"
     >
-      {/* 커버 — 이미지가 있으면 사진, 없으면 옅은 브랜드 틴트 + iP 마크(타이포 커버 폴백) */}
+      {/* 커버 — 소유 자산·기존 URL·기본 이미지를 한 렌더러에서 안전하게 처리한다. */}
       <div className="relative aspect-[16/9] w-full overflow-hidden bg-accent-tint">
-        {post.cover_image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={post.cover_image}
-            alt=""
-            className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-            loading="lazy"
-          />
-        ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-accent-tint">
-            <InpaMark size={34} />
-            <span className="text-[12px] font-bold text-brand-ink">{post.category_label}</span>
-          </div>
-        )}
+        <BlogCoverImage
+          src={post.cover_image}
+          categoryLabel={post.category_label}
+          sizes="(max-width: 639px) calc(100vw - 32px), (max-width: 1023px) calc(50vw - 30px), 320px"
+          className="transition duration-300 group-hover:scale-[1.03]"
+        />
       </div>
 
       <div className="flex flex-1 flex-col p-5">
@@ -78,8 +71,7 @@ function PostCard({ post }: { post: BlogListItem }) {
           <p className="mt-2 text-[13px] leading-6 text-ink3 line-clamp-2">{post.excerpt}</p>
         )}
         <div className="mt-auto pt-4 text-[12px] text-muted">
-          {post.author_name}
-          {post.published_at && <span> · {fmtDate(post.published_at)}</span>}
+          {post.published_at && <time dateTime={post.published_at}>{fmtDate(post.published_at)}</time>}
         </div>
       </div>
     </Link>
@@ -157,6 +149,7 @@ export default async function BlogListPage({
               <Link
                 key={t.code || "all"}
                 href={`/blog${catQuery(t.code)}`}
+                aria-current={active ? "page" : undefined}
                 className={`rounded-full px-3.5 py-2 text-[13px] font-semibold transition ${
                   active
                     ? "bg-brand text-white"
@@ -200,7 +193,7 @@ export default async function BlogListPage({
             </div>
 
             {(hasPrev || hasNext) && (
-              <div className="mt-10 flex items-center justify-center gap-3">
+              <nav className="mt-10 flex items-center justify-center gap-3" aria-label="블로그 페이지">
                 {hasPrev ? (
                   <Link
                     href={pageHref(page - 1)}
@@ -226,7 +219,7 @@ export default async function BlogListPage({
                     다음 →
                   </span>
                 )}
-              </div>
+              </nav>
             )}
           </>
         )}

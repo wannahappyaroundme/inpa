@@ -28,9 +28,13 @@ from .models import (
     Post,
     PostAttachment,
     Report,
+    BLOG_REVIEW_CONTENT_FIELDS,
+    blog_review_content_digest,
+    valid_blog_legal_review,
 )
 
 _BODY_PREVIEW_LEN = 150
+BLOG_PUBLIC_AUTHOR = '인파 담당자'
 
 
 def _split_tags(raw):
@@ -44,6 +48,15 @@ def _author_display(author):
         return '탈퇴한 사용자'
     name = (getattr(getattr(author, 'profile', None), 'name', '') or '').strip()
     return name or '이름 미입력'
+
+
+def _blog_cover_url(obj, request):
+    if obj.cover_asset_path:
+        return obj.cover_asset_path
+    if not obj.cover_image:
+        return None
+    url = obj.cover_image.url
+    return request.build_absolute_uri(url) if request else url
 
 
 def _can_manage(obj, request):
@@ -421,6 +434,7 @@ class InquiryReplyWriteSerializer(serializers.ModelSerializer):
 
 class BlogPostListSerializer(serializers.ModelSerializer):
     """인파 노트 목록 — 본문(body) 제외, cover_image 는 절대 URL (context request 필요)."""
+    cover_image = serializers.SerializerMethodField()
     category_label = serializers.CharField(source='get_category_display', read_only=True)
     tags = serializers.SerializerMethodField()
     author_name = serializers.SerializerMethodField()
@@ -436,15 +450,20 @@ class BlogPostListSerializer(serializers.ModelSerializer):
     def get_tags(self, obj):
         return _split_tags(obj.tags)
 
+    def get_cover_image(self, obj):
+        return _blog_cover_url(obj, self.context.get('request'))
+
     def get_author_name(self, obj):
-        return _author_display(obj.author)
+        return BLOG_PUBLIC_AUTHOR
 
 
 class BlogPostDetailSerializer(serializers.ModelSerializer):
     """인파 노트 상세 — 본문 + SEO 필드 포함."""
+    cover_image = serializers.SerializerMethodField()
     category_label = serializers.CharField(source='get_category_display', read_only=True)
     tags = serializers.SerializerMethodField()
     author_name = serializers.SerializerMethodField()
+    legal_review_public = serializers.SerializerMethodField()
 
     class Meta:
         model = BlogPost
@@ -452,14 +471,37 @@ class BlogPostDetailSerializer(serializers.ModelSerializer):
             'id', 'title', 'slug', 'excerpt', 'body', 'cover_image', 'category',
             'category_label', 'tags', 'author_name', 'published_at', 'updated_at',
             'created_at', 'view_count', 'seo_title', 'seo_description', 'is_noindex',
+            'legal_review_public',
         ]
         read_only_fields = fields
 
     def get_tags(self, obj):
         return _split_tags(obj.tags)
 
+    def get_cover_image(self, obj):
+        return _blog_cover_url(obj, self.context.get('request'))
+
     def get_author_name(self, obj):
-        return _author_display(obj.author)
+        return BLOG_PUBLIC_AUTHOR
+
+    def get_legal_review_public(self, obj):
+        return obj.public_legal_review()
+
+
+class BlogRelatedSerializer(serializers.ModelSerializer):
+    cover_image = serializers.SerializerMethodField()
+    category_label = serializers.CharField(source='get_category_display', read_only=True)
+
+    class Meta:
+        model = BlogPost
+        fields = [
+            'id', 'title', 'slug', 'excerpt', 'cover_image', 'category',
+            'category_label', 'published_at',
+        ]
+        read_only_fields = fields
+
+    def get_cover_image(self, obj):
+        return _blog_cover_url(obj, self.context.get('request'))
 
 
 class BlogPostAdminSerializer(serializers.ModelSerializer):
@@ -474,12 +516,17 @@ class BlogPostAdminSerializer(serializers.ModelSerializer):
     author_name = serializers.SerializerMethodField()
     author_email = serializers.SerializerMethodField()
     tags_list = serializers.SerializerMethodField()
+    review_content_digest = serializers.SerializerMethodField()
+    legal_review_is_current = serializers.SerializerMethodField()
 
     class Meta:
         model = BlogPost
         fields = [
-            'id', 'title', 'slug', 'body', 'excerpt', 'cover_image', 'category',
+            'id', 'title', 'slug', 'body', 'excerpt', 'cover_image',
+            'cover_asset_path', 'category',
             'category_label', 'tags', 'tags_list', 'is_published', 'published_at',
+            'review_gate', 'legal_review_required', 'legal_review',
+            'review_content_digest', 'legal_review_is_current',
             'seo_title', 'seo_description', 'is_noindex', 'view_count',
             'author_name', 'author_email', 'created_at', 'updated_at',
         ]
@@ -487,6 +534,8 @@ class BlogPostAdminSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'excerpt': {'required': False, 'allow_blank': True},
             'cover_image': {'required': False, 'allow_null': True},
+            'cover_asset_path': {'required': False, 'allow_blank': True},
+            'legal_review_required': {'read_only': True},
             'tags': {'required': False, 'allow_blank': True},
             'seo_title': {'required': False, 'allow_blank': True},
             'seo_description': {'required': False, 'allow_blank': True},
@@ -494,14 +543,107 @@ class BlogPostAdminSerializer(serializers.ModelSerializer):
             'is_noindex': {'required': False},
         }
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = self.instance
+        requested_published = attrs.get(
+            'is_published', instance.is_published if instance is not None else False,
+        )
+        review_gate = attrs.get(
+            'review_gate',
+            instance.review_gate if instance is not None else BlogPost.REVIEW_GATE_NONE,
+        )
+        review_was_submitted = 'legal_review' in attrs
+        legal_review = attrs.get('legal_review') if review_was_submitted else (
+            instance.legal_review if instance is not None else None
+        )
+        legal_review_required = (
+            instance.legal_review_required if instance is not None else False
+        )
+        if legal_review_required and review_gate != BlogPost.REVIEW_GATE_LEGAL:
+            raise serializers.ValidationError({
+                'review_gate': '이 글의 법률 검토 설정은 서버에서 고정되어 있어요.',
+            })
+        if legal_review is not None and not valid_blog_legal_review(legal_review):
+            raise serializers.ValidationError({
+                'legal_review': '법률 검토 기록의 담당자, 자격, 시각, 근거를 모두 입력해 주세요.',
+            })
+        if review_was_submitted and legal_review is not None:
+            raise serializers.ValidationError({
+                'legal_review': '글을 임시저장한 뒤 법률 검토 확인 단계에서 기록해 주세요.',
+            })
+
+        candidate = BlogPost()
+        if instance is not None:
+            for field in BLOG_REVIEW_CONTENT_FIELDS:
+                setattr(candidate, field, getattr(instance, field))
+        for field in BLOG_REVIEW_CONTENT_FIELDS:
+            if field in attrs:
+                setattr(candidate, field, attrs[field])
+        candidate_digest = blog_review_content_digest(candidate)
+        content_changed = bool(
+            instance is not None
+            and candidate_digest != blog_review_content_digest(instance)
+        )
+        review_protected = legal_review_required or review_gate == BlogPost.REVIEW_GATE_LEGAL
+        if review_protected and content_changed:
+            if requested_published:
+                raise serializers.ValidationError({
+                    'legal_review': '수정한 글을 임시저장한 뒤 새 법률 검토를 확인해 주세요.',
+                })
+            attrs.update({
+                'is_published': False,
+                'legal_review': None,
+                'legal_review_reviewer': '',
+                'legal_review_credential': '',
+                'legal_reviewed_at': None,
+                'legal_review_reference': '',
+                'legal_review_content_digest': '',
+            })
+            legal_review = None
+            review_was_submitted = True
+
+        if review_was_submitted:
+            if legal_review is None:
+                attrs.update({
+                    'legal_review_reviewer': '',
+                    'legal_review_credential': '',
+                    'legal_reviewed_at': None,
+                    'legal_review_reference': '',
+                    'legal_review_content_digest': '',
+                })
+        if instance is not None:
+            review_is_current = (
+                instance.has_current_legal_review()
+                and candidate_digest == instance.legal_review_content_digest
+                and not (review_was_submitted and legal_review is None)
+            )
+        else:
+            review_is_current = False
+        if (
+            attrs.get('is_published', requested_published)
+            and review_protected
+            and not review_is_current
+        ):
+            raise serializers.ValidationError({
+                'legal_review': '현재 글의 법률 검토 기록을 모두 입력하면 게시할 수 있어요.',
+            })
+        return attrs
+
     def get_author_name(self, obj):
-        return _author_display(obj.author)
+        return BLOG_PUBLIC_AUTHOR
 
     def get_author_email(self, obj):
         return obj.author.email if obj.author_id else None
 
     def get_tags_list(self, obj):
         return _split_tags(obj.tags)
+
+    def get_review_content_digest(self, obj):
+        return blog_review_content_digest(obj)
+
+    def get_legal_review_is_current(self, obj):
+        return obj.has_current_legal_review()
 
     def create(self, validated_data):
         raw = (validated_data.get('slug') or '').strip() or validated_data.get('title', '')
@@ -513,3 +655,12 @@ class BlogPostAdminSerializer(serializers.ModelSerializer):
             raw = (validated_data.get('slug') or '').strip() or validated_data.get('title', instance.title)
             validated_data['slug'] = BlogPost.generate_unique_slug(raw, exclude_pk=instance.pk)
         return super().update(instance, validated_data)
+
+
+class BlogLegalReviewRecordSerializer(serializers.Serializer):
+    """Bind an explicit, server-timestamped legal review to one saved draft."""
+    reviewer = serializers.CharField(max_length=100, allow_blank=False, trim_whitespace=True)
+    credential = serializers.CharField(max_length=100, allow_blank=False, trim_whitespace=True)
+    reference = serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True)
+    content_digest = serializers.RegexField(r'^[0-9a-f]{64}$')
+    publish = serializers.BooleanField(default=True)

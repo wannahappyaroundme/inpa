@@ -8,13 +8,14 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
+import { BlogContentImage } from "@/components/blog-content-image";
 
 const components: Components = {
   h1: ({ children }) => (
     <h1 className="mt-8 mb-3 text-[24px] font-extrabold text-ink leading-snug tracking-tight">{children}</h1>
   ),
   h2: ({ children }) => (
-    <h2 className="mt-9 mb-3 text-[20px] font-bold text-ink leading-snug border-l-4 border-brand pl-3">{children}</h2>
+    <h2 className="mt-10 mb-3 text-[20px] font-bold text-ink leading-snug">{children}</h2>
   ),
   h3: ({ children }) => (
     <h3 className="mt-7 mb-2 text-[17px] font-bold text-ink leading-snug">{children}</h3>
@@ -22,9 +23,14 @@ const components: Components = {
   h4: ({ children }) => (
     <h4 className="mt-5 mb-2 text-[15px] font-bold text-ink2">{children}</h4>
   ),
-  p: ({ children }) => (
-    <p className="my-4 text-[15px] leading-8 text-ink2">{children}</p>
-  ),
+  p: ({ children, node }) => {
+    const child = node?.children[0];
+    const isStandaloneImage = node?.children.length === 1 && child?.type === "element" && child.tagName === "img";
+
+    if (isStandaloneImage) return <>{children}</>;
+
+    return <p className="my-5 text-[17px] leading-[1.8] text-ink2">{children}</p>;
+  },
   a: ({ children, href }) => {
     const external = !!href && /^https?:\/\//.test(href);
     return (
@@ -52,11 +58,7 @@ const components: Components = {
     </blockquote>
   ),
   hr: () => <hr className="my-8 border-t border-line" />,
-  img: ({ src, alt }) =>
-    // eslint-disable-next-line @next/next/no-img-element
-    typeof src === "string" ? (
-      <img src={src} alt={alt ?? ""} className="my-5 rounded-xl max-w-full h-auto border border-line" loading="lazy" />
-    ) : null,
+  img: ({ src }) => <BlogContentImage src={typeof src === "string" ? src : undefined} />,
   code: ({ children, className }) => {
     // 인라인 코드(className 없음) vs 코드블록(언어 클래스 있음, pre 안에서 렌더).
     const isBlock = !!className;
@@ -75,13 +77,18 @@ const components: Components = {
     </pre>
   ),
   table: ({ children }) => (
-    <div className="my-5 overflow-x-auto rounded-xl border border-line">
+    <div
+      className="my-5 overflow-x-auto rounded-xl border border-line focus:outline-none focus:ring-2 focus:ring-brand/40"
+      role="region"
+      aria-label="표 내용, 좌우로 이동해 확인할 수 있습니다"
+      tabIndex={0}
+    >
       <table className="w-full border-collapse text-[14px] text-ink2">{children}</table>
     </div>
   ),
   thead: ({ children }) => <thead className="bg-surface2">{children}</thead>,
   th: ({ children }) => (
-    <th className="border-b border-line px-3 py-2 text-left font-bold text-ink whitespace-nowrap">{children}</th>
+    <th scope="col" className="border-b border-line px-3 py-2 text-left font-bold text-ink whitespace-nowrap">{children}</th>
   ),
   td: ({ children }) => <td className="border-b border-line px-3 py-2 align-top">{children}</td>,
 };

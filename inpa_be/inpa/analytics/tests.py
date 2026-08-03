@@ -732,6 +732,251 @@ class AdviceCopyGuardTests(TestCase):
         self.assertEqual(hits, [('disclaimer', '갈아타')])
         self.assertIn('권유 단어 가드', cm.output[0])
 
+    def test_blog_scan_ignores_markdown_destinations(self):
+        from inpa.core.copyguard import scan_blog_content
+        body = '''
+[비교 기준 보기](/blog-assets/보험-갈아타기-비교/link—draft.webp)
+![비교 흐름](/blog-assets/보험-갈아타기-비교/image.webp)
+![참고 그림][cover]
+
+[cover]: /blog-assets/보험-갈아타기-비교/reference.webp
+'''
+        self.assertEqual(scan_blog_content({'body': body}), [])
+
+    def test_blog_scan_keeps_angle_and_raw_urls_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        angle = '<https://example.com/보험-갈아타기-비교>'
+        raw = 'https://example.com/보험-갈아타기-비교'
+        expected = [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ]
+        self.assertEqual(scan_blog_content({'body': angle}), expected)
+        self.assertEqual(scan_blog_content({'body': raw}), expected)
+
+    def test_blog_scan_checks_link_labels_and_image_alt_text(self):
+        from inpa.core.copyguard import scan_blog_content
+        warnings = scan_blog_content({
+            'link': '[보험 갈아타기 안내](/safe-link)',
+            'image': '![전환하세요 — 안내 그림](/safe-image.webp)',
+            'reference': '![보험 갈아타기 안내][cover]\n[cover]: /safe.webp',
+        })
+        self.assertEqual(warnings, [
+            {'field': 'link', 'issue': 'advice_word', 'match': '갈아타'},
+            {'field': 'image', 'issue': 'em_dash', 'match': '—'},
+            {'field': 'image', 'issue': 'advice_word', 'match': '전환하세요'},
+            {'field': 'reference', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_raw_url_link_label_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[https://example.com/보험-갈아타기—안내](/safe-link)',
+        }), [
+            {'field': 'body', 'issue': 'em_dash', 'match': '—'},
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_plain_text_fields_unchanged(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'title': '보험 갈아타기',
+            'excerpt': '읽기 쉬운 설명 — 다음 단계',
+        }), [
+            {'field': 'title', 'issue': 'advice_word', 'match': '갈아타'},
+            {'field': 'excerpt', 'issue': 'em_dash', 'match': '—'},
+        ])
+
+    def test_blog_scan_does_not_parse_markdown_in_plain_text_fields(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'title': '[보험 갈아타기]: /safe',
+        }), [
+            {'field': 'title', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_handles_balanced_parentheses_in_inline_destination(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[비교 기준](/blog-assets/file(1)-보험-갈아타기-비교.webp)',
+        }), [])
+
+    def test_blog_scan_handles_nested_link_label(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[비교 [기준] 보기](/blog-assets/보험-갈아타기-비교/file.webp)',
+        }), [])
+
+    def test_blog_scan_handles_escaped_brackets_in_link_label(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': r'[비교 \[기준\] 보기](/blog-assets/보험-갈아타기-비교/file.webp)',
+        }), [])
+
+    def test_blog_scan_strips_nested_image_destination_inside_link(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[![비교](/blog-assets/보험-갈아타기-비교/img.webp)](/safe)',
+        }), [])
+        self.assertEqual(scan_blog_content({
+            'body': '[![보험 갈아타기](/safe-image)](/safe-link)',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_inline_code_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '`[비교](/blog-assets/보험-갈아타기-비교/file.webp)`',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_fenced_code_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        fenced = '```md\n[비교](/blog-assets/보험-갈아타기-비교/file.webp)\n```'
+        tilde_fenced = '~~~md\n[비교](/blog-assets/보험-갈아타기-비교/file.webp)\n~~~'
+        expected = [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ]
+        self.assertEqual(scan_blog_content({'body': fenced}), expected)
+        self.assertEqual(scan_blog_content({'body': tilde_fenced}), expected)
+
+    def test_blog_scan_keeps_quoted_and_list_fenced_code_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        quoted = '> ```md\n> [비교](/blog-assets/보험-갈아타기-비교/file.webp)\n> ```'
+        listed = '- ```md\n  [비교](/blog-assets/보험-갈아타기-비교/file.webp)\n  ```'
+        expected = [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ]
+        self.assertEqual(scan_blog_content({'body': quoted}), expected)
+        self.assertEqual(scan_blog_content({'body': listed}), expected)
+
+    def test_blog_scan_keeps_indented_code_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '    [비교](/blog-assets/보험-갈아타기-비교/file.webp)',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_raw_html_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        inline = '<span title="보험 갈아타기—안내">내용</span>'
+        block = '<div title="보험 갈아타기—안내">\n내용\n</div>'
+        expected = [
+            {'field': 'body', 'issue': 'em_dash', 'match': '—'},
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ]
+        self.assertEqual(scan_blog_content({'body': inline}), expected)
+        self.assertEqual(scan_blog_content({'body': block}), expected)
+
+    def test_blog_scan_keeps_malformed_http_link_and_autolink_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        malformed_link = '[비교](https://example.com/보험-갈아타기-비교'
+        malformed_spaced_link = '[비교]( https://example.com/보험-갈아타기-비교'
+        malformed_autolink = '<https://example.com/보험-갈아타기-비교'
+        expected = [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ]
+        self.assertEqual(scan_blog_content({'body': malformed_link}), expected)
+        self.assertEqual(scan_blog_content({'body': malformed_spaced_link}), expected)
+        self.assertEqual(scan_blog_content({'body': malformed_autolink}), expected)
+
+    def test_blog_scan_keeps_malformed_http_reference_definition_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[cover]: https://example.com/보험-갈아타기-비교/file.webp(',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_undefined_reference_url_label_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[https://example.com/보험-갈아타기-비교][missing]',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_keeps_raw_url_after_escaped_literal_bracket_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': r'\[참고: https://example.com/보험-갈아타기-비교',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_hides_escaped_reference_definition_destination(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[비교][ref\\]]\n\n[ref\\]]: /blog-assets/보험-갈아타기-비교/file.webp',
+        }), [])
+
+    def test_blog_scan_handles_deep_nested_images_without_recursion(self):
+        from inpa.core.copyguard import scan_blog_content
+        body = '보험 갈아타기'
+        for _ in range(1100):
+            body = f'![{body}](/safe)'
+        self.assertEqual(scan_blog_content({'body': body}), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_separates_paragraph_blocks(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({'body': '갈아\n\n타'}), [])
+
+    def test_blog_scan_separates_list_items(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({'body': '- 갈아\n- 타'}), [])
+
+    def test_blog_scan_separates_heading_blocks(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({'body': '# 갈아\n\n# 타'}), [])
+
+    def test_blog_scan_separates_thematic_break_blocks(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({'body': '갈아\n\n---\n\n타'}), [])
+
+    def test_blog_scan_preserves_inline_and_code_line_breaks(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({'body': '갈아\n타'}), [])
+        self.assertEqual(scan_blog_content({'body': '```\n갈아\n타\n```'}), [])
+
+    def test_blog_scan_keeps_raw_http_url_visible_inside_and_outside_code(self):
+        from inpa.core.copyguard import scan_blog_content
+        raw_url = 'https://example.com/보험-갈아타기-비교'
+        expected = [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ]
+        self.assertEqual(scan_blog_content({'body': raw_url}), expected)
+        self.assertEqual(scan_blog_content({'body': f'참고: ({raw_url}).'}), expected)
+        self.assertEqual(scan_blog_content({'body': f'`{raw_url}`'}), expected)
+
+    def test_blog_scan_keeps_undefined_reference_visible(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '![비교 흐름][보험-갈아타기-비교]',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_warns_for_malformed_reference_definition(self):
+        from inpa.core.copyguard import scan_blog_content
+        self.assertEqual(scan_blog_content({
+            'body': '[cover]: /blog-assets/보험-갈아타기-비교/image.webp(',
+        }), [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
+    def test_blog_scan_warns_for_unclosed_markdown_destination(self):
+        from inpa.core.copyguard import scan_blog_content
+        warnings = scan_blog_content({
+            'body': '![비교 흐름](/blog-assets/보험-갈아타기-비교/image.webp',
+        })
+        self.assertEqual(warnings, [
+            {'field': 'body', 'issue': 'advice_word', 'match': '갈아타'},
+        ])
+
     def test_current_share_disclaimer_clean(self):
         """현행 공유뷰 고정 카피(SHARE_DISCLAIMER)는 클린해야 한다."""
         from inpa.analytics.views import SHARE_DISCLAIMER

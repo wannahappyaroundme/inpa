@@ -10,6 +10,8 @@ base path: /api/v1/admin/
   - admin 비밀번호 직접 변경 불가 — 재설정 링크 발송만.
   - 알림 대상: 설계사 본인만 (고객 자동발송 경로 물리 부재).
 """
+import hmac
+
 from django.contrib.auth import get_user_model
 from django.conf import settings as django_settings
 from django.core.cache import cache
@@ -67,7 +69,9 @@ from inpa.boards.models import (
     Notice,
     Post,
     Report,
+    blog_review_content_digest,
 )
+from inpa.boards.serializers import BlogLegalReviewRecordSerializer
 from inpa.core.copyguard import scan_blog_content
 from inpa.core.internal_accounts import (
     block_showcase_external_action,
@@ -1789,6 +1793,63 @@ class AdminBlogPostDetailView(APIView):
         post.is_published = False
         post.save(update_fields=['is_published', 'updated_at'])
         return Response({'deleted': True, 'id': post_id})
+
+
+class AdminBlogLegalReviewView(APIView):
+    """저장된 한 버전에 법률 검토를 명시적으로 결합하고 선택적으로 게시한다."""
+    permission_classes = [IsAdmin]
+
+    def post(self, request, post_id):
+        serializer = BlogLegalReviewRecordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            post = get_object_or_404(
+                BlogPost.objects.select_for_update(), pk=post_id,
+            )
+            if post.review_gate != BlogPost.REVIEW_GATE_LEGAL:
+                return Response(
+                    {'review_gate': ['법률 검토 대상 글에서 사용할 수 있어요.']},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            current_digest = blog_review_content_digest(post)
+            if not hmac.compare_digest(
+                serializer.validated_data['content_digest'], current_digest,
+            ):
+                return Response(
+                    {
+                        'content_digest': [
+                            '글이 다른 곳에서 수정되었어요. 최신 내용을 다시 확인해 주세요.'
+                        ],
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            reviewed_at = timezone.now()
+            review = {
+                'reviewer': serializer.validated_data['reviewer'],
+                'credential': serializer.validated_data['credential'],
+                'reviewed_at': reviewed_at.isoformat(),
+                'reference': serializer.validated_data['reference'],
+            }
+            post.legal_review = review
+            post.legal_review_reviewer = review['reviewer']
+            post.legal_review_credential = review['credential']
+            post.legal_reviewed_at = reviewed_at
+            post.legal_review_reference = review['reference']
+            post.legal_review_content_digest = current_digest
+            post.is_published = serializer.validated_data['publish']
+            update_fields = [
+                'legal_review', 'legal_review_reviewer', 'legal_review_credential',
+                'legal_reviewed_at', 'legal_review_reference',
+                'legal_review_content_digest', 'is_published', 'updated_at',
+            ]
+            if post.is_published and post.published_at is None:
+                post.published_at = reviewed_at
+                update_fields.append('published_at')
+            post.save(update_fields=update_fields)
+
+        data = AdminBlogPostSerializer(post, context={'request': request}).data
+        data['warnings'] = _blog_copy_warnings(post)
+        return Response(data)
 
 
 # ─── J. 운영 설정 — 요금제 한도 ────────────────────────────────────

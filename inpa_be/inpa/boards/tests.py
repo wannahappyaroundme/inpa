@@ -33,15 +33,22 @@
   NT1 댓글 작성 → 원글 작성자 board_comment 알림 (자기 글 제외)
   NT2 좋아요 생성 → 원글 작성자 board_like 알림 (자기 글 제외)
 """
+import json
+
+from django.contrib.admin.sites import AdminSite
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework.test import APIClient
 
 from inpa.accounts.models import Profile, User
 from inpa.notifications.models import Notification
 
 from .models import (
+    BlogContentRelease,
     BlogPost,
     Comment,
     Faq,
@@ -51,6 +58,7 @@ from .models import (
     Post,
     PostLike,
     Report,
+    blog_review_content_digest,
 )
 
 
@@ -1009,6 +1017,36 @@ def _make_blog(**kwargs):
     return BlogPost.objects.create(**defaults)
 
 
+LEGAL_REVIEW_RECORD = {
+    'reviewer': '김검토',
+    'credential': '대한민국 변호사',
+    'reviewed_at': '2026-08-03T09:00:00+09:00',
+    'reference': '검토 기록 2026-08-03-01',
+}
+
+
+def _make_reviewed_locked_blog(**kwargs):
+    """현재 본문과 결합된 검토 기록을 가진 서버 고정 게시글."""
+    defaults = {
+        'is_published': False,
+        'published_at': None,
+        'review_gate': BlogPost.REVIEW_GATE_LEGAL,
+        'legal_review_required': True,
+        'legal_review': LEGAL_REVIEW_RECORD.copy(),
+        'legal_review_reviewer': LEGAL_REVIEW_RECORD['reviewer'],
+        'legal_review_credential': LEGAL_REVIEW_RECORD['credential'],
+        'legal_reviewed_at': parse_datetime(LEGAL_REVIEW_RECORD['reviewed_at']),
+        'legal_review_reference': LEGAL_REVIEW_RECORD['reference'],
+    }
+    defaults.update(kwargs)
+    post = _make_blog(**defaults)
+    post.legal_review_content_digest = blog_review_content_digest(post)
+    post.is_published = True
+    post.published_at = timezone.now()
+    post.save()
+    return post
+
+
 class BlogPublicReadTests(TestCase):
     """공개 목록/상세 — 게시글만 노출, slug 조회, 조회수 증가."""
 
@@ -1041,6 +1079,18 @@ class BlogPublicReadTests(TestCase):
         self.assertIn('category_label', row)
         self.assertIsInstance(row['tags'], list)
 
+    def test_public_author_is_inpa_manager_not_login_email(self):
+        author, _ = _make_planner('private-editor@example.com')
+        _make_blog(title='작성자 글', author=author)
+        row = self.anon.get('/api/v1/board/blog/').json()['results'][0]
+        self.assertEqual(row['author_name'], '인파 담당자')
+        self.assertNotIn('private-editor', str(row))
+
+    def test_static_cover_path_precedes_legacy_upload(self):
+        _make_blog(title='정적 커버', cover_asset_path='/blog-assets/정적-커버/cover.webp')
+        row = self.anon.get('/api/v1/board/blog/').json()['results'][0]
+        self.assertEqual(row['cover_image'], '/blog-assets/정적-커버/cover.webp')
+
     def test_category_filter(self):
         """?category= 필터."""
         _make_blog(title='영업 글', category=BlogPost.CATEGORY_SALES)
@@ -1056,6 +1106,77 @@ class BlogPublicReadTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['id'], post.id)
         self.assertIn('body', r.json())
+
+    def test_public_legal_review_exposes_only_safe_summary(self):
+        post = _make_reviewed_locked_blog(
+            title='검토 공개 글', slug='reviewed-public-post',
+        )
+
+        data = self.anon.get(f'/api/v1/board/blog/{post.slug}/').json()
+
+        self.assertEqual(data['legal_review_public'], {
+            'reviewer': '김검토',
+            'credential': '대한민국 변호사',
+            'reviewed_on': '2026-08-03',
+        })
+        self.assertNotIn('reference', data['legal_review_public'])
+        self.assertNotIn(LEGAL_REVIEW_RECORD['reference'], str(data))
+
+    def test_stale_review_is_hidden_from_list_detail_related_and_sitemap(self):
+        stale = _make_reviewed_locked_blog(
+            title='직접 수정된 검토 글', slug='stale-reviewed-post',
+        )
+        current = _make_blog(
+            title='관련 글 기준', slug='related-current-post',
+            category=stale.category,
+        )
+        BlogPost.objects.filter(pk=stale.pk).update(body='검토 뒤 직접 바뀐 본문')
+
+        listed = self.anon.get('/api/v1/board/blog/').json()['results']
+        self.assertNotIn(stale.slug, [row['slug'] for row in listed])
+        self.assertEqual(
+            self.anon.get(f'/api/v1/board/blog/{stale.slug}/').status_code, 404,
+        )
+        related = self.anon.get(f'/api/v1/board/blog/{current.slug}/').json()['related_posts']
+        self.assertNotIn(stale.slug, [row['slug'] for row in related])
+        sitemap = self.anon.get('/api/v1/board/blog/sitemap/').json()
+        self.assertNotIn(stale.slug, [row['slug'] for row in sitemap])
+
+    def test_inconsistent_raw_review_record_is_hidden_fail_closed(self):
+        post = _make_reviewed_locked_blog(
+            title='검토 기록 불일치 글', slug='inconsistent-review-record',
+        )
+        BlogPost.objects.filter(pk=post.pk).update(legal_review={})
+
+        self.assertEqual(
+            self.anon.get(f'/api/v1/board/blog/{post.slug}/').status_code, 404,
+        )
+
+    def test_related_posts_prefer_same_category_and_exclude_drafts_and_self(self):
+        current = _make_blog(title='현재', slug='current', category='coverage')
+        same = _make_blog(title='같은 분류', slug='same', category='coverage')
+        other = _make_blog(title='다른 분류', slug='other', category='sales')
+        _make_blog(title='초안', slug='draft-related', category='coverage', is_published=False)
+        data = self.anon.get('/api/v1/board/blog/current/').json()
+        self.assertEqual(data['related_posts'][0]['id'], same.id)
+        self.assertNotIn(current.id, [row['id'] for row in data['related_posts']])
+        self.assertNotIn('draft-related', [row['slug'] for row in data['related_posts']])
+        self.assertIn(other.id, [row['id'] for row in data['related_posts']])
+
+    def test_related_posts_use_primary_key_as_final_ordering_tie_breaker(self):
+        current = _make_blog(title='현재 글', slug='tie-current', category='coverage')
+        first = _make_blog(title='먼저 만든 글', slug='tie-first', category='coverage')
+        second = _make_blog(title='나중에 만든 글', slug='tie-second', category='coverage')
+        tied_at = timezone.now()
+        BlogPost.objects.filter(pk__in=[first.pk, second.pk]).update(
+            published_at=tied_at,
+            created_at=tied_at,
+        )
+
+        data = self.anon.get(f'/api/v1/board/blog/{current.slug}/').json()
+
+        tied_ids = [row['id'] for row in data['related_posts'] if row['id'] in {first.id, second.id}]
+        self.assertEqual(tied_ids, [second.id, first.id])
 
     def test_draft_404_for_anon_200_for_admin(self):
         """초안: 비로그인/일반 404, 관리자 200."""
@@ -1151,6 +1272,293 @@ class BlogAdminCrudTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIsNotNone(r.json()['published_at'])
 
+    def test_legal_review_draft_cannot_publish_without_complete_review_record(self):
+        draft = _make_blog(
+            title='검토 대기 글',
+            is_published=False,
+            published_at=None,
+            review_gate=BlogPost.REVIEW_GATE_LEGAL,
+            legal_review=None,
+        )
+
+        r = self.admin_client.patch(
+            f'/api/v1/admin/blog/{draft.id}/', {'is_published': True}, format='json')
+
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('검토 기록', str(r.json()))
+        draft.refresh_from_db()
+        self.assertFalse(draft.is_published)
+
+    def test_regular_update_cannot_bind_review_and_publish_in_one_request(self):
+        draft = _make_blog(
+            title='검토 완료 글',
+            is_published=False,
+            published_at=None,
+            review_gate=BlogPost.REVIEW_GATE_LEGAL,
+            legal_review=None,
+        )
+        review = {
+            'reviewer': '외부 검토자',
+            'credential': '대한민국 변호사',
+            'reviewed_at': '2026-08-03T09:00:00+09:00',
+            'reference': '검토 기록 2026-08-03-01',
+        }
+
+        r = self.admin_client.patch(
+            f'/api/v1/admin/blog/{draft.id}/',
+            {'is_published': True, 'legal_review': review},
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('임시저장', str(r.json()))
+
+    def test_explicit_review_action_uses_server_time_and_publishes_saved_draft(self):
+        draft = _make_blog(
+            title='서버 시각 검토 글',
+            is_published=False,
+            published_at=None,
+            review_gate=BlogPost.REVIEW_GATE_LEGAL,
+            legal_review_required=True,
+        )
+        before = timezone.now()
+
+        r = self.admin_client.post(
+            f'/api/v1/admin/blog/{draft.id}/legal-review/',
+            {
+                'reviewer': '김검토',
+                'credential': '대한민국 변호사',
+                'reference': '검토 기록 2026-08-03-03',
+                'content_digest': blog_review_content_digest(draft),
+                'publish': True,
+            },
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 200, r.json())
+        draft.refresh_from_db()
+        self.assertTrue(draft.is_published)
+        self.assertGreaterEqual(draft.legal_reviewed_at, before)
+        self.assertLessEqual(draft.legal_reviewed_at, timezone.now())
+        self.assertEqual(
+            draft.legal_review['reviewed_at'], draft.legal_reviewed_at.isoformat(),
+        )
+        self.assertTrue(draft.has_current_legal_review())
+        self.assertTrue(r.json()['legal_review_is_current'])
+
+    def test_explicit_review_action_rejects_a_stale_saved_draft_digest(self):
+        draft = _make_blog(
+            title='동시 편집 검토 글',
+            body='관리자 A가 확인한 본문',
+            is_published=False,
+            review_gate=BlogPost.REVIEW_GATE_LEGAL,
+            legal_review_required=True,
+        )
+        stale_digest = blog_review_content_digest(draft)
+        BlogPost.objects.filter(pk=draft.pk).update(body='관리자 B가 바꾼 본문')
+
+        r = self.admin_client.post(
+            f'/api/v1/admin/blog/{draft.id}/legal-review/',
+            {
+                'reviewer': '김검토',
+                'credential': '대한민국 변호사',
+                'reference': '검토 기록 2026-08-03-04',
+                'content_digest': stale_digest,
+                'publish': True,
+            },
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 409, r.json())
+        self.assertIn('최신 내용', str(r.json()))
+        draft.refresh_from_db()
+        self.assertFalse(draft.is_published)
+        self.assertIsNone(draft.legal_review)
+        self.assertEqual(draft.legal_review_content_digest, '')
+
+    def test_legal_review_rejects_values_longer_than_typed_storage(self):
+        draft = _make_blog(
+            title='긴 검토 기록 글',
+            is_published=False,
+            review_gate=BlogPost.REVIEW_GATE_LEGAL,
+        )
+        review = {**LEGAL_REVIEW_RECORD, 'reviewer': '가' * 101}
+
+        r = self.admin_client.patch(
+            f'/api/v1/admin/blog/{draft.id}/',
+            {'is_published': True, 'legal_review': review},
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 400)
+        draft.refresh_from_db()
+        self.assertFalse(draft.is_published)
+
+    def test_reviewed_public_post_rejects_content_change_with_same_review(self):
+        post = _make_reviewed_locked_blog(title='검토된 원문', body='검토된 본문')
+
+        r = self.admin_client.patch(
+            f'/api/v1/admin/blog/{post.id}/',
+            {
+                'body': '검토 후 달라진 본문',
+                'is_published': True,
+                'legal_review': LEGAL_REVIEW_RECORD,
+            },
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('임시저장', str(r.json()))
+        post.refresh_from_db()
+        self.assertEqual(post.body, '검토된 본문')
+        self.assertTrue(post.is_published)
+
+    def test_reviewed_public_post_rejects_same_instant_with_different_timezone_text(self):
+        post = _make_reviewed_locked_blog(title='검토 시각 정규화', body='검토된 본문')
+        semantically_same_review = {
+            **LEGAL_REVIEW_RECORD,
+            'reviewed_at': '2026-08-03T00:00:00Z',
+        }
+
+        r = self.admin_client.patch(
+            f'/api/v1/admin/blog/{post.id}/',
+            {
+                'body': '바뀐 본문',
+                'is_published': True,
+                'legal_review': semantically_same_review,
+            },
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 400)
+        post.refresh_from_db()
+        self.assertEqual(post.body, '검토된 본문')
+
+    def test_reviewed_public_post_rejects_cover_change_until_new_review(self):
+        post = _make_reviewed_locked_blog(
+            title='검토 이미지 변경',
+            cover_asset_path='/blog-assets/original/cover.webp',
+        )
+
+        r = self.admin_client.patch(
+            f'/api/v1/admin/blog/{post.id}/',
+            {
+                'cover_asset_path': '/blog-assets/replacement/cover.webp',
+                'is_published': True,
+            },
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 400)
+        post.refresh_from_db()
+        self.assertEqual(post.cover_asset_path, '/blog-assets/original/cover.webp')
+
+    def test_reviewed_draft_content_change_clears_stale_review(self):
+        post = _make_reviewed_locked_blog(title='검토된 초안 전환', body='검토된 본문')
+
+        r = self.admin_client.patch(
+            f'/api/v1/admin/blog/{post.id}/',
+            {'body': '다시 검토할 본문', 'is_published': False},
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 200, r.json())
+        post.refresh_from_db()
+        self.assertFalse(post.is_published)
+        self.assertIsNone(post.legal_review)
+        self.assertEqual(post.legal_review_reviewer, '')
+        self.assertEqual(post.legal_review_content_digest, '')
+
+    def test_db_constraint_blocks_bulk_publish_without_typed_review(self):
+        draft = _make_blog(
+            title='DB 검토 차단 글',
+            is_published=False,
+            review_gate=BlogPost.REVIEW_GATE_LEGAL,
+            legal_review_required=True,
+            legal_review=None,
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BlogPost.objects.filter(pk=draft.pk).update(
+                legal_review={}, is_published=True,
+            )
+
+        draft.refresh_from_db()
+        self.assertFalse(draft.is_published)
+
+    def test_multipart_write_parses_then_rejects_inline_legal_review_record(self):
+        review = {
+            'reviewer': '외부 검토자',
+            'credential': '대한민국 변호사',
+            'reviewed_at': '2026-08-03T09:00:00+09:00',
+            'reference': '검토 기록 2026-08-03-02',
+        }
+
+        r = self.admin_client.post(
+            '/api/v1/admin/blog/',
+            {
+                'title': 'multipart 검토 글',
+                'body': '본문',
+                'review_gate': BlogPost.REVIEW_GATE_LEGAL,
+                'legal_review': json.dumps(review, ensure_ascii=False),
+                'is_published': 'true',
+            },
+            format='multipart',
+        )
+
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('임시저장', str(r.json()))
+
+    def test_release_owned_legal_requirement_cannot_be_downgraded_while_publishing(self):
+        draft = _make_blog(
+            title='서버 검토 대상 글',
+            is_published=False,
+            published_at=None,
+            review_gate=BlogPost.REVIEW_GATE_LEGAL,
+            legal_review_required=True,
+            legal_review=None,
+        )
+
+        r = self.admin_client.patch(
+            f'/api/v1/admin/blog/{draft.id}/',
+            {'review_gate': BlogPost.REVIEW_GATE_NONE, 'is_published': True},
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('고정', str(r.json()))
+        draft.refresh_from_db()
+        self.assertTrue(draft.legal_review_required)
+        self.assertEqual(draft.review_gate, BlogPost.REVIEW_GATE_LEGAL)
+        self.assertFalse(draft.is_published)
+
+    def test_model_save_blocks_unreviewed_legal_publication(self):
+        post = _make_blog(
+            title='모델 차단 글',
+            is_published=False,
+            review_gate=BlogPost.REVIEW_GATE_LEGAL,
+        )
+        post.is_published = True
+
+        with self.assertRaises(DjangoValidationError):
+            post.save(update_fields=['is_published'])
+
+    def test_admin_readback_includes_static_cover_and_review_fields(self):
+        draft = _make_blog(
+            title='정적 대표 이미지 글',
+            is_published=False,
+            cover_asset_path='/blog-assets/static/cover.webp',
+            review_gate=BlogPost.REVIEW_GATE_LEGAL,
+        )
+
+        r = self.admin_client.get(f'/api/v1/admin/blog/{draft.id}/')
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['cover_asset_path'], '/blog-assets/static/cover.webp')
+        self.assertEqual(r.json()['review_gate'], BlogPost.REVIEW_GATE_LEGAL)
+        self.assertFalse(r.json()['legal_review_required'])
+        self.assertIsNone(r.json()['legal_review'])
+
     def test_delete_is_soft(self):
         """삭제 = 소프트(is_published=False), DB 보존."""
         post = _make_blog(title='삭제 대상', is_published=True)
@@ -1173,6 +1581,24 @@ class BlogAdminCrudTests(TestCase):
         # 비로그인
         self.assertEqual(
             self.anon.post('/api/v1/admin/blog/', {'title': 'x', 'body': 'y'}, format='json').status_code, 401)
+
+
+class BlogContentReleaseAdminTests(TestCase):
+    def test_release_markers_are_read_only_in_django_admin(self):
+        from .admin import BlogContentReleaseAdmin
+
+        model_admin = BlogContentReleaseAdmin(BlogContentRelease, AdminSite())
+
+        self.assertFalse(model_admin.has_add_permission(None))
+        self.assertFalse(model_admin.has_change_permission(None))
+        self.assertFalse(model_admin.has_delete_permission(None))
+        self.assertEqual(
+            set(model_admin.readonly_fields),
+            {
+                'version', 'digest', 'item_count', 'before_snapshot',
+                'after_snapshot', 'applied_at', 'reverted_at',
+            },
+        )
 
 
 class BlogCopyGuardTests(TestCase):

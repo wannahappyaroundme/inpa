@@ -3,6 +3,8 @@
 // ★ 정직성 레드라인: 조작된 평점(aggregateRating)·후기·수상 스키마 금지(없는 신뢰신호 날조 금지).
 //   사실만 담는다(회사·서비스·무료 시작). 데이터는 전부 정적 상수(사용자 입력 없음).
 
+import { absoluteSiteUrl } from "@/lib/blog-assets";
+
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.inpa.kr";
 
 const DESCRIPTION =
@@ -77,8 +79,8 @@ export function faqPage(items: { q: string; a: string }[]) {
   };
 }
 
-// BlogPosting 스키마 — 인파 노트 글 1편(app/blog/[slug]). E-E-A-T 를 위해 실명 바이라인(author)·
-// 날짜(datePublished/dateModified)를 명시하고, publisher 는 Organization 을 @id 로 참조(중복 방지).
+// BlogPosting 스키마 — 인파 노트 글 1편(app/blog/[slug])의 출처와
+// 날짜(datePublished/dateModified)를 명시하고, author/publisher 는 Organization 을 @id 로 참조(중복 방지).
 // 사실 필드만 담는다(평점·후기 없음 = 정직성 레드라인). cover 없으면 전역 OG 이미지로 폴백.
 export function blogPosting(post: {
   title: string;
@@ -97,12 +99,10 @@ export function blogPosting(post: {
     "@type": "BlogPosting",
     headline: post.title,
     description,
-    image: post.cover_image || `${SITE_URL}/opengraph-image.jpg`,
+    image: absoluteSiteUrl(post.cover_image || "/opengraph-image.jpg"),
     ...(post.published_at ? { datePublished: post.published_at } : {}),
     dateModified: post.updated_at || post.published_at || undefined,
-    author: post.author_name
-      ? { "@type": "Person", name: post.author_name }
-      : { "@id": `${SITE_URL}/#organization` },
+    author: { "@id": `${SITE_URL}/#organization` },
     publisher: { "@id": `${SITE_URL}/#organization` },
     mainEntityOfPage: { "@type": "WebPage", "@id": url },
     inLanguage: "ko-KR",
