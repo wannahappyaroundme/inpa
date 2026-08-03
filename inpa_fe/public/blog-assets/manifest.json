@@ -418,7 +418,7 @@
   {
     "path": "/blog-assets/보험설계사-고객관리표-필수-항목/cover.webp",
     "role": "cover",
-    "source_type": "product-capture",
+    "source_type": "original-diagram",
     "license": "project-owned",
     "created_at": "2026-08-03",
     "used_by": [
@@ -429,7 +429,7 @@
     "width": 1600,
     "height": 900,
     "alt": "",
-    "caption": "고객 단계와 다음 연락을 정리한 인파 고객 목록 화면"
+    "caption": "고객별 다음 행동을 한 줄씩 정리한 고객 목록 구성 예시"
   },
   {
     "path": "/blog-assets/보험설계사-고객관리표-필수-항목/seven-fields-ee30deb5.webp",
@@ -525,7 +525,7 @@
     "width": 1600,
     "height": 900,
     "alt": "",
-    "caption": "상담 일정을 떠올리게 하는 달력과 시계 소품의 연출 장면"
+    "caption": "상담 일정을 떠올리게 하는 달력과 안경, 펜 소품의 연출 장면"
   },
   {
     "path": "/blog-assets/상담-예약률-높이는-문자와-화법/booking-screen-fb312def.webp",

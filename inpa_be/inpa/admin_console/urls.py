@@ -7,6 +7,7 @@ from django.urls import path
 from .views import (
     AdminActivationFunnelView,
     AdminBlogPostDetailView,
+    AdminBlogLegalReviewView,
     AdminBlogPostListView,
     AdminBillingAgreementListView,
     AdminBillingCouponDetailView,
@@ -172,6 +173,8 @@ urlpatterns = [
     # ── 인파 노트 (admin CRUD — 읽기는 /api/v1/board/blog/ AllowAny) ────
     path('admin/blog/', AdminBlogPostListView.as_view(), name='admin-blog-list'),
     path('admin/blog/<int:post_id>/', AdminBlogPostDetailView.as_view(), name='admin-blog-detail'),
+    path('admin/blog/<int:post_id>/legal-review/', AdminBlogLegalReviewView.as_view(),
+         name='admin-blog-legal-review'),
 
     # ── 운영 설정 — 요금제 한도 ────────────────────────────────────────
     path('admin/settings/plans/', AdminPlanListView.as_view(), name='admin-plan-list'),

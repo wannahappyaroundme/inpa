@@ -71,11 +71,11 @@ function destinationFor(href: string): CtaDestination {
 }
 
 export function BlogAnalytics({ slug, category }: BlogAnalyticsProps) {
-  const viewedRef = useRef(false);
+  const viewedSlugRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (viewedRef.current) return;
-    viewedRef.current = true;
+    if (viewedSlugRef.current === slug) return;
+    viewedSlugRef.current = slug;
     safeTrack("blog_view", trackingContext({ slug, category }));
   }, [slug, category]);
 

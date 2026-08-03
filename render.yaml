@@ -22,7 +22,8 @@ services:
       DATABASE_URL=postgres://build:build@localhost:5432/build
       SECRET_KEY=build-only-not-a-secret
       python manage.py collectstatic --noinput
-    # 시작: 마이그레이션 → 표준담보/정규화 시드(멱등) → gunicorn. $PORT 는 Render 주입.
+    # 시작: 마이그레이션 → 표준담보/정규화 시드(멱등) → 버전형 블로그 릴리스 → gunicorn.
+    #   블로그 릴리스는 같은 version+digest 재실행 시 no-op이고, 원복 snapshot을 DB에도 보존한다.
     #   ★ 2026-07-04 시드 안전화(LB-1): seed_normalization/seed_jobs 는 SeedMarker 버전
     #   가드로 보호 — 마커가 최신이면 no-op(배포·콜드스타트마다 실행돼도 무해).
     #   seed_normalization 은 identity-true upsert(자연키 get_or_create, PK 보존)라
@@ -40,6 +41,7 @@ services:
       python manage.py seed_promotion &&
       python manage.py seed_billing &&
       python manage.py seed_boards &&
+      python manage.py refresh_blog_content --apply --backup-out /tmp/inpa-blog-content-before.json &&
       gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
       - key: DJANGO_SETTINGS_MODULE

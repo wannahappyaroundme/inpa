@@ -666,6 +666,16 @@ class InquiryReplyViewSet(viewsets.GenericViewSet):
 
 # ─── BlogPostViewSet (인파 노트 — 공개읽기) ──────────────────────────
 
+def _public_blog_posts():
+    """Return published rows, failing closed when a protected review is stale."""
+    qs = BlogPost.objects.select_related('author').filter(is_published=True)
+    protected = qs.filter(
+        Q(legal_review_required=True) | Q(review_gate=BlogPost.REVIEW_GATE_LEGAL)
+    )
+    stale_ids = [post.pk for post in protected if not post.has_current_legal_review()]
+    return qs.exclude(pk__in=stale_ids)
+
+
 class BlogPostViewSet(viewsets.GenericViewSet):
     """인파 노트 — GET AllowAny (게시글만), slug 조회, 관리자는 초안도 열람.
 
@@ -681,7 +691,7 @@ class BlogPostViewSet(viewsets.GenericViewSet):
         user = self.request.user
         # 비로그인·일반 설계사: 게시된 글만. 관리자: 초안 포함.
         if not (user and user.is_authenticated and _is_admin(user)):
-            qs = qs.filter(is_published=True)
+            qs = _public_blog_posts()
         return qs
 
     # ── GET /board/blog/ ─────────────────────────────────────────
@@ -707,7 +717,9 @@ class BlogPostViewSet(viewsets.GenericViewSet):
         if post.is_published and not is_admin and not is_showcase_user(user):
             BlogPost.objects.filter(pk=post.pk).update(view_count=F('view_count') + 1)
             post.refresh_from_db(fields=['view_count'])
-        published = BlogPost.objects.filter(is_published=True).exclude(pk=post.pk)
+        published = _public_blog_posts().exclude(pk=post.pk).order_by(
+            '-published_at', '-created_at', '-pk',
+        )
         same_category = list(published.filter(category=post.category)[:3])
         missing = 3 - len(same_category)
         others = list(published.exclude(category=post.category)[:missing]) if missing else []
@@ -720,7 +732,7 @@ class BlogPostViewSet(viewsets.GenericViewSet):
     # ── GET /board/blog/sitemap/ ────────────────────────────────
     def sitemap(self, request):
         """게시된 글의 {slug, updated_at} 경량 목록 (비페이지네이션, sitemap.xml 구동용)."""
-        rows = BlogPost.objects.filter(is_published=True).order_by(
+        rows = _public_blog_posts().order_by(
             '-published_at', '-created_at'
         ).values('slug', 'updated_at')
         return Response([{'slug': r['slug'], 'updated_at': r['updated_at']} for r in rows])

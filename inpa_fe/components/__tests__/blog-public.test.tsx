@@ -41,6 +41,20 @@ vi.mock("@/public/blog-assets/manifest.json", () => ({
       alt: "달력과 보험 증서를 상징하는 파란색 정물",
       caption: "보험나이 계산의 기준이 되는 생일 전후 6개월",
     },
+    {
+      path: "/blog-assets/보험나이-계산법-6개월-예시/product-screen.webp",
+      role: "product-screen",
+      source_type: "product-capture",
+      license: "project-owned",
+      created_at: "2026-08-03",
+      used_by: ["보험나이-계산법-6개월-예시"],
+      pii_reviewed: true,
+      rights_reviewed: true,
+      width: 1200,
+      height: 800,
+      alt: "보험나이를 확인하는 화면의 주요 항목을 보여주는 예시 화면",
+      caption: "보험나이 확인 화면",
+    },
   ],
 }));
 
@@ -51,7 +65,9 @@ import { BlogMarkdown } from "@/components/blog-markdown";
 import { blogPosting } from "@/components/structured-data";
 import { getBlogAsset } from "@/lib/blog-assets";
 import BlogListPage from "@/app/blog/page";
-import BlogPostPage from "@/app/blog/[slug]/page";
+import BlogLoading from "@/app/blog/loading";
+import BlogError from "@/app/blog/error";
+import BlogPostPage, { generateMetadata } from "@/app/blog/[slug]/page";
 
 const ownedImagePath = "/blog-assets/보험나이-계산법-6개월-예시/cover.webp";
 
@@ -113,6 +129,7 @@ const detailPost = {
   seo_title: "보험나이 계산법",
   seo_description: "보험나이를 쉽게 계산하는 방법",
   is_noindex: false,
+  legal_review_public: null,
   related_posts: relatedPosts,
 };
 
@@ -142,6 +159,17 @@ it("Strict Mode 재실행에도 글 조회 분석은 마운트당 한 번만 보
     utm_medium: "none",
     utm_campaign: "absent",
   });
+});
+
+it("같은 컴포넌트에서 다른 글로 이동하면 새 글 조회를 한 번 보낸다", () => {
+  const view = render(<BlogAnalytics slug="첫-글" category="sales" />);
+  view.rerender(<BlogAnalytics slug="둘째-글" category="coverage" />);
+
+  expect(analytics.track).toHaveBeenCalledTimes(2);
+  expect(analytics.track).toHaveBeenLastCalledWith("blog_view", expect.objectContaining({
+    slug: "둘째-글",
+    category: "coverage",
+  }));
 });
 
 it("글 CTA는 허용된 UTM 분류만 보내고 임의 원문은 남기지 않는다", async () => {
@@ -247,6 +275,15 @@ it("목록 카드는 작성자 반복 없이 제목·요약·날짜만 보여준
   expect(screen.queryByText("인파 담당자")).not.toBeInTheDocument();
 });
 
+it("선택한 카테고리와 페이지 이동 영역을 보조기기에 알린다", async () => {
+  api.listBlogPosts.mockResolvedValue({ count: 13, next: "/blog?page=2", previous: null, results: [listPost] });
+
+  render(await BlogListPage({ searchParams: Promise.resolve({ category: "coverage" }) }));
+
+  expect(screen.getByRole("link", { name: "보장분석" })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("navigation", { name: "블로그 페이지" })).toBeInTheDocument();
+});
+
 it("상세는 작성자·발행 및 수정일·관련 글 세 편·공식 안내를 한 번만 보여준다", async () => {
   api.getBlogPost.mockResolvedValue(detailPost);
 
@@ -281,6 +318,30 @@ it("상세 페이지에는 추적되는 가입 CTA 하나만 보여준다", asyn
   }));
 });
 
+it("상세 본문은 읽기 좋은 680px 폭과 커버 전용 sizes를 사용한다", async () => {
+  api.getBlogPost.mockResolvedValue(detailPost);
+  const { container } = render(await BlogPostPage({ params: Promise.resolve({ slug: detailPost.slug }) }));
+
+  expect(container.querySelector("main")).toHaveClass("max-w-[680px]");
+  const detailCover = [...container.querySelectorAll("img")].find(
+    (image) => image.getAttribute("sizes") === "(max-width: 767px) calc(100vw - 32px), 680px",
+  );
+  expect(detailCover).toHaveAttribute(
+    "sizes",
+    "(max-width: 767px) calc(100vw - 32px), 680px",
+  );
+});
+
+it("소유 커버의 공유 메타데이터는 실제 1600×900 크기를 사용한다", async () => {
+  api.getBlogPost.mockResolvedValue({ ...detailPost, slug: "메타데이터-전용-글" });
+
+  const metadata = await generateMetadata({ params: Promise.resolve({ slug: "메타데이터-전용-글" }) });
+
+  expect(metadata.openGraph?.images).toEqual([
+    { url: ownedImagePath, width: 1600, height: 900 },
+  ]);
+});
+
 it("안심 가이드도 별도 법률 안내를 더하지 않고 공식 안내만 한 번 보여준다", async () => {
   const safetyPost = {
     ...detailPost,
@@ -298,6 +359,25 @@ it("안심 가이드도 별도 법률 안내를 더하지 않고 공식 안내�
   expect(
     screen.getAllByText("인파는 보험을 중개·권유하지 않는 분석·정리 소프트웨어입니다. 보장 판단과 고객 안내는 설계사님의 업무입니다.")
   ).toHaveLength(1);
+});
+
+it("검토를 마친 안심 가이드는 공개 가능한 이름·자격·확인일만 보여준다", async () => {
+  api.getBlogPost.mockResolvedValue({
+    ...detailPost,
+    slug: "검토를-마친-안심-가이드",
+    category: "safety" as const,
+    category_label: "안심 가이드",
+    legal_review_public: {
+      reviewer: "김검토",
+      credential: "대한민국 변호사",
+      reviewed_on: "2026-08-03",
+    },
+  });
+
+  render(await BlogPostPage({ params: Promise.resolve({ slug: "검토를-마친-안심-가이드" }) }));
+
+  expect(screen.getByText("자료 확인: 김검토 · 대한민국 변호사 · 2026년 8월 3일")).toBeInTheDocument();
+  expect(document.body.textContent).not.toContain("검토 기록 2026");
 });
 
 it("소유 이미지 렌더러는 매니페스트 import에서 자산 정보를 읽는다", () => {
@@ -325,12 +405,21 @@ it("블로그 구조화 데이터는 소유 커버 경로를 절대 URL로 정�
 });
 
 it("소유 커버는 장식 이미지로 크기와 반응형 sizes를 제공한다", () => {
-  render(<BlogCoverImage src={ownedImagePath} categoryLabel="보장분석" />);
+  render(<BlogCoverImage src={ownedImagePath} categoryLabel="보장분석" sizes="321px" />);
 
   const image = document.querySelector("img");
   expect(image).toHaveAttribute("alt", "");
   expect(image?.parentElement).toHaveStyle({ aspectRatio: "1600 / 900" });
-  expect(image).toHaveAttribute("sizes");
+  expect(image).toHaveAttribute("sizes", "321px");
+});
+
+it("외부 커버도 16:9 공간을 먼저 확보해 화면 밀림을 줄인다", () => {
+  render(<BlogCoverImage src="https://cdn.example.com/legacy.webp" categoryLabel="고객 늘리기" />);
+
+  const image = document.querySelector("img");
+  expect(image?.parentElement).toHaveStyle({ aspectRatio: "16 / 9" });
+  expect(image).toHaveAttribute("width", "1600");
+  expect(image).toHaveAttribute("height", "900");
 });
 
 it("서버 호환 본문 이미지 렌더러는 대체 설명과 캡션이 있는 figure를 만든다", () => {
@@ -339,6 +428,34 @@ it("서버 호환 본문 이미지 렌더러는 대체 설명과 캡션이 있�
   expect(document.querySelector("figure")).toBeInTheDocument();
   expect(screen.getByRole("img", { name: "달력과 보험 증서를 상징하는 파란색 정물" })).toBeInTheDocument();
   expect(screen.getByText("보험나이 계산의 기준이 되는 생일 전후 6개월")).toBeInTheDocument();
+});
+
+it("제품 화면 캡션은 설명 도식과 구분되는 화면 예시 표식을 제공한다", () => {
+  render(<BlogContentImage src="/blog-assets/보험나이-계산법-6개월-예시/product-screen.webp" />);
+
+  expect(screen.getByText("화면 예시")).toBeInTheDocument();
+  expect(document.querySelector("figure")).toHaveAttribute("data-asset-role", "product-screen");
+});
+
+it("넓은 표는 키보드로 초점을 옮겨 가로로 살펴볼 수 있다", () => {
+  render(<BlogMarkdown body={"| 항목 | 내용 |\n| --- | --- |\n| 다음 행동 | 연락하기 |"} />);
+
+  const region = screen.getByRole("region", { name: "표 내용, 좌우로 이동해 확인할 수 있습니다" });
+  expect(region).toHaveAttribute("tabindex", "0");
+  expect(screen.getByRole("columnheader", { name: "항목" })).toHaveAttribute("scope", "col");
+});
+
+it("블로그 로딩 화면과 오류 화면은 다음 행동을 제공한다", async () => {
+  const reset = vi.fn();
+  const user = userEvent.setup();
+
+  const loading = render(<BlogLoading />);
+  expect(screen.getByRole("status", { name: "블로그 글을 불러오고 있어요" })).toBeInTheDocument();
+  loading.unmount();
+
+  render(<BlogError error={new Error("temporary")} reset={reset} />);
+  await user.click(screen.getByRole("button", { name: "다시 불러오기" }));
+  expect(reset).toHaveBeenCalledTimes(1);
 });
 
 it("마크다운의 독립된 소유 이미지는 문단 안에 figure를 넣지 않는다", () => {

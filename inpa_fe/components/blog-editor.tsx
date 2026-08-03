@@ -4,17 +4,19 @@
 // ★ 미리보기는 공개 페이지와 '같은 렌더러'(BlogMarkdown) + .theme-light 로 실제 라이트 화면과
 //   동일하게 보여준다(렌더 단일 소스). 초안 비공개 미리보기 = 이 실시간 미리보기 패널.
 //   공개 URL(/blog/<slug>)은 서버 렌더가 토큰 없이 조회하므로 '게시된' 글에서만 새 탭으로 연다.
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   adminGetBlogPost,
   adminCreateBlogPost,
+  adminRecordBlogLegalReview,
   adminUpdateBlogPost,
   uploadBlogCover,
   type BlogWritePayload,
+  type BlogReviewGate,
   type CopyWarning,
 } from "@/lib/adminApi";
-import { BLOG_CATEGORIES, type BlogCategory } from "@/lib/api";
+import { ApiError, BLOG_CATEGORIES, type BlogCategory } from "@/lib/api";
 import { BlogMarkdown } from "@/components/blog-markdown";
 
 const EXCERPT_MAX = 200;
@@ -45,6 +47,14 @@ function slugify(s: string): string {
 const inputCls =
   "w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[14px] text-ink outline-none focus:border-brand";
 
+function toDateTimeLocal(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
   const router = useRouter();
 
@@ -67,19 +77,29 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
 
   // 커버
   const [coverImage, setCoverImage] = useState<string | null>(null); // 저장된 R2 URL
-  const [coverFile, setCoverFile] = useState<File | null>(null); // 신규 글: 저장 전 대기 파일
+  const [coverAssetPath, setCoverAssetPath] = useState(""); // 배포 자산 경로
+  const [coverFile, setCoverFile] = useState<File | null>(null); // 신규·검토 글: 저장 전 대기 파일
   const [coverPreview, setCoverPreview] = useState<string | null>(null); // objectURL(대기 미리보기)
   const [coverCleared, setCoverCleared] = useState(false); // 수정 중 커버를 명시적으로 지웠나(→ PATCH 에 cover_image:null 전송)
   const [coverUploading, setCoverUploading] = useState(false);
 
   // 저장 상태
   const [published, setPublished] = useState(false);
+  const [reviewGate, setReviewGate] = useState<BlogReviewGate>("none");
+  const [legalReviewRequired, setLegalReviewRequired] = useState(false);
+  const [legalReviewer, setLegalReviewer] = useState("");
+  const [legalCredential, setLegalCredential] = useState("");
+  const [legalReviewedAt, setLegalReviewedAt] = useState("");
+  const [legalReference, setLegalReference] = useState("");
+  const [reviewContentDigest, setReviewContentDigest] = useState("");
+  const [legalDraftReady, setLegalDraftReady] = useState(false);
   const [initialSlug, setInitialSlug] = useState("");
   const [initialPublished, setInitialPublished] = useState(false);
   const [saving, setSaving] = useState(false);
   const [warnings, setWarnings] = useState<CopyWarning[]>([]);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [reviewResultUnknown, setReviewResultUnknown] = useState(false);
 
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
@@ -103,7 +123,18 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
         setIsNoindex(p.is_noindex);
         setBody(p.body);
         setCoverImage(p.cover_image);
+        setCoverAssetPath(p.cover_asset_path ?? "");
         setPublished(p.is_published);
+        setReviewGate(p.review_gate ?? "none");
+        setLegalReviewRequired(p.legal_review_required ?? false);
+        setLegalReviewer(p.legal_review?.reviewer ?? "");
+        setLegalCredential(p.legal_review?.credential ?? "");
+        setLegalReviewedAt(toDateTimeLocal(p.legal_review?.reviewed_at ?? null));
+        setLegalReference(p.legal_review?.reference ?? "");
+        setReviewContentDigest(p.review_content_digest);
+        setLegalDraftReady(
+          p.review_gate === "legal" && !p.is_published && !p.legal_review,
+        );
         setInitialPublished(p.is_published);
         if (p.seo_title || p.seo_description || p.is_noindex) setSeoOpen(true);
       } catch {
@@ -119,53 +150,54 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
 
   // ── 제목 → 슬러그 자동(신규·미수정 시에만) ───────────────────
   function onTitleChange(v: string) {
+    invalidateLegalDraft();
     setTitle(v);
     if (!postId && !slugTouched) setSlug(slugify(v));
   }
 
-  // ── 본문 마크다운 툴바 ──────────────────────────────────────
-  const wrapInline = useCallback(
-    (before: string, after: string, placeholder: string) => {
-      const ta = bodyRef.current;
-      if (!ta) return;
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const selected = body.slice(start, end) || placeholder;
-      const next = body.slice(0, start) + before + selected + after + body.slice(end);
-      setBody(next);
-      requestAnimationFrame(() => {
-        ta.focus();
-        const pos = start + before.length;
-        ta.setSelectionRange(pos, pos + selected.length);
-      });
-    },
-    [body]
-  );
+  function invalidateLegalDraft() {
+    if (reviewGate === "legal") setLegalDraftReady(false);
+  }
 
-  const insertBlock = useCallback(
-    (snippet: string) => {
-      const ta = bodyRef.current;
-      if (!ta) {
-        setBody((b) => (b ? b + "\n\n" + snippet : snippet));
-        return;
-      }
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const beforeText = body.slice(0, start);
-      const afterText = body.slice(end);
-      const lead = beforeText === "" || beforeText.endsWith("\n\n") ? "" : beforeText.endsWith("\n") ? "\n" : "\n\n";
-      const trail = afterText === "" || afterText.startsWith("\n") ? "" : "\n";
-      const insert = lead + snippet + trail;
-      const next = beforeText + insert + afterText;
-      setBody(next);
-      requestAnimationFrame(() => {
-        ta.focus();
-        const pos = start + insert.length;
-        ta.setSelectionRange(pos, pos);
-      });
-    },
-    [body]
-  );
+  // ── 본문 마크다운 툴바 ──────────────────────────────────────
+  function wrapInline(before: string, after: string, placeholder: string) {
+    const ta = bodyRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = body.slice(start, end) || placeholder;
+    const next = body.slice(0, start) + before + selected + after + body.slice(end);
+    invalidateLegalDraft();
+    setBody(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      const pos = start + before.length;
+      ta.setSelectionRange(pos, pos + selected.length);
+    });
+  }
+
+  function insertBlock(snippet: string) {
+    invalidateLegalDraft();
+    const ta = bodyRef.current;
+    if (!ta) {
+      setBody((b) => (b ? b + "\n\n" + snippet : snippet));
+      return;
+    }
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const beforeText = body.slice(0, start);
+    const afterText = body.slice(end);
+    const lead = beforeText === "" || beforeText.endsWith("\n\n") ? "" : beforeText.endsWith("\n") ? "\n" : "\n\n";
+    const trail = afterText === "" || afterText.startsWith("\n") ? "" : "\n";
+    const insert = lead + snippet + trail;
+    const next = beforeText + insert + afterText;
+    setBody(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      const pos = start + insert.length;
+      ta.setSelectionRange(pos, pos);
+    });
+  }
 
   const TOOLS: { label: string; title: string; run: () => void }[] = [
     { label: "H2", title: "소제목", run: () => insertBlock("## 소제목") },
@@ -183,13 +215,15 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
     const file = e.target.files?.[0];
     e.target.value = ""; // 같은 파일 재선택 허용
     if (!file) return;
-    if (postId) {
+    invalidateLegalDraft();
+    if (postId && reviewGate !== "legal") {
       // 이미 글이 존재 → 즉시 R2 업로드하고 저장된 URL 확보(미리보기 = 실제 저장본)
       setCoverUploading(true);
       setSaveError(null);
       try {
         const updated = await uploadBlogCover(postId, file);
         setCoverImage(updated.cover_image);
+        setCoverAssetPath(updated.cover_asset_path ?? "");
         setCoverFile(null);
         setCoverPreview(null);
         setCoverCleared(false);
@@ -199,7 +233,7 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
         setCoverUploading(false);
       }
     } else {
-      // 신규 글 → 저장(생성) 시 함께 업로드. 그 전엔 로컬 미리보기.
+      // 신규 글과 법률 검토 글은 저장 단계에서 함께 올린다.
       setCoverFile(file);
       setCoverPreview((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -209,7 +243,9 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
   }
 
   function clearCover() {
+    invalidateLegalDraft();
     setCoverImage(null);
+    setCoverAssetPath("");
     setCoverFile(null);
     setCoverCleared(true); // 저장 시 cover_image:null 을 명시 전송해 R2 커버를 실제로 제거
     setCoverPreview((prev) => {
@@ -225,12 +261,21 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
     };
   }, [coverPreview]);
 
-  const shownCover = coverPreview ?? coverImage;
+  const shownCover = coverPreview ?? (coverAssetPath || coverImage);
+
+  const legalReviewComplete = Boolean(
+    legalReviewer.trim() && legalCredential.trim() && legalReference.trim(),
+  );
+  const canPublish = reviewGate !== "legal";
 
   // ── 저장 ────────────────────────────────────────────────────
   async function doSave(targetPublished: boolean) {
     if (!title.trim() || !body.trim()) {
       setSaveError("제목과 본문을 채워 주세요.");
+      return;
+    }
+    if (targetPublished && reviewGate === "legal") {
+      setSaveError("글을 임시저장한 뒤 현재 저장본의 법률 검토를 확인해 주세요.");
       return;
     }
     if (targetPublished && !confirm("이 글을 공개할까요? 공개하면 블로그 목록과 검색에 노출돼요.")) return;
@@ -240,6 +285,7 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
 
     setSaving(true);
     setSaveError(null);
+    setReviewResultUnknown(false);
     setSavedMsg(null);
     setWarnings([]);
 
@@ -250,6 +296,7 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
       category,
       tags: tags.trim(),
       is_published: targetPublished,
+      review_gate: reviewGate,
       seo_title: seoTitle.trim(),
       seo_description: seoDescription.trim(),
       is_noindex: isNoindex,
@@ -257,40 +304,155 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
     // 슬러그는 값이 있을 때만 보낸다(비우면 BE 가 제목에서 자동 생성).
     if (slug.trim()) payload.slug = slug.trim();
     // 수정 중 커버를 지웠으면 명시적으로 null 전송 — 부분 PATCH 라 누락 시 기존 커버가 그대로 남는다(D1).
-    if (postId && coverCleared) payload.cover_image = null;
+    if (postId && coverCleared) {
+      payload.cover_image = null;
+      payload.cover_asset_path = "";
+    }
+    // 배포 자산이 있는 법률 글에 새 파일을 올리면 새 파일이 실제 커버가 되게 한다.
+    if (reviewGate === "legal" && coverFile) payload.cover_asset_path = "";
 
     try {
-      if (postId) {
-        const res = await adminUpdateBlogPost(postId, payload);
-        setPublished(res.is_published);
-        setInitialPublished(res.is_published);
-        setInitialSlug(res.slug);
-        setSlug(res.slug);
-        setCoverImage(res.cover_image);
-        setCoverCleared(false);
-        setWarnings(res.warnings ?? []);
-        setSavedMsg(res.is_published ? "저장하고 게시했어요." : "임시저장했어요.");
-      } else {
-        const res = await adminCreateBlogPost(payload, coverFile);
+      const wasNew = !postId;
+      let res = postId
+        ? await adminUpdateBlogPost(postId, payload, reviewGate === "legal" ? coverFile : null)
+        : await adminCreateBlogPost(payload, coverFile);
+      if (wasNew) {
         setPostId(res.id);
-        setPublished(res.is_published);
-        setInitialPublished(res.is_published);
-        setInitialSlug(res.slug);
-        setSlug(res.slug);
         setSlugTouched(true);
-        setCoverImage(res.cover_image);
-        setCoverFile(null);
-        setCoverPreview((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return null;
-        });
-        setWarnings(res.warnings ?? []);
-        setSavedMsg(res.is_published ? "새 글을 게시했어요." : "새 글을 임시저장했어요.");
         // 리마운트 없이 주소만 편집 URL 로 바꿔 새로고침 대비(내비게이션 아님 = 상태 보존).
         window.history.replaceState(null, "", `/admin/blog/${res.id}/edit`);
       }
+      setPublished(res.is_published);
+      setInitialPublished(res.is_published);
+      setInitialSlug(res.slug);
+      setSlug(res.slug);
+      setCoverImage(res.cover_image);
+      setCoverAssetPath(res.cover_asset_path ?? "");
+      setLegalReviewRequired(res.legal_review_required ?? false);
+      setReviewGate(res.review_gate ?? "none");
+      setReviewContentDigest(res.review_content_digest);
+      if (res.review_gate === "legal" && !res.is_published) {
+        // 콘텐츠 저장과 검토 확인은 서로 다른 운영 행동이다. 이전 기록은 재사용하지 않는다.
+        setLegalReviewer("");
+        setLegalCredential("");
+        setLegalReviewedAt("");
+        setLegalReference("");
+        setLegalDraftReady(true);
+      } else {
+        setLegalReviewer(res.legal_review?.reviewer ?? "");
+        setLegalCredential(res.legal_review?.credential ?? "");
+        setLegalReviewedAt(toDateTimeLocal(res.legal_review?.reviewed_at ?? null));
+        setLegalReference(res.legal_review?.reference ?? "");
+        setLegalDraftReady(false);
+      }
+      setCoverFile(null);
+      setCoverPreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setCoverCleared(false);
+      setWarnings(res.warnings ?? []);
+      setSavedMsg(res.is_published
+        ? (wasNew ? "새 글을 게시했어요." : "저장하고 게시했어요.")
+        : res.review_gate === "legal"
+          ? "임시저장했어요. 현재 저장본을 확인한 뒤 법률 검토를 기록해 주세요."
+          : "임시저장했어요.");
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "저장에 실패했어요.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmLegalReviewAndPublish() {
+    if (!postId || reviewGate !== "legal" || !legalDraftReady) {
+      setSaveError("현재 내용을 먼저 임시저장해 주세요.");
+      return;
+    }
+    if (!legalReviewComplete) {
+      setSaveError("검토 담당자, 자격, 근거를 입력해 주세요.");
+      return;
+    }
+    if (!confirm("현재 저장된 글 전체를 법률 검토한 사실을 기록하고 공개할까요? 확인 시각은 서버에 기록돼요.")) return;
+
+    setSaving(true);
+    setSaveError(null);
+    setReviewResultUnknown(false);
+    setSavedMsg(null);
+    setWarnings([]);
+    try {
+      const res = await adminRecordBlogLegalReview(postId, {
+        reviewer: legalReviewer.trim(),
+        credential: legalCredential.trim(),
+        reference: legalReference.trim(),
+        content_digest: reviewContentDigest,
+        publish: true,
+      });
+      setPublished(res.is_published);
+      setInitialPublished(res.is_published);
+      setLegalReviewer(res.legal_review?.reviewer ?? "");
+      setLegalCredential(res.legal_review?.credential ?? "");
+      setLegalReviewedAt(toDateTimeLocal(res.legal_review?.reviewed_at ?? null));
+      setLegalReference(res.legal_review?.reference ?? "");
+      setReviewContentDigest(res.review_content_digest);
+      setLegalDraftReady(false);
+      setWarnings(res.warnings ?? []);
+      setSavedMsg("법률 검토 기록을 남기고 게시했어요.");
+    } catch (e) {
+      if (e instanceof ApiError && e.status < 500) {
+        setLegalReviewedAt("");
+        setLegalDraftReady(false);
+        setSaveError(e.message);
+      } else {
+        try {
+          const latest = await adminGetBlogPost(postId);
+          setTitle(latest.title);
+          setBody(latest.body);
+          setExcerpt(latest.excerpt);
+          setCategory(latest.category);
+          setTags(latest.tags);
+          setSeoTitle(latest.seo_title);
+          setSeoDescription(latest.seo_description);
+          setIsNoindex(latest.is_noindex);
+          setPublished(latest.is_published);
+          setInitialPublished(latest.is_published);
+          setInitialSlug(latest.slug);
+          setSlug(latest.slug);
+          setCoverImage(latest.cover_image);
+          setCoverAssetPath(latest.cover_asset_path ?? "");
+          setLegalReviewRequired(latest.legal_review_required ?? false);
+          setReviewGate(latest.review_gate ?? "none");
+          setReviewContentDigest(latest.review_content_digest);
+          if (
+            latest.is_published
+            && latest.legal_review
+            && latest.legal_review_is_current
+          ) {
+            setLegalReviewer(latest.legal_review.reviewer);
+            setLegalCredential(latest.legal_review.credential);
+            setLegalReviewedAt(toDateTimeLocal(latest.legal_review.reviewed_at));
+            setLegalReference(latest.legal_review.reference);
+            setLegalDraftReady(false);
+            setSavedMsg("서버에서 게시 상태를 다시 확인했어요. 법률 검토 기록이 정상적으로 남아 있어요.");
+          } else if (!latest.is_published && !latest.legal_review) {
+            setLegalReviewedAt("");
+            setLegalDraftReady(latest.review_content_digest === reviewContentDigest);
+            setSaveError(
+              latest.review_content_digest === reviewContentDigest
+                ? "게시 상태를 다시 확인했어요. 글은 임시저장 상태예요. 검토 확인을 다시 진행해 주세요."
+                : "다른 곳에서 글이 수정됐어요. 최신 내용을 다시 확인해 주세요.",
+            );
+          } else {
+            setLegalDraftReady(false);
+            setReviewResultUnknown(true);
+            setSaveError("게시 결과를 정확히 확인하지 못했어요. 새로고침해서 게시 상태를 확인해 주세요.");
+          }
+        } catch {
+          setLegalDraftReady(false);
+          setReviewResultUnknown(true);
+          setSaveError("게시 결과를 확인하지 못했어요. 새로고침해서 게시 상태를 확인해 주세요.");
+        }
+      }
     } finally {
       setSaving(false);
     }
@@ -339,7 +501,26 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
               새 탭에서 보기
             </a>
           )}
-          {published ? (
+          {reviewGate === "legal" ? (
+            <>
+              <button
+                onClick={() => doSave(false)}
+                disabled={saving}
+                className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-semibold text-ink2 hover:border-brand disabled:opacity-50"
+              >
+                {saving ? "저장 중..." : published ? "수정 임시저장" : "임시저장"}
+              </button>
+              {!published && (
+                <button
+                  onClick={confirmLegalReviewAndPublish}
+                  disabled={saving || !legalDraftReady || !legalReviewComplete}
+                  className="rounded-xl bg-brand px-4 py-2 text-[13px] font-bold text-white disabled:opacity-50"
+                >
+                  {saving ? "확인 중..." : "현재 저장본 검토 확인·게시"}
+                </button>
+              )}
+            </>
+          ) : published ? (
             <>
               <button
                 onClick={() => doSave(false)}
@@ -350,7 +531,7 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
               </button>
               <button
                 onClick={() => doSave(true)}
-                disabled={saving}
+                disabled={saving || !canPublish}
                 className="rounded-xl bg-brand px-4 py-2 text-[13px] font-bold text-white disabled:opacity-50"
               >
                 {saving ? "저장 중..." : "수정 저장"}
@@ -367,7 +548,7 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
               </button>
               <button
                 onClick={() => doSave(true)}
-                disabled={saving}
+                disabled={saving || !canPublish}
                 className="rounded-xl bg-brand px-4 py-2 text-[13px] font-bold text-white disabled:opacity-50"
               >
                 {saving ? "저장 중..." : "게시하기"}
@@ -385,7 +566,16 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
       )}
       {saveError && (
         <div className="mb-3 rounded-xl border border-line bg-danger-tint px-4 py-2.5 text-[13px] text-danger-ink">
-          {saveError}
+          <p>{saveError}</p>
+          {reviewResultUnknown && (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-2 rounded-lg border border-danger-ink/30 bg-surface px-3 py-1.5 font-semibold text-danger-ink"
+            >
+              게시 상태 새로고침
+            </button>
+          )}
         </div>
       )}
       {warnings.length > 0 && (
@@ -420,6 +610,7 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
             <input
               value={slug}
               onChange={(e) => {
+                invalidateLegalDraft();
                 setSlug(e.target.value);
                 setSlugTouched(true);
               }}
@@ -439,7 +630,10 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
             <label className="mb-1 block text-[12px] font-semibold text-ink3">카테고리</label>
             <select
               value={category}
-              onChange={(e) => setCategory(e.target.value as BlogCategory)}
+              onChange={(e) => {
+                invalidateLegalDraft();
+                setCategory(e.target.value as BlogCategory);
+              }}
               className={inputCls}
             >
               {BLOG_CATEGORIES.map((c) => (
@@ -453,11 +647,97 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
             <label className="mb-1 block text-[12px] font-semibold text-ink3">태그 (쉼표로 구분)</label>
             <input
               value={tags}
-              onChange={(e) => setTags(e.target.value)}
+              onChange={(e) => {
+                invalidateLegalDraft();
+                setTags(e.target.value);
+              }}
               placeholder="예: 신입설계사, 보장분석"
               className={inputCls}
             />
           </div>
+        </div>
+
+        <div className="rounded-xl border border-line bg-surface px-4 py-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="blog-review-gate" className="mb-1 block text-[12px] font-semibold text-ink3">게시 전 검토</label>
+              {legalReviewRequired ? (
+                <div className={`${inputCls} flex min-h-[43px] items-center bg-surface2 font-semibold text-ink2`}>
+                  법률 검토 기록 필요 (고정)
+                </div>
+              ) : (
+                <select
+                  id="blog-review-gate"
+                  value={reviewGate}
+                  onChange={(e) => {
+                    setReviewGate(e.target.value as BlogReviewGate);
+                    setLegalDraftReady(false);
+                  }}
+                  className={inputCls}
+                >
+                  <option value="none">추가 검토 없음</option>
+                  <option value="legal">법률 검토 기록 필요</option>
+                </select>
+              )}
+            </div>
+            <div className="flex items-end">
+              <p className="pb-2 text-[12px] leading-5 text-ink3">
+                법률 검토 대상 글은 글을 먼저 저장한 뒤, 입력한 검토 기록으로 현재 글을 확인하고 게시해요.
+              </p>
+            </div>
+          </div>
+          {reviewGate === "legal" && (
+            <div className="mt-4 grid grid-cols-1 gap-4 border-t border-line pt-4 sm:grid-cols-2">
+              <p className="sm:col-span-2 text-[12px] leading-5 text-ink3">
+                {legalDraftReady
+                  ? "현재 임시저장본이 검토 확인을 기다리고 있어요. 아래 기록을 입력한 뒤 별도 게시 버튼을 눌러 주세요."
+                  : published
+                    ? "내용을 수정하면 먼저 임시저장해 주세요. 이전 검토 기록은 새 글에 이어지지 않아요."
+                    : "내용을 바꿨다면 다시 임시저장한 뒤 검토 확인을 진행해 주세요."}
+              </p>
+              <div>
+                <label htmlFor="blog-legal-reviewer" className="mb-1 block text-[12px] font-semibold text-ink3">검토 담당자</label>
+                <input
+                  id="blog-legal-reviewer"
+                  value={legalReviewer}
+                  onChange={(e) => setLegalReviewer(e.target.value)}
+                  placeholder="담당자 또는 기관"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label htmlFor="blog-legal-credential" className="mb-1 block text-[12px] font-semibold text-ink3">검토 자격</label>
+                <input
+                  id="blog-legal-credential"
+                  value={legalCredential}
+                  onChange={(e) => setLegalCredential(e.target.value)}
+                  placeholder="예: 대한민국 변호사"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label htmlFor="blog-legal-reviewed-at" className="mb-1 block text-[12px] font-semibold text-ink3">검토 확인 시각</label>
+                <input
+                  id="blog-legal-reviewed-at"
+                  type="datetime-local"
+                  value={legalReviewedAt}
+                  readOnly
+                  placeholder="검토 기록 시 자동 입력"
+                  className={`${inputCls} bg-surface2 text-ink3`}
+                />
+              </div>
+              <div>
+                <label htmlFor="blog-legal-reference" className="mb-1 block text-[12px] font-semibold text-ink3">검토 근거</label>
+                <input
+                  id="blog-legal-reference"
+                  value={legalReference}
+                  onChange={(e) => setLegalReference(e.target.value)}
+                  placeholder="문서명 또는 기록 번호"
+                  className={inputCls}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 커버 */}
@@ -501,7 +781,10 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
           </div>
           <textarea
             value={excerpt}
-            onChange={(e) => setExcerpt(e.target.value)}
+            onChange={(e) => {
+              invalidateLegalDraft();
+              setExcerpt(e.target.value);
+            }}
             maxLength={EXCERPT_MAX}
             rows={2}
             placeholder="한두 문장으로 이 글이 무엇을 돕는지 적어 주세요"
@@ -527,7 +810,10 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
                 </div>
                 <input
                   value={seoTitle}
-                  onChange={(e) => setSeoTitle(e.target.value)}
+                  onChange={(e) => {
+                    invalidateLegalDraft();
+                    setSeoTitle(e.target.value);
+                  }}
                   maxLength={SEO_TITLE_MAX}
                   className={inputCls}
                 />
@@ -539,14 +825,24 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
                 </div>
                 <textarea
                   value={seoDescription}
-                  onChange={(e) => setSeoDescription(e.target.value)}
+                  onChange={(e) => {
+                    invalidateLegalDraft();
+                    setSeoDescription(e.target.value);
+                  }}
                   maxLength={SEO_DESC_MAX}
                   rows={2}
                   className={`${inputCls} resize-none`}
                 />
               </div>
               <label className="flex items-center gap-2 text-[13px] text-ink2">
-                <input type="checkbox" checked={isNoindex} onChange={(e) => setIsNoindex(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={isNoindex}
+                  onChange={(e) => {
+                    invalidateLegalDraft();
+                    setIsNoindex(e.target.checked);
+                  }}
+                />
                 검색에 숨기기 (색인 제외)
               </label>
             </div>
@@ -574,7 +870,10 @@ export function BlogEditor({ postId: initialPostId }: { postId?: number }) {
           <textarea
             ref={bodyRef}
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => {
+              invalidateLegalDraft();
+              setBody(e.target.value);
+            }}
             placeholder="마크다운으로 본문을 작성하세요. 위 버튼으로 소제목·목록·표를 넣을 수 있어요."
             className="min-h-[480px] w-full resize-y rounded-b-xl bg-surface px-4 py-3 text-[14px] leading-7 text-ink outline-none font-mono"
           />

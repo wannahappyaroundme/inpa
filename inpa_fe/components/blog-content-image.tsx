@@ -12,9 +12,13 @@ export function BlogContentImage({ src }: { src: string | undefined }) {
   }
   const asset = getBlogAsset(path);
   if (!asset) return null;
+  const isProductScreen = asset.role === "product-screen";
 
   return (
-    <figure className="my-6">
+    <figure
+      className={`my-6 ${isProductScreen ? "rounded-2xl bg-surface2 p-3 sm:p-4" : ""}`}
+      data-asset-role={asset.role}
+    >
       <Image
         src={asset.path}
         alt={asset.alt}
@@ -23,7 +27,16 @@ export function BlogContentImage({ src }: { src: string | undefined }) {
         sizes="(max-width: 768px) 100vw, 680px"
         className="h-auto w-full rounded-xl border border-line"
       />
-      {asset.caption && <figcaption className="mt-2 text-center text-[13px] leading-6 text-ink3">{asset.caption}</figcaption>}
+      {asset.caption && (
+        <figcaption className="mt-2 text-center text-[13px] leading-6 text-ink3">
+          {isProductScreen && (
+            <span className="mr-2 inline-flex rounded-full bg-accent-tint px-2 py-0.5 text-[11px] font-bold text-brand">
+              화면 예시
+            </span>
+          )}
+          {asset.caption}
+        </figcaption>
+      )}
     </figure>
   );
 }

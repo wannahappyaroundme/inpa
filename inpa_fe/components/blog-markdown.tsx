@@ -77,13 +77,18 @@ const components: Components = {
     </pre>
   ),
   table: ({ children }) => (
-    <div className="my-5 overflow-x-auto rounded-xl border border-line">
+    <div
+      className="my-5 overflow-x-auto rounded-xl border border-line focus:outline-none focus:ring-2 focus:ring-brand/40"
+      role="region"
+      aria-label="표 내용, 좌우로 이동해 확인할 수 있습니다"
+      tabIndex={0}
+    >
       <table className="w-full border-collapse text-[14px] text-ink2">{children}</table>
     </div>
   ),
   thead: ({ children }) => <thead className="bg-surface2">{children}</thead>,
   th: ({ children }) => (
-    <th className="border-b border-line px-3 py-2 text-left font-bold text-ink whitespace-nowrap">{children}</th>
+    <th scope="col" className="border-b border-line px-3 py-2 text-left font-bold text-ink whitespace-nowrap">{children}</th>
   ),
   td: ({ children }) => <td className="border-b border-line px-3 py-2 align-top">{children}</td>,
 };

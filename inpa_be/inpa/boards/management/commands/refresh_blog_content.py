@@ -19,6 +19,7 @@ class Command(BaseCommand):
         parser.add_argument('--apply', action='store_true')
         parser.add_argument('--backup-out')
         parser.add_argument('--restore-from')
+        parser.add_argument('--restore-from-marker', action='store_true')
         parser.add_argument('--confirm-version')
         parser.add_argument('--content-dir')
         parser.add_argument('--manifest-path')
@@ -26,18 +27,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         apply_requested = options['apply']
         restore_from = options['restore_from']
-        if apply_requested and restore_from:
-            raise CommandError('--apply와 --restore-from은 동시에 사용할 수 없습니다')
+        restore_from_marker = options['restore_from_marker']
+        if sum(bool(value) for value in (apply_requested, restore_from, restore_from_marker)) > 1:
+            raise CommandError('--apply와 복원 옵션은 동시에 사용할 수 없습니다')
         if apply_requested and not options['backup_out']:
             raise CommandError('--apply에는 --backup-out이 필요합니다')
-        if restore_from:
+        if restore_from or restore_from_marker:
             if options['confirm_version'] != RELEASE_VERSION:
                 raise CommandError(
                     f'--restore-from에는 --confirm-version {RELEASE_VERSION}이 필요합니다'
                 )
             try:
                 result = restore_release(
-                    snapshot_path=Path(restore_from),
+                    snapshot_path=Path(restore_from) if restore_from else None,
                     confirm_version=options['confirm_version'],
                 )
             except ReleaseError as exc:

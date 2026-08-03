@@ -53,6 +53,7 @@ function RelatedPostCard({ post }: { post: BlogRelatedPost }) {
         <BlogCoverImage
           src={post.cover_image}
           categoryLabel={post.category_label}
+          sizes="(max-width: 639px) calc(100vw - 32px), 210px"
           className="transition duration-300 group-hover:scale-[1.03]"
         />
       </div>
@@ -85,6 +86,9 @@ export async function generateMetadata({
   const title = post.seo_title || post.title;
   const description = post.seo_description || post.excerpt || "";
   const image = post.cover_image || "/opengraph-image.jpg";
+  const openGraphImage = image.startsWith("/blog-assets/")
+    ? { url: image, width: 1600, height: 900 }
+    : { url: image };
   return {
     title,
     description,
@@ -98,7 +102,7 @@ export async function generateMetadata({
       title,
       description,
       url: `/blog/${post.slug}`,
-      images: [{ url: image, width: 1200, height: 630 }],
+      images: [openGraphImage],
     },
     twitter: {
       card: "summary_large_image",
@@ -149,7 +153,7 @@ export default async function BlogPostPage({
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
+      <main className="mx-auto max-w-[680px] px-4 py-10 sm:px-6 sm:py-14">
         <article>
           {/* 카테고리 + 제목 + 작성 정보 */}
           <Link
@@ -192,7 +196,12 @@ export default async function BlogPostPage({
           {/* 커버 */}
           {post.cover_image && (
             <div className="mt-7 overflow-hidden rounded-2xl border border-line">
-              <BlogCoverImage src={post.cover_image} categoryLabel={post.category_label} className="h-auto w-full" />
+              <BlogCoverImage
+                src={post.cover_image}
+                categoryLabel={post.category_label}
+                sizes="(max-width: 767px) calc(100vw - 32px), 680px"
+                className="h-auto w-full"
+              />
             </div>
           )}
 
@@ -210,6 +219,12 @@ export default async function BlogPostPage({
                 </span>
               ))}
             </div>
+          )}
+
+          {post.legal_review_public && (
+            <p className="mt-7 rounded-xl bg-surface2 px-4 py-3 text-[12px] leading-6 text-ink3">
+              자료 확인: {post.legal_review_public.reviewer} · {post.legal_review_public.credential} · {fmtDate(post.legal_review_public.reviewed_on)}
+            </p>
           )}
 
           {/* 정직성 한 줄(§6) */}

@@ -9,6 +9,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from inpa.accounts.models import Profile, User
 from inpa.boards.blog_release import (
@@ -23,7 +24,11 @@ from inpa.boards.blog_release import (
     restore_release,
     validate_release,
 )
-from inpa.boards.models import BlogContentRelease, BlogPost
+from inpa.boards.models import (
+    BlogContentRelease,
+    BlogPost,
+    blog_review_content_digest,
+)
 
 
 SAFETY_SLUGS = [
@@ -203,6 +208,7 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
     def test_parser_rejects_impossible_legal_review_date(self):
         self.metadata[0]['legal_review'] = {
             'reviewer': '실제 검토자',
+            'credential': '대한민국 변호사',
             'reviewed_at': '2026-99-99T10:30:00+09:00',
             'reference': '내부 검토 기록',
         }
@@ -210,6 +216,49 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
 
         with self.assertRaisesRegex(ReleaseError, 'legal_review'):
             load_release(self.content_dir, self.manifest_path)
+
+    def test_parser_rejects_legal_review_without_timezone(self):
+        self.metadata[0]['legal_review'] = {
+            'reviewer': '검토자',
+            'credential': '대한민국 변호사',
+            'reviewed_at': '2026-08-03T10:30:00',
+            'reference': '검토 기록',
+        }
+        self.flush_package()
+
+        with self.assertRaisesRegex(ReleaseError, 'legal_review'):
+            load_release(self.content_dir, self.manifest_path)
+
+    def test_parser_rejects_values_over_blog_model_field_limits(self):
+        cases = [
+            ('title', '가' * 201),
+            ('slug', '가' * 201),
+            ('excerpt', '가' * 301),
+            ('cover_asset_path', '/' + 'a' * 300),
+            ('seo_title', '가' * 61),
+            ('seo_description', '가' * 161),
+            ('tags', ['가' * 201]),
+        ]
+        for index, (field, value) in enumerate(cases):
+            with self.subTest(field=field):
+                if index:
+                    self.package_tmp.cleanup()
+                    self.make_package()
+                if field == 'title':
+                    self.flush_package()
+                    source_path = sorted(self.content_dir.glob('*.md'))[0]
+                    source = source_path.read_text(encoding='utf-8')
+                    source_path.write_text(
+                        source.replace('# 1번 검증 글', f'# {value}', 1),
+                        encoding='utf-8',
+                        newline='\n',
+                    )
+                else:
+                    self.metadata[0][field] = value
+                    self.flush_package()
+
+                with self.assertRaisesRegex(ReleaseError, '길이'):
+                    load_release(self.content_dir, self.manifest_path)
 
     def test_validator_requires_exactly_twenty_items(self):
         self.metadata.pop()
@@ -354,9 +403,12 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
 
         _, _, errors = self.load_and_validate()
 
-        self.assertTrue(any('법무 검토' in error and SAFETY_SLUGS[0] in error for error in errors))
+        self.assertTrue(any(
+            '법률 검토 대상 배포 원고' in error and SAFETY_SLUGS[0] in error
+            for error in errors
+        ))
 
-    def test_validator_allows_safety_publication_with_complete_legal_review(self):
+    def test_validator_rejects_repository_supplied_legal_review(self):
         safety_index = next(
             index for index, metadata in enumerate(self.metadata)
             if metadata['slug'] == SAFETY_SLUGS[0]
@@ -364,6 +416,7 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
         self.metadata[safety_index]['is_published'] = True
         self.metadata[safety_index]['legal_review'] = {
             'reviewer': '실제 검토자',
+            'credential': '대한민국 변호사',
             'reviewed_at': '2026-08-03T10:30:00+09:00',
             'reference': '내부 검토 기록 2026-08-03',
         }
@@ -371,7 +424,28 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
 
         _, _, errors = self.load_and_validate()
 
-        self.assertEqual(errors, [])
+        self.assertTrue(any(
+            '배포 원고에는 법률 검토 기록을 넣을 수 없습니다' in error
+            for error in errors
+        ))
+        self.assertTrue(any('임시저장 상태' in error for error in errors))
+
+    def test_validator_rejects_any_published_legal_gated_release_post(self):
+        regular_index = next(
+            index for index, metadata in enumerate(self.metadata)
+            if metadata['slug'] not in SAFETY_SLUGS
+        )
+        self.metadata[regular_index]['review_gate'] = 'legal'
+        self.metadata[regular_index]['is_published'] = True
+        self.flush_package()
+
+        _, _, errors = self.load_and_validate()
+
+        self.assertTrue(any(
+            '법률 검토 대상 배포 원고는 임시저장 상태' in error
+            and self.metadata[regular_index]['slug'] in error
+            for error in errors
+        ))
 
     def test_validator_rejects_published_body_template_disclaimer(self):
         self.bodies[0] += f'\n\n{BLOG_TEMPLATE_DISCLAIMER}'
@@ -783,6 +857,58 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
             self.assertFalse(BlogPost.objects.get(slug=slug).is_published)
         self.assertIsNotNone(BlogContentRelease.objects.get(version=RELEASE_VERSION).reverted_at)
 
+    def test_restore_recovers_review_timestamp_and_content_binding(self):
+        existing = self.create_existing_targets()
+        original = existing[0]
+        original.review_gate = BlogPost.REVIEW_GATE_LEGAL
+        original.legal_review = {
+            'reviewer': '김검토',
+            'credential': '대한민국 변호사',
+            'reviewed_at': '2026-08-03T09:00:00+09:00',
+            'reference': '내부 검토 기록',
+        }
+        original.legal_review_reviewer = '김검토'
+        original.legal_review_credential = '대한민국 변호사'
+        original.legal_reviewed_at = parse_datetime('2026-08-03T09:00:00+09:00')
+        original.legal_review_reference = '내부 검토 기록'
+        original.legal_review_content_digest = blog_review_content_digest(original)
+        original.save()
+        apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+
+        restore_release(
+            snapshot_path=self.backup_path,
+            confirm_version=RELEASE_VERSION,
+        )
+
+        restored = BlogPost.objects.get(pk=original.pk)
+        self.assertEqual(restored.legal_reviewed_at.isoformat(), '2026-08-03T00:00:00+00:00')
+        self.assertTrue(restored.has_current_legal_review())
+
+    def test_reapply_after_restore_requires_a_new_release_version(self):
+        self.create_existing_targets()
+        apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+        restore_release(snapshot_path=self.backup_path, confirm_version=RELEASE_VERSION)
+
+        with self.assertRaisesRegex(ReleaseError, '새 release version'):
+            apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+
+    def test_apply_persists_review_gate_state(self):
+        self.create_existing_targets()
+
+        apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+
+        safety = BlogPost.objects.get(slug=SAFETY_SLUGS[0])
+        self.assertEqual(safety.review_gate, BlogPost.REVIEW_GATE_LEGAL)
+        self.assertTrue(safety.legal_review_required)
+        self.assertIsNone(safety.legal_review)
+        self.assertFalse(safety.is_published)
+        marker = BlogContentRelease.objects.get(version=RELEASE_VERSION)
+        self.assertEqual(marker.before_snapshot['kind'], 'before')
+        self.assertEqual(marker.after_snapshot['kind'], 'after')
+        self.assertEqual(marker.before_snapshot['snapshot_digest'], json.loads(
+            self.backup_path.read_text(encoding='utf-8')
+        )['snapshot_digest'])
+
 
 class RefreshBlogContentCommandTests(ReleasePackageMixin, TestCase):
     def setUp(self):
@@ -874,6 +1000,31 @@ class RefreshBlogContentCommandTests(ReleasePackageMixin, TestCase):
         self.assertIn(PRIMARY_EXISTING_SLUG, output)
         self.assertNotIn('기존 본문', output)
         self.assertNotIn('@example.com', output)
+
+    def test_restore_command_can_use_durable_marker_snapshot(self):
+        backup_path = Path(self.output_tmp.name) / 'before.json'
+        items, _ = load_release(self.content_dir, self.manifest_path)
+        self.seed_existing_targets(items)
+        call_command(
+            'refresh_blog_content',
+            apply=True,
+            backup_out=str(backup_path),
+            content_dir=str(self.content_dir),
+            manifest_path=str(self.manifest_path),
+            stdout=io.StringIO(),
+        )
+        backup_path.unlink()
+        stdout = io.StringIO()
+
+        call_command(
+            'refresh_blog_content',
+            restore_from_marker=True,
+            confirm_version=RELEASE_VERSION,
+            stdout=stdout,
+        )
+
+        self.assertIn('restored=13', stdout.getvalue())
+        self.assertIn('unpublished=7', stdout.getvalue())
 
     def test_apply_and_restore_options_are_mutually_exclusive(self):
         with self.assertRaisesRegex(CommandError, '동시에'):

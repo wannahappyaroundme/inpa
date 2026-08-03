@@ -6,9 +6,40 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 import { parseWebpDimensions } from "./check-blog-release.mjs";
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "check-blog-release.mjs");
+const VISUAL_FIXTURE_SVG = Buffer.from(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900">
+    <defs><linearGradient id="g"><stop stop-color="#3157d5"/><stop offset="1" stop-color="#f3f5f9"/></linearGradient></defs>
+    <rect width="1600" height="900" fill="url(#g)"/>
+    <circle cx="420" cy="450" r="220" fill="#fff" opacity=".8"/>
+    <rect x="790" y="240" width="510" height="420" rx="52" fill="#172342"/>
+  </svg>
+`);
+const VISUAL_COVER_A = await sharp(VISUAL_FIXTURE_SVG).webp({ quality: 72 }).toBuffer();
+const VISUAL_COVER_B = await sharp(VISUAL_FIXTURE_SVG).webp({ quality: 94 }).toBuffer();
+
+async function makeValidRaster(width, height, seed) {
+  const pixels = Buffer.alloc(9 * 8);
+  let state = seed * 0x9e3779b1;
+  for (let index = 0; index < pixels.length; index += 1) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    pixels[index] = state & 0xff;
+  }
+  return sharp(pixels, { raw: { width: 9, height: 8, channels: 1 } })
+    .resize(width, height, { kernel: "nearest" })
+    .webp({ lossless: true })
+    .toBuffer();
+}
+
+const VALID_FIXTURE_COVERS = await Promise.all(
+  Array.from({ length: 20 }, (_, index) => makeValidRaster(1600, 900, index + 101)),
+);
+const VALID_FIXTURE_INLINE = await makeValidRaster(1200, 800, 999);
 
 function makeWebp(width, height, seed = 0, padding = 0) {
   const payload = Buffer.alloc(10);
@@ -30,6 +61,14 @@ function makeChunkWebp(kind, payload) {
   const padded = payload.length % 2 ? Buffer.concat([payload, Buffer.from([0])]) : payload;
   const chunk = Buffer.concat([Buffer.from(kind), sizeLE(payload.length), padded]);
   return Buffer.concat([Buffer.from("RIFF"), sizeLE(4 + chunk.length), Buffer.from("WEBP"), chunk]);
+}
+
+function appendWebpChunk(buffer, kind, payload) {
+  const padded = payload.length % 2 ? Buffer.concat([payload, Buffer.from([0])]) : payload;
+  const chunk = Buffer.concat([Buffer.from(kind), sizeLE(payload.length), padded]);
+  const result = Buffer.concat([buffer, chunk]);
+  result.writeUInt32LE(result.length - 8, 4);
+  return result;
 }
 
 function makeVp8lWebp(width, height) {
@@ -79,7 +118,7 @@ function createFixture() {
   for (const [index, slug] of slugs.entries()) {
     const dir = path.join(assetsRoot, slug);
     fs.mkdirSync(dir, { recursive: true });
-    const cover = makeWebp(1600, 900, index + 1);
+    const cover = VALID_FIXTURE_COVERS[index];
     fs.writeFileSync(path.join(dir, "cover.webp"), cover);
     const coverPath = `/blog-assets/${slug}/cover.webp`;
     manifest.push({
@@ -99,7 +138,7 @@ function createFixture() {
 
     let body = "본문입니다.";
     if (index === 0) {
-      const inline = makeWebp(1200, 800, 31);
+      const inline = VALID_FIXTURE_INLINE;
       const digest = crypto.createHash("sha256").update(inline).digest("hex").slice(0, 8);
       const filename = `diagram-${digest}.webp`;
       fs.writeFileSync(path.join(dir, filename), inline);
@@ -194,7 +233,19 @@ test("fails for a manifest file that is missing on disk", () => {
 });
 
 test("fails for an undeclared WebP", () => {
-  expectFailure(({ assetsRoot, slugs }) => fs.writeFileSync(path.join(assetsRoot, slugs[0], "extra.webp"), makeWebp(100, 100)), /manifest에 선언되지 않은 WebP/);
+  expectFailure(({ assetsRoot, slugs }) => fs.writeFileSync(path.join(assetsRoot, slugs[0], "extra.webp"), makeWebp(100, 100)), /manifest에 선언되지 않은 파일/);
+});
+
+test("fails for an undeclared non-WebP file in the public asset folder", () => {
+  expectFailure(({ assetsRoot, slugs }) => {
+    fs.writeFileSync(path.join(assetsRoot, slugs[0], "cover-source.svg"), "<svg/>");
+  }, /manifest에 선언되지 않은 파일/);
+});
+
+test("fails for a header-only WebP without decodable raster payload", () => {
+  expectFailure(({ assetsRoot, slugs }) => {
+    fs.writeFileSync(path.join(assetsRoot, slugs[0], "cover.webp"), makeWebp(1600, 900, 1));
+  }, /실제 이미지 데이터/);
 });
 
 test("fails for external and traversal asset paths", () => {
@@ -216,11 +267,44 @@ test("fails for external and traversal image references in Markdown", () => {
   }
 });
 
+test("fails for external shortcut and collapsed image references in Markdown", () => {
+  for (const reference of [
+    "![외부 이미지]\n\n[외부 이미지]: https://example.com/shortcut.webp",
+    "![외부 이미지][]\n\n[외부 이미지]: https://example.com/collapsed.webp",
+  ]) {
+    expectFailure((fixture) => {
+      const entry = inlineEntry(fixture);
+      const doc = path.join(fixture.contentRoot, `01-${fixture.slugs[0]}.md`);
+      fs.writeFileSync(doc, fs.readFileSync(doc, "utf8").replace(
+        /!\[[^\]]+\]\([^\)]+\)/,
+        reference,
+      ));
+    }, /본문 이미지는 .*안전한 로컬 경로/);
+  }
+});
+
 test("fails for byte-identical covers", () => {
   expectFailure(({ assetsRoot, slugs }) => {
     const first = fs.readFileSync(path.join(assetsRoot, slugs[0], "cover.webp"));
     fs.writeFileSync(path.join(assetsRoot, slugs[1], "cover.webp"), first);
   }, /대표 이미지가 바이트 단위로 중복/);
+});
+
+test("fails for visually identical covers even when WebP bytes differ", () => {
+  assert.notDeepEqual(VISUAL_COVER_A, VISUAL_COVER_B);
+  expectFailure(({ assetsRoot, slugs }) => {
+    fs.writeFileSync(path.join(assetsRoot, slugs[0], "cover.webp"), VISUAL_COVER_A);
+    fs.writeFileSync(path.join(assetsRoot, slugs[1], "cover.webp"), VISUAL_COVER_B);
+  }, /대표 이미지가 시각적으로 중복/);
+});
+
+test("fails when a WebP contains EXIF, XMP, or ICC metadata chunks", () => {
+  for (const kind of ["EXIF", "XMP ", "ICCP"]) {
+    expectFailure(({ assetsRoot, slugs }) => {
+      const file = path.join(assetsRoot, slugs[0], "cover.webp");
+      fs.writeFileSync(file, appendWebpChunk(fs.readFileSync(file), kind, Buffer.from("private-metadata")));
+    }, /EXIF, XMP, ICC 메타데이터/);
+  }
 });
 
 test("fails when a post repeats its cover bytes as an inline image", () => {
@@ -292,6 +376,49 @@ test("fails when cover or inline byte budgets are exceeded", () => {
     const file = path.join(fixture.frontendRoot, "public", ...entry.path.slice(1).split("/"));
     fs.writeFileSync(file, makeWebp(1200, 800, 31, 180 * 1024));
   }, /본문 이미지 용량은 180KB 이하/);
+});
+
+test("fails when the conservative 12-cover list budget is exceeded", () => {
+  expectFailure((fixture) => {
+    for (let index = 0; index < 12; index += 1) {
+      fs.writeFileSync(
+        path.join(fixture.assetsRoot, fixture.slugs[index], "cover.webp"),
+        makeWebp(1600, 900, index + 1, 110 * 1024),
+      );
+    }
+  }, /목록 대표 이미지 합계/);
+});
+
+test("fails when one post's cover and inline assets exceed the detail budget", () => {
+  expectFailure((fixture) => {
+    const slug = fixture.slugs[0];
+    const doc = path.join(fixture.contentRoot, `01-${slug}.md`);
+    let source = fs.readFileSync(doc, "utf8");
+    for (let index = 0; index < 6; index += 1) {
+      const bytes = makeWebp(1200, 800, 80 + index, 160 * 1024);
+      const digest = crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 8);
+      const filename = `detail-${index}-${digest}.webp`;
+      const assetPath = `/blog-assets/${slug}/${filename}`;
+      fs.writeFileSync(path.join(fixture.assetsRoot, slug, filename), bytes);
+      fixture.manifest.push({
+        path: assetPath,
+        role: "diagram",
+        source_type: "original-diagram",
+        license: "project-owned",
+        created_at: "2026-08-03",
+        used_by: [slug],
+        pii_reviewed: true,
+        rights_reviewed: true,
+        width: 1200,
+        height: 800,
+        alt: `고객 상담 내용을 단계별로 정리해 보여주는 ${index + 1}번 설명 이미지`,
+        caption: `고객 상담 정리 ${index + 1}번`,
+      });
+      source += `\n\n![고객 상담 내용을 단계별로 정리해 보여주는 ${index + 1}번 설명 이미지](${assetPath})`;
+    }
+    fs.writeFileSync(doc, source);
+    writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
+  }, /상세 이미지 합계/);
 });
 
 test("fails for non-hash and hash-mismatched inline filenames", () => {

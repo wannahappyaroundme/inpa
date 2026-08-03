@@ -1,7 +1,7 @@
 """Validated, versioned release tooling for repository-owned blog content."""
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 import hashlib
 import json
 import os
@@ -15,7 +15,12 @@ from django.utils.dateparse import parse_datetime
 
 from inpa.core.copyguard import scan_blog_content
 
-from .models import BlogContentRelease, BlogPost
+from .models import (
+    BlogContentRelease,
+    BlogPost,
+    blog_review_content_digest,
+    valid_blog_legal_review,
+)
 
 
 RELEASE_VERSION = '2026-08-blog-enrichment-v1'
@@ -68,6 +73,14 @@ PUBLIC_CONTENT_FIELDS = (
     'category',
     'tags',
     'is_published',
+    'review_gate',
+    'legal_review_required',
+    'legal_review',
+    'legal_review_reviewer',
+    'legal_review_credential',
+    'legal_reviewed_at',
+    'legal_review_reference',
+    'legal_review_content_digest',
     'published_at',
     'seo_title',
     'seo_description',
@@ -82,6 +95,11 @@ _SNAPSHOT_STRING_LIMITS = {
     'cover_asset_path': 300,
     'category': 30,
     'tags': 200,
+    'review_gate': 20,
+    'legal_review_reviewer': 100,
+    'legal_review_credential': 100,
+    'legal_review_reference': 200,
+    'legal_review_content_digest': 64,
     'seo_title': 60,
     'seo_description': 160,
 }
@@ -117,9 +135,6 @@ _REFERENCE_DEFINITION_PATTERN = re.compile(
     r'^\s*\[(?P<label>[^\]]+)\]:\s*(?P<path>\S+)', re.MULTILINE,
 )
 _ISO_DATE_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}$')
-_ISO_DATETIME_PATTERN = re.compile(
-    r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?$'
-)
 _DIGEST_PATTERN = re.compile(r'^[0-9a-f]{64}$')
 
 
@@ -156,26 +171,6 @@ def _is_nonempty_string(value):
     return type(value) is str and bool(value.strip())
 
 
-def _valid_legal_review(value):
-    if type(value) is not dict:
-        return False
-    if set(value) != {'reviewer', 'reviewed_at', 'reference'}:
-        return False
-    structurally_valid = (
-        _is_nonempty_string(value.get('reviewer'))
-        and _is_nonempty_string(value.get('reference'))
-        and _is_nonempty_string(value.get('reviewed_at'))
-        and bool(_ISO_DATETIME_PATTERN.fullmatch(value['reviewed_at']))
-    )
-    if not structurally_valid:
-        return False
-    try:
-        datetime.fromisoformat(value['reviewed_at'].replace('Z', '+00:00'))
-    except ValueError:
-        return False
-    return True
-
-
 def _parse_source(path, source_bytes):
     try:
         source = source_bytes.decode('utf-8')
@@ -210,7 +205,7 @@ def _parse_source(path, source_bytes):
         'none', 'legal',
     }:
         raise ReleaseError(f'{path.name}: review_gate는 none 또는 legal이어야 합니다')
-    if metadata['legal_review'] is not None and not _valid_legal_review(metadata['legal_review']):
+    if metadata['legal_review'] is not None and not valid_blog_legal_review(metadata['legal_review']):
         raise ReleaseError(f'{path.name}: legal_review 기록이 완전하지 않습니다')
     if type(metadata['sources']) is not list:
         raise ReleaseError(f'{path.name}: sources는 목록이어야 합니다')
@@ -219,6 +214,22 @@ def _parse_source(path, source_bytes):
     body = match.group('body').rstrip('\n')
     if not title or not body:
         raise ReleaseError(f'{path.name}: 제목과 본문은 비어 있을 수 없습니다')
+    stored_values = {
+        'title': title,
+        'slug': metadata['slug'],
+        'excerpt': metadata['excerpt'],
+        'cover_asset_path': metadata['cover_asset_path'],
+        'category': metadata['category'],
+        'tags': ','.join(metadata['tags']),
+        'seo_title': metadata['seo_title'],
+        'seo_description': metadata['seo_description'],
+    }
+    for field_name, value in stored_values.items():
+        max_length = BlogPost._meta.get_field(field_name).max_length
+        if max_length is not None and len(value) > max_length:
+            raise ReleaseError(
+                f'{path.name}: {field_name} 길이가 {max_length}자를 넘습니다'
+            )
     return BlogReleaseItem(title=title, body=body, **metadata)
 
 
@@ -394,11 +405,16 @@ def validate_release(items, *, manifest_path=None):
                 f'{item.slug}: 카피 검사 경고 {warning["issue"]} ({warning["field"]})'
             )
 
+        if item.legal_review is not None:
+            errors.append(
+                f'{item.slug}: 배포 원고에는 법률 검토 기록을 넣을 수 없습니다. '
+                '관리자 검토 확인 단계에서 기록하세요'
+            )
+        if item.review_gate == 'legal' and item.is_published:
+            errors.append(f'{item.slug}: 법률 검토 대상 배포 원고는 임시저장 상태여야 합니다')
         if item.slug in SAFETY_SLUGS:
             if item.review_gate != 'legal':
                 errors.append(f'{item.slug}: 법무 검토 대상은 review_gate=legal이어야 합니다')
-            if item.is_published and not _valid_legal_review(item.legal_review):
-                errors.append(f'{item.slug}: 유효한 법무 검토 기록 전에는 공개할 수 없습니다')
 
         normalized_body = ' '.join(item.body.split())
         if item.is_published and normalized_disclaimer in normalized_body:
@@ -412,7 +428,7 @@ def _serialize_public_fields(post):
         value = getattr(post, field)
         if field == 'cover_image':
             value = value.name
-        elif field == 'published_at':
+        elif field in {'published_at', 'legal_reviewed_at'}:
             value = value.isoformat() if value is not None else None
         values[field] = value
     return values
@@ -518,7 +534,8 @@ def _validate_snapshot_rows(rows, *, expected_slugs, label):
         ):
             raise ReleaseError(f'{label} 공개 필드 구성이 올바르지 않습니다')
         string_fields = set(PUBLIC_CONTENT_FIELDS) - {
-            'cover_image', 'is_published', 'published_at', 'is_noindex',
+            'cover_image', 'is_published', 'legal_review_required', 'legal_review',
+            'published_at', 'legal_reviewed_at', 'is_noindex',
         }
         if any(type(row['fields'][field]) is not str for field in string_fields):
             raise ReleaseError(f'{label} 공개 필드 타입이 올바르지 않습니다')
@@ -537,10 +554,73 @@ def _validate_snapshot_rows(rows, *, expected_slugs, label):
             raise ReleaseError(f'{label} 필수 공개 필드가 비어 있습니다')
         if row['fields']['category'] not in dict(BlogPost.CATEGORY_CHOICES):
             raise ReleaseError(f'{label} category가 올바르지 않습니다')
+        if row['fields']['review_gate'] not in dict(BlogPost.REVIEW_GATE_CHOICES):
+            raise ReleaseError(f'{label} review_gate가 올바르지 않습니다')
+        legal_review = row['fields']['legal_review']
+        if legal_review is not None and not valid_blog_legal_review(legal_review):
+            raise ReleaseError(f'{label} legal_review가 올바르지 않습니다')
+        if (
+            row['fields']['is_published']
+            and row['fields']['review_gate'] == BlogPost.REVIEW_GATE_LEGAL
+            and not valid_blog_legal_review(legal_review)
+        ):
+            raise ReleaseError(f'{label} 법률 검토 기록 없이 게시할 수 없습니다')
         if type(row['fields']['is_published']) is not bool or type(
             row['fields']['is_noindex']
         ) is not bool:
             raise ReleaseError(f'{label} 공개 필드 타입이 올바르지 않습니다')
+        if type(row['fields']['legal_review_required']) is not bool:
+            raise ReleaseError(f'{label} 법률 검토 고정 필드 타입이 올바르지 않습니다')
+        if (
+            row['fields']['legal_review_required']
+            and row['fields']['review_gate'] != BlogPost.REVIEW_GATE_LEGAL
+        ):
+            raise ReleaseError(f'{label} 법률 검토 고정 글의 review_gate가 올바르지 않습니다')
+        typed_review_values = (
+            row['fields']['legal_review_reviewer'],
+            row['fields']['legal_review_credential'],
+            row['fields']['legal_reviewed_at'],
+            row['fields']['legal_review_reference'],
+            row['fields']['legal_review_content_digest'],
+        )
+        if any(typed_review_values) and not all(typed_review_values):
+            raise ReleaseError(f'{label} 법률 검토 저장 필드 구성이 올바르지 않습니다')
+        parsed_reviewed_at = (
+            parse_datetime(row['fields']['legal_reviewed_at'])
+            if row['fields']['legal_reviewed_at'] is not None else None
+        )
+        if row['fields']['legal_reviewed_at'] is not None and parsed_reviewed_at is None:
+            raise ReleaseError(f'{label} legal_reviewed_at이 올바르지 않습니다')
+        if all(typed_review_values) and (
+            legal_review is None
+            or legal_review['reviewer'].strip() != row['fields']['legal_review_reviewer']
+            or legal_review['credential'].strip() != row['fields']['legal_review_credential']
+            or legal_review['reference'].strip() != row['fields']['legal_review_reference']
+            or parse_datetime(legal_review['reviewed_at']) != parsed_reviewed_at
+        ):
+            raise ReleaseError(f'{label} 법률 검토 원본과 저장 필드가 일치하지 않습니다')
+        if row['fields']['legal_review_content_digest'] and not _DIGEST_PATTERN.fullmatch(
+            row['fields']['legal_review_content_digest']
+        ):
+            raise ReleaseError(f'{label} 법률 검토 본문 해시가 올바르지 않습니다')
+        if (
+            row['fields']['is_published']
+            and (
+                row['fields']['legal_review_required']
+                or row['fields']['review_gate'] == BlogPost.REVIEW_GATE_LEGAL
+            )
+        ):
+            candidate = BlogPost(**{
+                field: value
+                for field, value in row['fields'].items()
+                if field not in {'published_at', 'legal_reviewed_at'}
+            })
+            if (
+                not all(typed_review_values)
+                or row['fields']['legal_review_content_digest']
+                != blog_review_content_digest(candidate)
+            ):
+                raise ReleaseError(f'{label} 법률 검토 본문 버전이 올바르지 않습니다')
         if row['fields']['slug'] != row['slug']:
             raise ReleaseError(f'{label} post slug가 일치하지 않습니다')
         if parse_datetime(row['guard_updated_at']) is None:
@@ -592,17 +672,27 @@ def _validate_after_snapshot(after_path, digest):
 
 
 def _release_values(item):
-    return {
+    values = {
         'title': item.title,
         'body': item.body,
         'excerpt': item.excerpt,
+        'cover_image': None,
         'cover_asset_path': item.cover_asset_path,
         'category': item.category,
         'tags': ','.join(item.tags),
-        'is_published': item.is_published,
+        'is_published': item.is_published and item.review_gate != 'legal',
+        'review_gate': item.review_gate,
+        'legal_review_required': item.slug in SAFETY_SLUGS,
+        'legal_review': None,
+        'legal_review_reviewer': '',
+        'legal_review_credential': '',
+        'legal_reviewed_at': None,
+        'legal_review_reference': '',
+        'legal_review_content_digest': '',
         'seo_title': item.seo_title,
         'seo_description': item.seo_description,
     }
+    return values
 
 
 def apply_release(*, items, digest, backup_path):
@@ -616,6 +706,11 @@ def apply_release(*, items, digest, backup_path):
     marker = BlogContentRelease.objects.filter(version=RELEASE_VERSION).first()
     if marker is not None:
         if marker.digest == digest:
+            if marker.reverted_at is not None:
+                raise ReleaseError(
+                    '이미 복원된 release version은 다시 적용할 수 없습니다. '
+                    '새 release version을 준비하세요.'
+                )
             staged_candidates = sorted(
                 after_path.parent.glob(f'.{after_path.name}.tmp-*')
             )
@@ -706,6 +801,8 @@ def apply_release(*, items, digest, backup_path):
                 version=RELEASE_VERSION,
                 digest=digest,
                 item_count=len(items),
+                before_snapshot=before_snapshot,
+                after_snapshot=after_snapshot,
             )
     except Exception:
         if staged_after is not None:
@@ -721,6 +818,10 @@ def _load_before_snapshot(snapshot_path):
         payload = json.loads(Path(snapshot_path).read_text(encoding='utf-8'))
     except (OSError, json.JSONDecodeError) as exc:
         raise ReleaseError('restore snapshot을 읽거나 해석할 수 없습니다') from exc
+    return _validate_before_snapshot_payload(payload)
+
+
+def _validate_before_snapshot_payload(payload):
     expected_keys = {
         'kind', 'version', 'release_digest', 'item_count', 'created_slugs', 'posts',
         'snapshot_digest',
@@ -771,17 +872,22 @@ def _load_before_snapshot(snapshot_path):
 def _assign_snapshot_fields(post, fields):
     for field in PUBLIC_CONTENT_FIELDS:
         value = fields[field]
-        if field == 'published_at' and value is not None:
+        if field in {'published_at', 'legal_reviewed_at'} and value is not None:
             value = parse_datetime(value)
         setattr(post, field, value)
 
 
-def restore_release(*, snapshot_path, confirm_version):
+def restore_release(*, snapshot_path=None, confirm_version):
     """Restore a before snapshot unless any release target was edited later."""
     if confirm_version != RELEASE_VERSION:
         raise ReleaseError(f'confirm-version은 정확히 {RELEASE_VERSION}이어야 합니다')
-    payload = _load_before_snapshot(snapshot_path)
     marker = BlogContentRelease.objects.filter(version=RELEASE_VERSION).first()
+    if snapshot_path is None:
+        if marker is None or marker.before_snapshot is None:
+            raise ReleaseError('DB에 복원할 before snapshot이 없습니다')
+        payload = _validate_before_snapshot_payload(marker.before_snapshot)
+    else:
+        payload = _load_before_snapshot(snapshot_path)
     if (
         marker is None
         or marker.reverted_at is not None

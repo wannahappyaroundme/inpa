@@ -530,7 +530,7 @@ Each source starts with this exact block:
 본문입니다.
 ```
 
-`BlogReleaseItem` fields are exact strings/list/bool plus `title` and `body` parsed from H1/body marker. `review_gate` is exactly `none` or `legal`. `legal_review` is null unless a real review has occurred; a valid record has non-empty `reviewer`, ISO `reviewed_at`, and `reference` fields. Posts 07, 08, and 10 ship with `review_gate: "legal"`, `legal_review: null`, and `is_published: false`.
+`BlogReleaseItem` fields are exact strings/list/bool plus `title` and `body` parsed from H1/body marker. `review_gate` is exactly `none` or `legal`. Repository release metadata always keeps `legal_review` null and every legal-gated post unpublished. Admin writes content as a draft, then a separate review-confirm action submits the saved-content digest; the endpoint compares that expected digest inside a row lock, stamps server time, and binds the record to the reviewed title, body, excerpt, uploaded/static cover, category, tags, SEO title, SEO description, and noindex state. Editing any bound field invalidates the old record and keeps the article unpublished until a new review is recorded. Public list, detail, related posts, and sitemap also fail closed when direct storage mutation leaves a stale digest. Public detail exposes only reviewer, credential, and reviewed date, never the internal reference. Posts 07, 08, and 10 ship with `review_gate: "legal"`, `legal_review: null`, and `is_published: false`.
 
 - [ ] **Step 2: Write validator failure tests**
 
@@ -544,7 +544,7 @@ Test rejection of:
 - `pii_reviewed`/`rights_reviewed` false;
 - missing source/checked date;
 - any `scan_blog_content` warning;
-- safety slugs `보험-갈아타기-비교`, `비교안내서-한눈에-보는-비교표`, `보험-갈아타기-설계사-순서` with `is_published=true` and no valid `legal_review` record;
+- any repository-supplied `legal_review`, or safety slugs `보험-갈아타기-비교`, `비교안내서-한눈에-보는-비교표`, `보험-갈아타기-설계사-순서` with `is_published=true`;
 - published article with body disclaimer duplicated from the template;
 - any body asset not listing the article slug in `used_by`.
 
@@ -1062,7 +1062,7 @@ Check:
 
 - [ ] **Step 7: Prepare rollback but use it only on a confirmed material issue**
 
-Code rollback: Vercel rollback and Render previous deploy. Data rollback: while the new code is still available, run `python manage.py refresh_blog_content --restore-from outputs/blog-release/2026-08-blog-enrichment-v1-before.json --confirm-version 2026-08-blog-enrichment-v1`; the command must abort if a later admin edit exists. Otherwise preserve snapshots without mutation. Do not delete release assets while any post references them.
+Code rollback: Vercel rollback and Render previous deploy. Data rollback: while the new code is still available, run `python manage.py refresh_blog_content --restore-from-marker --confirm-version 2026-08-blog-enrichment-v1`; the command uses the durable DB snapshot and must abort if a later admin edit exists. The external `--backup-out` file remains a second copy when available. Otherwise preserve snapshots without mutation. Do not delete release assets while any post references them.
 
 - [ ] **Step 8: Update PM and agent docs after production is proven**
 

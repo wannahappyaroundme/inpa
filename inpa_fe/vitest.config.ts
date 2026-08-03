@@ -7,6 +7,7 @@ export default defineConfig({
     environment: "jsdom",
     include: [
       "components/__tests__/**/*.test.tsx",
+      "components/__tests__/**/*.test.ts",
       "lib/baseline-editor.test.ts",
       "lib/guided-talk-playbooks.test.ts",
       "lib/talk-template-view-model.test.ts",

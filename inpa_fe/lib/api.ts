@@ -1776,6 +1776,11 @@ export interface BlogDetail {
   seo_title: string;
   seo_description: string;
   is_noindex: boolean;
+  legal_review_public: {
+    reviewer: string;
+    credential: string;
+    reviewed_on: string;
+  } | null;
   related_posts: BlogRelatedPost[];
 }
 

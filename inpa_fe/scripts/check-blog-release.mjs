@@ -4,12 +4,19 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import remarkParse from "remark-parse";
+import sharp from "sharp";
+import { unified } from "unified";
 
 const ROLES = new Set(["cover", "inline", "diagram", "product-screen"]);
 const SOURCE_TYPES = new Set(["generated-object", "product-capture", "original-diagram", "licensed-photo"]);
 const LICENSES = new Set(["project-owned", "generated-for-inpa", "commercial-license"]);
 const COVER_BYTES = 200 * 1024;
 const INLINE_BYTES = 180 * 1024;
+const LIST_PAGE_BYTES = Math.floor(1.2 * 1024 * 1024);
+const DETAIL_PAGE_BYTES = 900 * 1024;
+const VISUAL_DUPLICATE_DISTANCE = 4;
+const FORBIDDEN_METADATA_CHUNKS = new Set(["EXIF", "XMP ", "ICCP"]);
 
 function parseArgs(argv) {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -29,34 +36,41 @@ function parseArgs(argv) {
   return options;
 }
 
-function parseWebpDimensions(buffer) {
+function inspectWebp(buffer) {
   if (buffer.length < 20 || buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WEBP") {
     throw new Error("유효한 RIFF WebP 헤더가 아닙니다");
   }
-  for (let offset = 12; offset + 8 <= buffer.length;) {
+  const riffEnd = buffer.readUInt32LE(4) + 8;
+  if (riffEnd > buffer.length) throw new Error("RIFF 크기가 파일 범위를 벗어납니다");
+
+  let dimensions = null;
+  let hasRasterPayload = false;
+  const forbiddenChunks = [];
+  for (let offset = 12; offset + 8 <= riffEnd;) {
     const kind = buffer.toString("ascii", offset, offset + 4);
     const size = buffer.readUInt32LE(offset + 4);
     const data = offset + 8;
-    if (data + size > buffer.length) throw new Error(`${kind} 청크가 파일 범위를 벗어납니다`);
-    if (kind === "VP8X") {
+    if (data + size > riffEnd) throw new Error(`${kind} 청크가 파일 범위를 벗어납니다`);
+    if (FORBIDDEN_METADATA_CHUNKS.has(kind)) forbiddenChunks.push(kind.trim());
+    if (kind === "VP8X" && !dimensions) {
       if (size < 10) throw new Error("VP8X 청크가 너무 짧습니다");
-      return {
+      dimensions = {
         width: buffer.readUIntLE(data + 4, 3) + 1,
         height: buffer.readUIntLE(data + 7, 3) + 1,
       };
     }
-    if (kind === "VP8L") {
+    if (kind === "VP8L" && !dimensions) {
       if (size < 5 || buffer[data] !== 0x2f) throw new Error("VP8L 헤더가 올바르지 않습니다");
       const b1 = buffer[data + 1];
       const b2 = buffer[data + 2];
       const b3 = buffer[data + 3];
       const b4 = buffer[data + 4];
-      return {
+      dimensions = {
         width: 1 + b1 + ((b2 & 0x3f) << 8),
         height: 1 + ((b2 & 0xc0) >> 6) + (b3 << 2) + ((b4 & 0x0f) << 10),
       };
     }
-    if (kind === "VP8 ") {
+    if (kind === "VP8 " && !dimensions) {
       if (
         size < 10
         || buffer[data + 3] !== 0x9d
@@ -65,14 +79,46 @@ function parseWebpDimensions(buffer) {
       ) {
         throw new Error("VP8 프레임 헤더가 올바르지 않습니다");
       }
-      return {
+      dimensions = {
         width: buffer.readUInt16LE(data + 6) & 0x3fff,
         height: buffer.readUInt16LE(data + 8) & 0x3fff,
       };
     }
+    if (kind === "VP8 " || kind === "VP8L") hasRasterPayload = true;
     offset = data + size + (size % 2);
   }
-  throw new Error("WebP 크기 정보를 찾지 못했습니다");
+  if (!dimensions) throw new Error("WebP 크기 정보를 찾지 못했습니다");
+  return { dimensions, forbiddenChunks, hasRasterPayload };
+}
+
+function parseWebpDimensions(buffer) {
+  return inspectWebp(buffer).dimensions;
+}
+
+async function perceptualHash(buffer) {
+  const { data, info } = await sharp(buffer)
+    .resize(9, 8, { fit: "fill" })
+    .greyscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  if (info.width !== 9 || info.height !== 8 || info.channels !== 1) {
+    throw new Error("시각 해시용 이미지 크기를 만들지 못했습니다");
+  }
+  let bits = "";
+  for (let y = 0; y < 8; y += 1) {
+    for (let x = 0; x < 8; x += 1) {
+      bits += data[(y * 9) + x] > data[(y * 9) + x + 1] ? "1" : "0";
+    }
+  }
+  return bits;
+}
+
+function hammingDistance(left, right) {
+  let distance = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) distance += 1;
+  }
+  return distance;
 }
 
 function safeAssetPath(value) {
@@ -88,7 +134,7 @@ function assetFile(frontendRoot, assetPath) {
   return path.join(frontendRoot, "public", ...assetPath.slice(1).split("/"));
 }
 
-function walkWebps(root) {
+function walkAssetFiles(root) {
   const result = [];
   if (!fs.existsSync(root)) return result;
   const visit = (directory) => {
@@ -96,7 +142,7 @@ function walkWebps(root) {
       const file = path.join(directory, entry.name);
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) visit(file);
-      else if (entry.isFile() && entry.name.toLowerCase().endsWith(".webp")) result.push(file);
+      else if (entry.isFile()) result.push(file);
     }
   };
   visit(root);
@@ -104,21 +150,29 @@ function walkWebps(root) {
 }
 
 function extractImagePaths(markdown) {
-  const withoutFences = markdown.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, "");
+  const tree = unified().use(remarkParse).parse(markdown);
   const found = [];
-  const inline = /!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/g;
-  for (const match of withoutFences.matchAll(inline)) found.push(match[1] ?? match[2]);
-
   const definitions = new Map();
-  const definition = /^\s*\[([^\]]+)\]:\s*(?:<([^>]+)>|([^\s]+))/gm;
-  for (const match of withoutFences.matchAll(definition)) definitions.set(match[1].trim().toLowerCase(), match[2] ?? match[3]);
-  const reference = /!\[[^\]]*\]\[([^\]]+)\]/g;
-  for (const match of withoutFences.matchAll(reference)) {
-    const destination = definitions.get(match[1].trim().toLowerCase());
-    if (destination) found.push(destination);
-  }
-  const htmlImage = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
-  for (const match of withoutFences.matchAll(htmlImage)) found.push(match[1]);
+  const walk = (node, visit) => {
+    visit(node);
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) walk(child, visit);
+    }
+  };
+  walk(tree, (node) => {
+    if (node.type === "definition") definitions.set(node.identifier, node.url);
+  });
+  walk(tree, (node) => {
+    if (node.type === "image") found.push(node.url);
+    if (node.type === "imageReference") {
+      const destination = definitions.get(node.identifier);
+      if (destination) found.push(destination);
+    }
+    if (node.type === "html") {
+      const htmlImage = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+      for (const match of node.value.matchAll(htmlImage)) found.push(match[1]);
+    }
+  });
   return found;
 }
 
@@ -147,7 +201,7 @@ function loadPosts(contentRoot, errors) {
   return posts;
 }
 
-export function validateBlogRelease({ frontendRoot, contentRoot }) {
+export async function validateBlogRelease({ frontendRoot, contentRoot }) {
   const errors = [];
   const assetsRoot = path.join(frontendRoot, "public", "blog-assets");
   const manifestPath = path.join(assetsRoot, "manifest.json");
@@ -172,7 +226,9 @@ export function validateBlogRelease({ frontendRoot, contentRoot }) {
 
   const byPath = new Map();
   const coverHashes = new Map();
+  const coverVisualHashes = [];
   const digestByPath = new Map();
+  const fileSizeByPath = new Map();
   const actualUsage = new Map();
   const addUsage = (assetPath, slug) => {
     if (!actualUsage.has(assetPath)) actualUsage.set(assetPath, new Set());
@@ -229,12 +285,26 @@ export function validateBlogRelease({ frontendRoot, contentRoot }) {
       continue;
     }
     const bytes = fs.readFileSync(file);
-    let dimensions;
+    fileSizeByPath.set(assetPath, bytes.length);
+    let inspection;
     try {
-      dimensions = parseWebpDimensions(bytes);
+      inspection = inspectWebp(bytes);
     } catch (error) {
       errors.push(`${assetPath}: WebP를 읽을 수 없습니다 (${error.message})`);
       continue;
+    }
+    const { dimensions } = inspection;
+    if (inspection.forbiddenChunks.length > 0) {
+      errors.push(`${assetPath}: EXIF, XMP, ICC 메타데이터를 제거해야 합니다 (${inspection.forbiddenChunks.join(", ")})`);
+    }
+    if (!inspection.hasRasterPayload) {
+      errors.push(`${assetPath}: 실제 이미지 데이터(VP8 또는 VP8L)가 필요합니다`);
+    } else {
+      try {
+        await sharp(bytes).resize(1, 1, { fit: "fill" }).raw().toBuffer();
+      } catch (error) {
+        errors.push(`${assetPath}: 실제 이미지 데이터를 해석할 수 없습니다 (${error.message})`);
+      }
     }
     if (dimensions.width !== record.width || dimensions.height !== record.height) {
       errors.push(`${assetPath}: manifest 크기 ${record.width}×${record.height}와 실제 WebP 크기 ${dimensions.width}×${dimensions.height}가 다릅니다`);
@@ -246,6 +316,21 @@ export function validateBlogRelease({ frontendRoot, contentRoot }) {
       if (bytes.length > COVER_BYTES) errors.push(`${assetPath}: 대표 이미지 용량은 200KB 이하여야 합니다 (${bytes.length} bytes)`);
       if (coverHashes.has(digest)) errors.push(`${assetPath}: 대표 이미지가 바이트 단위로 중복됩니다 (${coverHashes.get(digest)})`);
       else coverHashes.set(digest, assetPath);
+      if (inspection.hasRasterPayload) {
+        try {
+          const visualHash = await perceptualHash(bytes);
+          for (const previous of coverVisualHashes) {
+            const distance = hammingDistance(visualHash, previous.hash);
+            if (distance <= VISUAL_DUPLICATE_DISTANCE) {
+              errors.push(`${assetPath}: 대표 이미지가 시각적으로 중복됩니다 (${previous.path}, 거리 ${distance})`);
+              break;
+            }
+          }
+          coverVisualHashes.push({ path: assetPath, hash: visualHash });
+        } catch (error) {
+          errors.push(`${assetPath}: 대표 이미지 시각 검사를 할 수 없습니다 (${error.message})`);
+        }
+      }
     } else {
       if (Math.max(dimensions.width, dimensions.height) > 1600) errors.push(`${assetPath}: 본문 이미지의 긴 변은 1600px 이하여야 합니다`);
       if (bytes.length > INLINE_BYTES) errors.push(`${assetPath}: 본문 이미지 용량은 180KB 이하여야 합니다 (${bytes.length} bytes)`);
@@ -259,6 +344,14 @@ export function validateBlogRelease({ frontendRoot, contentRoot }) {
 
   const coverRecords = manifest.filter((record) => record?.role === "cover" && safeAssetPath(record.path));
   if (coverRecords.length !== 20) errors.push(`대표 이미지 manifest 항목은 정확히 20개여야 합니다 (현재 ${coverRecords.length}개)`);
+  const conservativeListBytes = coverRecords
+    .map((record) => fileSizeByPath.get(record.path) ?? 0)
+    .sort((a, b) => b - a)
+    .slice(0, 12)
+    .reduce((sum, bytes) => sum + bytes, 0);
+  if (conservativeListBytes > LIST_PAGE_BYTES) {
+    errors.push(`목록 대표 이미지 합계는 1.2MB 이하여야 합니다 (${conservativeListBytes} bytes)`);
+  }
 
   for (const post of posts) {
     const cover = post.meta.cover_asset_path;
@@ -272,6 +365,11 @@ export function validateBlogRelease({ frontendRoot, contentRoot }) {
       else if (byPath.get(imagePath).role === "cover") errors.push(`${post.filename}: 본문에서 대표 이미지를 반복 사용하지 마세요 (${imagePath})`);
       else if (coverDigest && digestByPath.get(imagePath) === coverDigest) errors.push(`${post.filename}: 본문 이미지가 같은 글의 대표 이미지와 바이트가 같습니다 (${imagePath})`);
     }
+    const detailBytes = [...new Set([cover, ...post.images])]
+      .reduce((sum, assetPath) => sum + (fileSizeByPath.get(assetPath) ?? 0), 0);
+    if (detailBytes > DETAIL_PAGE_BYTES) {
+      errors.push(`${post.filename}: 상세 이미지 합계는 900KB 이하여야 합니다 (${detailBytes} bytes)`);
+    }
   }
 
   for (const [assetPath, record] of byPath) {
@@ -282,17 +380,18 @@ export function validateBlogRelease({ frontendRoot, contentRoot }) {
   }
 
   const declaredFiles = new Set([...byPath.keys()].map((assetPath) => path.resolve(assetFile(frontendRoot, assetPath))));
-  for (const file of walkWebps(assetsRoot)) {
+  for (const file of walkAssetFiles(assetsRoot)) {
+    if (path.resolve(file) === path.resolve(manifestPath)) continue;
     if (!declaredFiles.has(path.resolve(file))) {
       const relative = path.relative(path.join(frontendRoot, "public"), file).split(path.sep).join("/");
-      errors.push(`manifest에 선언되지 않은 WebP가 있습니다 (/${relative})`);
+      errors.push(`manifest에 선언되지 않은 파일이 있습니다 (/${relative})`);
     }
   }
 
   return { errors, postCount: posts.length, coverCount: coverRecords.length, assetCount: manifest.length };
 }
 
-function main() {
+async function main() {
   let options;
   try {
     options = parseArgs(process.argv.slice(2));
@@ -301,7 +400,7 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  const result = validateBlogRelease(options);
+  const result = await validateBlogRelease(options);
   if (result.errors.length) {
     console.error(`블로그 이미지 릴리스 검사 실패 (${result.errors.length}건)`);
     for (const error of result.errors) console.error(`- ${error}`);
@@ -311,6 +410,6 @@ function main() {
   console.log(`블로그 이미지 릴리스 검사 통과: 원고 ${result.postCount}편, 대표 이미지 ${result.coverCount}개, 전체 자산 ${result.assetCount}개`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
 
 export { parseWebpDimensions };

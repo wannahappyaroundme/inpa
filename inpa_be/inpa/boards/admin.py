@@ -94,15 +94,31 @@ class InquiryReplyAdmin(admin.ModelAdmin):
 
 @admin.register(BlogPost)
 class BlogPostAdmin(admin.ModelAdmin):
-    list_display = ['id', 'title', 'category', 'cover_asset_path', 'is_published', 'published_at', 'view_count', 'author', 'created_at']
-    list_filter = ['category', 'is_published', 'is_noindex']
+    list_display = ['id', 'title', 'category', 'cover_asset_path', 'legal_review_required', 'is_published', 'published_at', 'view_count', 'author', 'created_at']
+    list_filter = ['category', 'legal_review_required', 'is_published', 'is_noindex']
     search_fields = ['title', 'body', 'excerpt', 'tags', 'slug']
     prepopulated_fields = {'slug': ('title',)}
-    readonly_fields = ['view_count', 'created_at', 'updated_at']
+    readonly_fields = [
+        'legal_review_required', 'legal_review_reviewer', 'legal_review_credential',
+        'legal_reviewed_at', 'legal_review_reference', 'legal_review_content_digest',
+        'view_count', 'created_at', 'updated_at',
+    ]
 
 
 @admin.register(BlogContentRelease)
 class BlogContentReleaseAdmin(admin.ModelAdmin):
     list_display = ['version', 'digest', 'item_count', 'applied_at', 'reverted_at']
     search_fields = ['version', 'digest']
-    readonly_fields = ['applied_at']
+    readonly_fields = [
+        'version', 'digest', 'item_count', 'before_snapshot', 'after_snapshot',
+        'applied_at', 'reverted_at',
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

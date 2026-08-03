@@ -55,6 +55,7 @@ function PostCard({ post }: { post: BlogListItem }) {
         <BlogCoverImage
           src={post.cover_image}
           categoryLabel={post.category_label}
+          sizes="(max-width: 639px) calc(100vw - 32px), (max-width: 1023px) calc(50vw - 30px), 320px"
           className="transition duration-300 group-hover:scale-[1.03]"
         />
       </div>
@@ -148,6 +149,7 @@ export default async function BlogListPage({
               <Link
                 key={t.code || "all"}
                 href={`/blog${catQuery(t.code)}`}
+                aria-current={active ? "page" : undefined}
                 className={`rounded-full px-3.5 py-2 text-[13px] font-semibold transition ${
                   active
                     ? "bg-brand text-white"
@@ -191,7 +193,7 @@ export default async function BlogListPage({
             </div>
 
             {(hasPrev || hasNext) && (
-              <div className="mt-10 flex items-center justify-center gap-3">
+              <nav className="mt-10 flex items-center justify-center gap-3" aria-label="블로그 페이지">
                 {hasPrev ? (
                   <Link
                     href={pageHref(page - 1)}
@@ -217,7 +219,7 @@ export default async function BlogListPage({
                     다음 →
                   </span>
                 )}
-              </div>
+              </nav>
             )}
           </>
         )}

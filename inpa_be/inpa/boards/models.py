@@ -9,8 +9,58 @@
 ★ OwnedQuerySetMixin은 Inquiry 전용. 나머지 공유 테이블에는 적용 금지.
 ★ 정직성 레드라인 (dev/14): "심의완료/안전" 배지 금지, AI면책 고정.
 """
+import hashlib
+import hmac
+import json
+
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.dateparse import parse_datetime
+from django.utils.timezone import is_aware, localtime
+
+
+BLOG_REVIEW_CONTENT_FIELDS = (
+    'title', 'body', 'excerpt', 'cover_image', 'cover_asset_path', 'category', 'tags',
+    'seo_title', 'seo_description', 'is_noindex',
+)
+
+
+def valid_blog_legal_review(value):
+    """Return whether a legal-review record is complete enough to publish."""
+    required = {'reviewer', 'credential', 'reviewed_at', 'reference'}
+    if type(value) is not dict or set(value) != required:
+        return False
+    if any(
+        type(value.get(key)) is not str or not value[key].strip()
+        for key in ('reviewer', 'credential', 'reviewed_at', 'reference')
+    ):
+        return False
+    if (
+        len(value['reviewer'].strip()) > 100
+        or len(value['credential'].strip()) > 100
+        or len(value['reference'].strip()) > 200
+    ):
+        return False
+    try:
+        reviewed_at = parse_datetime(value['reviewed_at'])
+    except (TypeError, ValueError):
+        return False
+    return reviewed_at is not None and is_aware(reviewed_at)
+
+
+def blog_review_content_digest(post):
+    """Hash the exact public fields covered by one legal review record."""
+    payload = {}
+    for field in BLOG_REVIEW_CONTENT_FIELDS:
+        value = getattr(post, field, '')
+        if field == 'cover_image':
+            value = getattr(value, 'name', value) or ''
+        payload[field] = value
+    canonical = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+    ).encode('utf-8')
+    return hashlib.sha256(canonical).hexdigest()
 
 
 # ─── 1. Post (공유) ────────────────────────────────────────────────────
@@ -414,6 +464,12 @@ class BlogPost(models.Model):
         (CATEGORY_SAFETY, '안심 가이드'),
         (CATEGORY_STORY, '설계사 이야기'),
     ]
+    REVIEW_GATE_NONE = 'none'
+    REVIEW_GATE_LEGAL = 'legal'
+    REVIEW_GATE_CHOICES = [
+        (REVIEW_GATE_NONE, '추가 검토 없음'),
+        (REVIEW_GATE_LEGAL, '법률 검토'),
+    ]
 
     title = models.CharField('제목', max_length=200)
     # allow_unicode=True → 한글 슬러그 허용. unique+db_index 로 slug 조회 최적화.
@@ -437,6 +493,29 @@ class BlogPost(models.Model):
         verbose_name='작성자',
     )
     is_published = models.BooleanField('게시됨', default=False)
+    review_gate = models.CharField(
+        '게시 전 검토', max_length=20, choices=REVIEW_GATE_CHOICES,
+        default=REVIEW_GATE_NONE,
+    )
+    legal_review_required = models.BooleanField(
+        '법률 검토 고정', default=False, editable=False,
+    )
+    legal_review = models.JSONField('법률 검토 기록', null=True, blank=True)
+    legal_review_reviewer = models.CharField(
+        '법률 검토자', max_length=100, blank=True, default='', editable=False,
+    )
+    legal_review_credential = models.CharField(
+        '법률 검토 자격', max_length=100, blank=True, default='', editable=False,
+    )
+    legal_reviewed_at = models.DateTimeField(
+        '법률 검토 시각', null=True, blank=True, editable=False,
+    )
+    legal_review_reference = models.CharField(
+        '법률 검토 근거', max_length=200, blank=True, default='', editable=False,
+    )
+    legal_review_content_digest = models.CharField(
+        '법률 검토 본문 해시', max_length=64, blank=True, default='', editable=False,
+    )
     published_at = models.DateTimeField('게시 시각', null=True, blank=True)
     seo_title = models.CharField('SEO 제목', max_length=60, blank=True, default='')
     seo_description = models.CharField('SEO 설명', max_length=160, blank=True, default='')
@@ -454,9 +533,106 @@ class BlogPost(models.Model):
             models.Index(fields=['is_published', '-published_at']),
             models.Index(fields=['category', 'is_published']),
         ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_published=False)
+                    | (
+                        models.Q(legal_review_required=False)
+                        & ~models.Q(review_gate='legal')
+                    )
+                    | (
+                        ~models.Q(legal_review_reviewer='')
+                        & ~models.Q(legal_review_credential='')
+                        & models.Q(legal_reviewed_at__isnull=False)
+                        & ~models.Q(legal_review_reference='')
+                        & ~models.Q(legal_review_content_digest='')
+                    )
+                ),
+                name='blog_legal_review_required_to_publish',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(legal_review_required=False)
+                    | models.Q(review_gate='legal')
+                ),
+                name='blog_required_review_gate_locked',
+            ),
+        ]
 
     def __str__(self):
         return f'BlogPost({self.id}) {self.title}'
+
+    def typed_legal_review(self):
+        values = (
+            self.legal_review_reviewer,
+            self.legal_review_credential,
+            self.legal_reviewed_at,
+            self.legal_review_reference,
+        )
+        if not all(values):
+            return None
+        return {
+            'reviewer': self.legal_review_reviewer,
+            'credential': self.legal_review_credential,
+            'reviewed_at': self.legal_reviewed_at.isoformat(),
+            'reference': self.legal_review_reference,
+        }
+
+    def has_current_legal_review(self):
+        review = self.legal_review
+        if not valid_blog_legal_review(review):
+            return False
+        if (
+            review['reviewer'].strip() != self.legal_review_reviewer
+            or review['credential'].strip() != self.legal_review_credential
+            or review['reference'].strip() != self.legal_review_reference
+            or parse_datetime(review['reviewed_at']) != self.legal_reviewed_at
+        ):
+            return False
+        return bool(
+            self.typed_legal_review()
+            and len(self.legal_review_content_digest) == 64
+            and hmac.compare_digest(
+                self.legal_review_content_digest,
+                blog_review_content_digest(self),
+            )
+        )
+
+    def public_legal_review(self):
+        if not self.has_current_legal_review():
+            return None
+        return {
+            'reviewer': self.legal_review_reviewer,
+            'credential': self.legal_review_credential,
+            'reviewed_on': localtime(self.legal_reviewed_at).date().isoformat(),
+        }
+
+    def _validate_publication_gate(self):
+        if self.legal_review_required and self.review_gate != self.REVIEW_GATE_LEGAL:
+            raise ValidationError({
+                'review_gate': '이 글의 법률 검토 설정은 서버에서 고정되어 있어요.',
+            })
+        if self.legal_review is not None and not valid_blog_legal_review(self.legal_review):
+            raise ValidationError({
+                'legal_review': '법률 검토 기록의 담당자, 자격, 시각, 근거를 모두 입력해 주세요.',
+            })
+        if (
+            self.is_published
+            and (self.legal_review_required or self.review_gate == self.REVIEW_GATE_LEGAL)
+            and not self.has_current_legal_review()
+        ):
+            raise ValidationError({
+                'legal_review': '현재 글의 법률 검토 기록을 모두 입력하면 게시할 수 있어요.',
+            })
+
+    def clean(self):
+        super().clean()
+        self._validate_publication_gate()
+
+    def save(self, *args, **kwargs):
+        self._validate_publication_gate()
+        return super().save(*args, **kwargs)
 
     @classmethod
     def generate_unique_slug(cls, raw, exclude_pk=None):
@@ -483,6 +659,8 @@ class BlogContentRelease(models.Model):
     version = models.CharField(max_length=80, unique=True)
     digest = models.CharField(max_length=64)
     item_count = models.PositiveSmallIntegerField()
+    before_snapshot = models.JSONField(null=True, blank=True, editable=False)
+    after_snapshot = models.JSONField(null=True, blank=True, editable=False)
     applied_at = models.DateTimeField(auto_now_add=True)
     reverted_at = models.DateTimeField(null=True, blank=True)
 
