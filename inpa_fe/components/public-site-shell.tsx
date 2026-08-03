@@ -6,6 +6,7 @@ import { InpaMark } from "@/components/inpa-logo";
 const NAV_ITEMS = [
   { href: "/#solutions", label: "솔루션" },
   { href: "/#guides", label: "실무 가이드" },
+  { href: "/#tools", label: "무료 도구" },
   { href: "/blog", label: "블로그" },
   { href: "/faq", label: "자주 묻는 질문" },
 ] as const;

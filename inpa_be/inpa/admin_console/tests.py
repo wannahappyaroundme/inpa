@@ -1963,7 +1963,7 @@ class AdminActivationFunnelTest(TestCase):
         """AF5b: 검색·AI·직접·기타 고정 4채널에 퍼널 전 단계를 중첩 집계한다."""
         self._cohort_user(
             'ai@test.com', signup_days_ago=3, verified=True,
-            analysis_offset_days=1, share_offset_days=2, utm_source='chatgpt')
+            analysis_offset_days=1, share_offset_days=2, utm_source='chatgpt.com')
         self._cohort_user(
             'other@test.com', signup_days_ago=2, verified=False,
             utm_source='partner_newsletter')

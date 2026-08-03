@@ -9,23 +9,35 @@ export interface SafeAcquisition {
 const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign"] as const;
 const SEARCH_SOURCES = new Set([
   "google",
+  "google.com",
+  "google.co.kr",
   "google_organic",
   "naver",
+  "naver.com",
   "naver_organic",
   "bing",
+  "bing.com",
   "bing_organic",
   "daum",
+  "daum.net",
   "daum_organic",
 ]);
 const AI_SOURCES = new Set([
   "chatgpt",
+  "chatgpt.com",
   "openai",
+  "openai.com",
   "perplexity",
+  "perplexity.ai",
   "gemini",
+  "gemini.google.com",
   "bard",
   "claude",
+  "claude.ai",
   "anthropic",
+  "anthropic.com",
   "copilot",
+  "copilot.microsoft.com",
 ]);
 
 const REFERRER_RULES: ReadonlyArray<{

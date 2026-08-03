@@ -2767,12 +2767,16 @@ class AdminActivationFunnelView(APIView):
         }
 
         search_sources = {
-            'google', 'google_organic', 'naver', 'naver_organic',
-            'bing', 'bing_organic', 'daum', 'daum_organic',
+            'google', 'google.com', 'google.co.kr', 'google_organic',
+            'naver', 'naver.com', 'naver_organic',
+            'bing', 'bing.com', 'bing_organic',
+            'daum', 'daum.net', 'daum_organic',
         }
         ai_sources = {
-            'chatgpt', 'openai', 'perplexity', 'gemini', 'bard',
-            'claude', 'anthropic', 'copilot',
+            'chatgpt', 'chatgpt.com', 'openai', 'openai.com',
+            'perplexity', 'perplexity.ai', 'gemini', 'gemini.google.com', 'bard',
+            'claude', 'claude.ai', 'anthropic', 'anthropic.com',
+            'copilot', 'copilot.microsoft.com',
         }
 
         def _channel_for(source):
