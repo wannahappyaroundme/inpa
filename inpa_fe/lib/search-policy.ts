@@ -1,4 +1,5 @@
 import type { Metadata, MetadataRoute } from "next";
+import { getSearchHubPaths } from "@/lib/search-content";
 
 export const PUBLIC_INDEX_ROBOTS: Metadata["robots"] = {
   index: true,
@@ -7,6 +8,7 @@ export const PUBLIC_INDEX_ROBOTS: Metadata["robots"] = {
 
 export const CURRENT_INDEXABLE_PATHS = [
   "/",
+  ...getSearchHubPaths(),
   "/story",
   "/blog",
   "/faq",
@@ -51,7 +53,7 @@ export function classifySearchPath(pathname: string): SearchPathClass {
 }
 
 const SITEMAP_META: Record<
-  (typeof CURRENT_INDEXABLE_PATHS)[number],
+  string,
   Pick<MetadataRoute.Sitemap[number], "changeFrequency" | "priority">
 > = {
   "/": { changeFrequency: "weekly", priority: 1 },
@@ -65,6 +67,9 @@ export function staticSitemapEntries(siteUrl: string): MetadataRoute.Sitemap {
   const baseUrl = siteUrl.replace(/\/+$/, "");
   return CURRENT_INDEXABLE_PATHS.map((path) => ({
     url: `${baseUrl}${path === "/" ? "/" : path}`,
-    ...SITEMAP_META[path],
+    ...(SITEMAP_META[path] ?? {
+      changeFrequency: "monthly" as const,
+      priority: path.startsWith("/solutions/") ? 0.8 : 0.7,
+    }),
   }));
 }

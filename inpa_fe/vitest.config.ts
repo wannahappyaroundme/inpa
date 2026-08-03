@@ -10,6 +10,7 @@ export default defineConfig({
       "components/__tests__/**/*.test.ts",
       "lib/baseline-editor.test.ts",
       "lib/guided-talk-playbooks.test.ts",
+      "lib/search-content.test.ts",
       "lib/talk-template-view-model.test.ts",
     ],
     setupFiles: ["./vitest.setup.ts"],

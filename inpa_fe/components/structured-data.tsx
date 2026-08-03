@@ -79,6 +79,47 @@ export function faqPage(items: { q: string; a: string }[]) {
   };
 }
 
+function absolutePublicUrl(path: string): string {
+  return new URL(path, `${SITE_URL.replace(/\/+$/, "")}/`).toString();
+}
+
+export function breadcrumbList(items: { name: string; url: string }[]) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.name,
+      item: absolutePublicUrl(item.url),
+    })),
+  };
+}
+
+export function webPage({
+  name,
+  description,
+  url,
+  dateModified,
+}: {
+  name: string;
+  description: string;
+  url: string;
+  dateModified: string;
+}) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name,
+    description,
+    url: absolutePublicUrl(url),
+    dateModified,
+    inLanguage: "ko-KR",
+    isPartOf: { "@id": `${SITE_URL}/#website` },
+    publisher: { "@id": `${SITE_URL}/#organization` },
+  };
+}
+
 // BlogPosting 스키마 — 인파 노트 글 1편(app/blog/[slug])의 출처와
 // 날짜(datePublished/dateModified)를 명시하고, author/publisher 는 Organization 을 @id 로 참조(중복 방지).
 // 사실 필드만 담는다(평점·후기 없음 = 정직성 레드라인). cover 없으면 전역 OG 이미지로 폴백.

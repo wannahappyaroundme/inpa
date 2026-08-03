@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { InpaMark } from "@/components/inpa-logo";
 import { BlogCoverImage } from "@/components/blog-image";
+import { PublicDiscoveryLinks } from "@/components/public-discovery";
 import { listBlogPosts, BLOG_CATEGORIES, type BlogListItem } from "@/lib/api";
 import { PUBLIC_INDEX_ROBOTS } from "@/lib/search-policy";
 
@@ -225,6 +226,8 @@ export default async function BlogListPage({
             )}
           </>
         )}
+
+        <PublicDiscoveryLinks />
 
         {/* 하단 링크 */}
         <nav className="mt-14 flex flex-wrap justify-center gap-x-5 gap-y-2 text-[13px] text-ink3">

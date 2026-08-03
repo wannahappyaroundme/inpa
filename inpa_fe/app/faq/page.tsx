@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { InpaMark } from "@/components/inpa-logo";
 import { JsonLd, faqPage } from "@/components/structured-data";
+import { PublicDiscoveryLinks } from "@/components/public-discovery";
 import { PUBLIC_INDEX_ROBOTS } from "@/lib/search-policy";
 
 // 공개 FAQ — 검색·AI 답변 엔진이 가장 잘 인용하는 형식. 라이트 고정(서비스 페이지 테마 가드).
@@ -119,6 +120,8 @@ export default function FaqPage() {
             </section>
           ))}
         </div>
+
+        <PublicDiscoveryLinks />
 
         {/* 관련 링크 + CTA */}
         <div className="mt-12 rounded-2xl border border-[var(--line)] bg-[var(--surface-2)] p-6 sm:p-8 text-center">
