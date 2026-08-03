@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 
 import { computeInsuranceAge } from "@/lib/insurance-age";
+import { trackPublicResourceUse } from "@/lib/public-resource-events";
 
 function currentKstDate(): string {
   const parts = new Intl.DateTimeFormat("en", {
@@ -24,7 +25,11 @@ export function InsuranceAgeCalculator() {
   function calculate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAttempted(true);
-    setResult(computeInsuranceAge(birthDate, asOf));
+    const nextResult = computeInsuranceAge(birthDate, asOf);
+    setResult(nextResult);
+    if (nextResult !== null) {
+      trackPublicResourceUse("insurance_age", "calculate", "tool");
+    }
   }
 
   function reset() {

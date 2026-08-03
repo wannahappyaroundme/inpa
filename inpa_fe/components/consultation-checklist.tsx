@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { trackPublicResourceUse } from "@/lib/public-resource-events";
+
 const SECTIONS = [
   {
     title: "상담 전 준비",
@@ -49,6 +51,11 @@ export function ConsultationChecklist() {
     });
   }
 
+  function printChecklist() {
+    trackPublicResourceUse("consultation_checklist", "print", "resource");
+    window.print();
+  }
+
   return (
     <section className="rounded-3xl border border-line bg-surface p-5 shadow-card print:border-0 print:p-0 print:shadow-none sm:p-8" aria-labelledby="consultation-checklist-title">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -61,7 +68,7 @@ export function ConsultationChecklist() {
           <button type="button" onClick={() => setChecked(new Set())} className="min-h-[44px] rounded-xl border border-line bg-white px-4 py-2 text-[13px] font-bold text-ink2 hover:border-brand hover:text-brand">
             전체 초기화
           </button>
-          <button type="button" onClick={() => window.print()} className="min-h-[44px] rounded-xl bg-brand px-4 py-2 text-[13px] font-black text-white hover:opacity-90">
+          <button type="button" onClick={printChecklist} className="min-h-[44px] rounded-xl bg-brand px-4 py-2 text-[13px] font-black text-white hover:opacity-90">
             인쇄하기
           </button>
         </div>

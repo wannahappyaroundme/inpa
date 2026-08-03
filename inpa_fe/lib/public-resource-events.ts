@@ -4,11 +4,20 @@ export type PublicResource = "insurance_age" | "customer_sheet" | "consultation_
 export type PublicResourceAction = "calculate" | "download" | "print";
 export type PublicResourcePageKind = "tool" | "resource";
 
+const RESOURCES = new Set<PublicResource>([
+  "insurance_age",
+  "customer_sheet",
+  "consultation_checklist",
+]);
+const ACTIONS = new Set<PublicResourceAction>(["calculate", "download", "print"]);
+const PAGE_KINDS = new Set<PublicResourcePageKind>(["tool", "resource"]);
+
 export function trackPublicResourceUse(
   resource: PublicResource,
   action: PublicResourceAction,
   pageKind: PublicResourcePageKind,
 ) {
+  if (!RESOURCES.has(resource) || !ACTIONS.has(action) || !PAGE_KINDS.has(pageKind)) return;
   try {
     void Promise.resolve(track("public_resource_use", {
       resource,

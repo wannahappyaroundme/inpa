@@ -30,10 +30,16 @@ describe("보험나이 계산기", () => {
     fireEvent.click(screen.getByRole("button", { name: "보험나이 계산하기" }));
     expect(screen.getByText("27세")).toBeInTheDocument();
     expect(screen.getByText(/마지막 생일부터 6개월/)).toBeInTheDocument();
+    expect(analytics.track).toHaveBeenCalledWith("public_resource_use", {
+      resource: "insurance_age",
+      action: "calculate",
+      page_kind: "tool",
+    });
 
     fireEvent.change(screen.getByLabelText("생년월일"), { target: { value: "2027-01-01" } });
     fireEvent.click(screen.getByRole("button", { name: "보험나이 계산하기" }));
     expect(screen.getByRole("alert")).toHaveTextContent(/날짜를 확인하면/);
+    expect(analytics.track).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "입력 초기화" }));
     expect(screen.getByLabelText("생년월일")).toHaveValue("");
@@ -63,6 +69,11 @@ describe("고객 관리 CSV", () => {
     expect(click).toHaveBeenCalledOnce();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:customer-sheet");
     expect(screen.getByRole("status")).toHaveTextContent("내려받았어요");
+    expect(analytics.track).toHaveBeenCalledWith("public_resource_use", {
+      resource: "customer_sheet",
+      action: "download",
+      page_kind: "resource",
+    });
   });
 });
 
@@ -83,6 +94,11 @@ describe("첫 상담 체크리스트", () => {
     expect(boxes[0]).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "인쇄하기" }));
     expect(print).toHaveBeenCalledOnce();
+    expect(analytics.track).toHaveBeenCalledWith("public_resource_use", {
+      resource: "consultation_checklist",
+      action: "print",
+      page_kind: "resource",
+    });
   });
 
   it("입력과 체크 상태를 저장하거나 서버로 보내지 않는다", () => {
@@ -110,6 +126,16 @@ describe("공개 자료 개인정보 안전 이벤트", () => {
     const payload = analytics.track.mock.calls[0][1];
     expect(Object.keys(payload).sort()).toEqual(["action", "page_kind", "resource"]);
     expect(JSON.stringify(payload)).not.toMatch(/birth|date|check|referrer|query|url/i);
+  });
+
+  it("런타임에서 허용하지 않은 이름과 동작을 버린다", () => {
+    trackPublicResourceUse(
+      "customer_private_value" as never,
+      "upload" as never,
+      "secret_page" as never,
+    );
+
+    expect(analytics.track).not.toHaveBeenCalled();
   });
 });
 

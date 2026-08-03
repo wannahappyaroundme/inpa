@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { PublicSiteShell } from "@/components/public-site-shell";
+import { SearchHubViewTracker, TrackedSearchHubCta } from "@/components/search-hub-analytics";
 import { JsonLd, breadcrumbList, faqPage, webPage } from "@/components/structured-data";
 import {
   SEARCH_HUBS,
@@ -45,6 +46,7 @@ export function SearchHubPage({ hub }: { hub: SearchHubContent }) {
   return (
     <PublicSiteShell>
       <JsonLd data={schemas} />
+      <SearchHubViewTracker kind={hub.kind} slug={hub.slug} />
 
       <main>
         <section className="border-b border-line bg-surface">
@@ -204,12 +206,14 @@ export function SearchHubPage({ hub }: { hub: SearchHubContent }) {
             <p className="mx-auto mt-4 max-w-xl text-[14px] leading-7 text-white/85 sm:text-[15px]">
               가입한 뒤 첫 고객을 등록하고 실제 증권으로 화면을 직접 확인할 수 있습니다.
             </p>
-            <Link
+            <TrackedSearchHubCta
+              kind={hub.kind}
+              slug={hub.slug}
               href={SEARCH_HUB_CTA_PATH}
               className="mt-7 inline-flex min-h-[52px] items-center justify-center rounded-2xl bg-white px-7 py-3 text-[15px] font-black text-brand-ink transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand"
             >
               첫 분석 무료로 시작하기
-            </Link>
+            </TrackedSearchHubCta>
           </section>
         </div>
       </main>

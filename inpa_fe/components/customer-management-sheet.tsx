@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { trackPublicResourceUse } from "@/lib/public-resource-events";
+
 export const CUSTOMER_MANAGEMENT_CSV =
   "\ufeff고객명,연락처,영업 단계,진행 상태,마지막 연락일,다음 행동,메모\r\n";
 
@@ -29,6 +31,7 @@ export function CustomerManagementSheet() {
       anchor.click();
       anchor.remove();
       setDownloaded(true);
+      trackPublicResourceUse("customer_sheet", "download", "resource");
     } finally {
       URL.revokeObjectURL(url);
     }
