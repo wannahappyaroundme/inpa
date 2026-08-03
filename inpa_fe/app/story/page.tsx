@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { CinemaLanding } from "@/components/cinema-landing";
+import { PUBLIC_INDEX_ROBOTS } from "@/lib/search-policy";
 
 const TITLE = "인파(Inpa) · 수많은 인파 속, 흔들림 없는 안내";
 const DESCRIPTION = "人波 속에서 INPA가. 보험설계사의 영업 흐름을 한곳에 잇는 인파의 이야기를 만나보세요.";
@@ -9,6 +10,7 @@ export const metadata: Metadata = {
   title: { absolute: TITLE },
   description: DESCRIPTION,
   alternates: { canonical: "/story" },
+  robots: PUBLIC_INDEX_ROBOTS,
   openGraph: {
     type: "website",
     locale: "ko_KR",

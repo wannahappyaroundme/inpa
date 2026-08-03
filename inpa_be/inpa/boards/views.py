@@ -732,10 +732,18 @@ class BlogPostViewSet(viewsets.GenericViewSet):
     # ── GET /board/blog/sitemap/ ────────────────────────────────
     def sitemap(self, request):
         """게시된 글의 {slug, updated_at} 경량 목록 (비페이지네이션, sitemap.xml 구동용)."""
-        rows = _public_blog_posts().order_by(
+        rows = _public_blog_posts().filter(
+            is_published=True,
+            is_noindex=False,
+        ).order_by(
             '-published_at', '-created_at'
         ).values('slug', 'updated_at')
-        return Response([{'slug': r['slug'], 'updated_at': r['updated_at']} for r in rows])
+        response = Response([
+            {'slug': row['slug'], 'updated_at': row['updated_at']}
+            for row in rows
+        ])
+        response['Cache-Control'] = 'no-store'
+        return response
 
 
 # ─── FeedbackCreateView (피드백 위젯 — 공개 제출) ────────────────────

@@ -1203,15 +1203,29 @@ class BlogPublicReadTests(TestCase):
         self.assertEqual(post.view_count, 0)
 
     def test_sitemap_published_only(self):
-        """sitemap: 게시글 slug만."""
+        """sitemap: 게시되고 색인 가능한 글만."""
         _make_blog(title='게시', slug='pub-a', is_published=True)
         _make_blog(title='초안', slug='draft-a', is_published=False)
+        _make_blog(title='검색 제외', slug='noindex-a', is_noindex=True)
         r = self.anon.get('/api/v1/board/blog/sitemap/')
         self.assertEqual(r.status_code, 200)
         slugs = [row['slug'] for row in r.json()]
         self.assertIn('pub-a', slugs)
         self.assertNotIn('draft-a', slugs)
+        self.assertNotIn('noindex-a', slugs)
         self.assertIn('updated_at', r.json()[0])
+
+    def test_sitemap_has_no_store_header_and_minimal_fields(self):
+        """sitemap 응답은 저장 금지 지시자와 최소 필드만 제공한다."""
+        _make_blog(title='cache 대상', slug='cache-a', is_published=True)
+
+        r = self.anon.get('/api/v1/board/blog/sitemap/')
+
+        self.assertEqual(
+            r['Cache-Control'],
+            'no-store',
+        )
+        self.assertEqual(set(r.json()[0]), {'slug', 'updated_at'})
 
 
 class BlogAdminCrudTests(TestCase):

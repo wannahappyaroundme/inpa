@@ -8,6 +8,7 @@ import { BlogCoverImage } from "@/components/blog-image";
 import { BlogMarkdown } from "@/components/blog-markdown";
 import { JsonLd, blogPosting, ORGANIZATION } from "@/components/structured-data";
 import { getBlogPost, ApiError, type BlogDetail, type BlogRelatedPost } from "@/lib/api";
+import { PUBLIC_INDEX_ROBOTS } from "@/lib/search-policy";
 
 // 블로그 상세 — 서버 컴포넌트, 라이트 고정(§6 테마 가드).
 // ★ force-dynamic: 요청 시점 렌더 → 빌드가 BE 를 부르지 않고, 조회수(view_count)는 BE 가 매 조회 증가.
@@ -94,7 +95,7 @@ export async function generateMetadata({
     description,
     alternates: { canonical: `/blog/${post.slug}` },
     // is_noindex(안전밸브)면 색인 차단. §7 트랩: openGraph 이미지 명시(부모 파일컨벤션 미상속).
-    robots: post.is_noindex ? { index: false, follow: false } : undefined,
+    robots: post.is_noindex ? { index: false, follow: false } : PUBLIC_INDEX_ROBOTS,
     openGraph: {
       type: "article",
       locale: "ko_KR",

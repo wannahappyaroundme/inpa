@@ -3,11 +3,13 @@ import { ServiceLanding } from "@/components/service-landing";
 import { LandingClient } from "@/components/landing-client";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { JsonLd, ORGANIZATION, WEBSITE, SOFTWARE_APP } from "@/components/structured-data";
+import { PUBLIC_INDEX_ROBOTS } from "@/lib/search-policy";
 
 // 서비스 소개 메인. 서버에서 canonical·JSON-LD를 주입하고,
 // 로그인 리다이렉트·UTM 캡처는 <LandingClient/>가 맡는다.
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
+  robots: PUBLIC_INDEX_ROBOTS,
 };
 
 export default function LandingPage() {

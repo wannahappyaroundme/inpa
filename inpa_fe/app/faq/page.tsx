@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { InpaMark } from "@/components/inpa-logo";
 import { JsonLd, faqPage } from "@/components/structured-data";
+import { PUBLIC_INDEX_ROBOTS } from "@/lib/search-policy";
 
 // 공개 FAQ — 검색·AI 답변 엔진이 가장 잘 인용하는 형식. 라이트 고정(서비스 페이지 테마 가드).
 // ★ 데이터 단일 소스 FAQ_ITEMS → 화면 렌더 + FAQPage JSON-LD 동시 생성(불일치 방지).
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
   title: "자주 묻는 질문",
   description: OG_DESC,
   alternates: { canonical: "/faq" },
+  robots: PUBLIC_INDEX_ROBOTS,
   // ★ 페이지별 openGraph 정의 시 루트의 파일 컨벤션 이미지가 상속되지 않으므로(§7 트랩)
   //   전역 OG 이미지를 명시 참조한다. 절대 URL 은 metadataBase 기준.
   openGraph: {

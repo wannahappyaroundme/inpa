@@ -3,6 +3,7 @@ import Link from "next/link";
 import { InpaMark } from "@/components/inpa-logo";
 import { BlogCoverImage } from "@/components/blog-image";
 import { listBlogPosts, BLOG_CATEGORIES, type BlogListItem } from "@/lib/api";
+import { PUBLIC_INDEX_ROBOTS } from "@/lib/search-policy";
 
 // 블로그 목록 — 서버 컴포넌트, 라이트 고정(서비스 페이지 테마 가드 §6).
 // ★ force-dynamic: 요청 시점 렌더 → 빌드가 BE 를 부르지 않고(빌드 안정), 새 글이 바로 반영된다.
@@ -18,6 +19,7 @@ export const metadata: Metadata = {
   title: "블로그",
   description: OG_DESC,
   alternates: { canonical: "/blog" },
+  robots: PUBLIC_INDEX_ROBOTS,
   // §7 트랩: 페이지별 openGraph 정의 시 루트 파일컨벤션 이미지가 상속되지 않으므로 명시 참조.
   openGraph: {
     type: "website",
