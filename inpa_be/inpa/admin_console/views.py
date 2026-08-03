@@ -2696,7 +2696,8 @@ class AdminActivationFunnelView(APIView):
       activated(첫분석 AND 첫공유 모두 가입 후 ACTIVATION_WINDOW_DAYS(기본 7일) 이내).
     가입 코호트(창 days 내 date_joined) 기준, 내부 계정 제외(AdminUsageView 관례).
     사실 카운트 + 단계별(직전 단계 대비) 전환율(%)만(§6 판정어 금지). UTM(utm_source, 없으면
-    'direct') 별 가입·활성화 분해 + 활성화 코호트 평균 활성화 소요일수도 함께 반환.
+    'direct') 별 가입·활성화 분해, 검색·AI·직접·기타 채널별 전 단계, 활성화 코호트 평균
+    활성화 소요일수도 함께 반환.
     성능: 코호트 크기와 무관하게 고정 쿼리 수(코호트 1 + owner별 MIN 3, N+1 없음).
     """
     permission_classes = [IsAdmin]
@@ -2753,6 +2754,36 @@ class AdminActivationFunnelView(APIView):
         activated_count = 0
         activation_days = []
         utm_breakdown = {}  # source(또는 'direct') → {signups, activated}
+        channel_labels = {
+            'search': '검색', 'ai': 'AI', 'direct': '직접', 'other': '기타',
+        }
+        channel_breakdown = {
+            channel: {
+                'channel': channel, 'label': label, 'signups': 0, 'verified': 0,
+                'first_customers': 0, 'first_analyses': 0, 'first_shares': 0,
+                'activated': 0,
+            }
+            for channel, label in channel_labels.items()
+        }
+
+        search_sources = {
+            'google', 'google_organic', 'naver', 'naver_organic',
+            'bing', 'bing_organic', 'daum', 'daum_organic',
+        }
+        ai_sources = {
+            'chatgpt', 'openai', 'perplexity', 'gemini', 'bard',
+            'claude', 'anthropic', 'copilot',
+        }
+
+        def _channel_for(source):
+            normalized = source.strip().lower()
+            if not normalized or normalized == 'direct':
+                return 'direct'
+            if normalized in search_sources:
+                return 'search'
+            if normalized in ai_sources:
+                return 'ai'
+            return 'other'
 
         for row in cohort_rows:
             uid = row['id']
@@ -2782,6 +2813,14 @@ class AdminActivationFunnelView(APIView):
             bucket['signups'] += 1
             bucket['activated'] += int(activated)
 
+            channel_bucket = channel_breakdown[_channel_for(source)]
+            channel_bucket['signups'] += 1
+            channel_bucket['verified'] += int(reached_verified)
+            channel_bucket['first_customers'] += int(reached_customer)
+            channel_bucket['first_analyses'] += int(reached_analysis)
+            channel_bucket['first_shares'] += int(reached_share)
+            channel_bucket['activated'] += int(activated)
+
         def _rate(numer, denom):
             return round(numer / denom * 100, 1) if denom else None
 
@@ -2803,6 +2842,13 @@ class AdminActivationFunnelView(APIView):
              'activation_rate': _rate(v['activated'], v['signups'])}
             for k, v in sorted(utm_breakdown.items(), key=lambda kv: -kv[1]['signups'])
         ]
+        acquisition_channels = [
+            {
+                **values,
+                'activation_rate': _rate(values['activated'], values['signups']),
+            }
+            for values in channel_breakdown.values()
+        ]
         avg_days_to_activation = (
             round(sum(activation_days) / len(activation_days), 1) if activation_days else None
         )
@@ -2815,6 +2861,7 @@ class AdminActivationFunnelView(APIView):
             'activation_rate': _rate(activated_count, signup_count),
             'steps': steps,
             'utm_sources': utm_sources,
+            'acquisition_channels': acquisition_channels,
             'avg_days_to_activation': avg_days_to_activation,
         })
 
