@@ -18,6 +18,7 @@ import {
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { InpaMark } from "@/components/inpa-logo";
+import { PublicDiscoverySection } from "@/components/public-discovery";
 import { LandingProductGallery } from "@/components/landing-product-gallery";
 import { PricingFourTiers } from "@/components/brand-story-sections";
 import {
@@ -305,6 +306,8 @@ export function ServiceLanding() {
       >
         <PricingFourTiers id="pricing" registerHref={registerUrl} />
       </div>
+
+      <PublicDiscoverySection />
 
       <section id="faq" className="scroll-mt-20 bg-[var(--canvas)] py-20 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">

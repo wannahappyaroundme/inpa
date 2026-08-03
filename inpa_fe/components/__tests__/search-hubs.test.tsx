@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SearchHubPage } from "@/components/search-hub-page";
+import { PublicDiscoveryLinks, PublicDiscoverySection } from "@/components/public-discovery";
 import { breadcrumbList, webPage } from "@/components/structured-data";
 import * as guideRoute from "@/app/guides/[slug]/page";
 import * as solutionRoute from "@/app/solutions/[slug]/page";
@@ -78,6 +79,30 @@ describe("검색 근거 페이지 공통 템플릿", () => {
     expect(crumbsSchema.itemListElement[0].item).toBe(`${SITE_URL}/`);
     expect(crumbsSchema.itemListElement.at(-1).item).toBe(currentUrl);
     expect(faqSchema.mainEntity).toHaveLength(sampleHub.faq.length);
+  });
+});
+
+describe("공개 페이지 발견 경로", () => {
+  it("랜딩에서 솔루션 3개와 실무 가이드 4개를 모두 직접 연결한다", () => {
+    render(<PublicDiscoverySection />);
+
+    expect(screen.getByRole("heading", { name: "설계사 업무별 솔루션" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "현장에서 바로 쓰는 실무 가이드" })).toBeInTheDocument();
+    for (const hub of SEARCH_HUBS) {
+      const path = `/${hub.kind === "solution" ? "solutions" : "guides"}/${hub.slug}`;
+      expect(screen.getByRole("link", { name: hub.title })).toHaveAttribute("href", path);
+    }
+  });
+
+  it("FAQ와 블로그에서 재사용할 간단한 링크도 7개 원문으로 직접 이어진다", () => {
+    render(<PublicDiscoveryLinks />);
+
+    const nav = screen.getByRole("navigation", { name: "솔루션과 실무 가이드" });
+    expect(within(nav).getAllByRole("link")).toHaveLength(SEARCH_HUBS.length);
+    for (const path of getSearchHubPaths()) {
+      expect(within(nav).getByRole("link", { name: SEARCH_HUBS[getSearchHubPaths().indexOf(path)].title }))
+        .toHaveAttribute("href", path);
+    }
   });
 });
 

@@ -85,6 +85,10 @@ it("검색 및 AI 봇에도 민감한 공개 링크 차단 규칙을 적용한�
 it("경로를 exact 및 segment boundary로 분류하고 부분 문자열은 허용하지 않는다", () => {
   expect(classifySearchPath("/")).toBe("indexable");
   expect(classifySearchPath("/blog/public-post")).toBe("indexable");
+  expect(classifySearchPath("/solutions/customer-management")).toBe("indexable");
+  expect(classifySearchPath("/guides/factual-comparison")).toBe("indexable");
+  expect(classifySearchPath("/solutions/customer-management/extra")).toBe("private_or_utility");
+  expect(classifySearchPath("/guides/not-published")).toBe("private_or_utility");
   expect(classifySearchPath("/customers")).toBe("private_or_utility");
   expect(classifySearchPath("/blogger")).toBe("private_or_utility");
 });

@@ -3,6 +3,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import sitemap from "@/app/sitemap";
 import robots from "@/app/robots";
 import { metadata as storyMetadata } from "@/app/story/page";
+import { getSearchHubPaths } from "@/lib/search-content";
+import { CURRENT_INDEXABLE_PATHS } from "@/lib/search-policy";
 
 const api = vi.hoisted(() => ({
   getBlogSitemap: vi.fn(),
@@ -61,10 +63,12 @@ it("인파 이야기는 공유 미리보기에도 전용 주소와 문구를 제
   });
 });
 
-it("사이트맵에는 현재 공개 allowlist만 먼저 제공하고 법무 초안은 제외한다", async () => {
+it("사이트맵에는 공개 허용 목록과 근거 페이지 7개를 먼저 제공하고 법무 초안은 제외한다", async () => {
   const paths = (await sitemap()).map((row) => new URL(row.url).pathname);
 
-  expect(paths.slice(0, 5)).toEqual(["/", "/story", "/blog", "/faq", "/data-policy"]);
+  expect(paths.slice(0, CURRENT_INDEXABLE_PATHS.length)).toEqual(CURRENT_INDEXABLE_PATHS);
+  expect(paths).toEqual(expect.arrayContaining(getSearchHubPaths()));
+  expect(new Set(paths).size).toBe(paths.length);
   expect(paths).not.toContain("/legal/terms");
   expect(paths).not.toContain("/legal/privacy");
 });
@@ -77,7 +81,7 @@ it("게시글은 slug 기준으로 중복 제거하고 잘못된 수정일은 �
   ]);
 
   const entries = await sitemap();
-  const posts = entries.slice(5);
+  const posts = entries.slice(CURRENT_INDEXABLE_PATHS.length);
 
   expect(posts.map((row) => new URL(row.url).pathname)).toEqual([
     "/blog/a-post",
@@ -96,7 +100,7 @@ it("최초 backend 조회부터 실패하면 정적 sitemap을 반환한다", as
 
   const paths = (await sitemap()).map((row) => new URL(row.url).pathname);
 
-  expect(paths).toEqual(["/", "/story", "/blog", "/faq", "/data-policy"]);
+  expect(paths).toEqual(CURRENT_INDEXABLE_PATHS);
 });
 
 it("마지막 정상 목록이 있어도 다음 조회 실패 시 동적 글을 즉시 제외한다", async () => {
@@ -110,5 +114,5 @@ it("마지막 정상 목록이 있어도 다음 조회 실패 시 동적 글을 
   api.getBlogSitemap.mockRejectedValueOnce(new Error("upstream unavailable"));
   const paths = (await sitemap()).map((row) => new URL(row.url).pathname);
 
-  expect(paths).toEqual(["/", "/story", "/blog", "/faq", "/data-policy"]);
+  expect(paths).toEqual(CURRENT_INDEXABLE_PATHS);
 });
