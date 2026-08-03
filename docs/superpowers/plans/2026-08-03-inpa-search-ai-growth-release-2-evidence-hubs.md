@@ -8,6 +8,8 @@
 
 **Tech Stack:** Next.js 16.2.9 static generation, React server components, TypeScript, Tailwind v4, Next Image, Vitest, existing 2880×1800 product WebP captures.
 
+**Release status (2026-08-04):** Completed and live. PR #160 merged as `4dad276`; CI run `30829605143` passed. All seven URLs, metadata, JSON-LD, internal links, and sitemap entries were verified in production. Google/Naver console state remained unverified because the browser sessions were signed out; no duplicate sitemap submission was made.
+
 ## 공개 URL과 검색 의도
 
 | URL | 답하려는 핵심 질문 | 제품 근거 |
