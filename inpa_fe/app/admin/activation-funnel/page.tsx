@@ -78,8 +78,15 @@ export default function AdminActivationFunnelPage() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-danger-tint border border-line text-[13px] text-danger-ink">
-          {error}
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-line bg-danger-tint p-3 text-[13px] text-danger-ink">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={load}
+            className="shrink-0 rounded-lg border border-line bg-surface px-3 py-1.5 font-semibold text-ink2"
+          >
+            다시 불러오기
+          </button>
         </div>
       )}
       {loading && <div className="mt-2 h-40 rounded-2xl bg-line animate-pulse" />}
@@ -139,6 +146,50 @@ export default function AdminActivationFunnelPage() {
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </Card>
+
+          <Card className="mt-3 overflow-x-auto">
+            <div className="px-3 pt-3 text-[13px] font-semibold text-ink">채널별 단계 성과</div>
+            <p className="px-3 pb-1 text-[11px] text-ink3">
+              검색, AI, 직접 방문, 기타 유입이 가입 후 어디까지 이어졌는지 보여줘요.
+            </p>
+            <table className="mt-1 min-w-[760px] w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-line text-ink3">
+                  <th className="px-3 py-2 text-left font-semibold">채널</th>
+                  <th className="px-2 py-2 text-right font-semibold">가입</th>
+                  <th className="px-2 py-2 text-right font-semibold">인증</th>
+                  <th className="px-2 py-2 text-right font-semibold">첫 고객</th>
+                  <th className="px-2 py-2 text-right font-semibold">첫 분석</th>
+                  <th className="px-2 py-2 text-right font-semibold">첫 공유</th>
+                  <th className="px-2 py-2 text-right font-semibold">7일 활성화</th>
+                  <th className="px-3 py-2 text-right font-semibold">활성화율</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.acquisition_channels ?? []).map((row) => (
+                  <tr key={row.channel} className="border-b border-line/60">
+                    <td className="px-3 py-2 font-semibold text-ink">{row.label}</td>
+                    <td className="px-2 py-2 text-right tnum text-ink2">{KO.format(row.signups)}</td>
+                    <td className="px-2 py-2 text-right tnum text-ink2">{KO.format(row.verified)}</td>
+                    <td className="px-2 py-2 text-right tnum text-ink2">{KO.format(row.first_customers)}</td>
+                    <td className="px-2 py-2 text-right tnum text-ink2">{KO.format(row.first_analyses)}</td>
+                    <td className="px-2 py-2 text-right tnum text-ink2">{KO.format(row.first_shares)}</td>
+                    <td className="px-2 py-2 text-right tnum text-ink2">{KO.format(row.activated)}</td>
+                    <td className="px-3 py-2 text-right font-semibold tnum text-ink">
+                      {pct(row.activation_rate)}
+                    </td>
+                  </tr>
+                ))}
+                {(data.acquisition_channels ?? []).length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-8 text-center text-ink3">
+                      선택한 기간의 가입 기록이 없어요.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </Card>

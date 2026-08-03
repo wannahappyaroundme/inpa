@@ -1025,6 +1025,17 @@ export interface ActivationUtmSource {
   activated: number;
   activation_rate: number | null;
 }
+export interface ActivationAcquisitionChannel {
+  channel: "search" | "ai" | "direct" | "other";
+  label: "검색" | "AI" | "직접" | "기타";
+  signups: number;
+  verified: number;
+  first_customers: number;
+  first_analyses: number;
+  first_shares: number;
+  activated: number;
+  activation_rate: number | null;
+}
 export interface AdminActivationFunnelResponse {
   days: number;
   /** 활성화 판정 창(일), env ACTIVATION_WINDOW_DAYS(기본 7) */
@@ -1034,6 +1045,8 @@ export interface AdminActivationFunnelResponse {
   activation_rate: number | null;
   steps: ActivationFunnelStep[];
   utm_sources: ActivationUtmSource[];
+  /** 검색·AI·직접·기타 고정 채널별 중첩 퍼널 */
+  acquisition_channels: ActivationAcquisitionChannel[];
   /** 활성화 코호트 평균 소요일수(가입→활성화), 활성화 0명이면 null */
   avg_days_to_activation: number | null;
 }

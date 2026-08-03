@@ -1,5 +1,6 @@
 import type { Metadata, MetadataRoute } from "next";
 import { getSearchHubPaths } from "@/lib/search-content";
+import { getPublicResourcePaths } from "@/lib/public-resources";
 
 export const PUBLIC_INDEX_ROBOTS: Metadata["robots"] = {
   index: true,
@@ -9,6 +10,7 @@ export const PUBLIC_INDEX_ROBOTS: Metadata["robots"] = {
 export const CURRENT_INDEXABLE_PATHS = [
   "/",
   ...getSearchHubPaths(),
+  ...getPublicResourcePaths(),
   "/story",
   "/blog",
   "/faq",
@@ -69,7 +71,11 @@ export function staticSitemapEntries(siteUrl: string): MetadataRoute.Sitemap {
     url: `${baseUrl}${path === "/" ? "/" : path}`,
     ...(SITEMAP_META[path] ?? {
       changeFrequency: "monthly" as const,
-      priority: path.startsWith("/solutions/") ? 0.8 : 0.7,
+      priority: path.startsWith("/solutions/")
+        ? 0.8
+        : path.startsWith("/tools/")
+          ? 0.75
+          : 0.7,
     }),
   }));
 }

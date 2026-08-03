@@ -1959,6 +1959,34 @@ class AdminActivationFunnelTest(TestCase):
         self.assertEqual(rows['google']['signups'], 1)  # user_c
         self.assertEqual(rows['google']['activated'], 0)
 
+    def test_AF5b_acquisition_channel_breakdown_has_all_monotonic_steps(self):
+        """AF5b: 검색·AI·직접·기타 고정 4채널에 퍼널 전 단계를 중첩 집계한다."""
+        self._cohort_user(
+            'ai@test.com', signup_days_ago=3, verified=True,
+            analysis_offset_days=1, share_offset_days=2, utm_source='chatgpt.com')
+        self._cohort_user(
+            'other@test.com', signup_days_ago=2, verified=False,
+            utm_source='partner_newsletter')
+
+        data = self.client_admin.get('/api/v1/admin/activation-funnel/?days=30').json()
+        rows = {row['channel']: row for row in data['acquisition_channels']}
+
+        self.assertEqual(list(rows), ['search', 'ai', 'direct', 'other'])
+        self.assertEqual(rows['search'], {
+            'channel': 'search', 'label': '검색', 'signups': 2, 'verified': 1,
+            'first_customers': 1, 'first_analyses': 1, 'first_shares': 1,
+            'activated': 1, 'activation_rate': 50.0,
+        })
+        self.assertEqual(rows['ai'], {
+            'channel': 'ai', 'label': 'AI', 'signups': 1, 'verified': 1,
+            'first_customers': 1, 'first_analyses': 1, 'first_shares': 1,
+            'activated': 1, 'activation_rate': 100.0,
+        })
+        self.assertEqual(rows['direct']['signups'], 1)
+        self.assertEqual(rows['direct']['activated'], 0)
+        self.assertEqual(rows['other']['signups'], 1)
+        self.assertEqual(rows['other']['verified'], 0)
+
     def test_AF6_no_judgment_words(self):
         """AF6: 응답 키/문자열에 판정어 없음 — 사실 카운트·비율만(§6)."""
         res = self.client_admin.get('/api/v1/admin/activation-funnel/?days=30')

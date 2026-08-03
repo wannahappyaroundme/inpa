@@ -8,6 +8,7 @@ import * as guideRoute from "@/app/guides/[slug]/page";
 import * as solutionRoute from "@/app/solutions/[slug]/page";
 import { PUBLIC_INDEX_ROBOTS } from "@/lib/search-policy";
 import { SEARCH_HUBS, getSearchHub, getSearchHubPaths } from "@/lib/search-content";
+import { PUBLIC_RESOURCES } from "@/lib/public-resources";
 
 const SITE_URL = "https://www.inpa.kr";
 const sampleHub = SEARCH_HUBS[0];
@@ -92,16 +93,23 @@ describe("공개 페이지 발견 경로", () => {
       const path = `/${hub.kind === "solution" ? "solutions" : "guides"}/${hub.slug}`;
       expect(screen.getByRole("link", { name: hub.title })).toHaveAttribute("href", path);
     }
+    expect(screen.getByRole("heading", { name: "무료로 바로 쓰는 실무 도구" })).toBeInTheDocument();
+    for (const resource of PUBLIC_RESOURCES) {
+      expect(screen.getByRole("link", { name: resource.title })).toHaveAttribute("href", resource.path);
+    }
   });
 
-  it("FAQ와 블로그에서 재사용할 간단한 링크도 7개 원문으로 직접 이어진다", () => {
+  it("FAQ와 블로그에서 재사용할 간단한 링크도 허브와 도구 원문으로 직접 이어진다", () => {
     render(<PublicDiscoveryLinks />);
 
-    const nav = screen.getByRole("navigation", { name: "솔루션과 실무 가이드" });
-    expect(within(nav).getAllByRole("link")).toHaveLength(SEARCH_HUBS.length);
+    const nav = screen.getByRole("navigation", { name: "솔루션과 실무 자료" });
+    expect(within(nav).getAllByRole("link")).toHaveLength(SEARCH_HUBS.length + PUBLIC_RESOURCES.length);
     for (const path of getSearchHubPaths()) {
       expect(within(nav).getByRole("link", { name: SEARCH_HUBS[getSearchHubPaths().indexOf(path)].title }))
         .toHaveAttribute("href", path);
+    }
+    for (const resource of PUBLIC_RESOURCES) {
+      expect(within(nav).getByRole("link", { name: resource.title })).toHaveAttribute("href", resource.path);
     }
   });
 });

@@ -6,20 +6,16 @@
 // PII 아님(캠페인 태그) — 위험문자 제거·60자 절단은 BE(RegisterSerializer)가 한 번 더 한다.
 import { useEffect } from "react";
 
+import { inferSafeAcquisition, type SafeAcquisition } from "@/lib/acquisition";
+
 const STORAGE_KEY = "inpa_utm";
-const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign"] as const;
 
 /** 공개 랜딩(마운트 시 1회) — 이미 저장된 값이 있으면 아무것도 하지 않는다. */
 export function useUtmCapture() {
   useEffect(() => {
     try {
       if (sessionStorage.getItem(STORAGE_KEY)) return;
-      const params = new URLSearchParams(window.location.search);
-      const captured: Record<string, string> = {};
-      for (const key of UTM_KEYS) {
-        const v = params.get(key);
-        if (v) captured[key] = v;
-      }
+      const captured = inferSafeAcquisition(window.location.search, document.referrer);
       if (Object.keys(captured).length > 0) {
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(captured));
       }
@@ -35,22 +31,21 @@ export function useUtmCapture() {
  * sessionStorage는 오리진별로 격리되므로, 저장값이 없을 때만 현재 URL 쿼리를 2차 안전망으로 읽는다
  * (현재 URL이 first-touch 값을 덮어쓰지 않도록 저장값을 나중에 얹는다).
  */
-export function readCapturedUtm(): { utm_source?: string; utm_medium?: string; utm_campaign?: string } {
-  const result: Record<string, string> = {};
+export function readCapturedUtm(): SafeAcquisition {
+  let result: SafeAcquisition = {};
   try {
-    // 1) 현재 URL 쿼리(폴백)
-    const params = new URLSearchParams(window.location.search);
-    for (const key of UTM_KEYS) {
-      const v = params.get(key);
-      if (v) result[key] = v;
-    }
+    // 1) 현재 URL 쿼리 또는 안전한 유입 분류(폴백)
+    result = inferSafeAcquisition(window.location.search, document.referrer);
   } catch {
     // 무시
   }
   try {
     // 2) 저장된 first-touch 값을 위에 얹어 우선(있으면 URL 값을 덮어씀).
     const stored = sessionStorage.getItem(STORAGE_KEY);
-    if (stored) Object.assign(result, JSON.parse(stored));
+    if (stored) {
+      const parsed = JSON.parse(stored) as SafeAcquisition;
+      result = { ...result, ...parsed };
+    }
   } catch {
     // 무시
   }

@@ -26,7 +26,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from rest_framework.test import APIClient
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from inpa.accounts.models import Profile, User
@@ -42,7 +42,7 @@ from .consent_texts import (
 )
 from .models import (
     ConsentLog, Customer, CustomerMedicalHistory, CustomerMemo, CustomerTag, JobRiskCode,
-    PlannerBaseline, PlannerBaselineRevision,
+    PlannerBaseline, PlannerBaselineRevision, compute_insurance_age,
 )
 from .presets import PRESET_ORIGIN_V0, PRESET_V0, iter_preset_rows
 from .serializers import CustomerListSerializer, CustomerSerializer
@@ -53,6 +53,28 @@ POSTGRES_ONLY = skipUnless(
     connection.vendor == 'postgresql',
     'PostgreSQL row-lock and partial-unique test',
 )
+
+
+class ComputeInsuranceAgeTests(SimpleTestCase):
+    def test_calendar_boundaries_match_insurance_age_rule(self):
+        cases = (
+            ('2000-01-31', datetime.date(2026, 7, 30), 26),
+            ('2000-01-31', datetime.date(2026, 7, 31), 27),
+            ('2000-08-31', datetime.date(2026, 2, 27), 25),
+            ('2000-08-31', datetime.date(2026, 2, 28), 26),
+            ('2000-02-29', datetime.date(2025, 8, 28), 25),
+            ('2000-02-29', datetime.date(2025, 8, 29), 26),
+            ('2000-08-04', datetime.date(2026, 8, 4), 26),
+        )
+        for birth_day, as_of, expected in cases:
+            with self.subTest(birth_day=birth_day, as_of=as_of):
+                self.assertEqual(compute_insurance_age(birth_day, as_of), expected)
+
+    def test_invalid_and_future_birth_dates_return_none(self):
+        as_of = datetime.date(2026, 8, 4)
+        for birth_day in ('', '2000-2-03', '2000-02-30', '2026-08-05', '2027-01-01'):
+            with self.subTest(birth_day=birth_day):
+                self.assertIsNone(compute_insurance_age(birth_day, as_of))
 
 
 def _thread_database_call(callback):
