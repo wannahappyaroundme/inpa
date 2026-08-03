@@ -8,6 +8,8 @@
 
 **Tech Stack:** Next.js 16.2.9, React 19.2, TypeScript, Vitest, Vercel custom events, Django 5.2/DRF, existing `Profile.utm_*` and `AdminActivationFunnelView`.
 
+**Release status (2026-08-04):** Completed and live. PR #161 merged as `8b693f9` (head `afe7bb7`); CI run `30835365877` passed. Vercel production is Ready, Render health returns 200, the three public resources and all ten search-growth routes are in the 32-URL production sitemap. Live admin aggregate rows and exact Render deploy SHA remain unverified because the admin/Render sessions were signed out; backend/API tests passed. The fixed 30-question audit contains four actual anonymous-engine checks with zero Inpa mentions and 26 explicitly unverified rows.
+
 ## 공개 URL
 
 - `/tools/insurance-age`: 기준일과 생년월일로 보험나이를 계산한다. 입력·결과를 저장하거나 전송하지 않는다.

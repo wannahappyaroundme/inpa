@@ -8,6 +8,14 @@
 
 **Tech Stack:** Next.js 16.2.9 App Router, React 19.2, TypeScript, Tailwind v4, Vitest, Vercel Analytics/Speed Insights, Sentry, Django 5.2 LTS/DRF, PostgreSQL/SQLite, Vercel, Render, GitHub Actions.
 
+## 완료 기록 (2026-08-04)
+
+- Release 1: PR #158, merge `994c871`, CI `30825195006`, 운영 배포 및 민감 경로 차단 확인.
+- Release 2: PR #160, merge `4dad276`, CI `30829605143`, 솔루션 3개·가이드 4개 운영 배포.
+- Release 3: PR #161, merge `8b693f9`, CI `30835365877`, 무저장 도구 3개·안전한 유입 분류·채널별 7일 활성화 집계 운영 배포.
+- 운영 사이트맵은 공개 32개 URL을 담고, 이번 성장 범위 10개 경로를 모두 포함하며 private/token/legal 표본은 포함하지 않는다.
+- 미확인: Google Search Console·네이버 Search Advisor는 브라우저 로그인이 없어 기존 제출 상태를 읽지 못했고 재제출하지 않았다. 외부 AI 30질문 중 실제 확인 4건의 인파 언급은 0건이며 26건은 로그인·사용량 제한으로 미확인이다.
+
 ## 승인 기준 문서
 
 - 설계 SSOT: `docs/superpowers/specs/2026-08-03-inpa-search-ai-growth-design.md`
