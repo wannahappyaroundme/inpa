@@ -5,6 +5,11 @@
 //   - 세션 리플레이(화면 녹화) 미사용: 고객 증권·보장 화면이 담길 수 있어 금지.
 //   - tracesSampleRate=0: 오류 수집만(성능 트레이싱은 무료 쿼터·PII 표면 관리상 보류).
 // DSN 은 비밀이 아님(공개 클라이언트 키) — 기본값 하드코드 + env 로 교체 가능.
+import {
+  sanitizeSentryBreadcrumb,
+  sanitizeSentryEvent,
+} from "@/lib/telemetry-privacy";
+
 export const SENTRY_DSN =
   process.env.NEXT_PUBLIC_SENTRY_DSN ||
   "https://275953dddf39f784ebaa4d1f5a88a47b@o4511229073227776.ingest.us.sentry.io/4511691391303680";
@@ -14,4 +19,6 @@ export const SENTRY_BASE_OPTIONS = {
   enabled: process.env.NODE_ENV === "production", // 로컬 개발 소음 방지
   sendDefaultPii: false,
   tracesSampleRate: 0,
+  beforeSend: sanitizeSentryEvent,
+  beforeBreadcrumb: sanitizeSentryBreadcrumb,
 } as const;
