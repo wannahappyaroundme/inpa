@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import { SearchHubPage } from "@/components/search-hub-page";
 import { breadcrumbList, webPage } from "@/components/structured-data";
-import { SEARCH_HUBS, getSearchHubPaths } from "@/lib/search-content";
+import * as guideRoute from "@/app/guides/[slug]/page";
+import * as solutionRoute from "@/app/solutions/[slug]/page";
+import { PUBLIC_INDEX_ROBOTS } from "@/lib/search-policy";
+import { SEARCH_HUBS, getSearchHub, getSearchHubPaths } from "@/lib/search-content";
 
 const SITE_URL = "https://www.inpa.kr";
 const sampleHub = SEARCH_HUBS[0];
@@ -112,5 +115,46 @@ describe("검색 근거 구조화 데이터 helper", () => {
       dateModified: sampleHub.updatedAt,
       inLanguage: "ko-KR",
     });
+  });
+});
+
+describe("검색 근거 정적 route", () => {
+  it("솔루션 3개와 실무 가이드 4개만 정적으로 생성한다", async () => {
+    expect(solutionRoute.dynamicParams).toBe(false);
+    expect(guideRoute.dynamicParams).toBe(false);
+    expect(await solutionRoute.generateStaticParams()).toEqual([
+      { slug: "customer-management" },
+      { slug: "policy-analysis" },
+      { slug: "sales-management" },
+    ]);
+    expect(await guideRoute.generateStaticParams()).toEqual([
+      { slug: "first-consultation" },
+      { slug: "customer-follow-up" },
+      { slug: "policy-review" },
+      { slug: "factual-comparison" },
+    ]);
+  });
+
+  it.each([
+    ["solution", "customer-management", solutionRoute.generateMetadata],
+    ["guide", "first-consultation", guideRoute.generateMetadata],
+  ] as const)("%s 샘플 route에 고유 검색 메타데이터를 넣는다", async (kind, slug, generateMetadata) => {
+    const hub = getSearchHub(kind, slug)!;
+    const path = `/${kind === "solution" ? "solutions" : "guides"}/${slug}`;
+    const metadata = await generateMetadata({ params: Promise.resolve({ slug }) });
+
+    expect(metadata.title).toBe(hub.title);
+    expect(metadata.description).toBe(hub.description);
+    expect(metadata.alternates).toEqual({ canonical: path });
+    expect(metadata.robots).toEqual(PUBLIC_INDEX_ROBOTS);
+    expect(metadata.openGraph).toMatchObject({
+      type: "website",
+      title: hub.title,
+      description: hub.description,
+      url: path,
+    });
+    expect(metadata.openGraph?.images).toEqual([
+      { url: hub.evidence[0].src, width: 2880, height: 1800, alt: hub.evidence[0].alt },
+    ]);
   });
 });
