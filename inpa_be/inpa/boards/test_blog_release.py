@@ -103,7 +103,10 @@ class ReleasePackageMixin:
                 '<!-- blog-body -->\n\n'
                 f'{body}\n'
             )
-            (self.content_dir / f'{index:02d}-{metadata["slug"]}.md').write_text(
+            # Keep the fixture filename independent from metadata under test.
+            # Linux filesystems cap each filename at 255 bytes, so an invalid
+            # multibyte slug must reach the parser instead of failing in setup.
+            (self.content_dir / f'{index:02d}-post.md').write_text(
                 source, encoding='utf-8', newline='\n',
             )
         self.manifest_path.write_text(
