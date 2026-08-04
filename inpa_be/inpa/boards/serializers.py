@@ -15,6 +15,7 @@ InquiryReplySerializer  — 관리자 답변
 
 ★ 정직성 레드라인: 첨부 MIME 화이트리스트 외 400 반환 (dev/17 §13).
 """
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from .models import (
@@ -35,6 +36,13 @@ from .models import (
 
 _BODY_PREVIEW_LEN = 150
 BLOG_PUBLIC_AUTHOR = '인파 담당자'
+
+
+def _generate_blog_slug(raw, *, exclude_pk=None):
+    try:
+        return BlogPost.generate_unique_slug(raw, exclude_pk=exclude_pk)
+    except DjangoValidationError as exc:
+        raise serializers.ValidationError(exc.message_dict) from exc
 
 
 def _split_tags(raw):
@@ -647,13 +655,13 @@ class BlogPostAdminSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         raw = (validated_data.get('slug') or '').strip() or validated_data.get('title', '')
-        validated_data['slug'] = BlogPost.generate_unique_slug(raw)
+        validated_data['slug'] = _generate_blog_slug(raw)
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
         if 'slug' in validated_data:
             raw = (validated_data.get('slug') or '').strip() or validated_data.get('title', instance.title)
-            validated_data['slug'] = BlogPost.generate_unique_slug(raw, exclude_pk=instance.pk)
+            validated_data['slug'] = _generate_blog_slug(raw, exclude_pk=instance.pk)
         return super().update(instance, validated_data)
 
 

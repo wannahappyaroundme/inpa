@@ -94,6 +94,16 @@ it("게시글은 slug 기준으로 중복 제거하고 잘못된 수정일은 �
   expect(posts[1].lastModified).toBeUndefined();
 });
 
+it("정적 무료 자료 주소와 같은 게시글은 사이트맵에 한 번만 제공한다", async () => {
+  api.getBlogSitemap.mockResolvedValue([
+    { slug: "resources", updated_at: "2026-08-04T00:00:00Z" },
+  ]);
+
+  const paths = (await sitemap()).map((row) => new URL(row.url).pathname);
+
+  expect(paths.filter((path) => path === "/blog/resources")).toHaveLength(1);
+});
+
 it("게시글 sitemap은 Next last-good cache를 만들지 않는다", () => {
   expect(nextCache.unstableCache).not.toHaveBeenCalled();
 });

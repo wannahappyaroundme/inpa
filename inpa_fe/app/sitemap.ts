@@ -19,11 +19,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   let postEntries: MetadataRoute.Sitemap = [];
   try {
     const rows = await getBlogSitemap();
-    const seen = new Set<string>();
+    const seen = new Set(staticEntries.map((entry) => entry.url));
+    const baseUrl = SITE_URL.replace(/\/+$/, "");
     postEntries = rows
       .filter((row) => {
-        if (seen.has(row.slug)) return false;
-        seen.add(row.slug);
+        const url = `${baseUrl}/blog/${row.slug}`;
+        if (seen.has(url)) return false;
+        seen.add(url);
         return true;
       })
       .sort((a, b) => a.slug.localeCompare(b.slug))
@@ -31,7 +33,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         const updatedAt = row.updated_at ? new Date(row.updated_at) : undefined;
         const lastModified = updatedAt && !Number.isNaN(updatedAt.getTime()) ? updatedAt : undefined;
         return {
-          url: `${SITE_URL}/blog/${row.slug}`,
+          url: `${baseUrl}/blog/${row.slug}`,
           lastModified,
           changeFrequency: "monthly" as const,
           priority: 0.6,

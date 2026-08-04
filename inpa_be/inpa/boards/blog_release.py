@@ -191,6 +191,8 @@ def _parse_source(path, source_bytes):
     )
     if any(not _is_nonempty_string(metadata[field]) for field in string_fields):
         raise ReleaseError(f'{path.name}: 필수 문자열 메타데이터가 비어 있습니다')
+    if metadata['slug'] in BlogPost.RESERVED_SLUGS:
+        raise ReleaseError(f'{path.name}: 정적 페이지에 예약된 slug입니다')
     if metadata['category'] not in dict(BlogPost.CATEGORY_CHOICES):
         raise ReleaseError(f'{path.name}: category가 올바르지 않습니다')
     if type(metadata['cover_asset_path']) is not str:
