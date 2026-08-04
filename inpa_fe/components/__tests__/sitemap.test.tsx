@@ -70,6 +70,7 @@ it("사이트맵에는 공개 허용 목록과 근거 페이지 7개를 먼저 �
   expect(paths.slice(0, CURRENT_INDEXABLE_PATHS.length)).toEqual(CURRENT_INDEXABLE_PATHS);
   expect(paths).toEqual(expect.arrayContaining(getSearchHubPaths()));
   expect(paths).toEqual(expect.arrayContaining(getPublicResourcePaths()));
+  expect(paths).toContain("/blog/resources");
   expect(new Set(paths).size).toBe(paths.length);
   expect(paths).not.toContain("/legal/terms");
   expect(paths).not.toContain("/legal/privacy");

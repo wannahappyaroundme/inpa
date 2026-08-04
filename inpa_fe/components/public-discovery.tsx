@@ -66,7 +66,7 @@ export function PublicDiscoverySection() {
         <div id="tools" className="mt-16 scroll-mt-24 border-t border-[var(--line)] pt-16 sm:mt-20 sm:pt-20">
           <p className="text-sm font-extrabold tracking-wide text-[var(--brand)]">가입 전에도 활용하기</p>
           <h2 className="mt-3 break-keep text-3xl font-extrabold tracking-tight text-[var(--brand-ink)] sm:text-4xl">
-            무료로 바로 쓰는 실무 도구
+            무료 자료
           </h2>
           <p className="mt-4 max-w-3xl break-keep text-[15px] leading-7 text-[var(--ink-3)]">
             날짜와 체크 상태는 서버로 보내지 않고, 고객 관리표는 빈 양식으로만 제공합니다.
@@ -119,7 +119,7 @@ export function PublicDiscoveryLinks() {
         ))}
       </div>
       <div className="mt-5 border-t border-[var(--line)] pt-5">
-        <p className="text-[13px] font-extrabold text-[var(--brand-ink)]">무료 실무 도구</p>
+        <p className="text-[13px] font-extrabold text-[var(--brand-ink)]">무료 자료</p>
         <div className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
           {PUBLIC_RESOURCES.map((resource) => (
             <Link

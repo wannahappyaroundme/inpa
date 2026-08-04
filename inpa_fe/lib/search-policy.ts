@@ -13,11 +13,12 @@ export const CURRENT_INDEXABLE_PATHS = [
   ...getPublicResourcePaths(),
   "/story",
   "/blog",
+  "/blog/resources",
   "/faq",
   "/data-policy",
 ] as const;
 
-const INDEXABLE_DYNAMIC_PREFIXES = ["/blog/"] as const;
+const INDEXABLE_DYNAMIC_PATTERNS = [/^\/blog\/[^/]+$/] as const;
 
 export const SENSITIVE_CRAWL_PREFIXES = [
   "/s",
@@ -44,7 +45,7 @@ function isRouteOrChild(pathname: string, route: string): boolean {
 export function classifySearchPath(pathname: string): SearchPathClass {
   if (
     CURRENT_INDEXABLE_PATHS.some((path) => pathname === path) ||
-    INDEXABLE_DYNAMIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+    INDEXABLE_DYNAMIC_PATTERNS.some((pattern) => pattern.test(pathname))
   ) {
     return "indexable";
   }
@@ -61,6 +62,7 @@ const SITEMAP_META: Record<
   "/": { changeFrequency: "weekly", priority: 1 },
   "/story": { changeFrequency: "monthly", priority: 0.6 },
   "/blog": { changeFrequency: "weekly", priority: 0.7 },
+  "/blog/resources": { changeFrequency: "monthly", priority: 0.7 },
   "/faq": { changeFrequency: "monthly", priority: 0.6 },
   "/data-policy": { changeFrequency: "monthly", priority: 0.3 },
 };

@@ -21,7 +21,7 @@ import { metadata as blogMetadata } from "@/app/blog/page";
 import { generateMetadata as generateBlogMetadata } from "@/app/blog/[slug]/page";
 import DataPolicyPage, { metadata as dataPolicyMetadata } from "@/app/data-policy/page";
 import robots from "@/app/robots";
-import { classifySearchPath } from "@/lib/search-policy";
+import { classifySearchPath, CURRENT_INDEXABLE_PATHS } from "@/lib/search-policy";
 import { getPublicResourcePaths } from "@/lib/public-resources";
 
 const blogPost = {
@@ -86,6 +86,9 @@ it("검색 및 AI 봇에도 민감한 공개 링크 차단 규칙을 적용한�
 it("경로를 exact 및 segment boundary로 분류하고 부분 문자열은 허용하지 않는다", () => {
   expect(classifySearchPath("/")).toBe("indexable");
   expect(classifySearchPath("/blog/public-post")).toBe("indexable");
+  expect(CURRENT_INDEXABLE_PATHS).toContain("/blog/resources");
+  expect(classifySearchPath("/blog/resources")).toBe("indexable");
+  expect(classifySearchPath("/blog/resources/extra")).toBe("private_or_utility");
   expect(classifySearchPath("/solutions/customer-management")).toBe("indexable");
   expect(classifySearchPath("/guides/factual-comparison")).toBe("indexable");
   for (const path of getPublicResourcePaths()) {
