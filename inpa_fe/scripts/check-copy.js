@@ -34,6 +34,11 @@ const CUSTOMER_ROUTES = ["app/s", "app/b", "app/c", "app/d", "app/p"];
 const ADVICE_PATHS = [...CUSTOMER_ROUTES, "lib/compare-export.ts", "lib/copy-library.ts"];
 const ADVICE_HINT = "고객 대면 화면 권유어 금지(§97·금소법). 사실 서술·중립 표현으로 바꾸세요.";
 const COPY_LIBRARY_PATHS = ["lib/copy-library.ts"];
+const BLOG_RESOURCE_SURFACES = [
+  "app/blog",
+  "components/blog-section-tabs.tsx",
+  "components/public-discovery.tsx",
+];
 
 // 증권 비교 노출면: 기능을 보험 교체 제안이 아니라 여러 증권의 중립 A/B 시각화로 설명한다.
 // 내부 API·법무 주석은 호환성과 기록을 위해 유지하므로 렌더링 가능성이 있는 파일만 검사한다.
@@ -64,6 +69,12 @@ const RULES = [
   { name: "em-dash(—)", re: /—/, hint: "—는 금지. 쉼표·마침표·콜론·괄호·한글 조사로 바꾸세요." },
   // §6c 긍정 프레임: '준비 중/준비중'(beta-sounding, 없는 기능 광고) 금지 — 다음 행동으로 재서술.
   { name: "준비 중", re: /준비\s?중/, hint: "'준비 중'은 금지. 지금 가능한 다음 행동으로 바꿔 쓰세요(예: '관리자 설정 후 연결할 수 있어요')." },
+  {
+    name: "폐기된 블로그·자료 명칭",
+    re: /인파 노트|유용한 자료/,
+    paths: BLOG_RESOURCE_SURFACES,
+    hint: "블로그는 '인파 블로그', 자료 탭은 '무료 자료'로 표시하세요.",
+  },
   // #23 권유 단어 블랙리스트 — 고객 대면 라우트 한정. '추천인'(referrer)은 부정형 전방탐색으로 제외.
   { name: "권유어(추천)", re: /추천(?!인)/, paths: ADVICE_PATHS, hint: ADVICE_HINT },
   { name: "권유어(갈아타)", re: /갈아타/, paths: ADVICE_PATHS, hint: ADVICE_HINT },

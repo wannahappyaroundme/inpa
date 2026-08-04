@@ -70,6 +70,7 @@ it("사이트맵에는 공개 허용 목록과 근거 페이지 7개를 먼저 �
   expect(paths.slice(0, CURRENT_INDEXABLE_PATHS.length)).toEqual(CURRENT_INDEXABLE_PATHS);
   expect(paths).toEqual(expect.arrayContaining(getSearchHubPaths()));
   expect(paths).toEqual(expect.arrayContaining(getPublicResourcePaths()));
+  expect(paths).toContain("/blog/resources");
   expect(new Set(paths).size).toBe(paths.length);
   expect(paths).not.toContain("/legal/terms");
   expect(paths).not.toContain("/legal/privacy");
@@ -91,6 +92,16 @@ it("게시글은 slug 기준으로 중복 제거하고 잘못된 수정일은 �
   ]);
   expect(posts[0].lastModified).toEqual(new Date("2026-08-02T00:00:00Z"));
   expect(posts[1].lastModified).toBeUndefined();
+});
+
+it("정적 무료 자료 주소와 같은 게시글은 사이트맵에 한 번만 제공한다", async () => {
+  api.getBlogSitemap.mockResolvedValue([
+    { slug: "resources", updated_at: "2026-08-04T00:00:00Z" },
+  ]);
+
+  const paths = (await sitemap()).map((row) => new URL(row.url).pathname);
+
+  expect(paths.filter((path) => path === "/blog/resources")).toHaveLength(1);
 });
 
 it("게시글 sitemap은 Next last-good cache를 만들지 않는다", () => {

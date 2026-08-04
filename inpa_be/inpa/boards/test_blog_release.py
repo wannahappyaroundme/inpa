@@ -187,6 +187,13 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
         with self.assertRaisesRegex(ReleaseError, 'review_gate'):
             load_release(self.content_dir, self.manifest_path)
 
+    def test_parser_rejects_reserved_static_page_slug(self):
+        self.metadata[0]['slug'] = 'resources'
+        self.flush_package()
+
+        with self.assertRaisesRegex(ReleaseError, '예약'):
+            load_release(self.content_dir, self.manifest_path)
+
     def test_parser_rejects_non_string_review_gate_without_type_error(self):
         self.metadata[0]['review_gate'] = ['legal']
         self.flush_package()

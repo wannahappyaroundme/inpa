@@ -470,6 +470,7 @@ class BlogPost(models.Model):
         (REVIEW_GATE_NONE, '추가 검토 없음'),
         (REVIEW_GATE_LEGAL, '법률 검토'),
     ]
+    RESERVED_SLUGS = frozenset({'resources'})
 
     title = models.CharField('제목', max_length=200)
     # allow_unicode=True → 한글 슬러그 허용. unique+db_index 로 slug 조회 최적화.
@@ -626,11 +627,19 @@ class BlogPost(models.Model):
                 'legal_review': '현재 글의 법률 검토 기록을 모두 입력하면 게시할 수 있어요.',
             })
 
+    def _validate_slug_gate(self):
+        if self.slug in self.RESERVED_SLUGS:
+            raise ValidationError({
+                'slug': '이 주소는 무료 자료 페이지에서 사용하고 있어요. 다른 주소를 입력해 주세요.',
+            })
+
     def clean(self):
         super().clean()
+        self._validate_slug_gate()
         self._validate_publication_gate()
 
     def save(self, *args, **kwargs):
+        self._validate_slug_gate()
         self._validate_publication_gate()
         return super().save(*args, **kwargs)
 
@@ -644,6 +653,10 @@ class BlogPost(models.Model):
         # ★ SlugField(max_length=200) — 접미(-2/-3)까지 붙여도 200을 넘지 않게 base 를 190으로 컷.
         #   (긴 제목 2건이 같은 slug 로 충돌하면 base+'-2'=202자 → 프로드 Postgres 500. SQLite 는 못 잡음.)
         base = (slugify(raw or '', allow_unicode=True) or 'post')[:190]
+        if base in cls.RESERVED_SLUGS:
+            raise ValidationError({
+                'slug': '이 주소는 무료 자료 페이지에서 사용하고 있어요. 다른 주소를 입력해 주세요.',
+            })
         slug = base
         n = 2
         qs = cls.objects.all()

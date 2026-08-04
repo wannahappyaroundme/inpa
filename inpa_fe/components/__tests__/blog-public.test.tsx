@@ -269,6 +269,9 @@ it("목록 카드는 작성자 반복 없이 제목·요약·날짜만 보여준
 
   render(await BlogListPage({ searchParams: Promise.resolve({}) }));
 
+  expect(screen.getByRole("heading", { level: 1, name: "인파 블로그" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "인파 블로그" })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("link", { name: "무료 자료" })).toHaveAttribute("href", "/blog/resources");
   expect(screen.getByRole("heading", { name: listPost.title })).toBeInTheDocument();
   expect(screen.getByText(listPost.excerpt)).toBeInTheDocument();
   expect(screen.getByText("2026년 8월 1일")).toBeInTheDocument();
@@ -450,10 +453,11 @@ it("블로그 로딩 화면과 오류 화면은 다음 행동을 제공한다", 
   const user = userEvent.setup();
 
   const loading = render(<BlogLoading />);
-  expect(screen.getByRole("status", { name: "블로그 글을 불러오고 있어요" })).toBeInTheDocument();
+  expect(screen.getByRole("status", { name: "인파 블로그 글을 불러오고 있어요" })).toBeInTheDocument();
   loading.unmount();
 
   render(<BlogError error={new Error("temporary")} reset={reset} />);
+  expect(screen.getByRole("link", { name: "인파 블로그 목록 보기" })).toHaveAttribute("href", "/blog");
   await user.click(screen.getByRole("button", { name: "다시 불러오기" }));
   expect(reset).toHaveBeenCalledTimes(1);
 });

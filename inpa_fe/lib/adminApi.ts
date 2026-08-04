@@ -1056,7 +1056,7 @@ export async function adminGetActivationFunnel(days = 30): Promise<AdminActivati
   return req<AdminActivationFunnelResponse>("GET", `/admin/activation-funnel/?days=${days}`);
 }
 
-// ─── 인파 노트 (BlogPost CRUD — IsAdmin) ──────────────────────────────────────
+// ─── 인파 블로그 (BlogPost CRUD — IsAdmin) ────────────────────────────────────
 // ⚠️ 공개 직렬화는 tags 를 배열로, 어드민은 RAW 콤마 문자열(tags) + tags_list 배열 둘 다 준다.
 // 저장(create/update)은 커버 파일이 있으면 multipart, 없으면 JSON. 응답 = BlogAdmin + warnings[].
 

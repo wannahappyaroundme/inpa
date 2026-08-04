@@ -1268,6 +1268,35 @@ class BlogAdminCrudTests(TestCase):
             '/api/v1/admin/blog/', {'title': '보험 이야기', 'body': 'b'}, format='json')
         self.assertNotEqual(r1.json()['slug'], r2.json()['slug'])
 
+    def test_create_rejects_reserved_static_page_slug(self):
+        r = self.admin_client.post(
+            '/api/v1/admin/blog/',
+            {
+                'title': '겹치는 글',
+                'slug': 'resources',
+                'body': '본문',
+                'is_published': True,
+            },
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('slug', r.json())
+        self.assertFalse(BlogPost.objects.filter(slug='resources').exists())
+
+    def test_update_rejects_reserved_static_page_slug(self):
+        post = _make_blog(title='기존 글', slug='existing-post', is_published=True)
+
+        r = self.admin_client.patch(
+            f'/api/v1/admin/blog/{post.id}/',
+            {'slug': 'resources'},
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 400)
+        post.refresh_from_db()
+        self.assertEqual(post.slug, 'existing-post')
+
     def test_admin_lists_drafts(self):
         """관리자 목록 = 초안 포함, ?status=draft 필터."""
         _make_blog(title='게시글', is_published=True)

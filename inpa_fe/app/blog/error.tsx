@@ -22,7 +22,7 @@ export default function BlogError({ reset }: { error: Error & { digest?: string 
           다시 불러오기
         </button>
         <Link href="/blog" className="mt-4 inline-flex text-[13px] font-semibold text-brand hover:text-brand-ink">
-          블로그 목록 보기
+          인파 블로그 목록 보기
         </Link>
       </main>
     </div>

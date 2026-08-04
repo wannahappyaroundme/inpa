@@ -29,6 +29,32 @@ function scanCopyLibrary(source) {
   }
 }
 
+function scanBlogSurface(source) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "inpa-copy-"));
+  const file = path.join(root, "app/blog/page.tsx");
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, source);
+    return scanCopy(root).violations;
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("blocks retired blog and resource labels on blog surfaces", () => {
+  for (const label of ["인파 노트", "유용한 자료"]) {
+    const violations = scanBlogSurface(
+      `export default function Page(){return <div>${label}</div>}`,
+    );
+    assert.equal(violations.length, 1, label);
+  }
+
+  const currentLabels = scanBlogSurface(
+    "export default function Page(){return <div>인파 블로그 무료 자료</div>}",
+  );
+  assert.equal(currentLabels.length, 0);
+});
+
 test("blocks retired rendered comparison labels", () => {
   for (const label of [
     "증권 A",

@@ -11,7 +11,7 @@ export default function BlogLoading() {
       <main
         className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14"
         role="status"
-        aria-label="블로그 글을 불러오고 있어요"
+        aria-label="인파 블로그 글을 불러오고 있어요"
       >
         <div className="h-10 w-36 animate-pulse rounded-xl bg-surface2" />
         <div className="mt-4 h-5 w-full max-w-xl animate-pulse rounded-lg bg-surface2" />
