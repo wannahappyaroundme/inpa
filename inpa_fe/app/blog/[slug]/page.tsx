@@ -147,9 +147,9 @@ export default async function BlogPostPage({
       {/* 헤더 */}
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-3xl items-center px-4 py-4 sm:px-6">
-          <Link href="/blog" className="flex items-center gap-2" aria-label="블로그 목록으로">
+          <Link href="/blog" className="flex items-center gap-2" aria-label="인파 블로그 목록으로">
             <InpaMark size={26} />
-            <span className="text-[15px] font-extrabold text-brand-ink">블로그</span>
+            <span className="text-[15px] font-extrabold text-brand-ink">인파 블로그</span>
           </Link>
         </div>
       </header>
@@ -265,7 +265,7 @@ export default async function BlogPostPage({
 
         {/* 관련 링크 */}
         <nav className="mt-10 flex flex-wrap justify-center gap-x-5 gap-y-2 text-[13px] text-ink3">
-          <Link href="/blog" className="transition hover:text-ink">← 블로그 목록</Link>
+          <Link href="/blog" className="transition hover:text-ink">← 인파 블로그 목록</Link>
           <Link href="/faq" className="transition hover:text-ink">자주 묻는 질문</Link>
           <Link href="/" className="transition hover:text-ink">홈</Link>
           <Link href="/legal/terms" className="transition hover:text-ink">이용약관</Link>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { InpaMark } from "@/components/inpa-logo";
 import { BlogCoverImage } from "@/components/blog-image";
+import { BlogSectionTabs } from "@/components/blog-section-tabs";
 import { PublicDiscoveryLinks } from "@/components/public-discovery";
 import { listBlogPosts, BLOG_CATEGORIES, type BlogListItem } from "@/lib/api";
 import { PUBLIC_INDEX_ROBOTS } from "@/lib/search-policy";
@@ -12,12 +13,12 @@ export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 12;
 
-const OG_TITLE = "블로그 · 인파(Inpa)";
+const OG_TITLE = "인파 블로그 · 인파(Inpa)";
 const OG_DESC =
-  "보험설계사를 위한 블로그. 고객 늘리기, 보장분석, 안심 가이드, 설계사 이야기를 쉬운 말로 정리했습니다.";
+  "보험설계사를 위한 인파 블로그. 고객 늘리기, 보장분석, 안심 가이드, 설계사 이야기를 쉬운 말로 정리했습니다.";
 
 export const metadata: Metadata = {
-  title: "블로그",
+  title: "인파 블로그",
   description: OG_DESC,
   alternates: { canonical: "/blog" },
   robots: PUBLIC_INDEX_ROBOTS,
@@ -125,7 +126,7 @@ export default async function BlogListPage({
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2" aria-label="인파 홈으로">
             <InpaMark size={28} />
-            <span className="text-[16px] font-extrabold text-brand-ink">블로그</span>
+            <span className="text-[16px] font-extrabold text-brand-ink">인파 블로그</span>
           </Link>
           <Link
             href="/register"
@@ -138,14 +139,16 @@ export default async function BlogListPage({
 
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
         <div className="max-w-2xl">
-          <h1 className="text-[30px] font-extrabold tracking-tight text-brand-ink sm:text-[38px]">블로그</h1>
+          <h1 className="text-[30px] font-extrabold tracking-tight text-brand-ink sm:text-[38px]">인파 블로그</h1>
           <p className="mt-3 text-[15px] leading-relaxed text-ink3 sm:text-[16px]">
             현장에서 바로 쓰는 영업 팁부터 보장분석, 규정 안심 가이드까지. 설계사님의 하루를 조금 더 가볍게 만드는 이야기를 모았어요.
           </p>
         </div>
 
+        <BlogSectionTabs activeSection="blog" />
+
         {/* 카테고리 탭 */}
-        <nav className="mt-8 flex flex-wrap gap-2" aria-label="카테고리">
+        <nav className="mt-5 flex flex-wrap gap-2" aria-label="글 카테고리">
           {tabs.map((t) => {
             const active = activeCategory === t.code;
             return (
