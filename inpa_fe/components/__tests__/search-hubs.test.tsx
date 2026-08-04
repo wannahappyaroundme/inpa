@@ -84,7 +84,7 @@ describe("검색 근거 페이지 공통 템플릿", () => {
 });
 
 describe("공개 페이지 발견 경로", () => {
-  it("랜딩에서 솔루션 3개와 실무 가이드 4개를 모두 직접 연결한다", () => {
+  it("랜딩에서 솔루션 3개, 실무 가이드 4개와 무료 자료 3개를 직접 연결한다", () => {
     render(<PublicDiscoverySection />);
 
     expect(screen.getByRole("heading", { name: "설계사 업무별 솔루션" })).toBeInTheDocument();
@@ -93,7 +93,7 @@ describe("공개 페이지 발견 경로", () => {
       const path = `/${hub.kind === "solution" ? "solutions" : "guides"}/${hub.slug}`;
       expect(screen.getByRole("link", { name: hub.title })).toHaveAttribute("href", path);
     }
-    expect(screen.getByRole("heading", { name: "무료로 바로 쓰는 실무 도구" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "무료 자료" })).toBeInTheDocument();
     for (const resource of PUBLIC_RESOURCES) {
       expect(screen.getByRole("link", { name: resource.title })).toHaveAttribute("href", resource.path);
     }
