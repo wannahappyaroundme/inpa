@@ -1,6 +1,6 @@
 "use client";
 
-// 인파 노트 에디터 — /admin/blog/new 와 /admin/blog/[id]/edit 가 공유한다.
+// 인파 블로그 에디터 — /admin/blog/new 와 /admin/blog/[id]/edit 가 공유한다.
 // ★ 미리보기는 공개 페이지와 '같은 렌더러'(BlogMarkdown) + .theme-light 로 실제 라이트 화면과
 //   동일하게 보여준다(렌더 단일 소스). 초안 비공개 미리보기 = 이 실시간 미리보기 패널.
 //   공개 URL(/blog/<slug>)은 서버 렌더가 토큰 없이 조회하므로 '게시된' 글에서만 새 탭으로 연다.

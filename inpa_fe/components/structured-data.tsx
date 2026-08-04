@@ -120,7 +120,7 @@ export function webPage({
   };
 }
 
-// BlogPosting 스키마 — 인파 노트 글 1편(app/blog/[slug])의 출처와
+// BlogPosting 스키마 — 인파 블로그 글 1편(app/blog/[slug])의 출처와
 // 날짜(datePublished/dateModified)를 명시하고, author/publisher 는 Organization 을 @id 로 참조(중복 방지).
 // 사실 필드만 담는다(평점·후기 없음 = 정직성 레드라인). cover 없으면 전역 OG 이미지로 폴백.
 export function blogPosting(post: {

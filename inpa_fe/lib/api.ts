@@ -1727,7 +1727,7 @@ export async function listFaqs(
   return request<FaqItem[]>("GET", `/board/faqs/${query}`, undefined, false);
 }
 
-// ── 인파 노트 (BlogPost — AllowAny GET, 읽기 전용) ──────────────────────────
+// ── 인파 블로그 (BlogPost — AllowAny GET, 읽기 전용) ────────────────────────
 // 공개 직렬화는 tags 를 문자열 배열로 준다(어드민만 RAW 콤마 문자열 + tags_list).
 // 서버 컴포넌트(app/blog)에서 그대로 호출한다 — request()는 auth=false 라 토큰 불필요.
 
