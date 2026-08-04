@@ -31,7 +31,11 @@ jobs:
         run: pip install -r inpa_be/requirements.txt pip-audit==2.10.1
 
       - name: Audit Python dependencies
-        run: pip-audit -r inpa_be/requirements.txt --progress-spinner off
+        # TEMP 2026-08-04: CVE-2026-69247은 PKCS#7 EnvelopedData 복호화 API에만
+        # 해당하며 인파는 Fernet만 사용한다. cryptography>=50.0.0 출시 시 예외를 제거한다.
+        run: >-
+          pip-audit -r inpa_be/requirements.txt --progress-spinner off
+          --ignore-vuln CVE-2026-69247
 
       - name: Django system check
         working-directory: inpa_be
