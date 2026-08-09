@@ -17,6 +17,87 @@ const LIST_PAGE_BYTES = Math.floor(1.2 * 1024 * 1024);
 const DETAIL_PAGE_BYTES = 900 * 1024;
 const VISUAL_DUPLICATE_DISTANCE = 4;
 const FORBIDDEN_METADATA_CHUNKS = new Set(["EXIF", "XMP ", "ICCP"]);
+const KST_PUBLICATION_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+09:00$/;
+// 2026-08-blog-enrichment-v1에서 승인된 기존 20편의 정적 자산.
+// v2는 발행 시각만 바꾸므로 파일 바이트도 계약으로 고정한다.
+const PROTECTED_EXISTING_ASSET_HASHES = new Map([
+  ["/blog-assets/3대-진단비란-암-뇌-심장/cover.webp", "1301ce93e826c10acd2edae62df7c3a34785c8abf45179aafa33089a130a9ca7"],
+  ["/blog-assets/3대-진단비란-암-뇌-심장/diagnosis-three-areas-4697ee3c.webp", "4697ee3c1e7858ddafe9440d08c05fcd5511531d4089ca3c4a5204f1efd72fe8"],
+  ["/blog-assets/갱신형-비갱신형-차이/cover.webp", "2bb2b6dd1765e2c92067f34741097c0e4f4464fdce443558b69a9d3639354c2f"],
+  ["/blog-assets/갱신형-비갱신형-차이/premium-flow-46d8375d.webp", "46d8375d7318df952b82e08a544ab79ee70a87a8f75ca74ccde644ec635f0091"],
+  ["/blog-assets/갱신형-비갱신형-차이/premium-split-screen-ead78c7c.webp", "ead78c7ce6a815f1ca48444c1f07451d34e52205da13fd519a763377973b2c7a"],
+  ["/blog-assets/보험-가입-전-확인사항/cover.webp", "4112465838e9988367ec303f17e85b76748009b432fa0f6d410337e5044508e9"],
+  ["/blog-assets/보험-가입-전-확인사항/five-questions-2ed62021.webp", "2ed6202123dad2ccf95520bc0ef7507932cf0a36cdde15d0bfc049320e59c2bf"],
+  ["/blog-assets/보험-갈아타기-비교/contract-change-checklist-badd0472.webp", "badd0472f98044df3ee21a0d7b4fde6d90705e704bf91d00b4ca9d0e0d9ce0bf"],
+  ["/blog-assets/보험-갈아타기-비교/cover.webp", "0d05d9349202f2fdac3bb2f2cbb14a1047394123b8d61362f70dd20894f661c8"],
+  ["/blog-assets/보험-갈아타기-비교/neutral-comparison-screen-76f28843.webp", "76f2884392fe20ea177b5488e998f81573c1c7599428b9adcd1b4cec8dd5a060"],
+  ["/blog-assets/보험-갈아타기-설계사-순서/cover.webp", "36b97e0a66a5961c50f5b71988980034877f06bd9edf4efa6ee19faa64bad68e"],
+  ["/blog-assets/보험-갈아타기-설계사-순서/four-step-review-119a3846.webp", "119a38464172cb02ddf9f0e663245a0c7162836750894ce1614c367d97012724"],
+  ["/blog-assets/보험-갈아타기-설계사-순서/neutral-comparison-screen-400f7301.webp", "400f7301b27afe2d97290be6a6e67bf0e8e117f539f02b00be8b84d53161e5f9"],
+  ["/blog-assets/보험-상담-준비-체크리스트/cover.webp", "056dd6fd9959fab831d62a463a235d104efbe0a62785f63538fb455e1bbace59"],
+  ["/blog-assets/보험-상담-준비-체크리스트/preparation-checklist-52081ad0.webp", "52081ad06e1e12d659c29f1407f32d5eced28f9fa2dbc7e6a6d47193ff242263"],
+  ["/blog-assets/보험-상담-후-기록-다음-연락/cover.webp", "ac067fec5fe94152e4fff0400c5b9a0a15645b881e5276d14af490115aedde8b"],
+  ["/blog-assets/보험-상담-후-기록-다음-연락/record-next-action-flow-c016afc0.webp", "c016afc010171b7971880aa0bd9edfb4c89183d7db2dab6c3a1d6e357e9c203e"],
+  ["/blog-assets/보험-증권-보는-법-3분-체크리스트/analysis-screen-9d10d26f.webp", "9d10d26f12fcd94fc4bf0425ccc511cfa0d8b4a20540afd555411bb99a68deb6"],
+  ["/blog-assets/보험-증권-보는-법-3분-체크리스트/cover.webp", "9a4c864225beec7d1f454bd7f538aa685ee4602646c748e499a15cdeec54c2e1"],
+  ["/blog-assets/보험-증권-보는-법-3분-체크리스트/policy-five-checks-ca2aa493.webp", "ca2aa4936a3f6e2124d9888574fffaa13ad9c747a015e2e66d23837742639bc5"],
+  ["/blog-assets/보험-증권-요청-문자-안내/cover.webp", "b56dd1fa332ff7d8e9f90c6c131de733e785ac3b948b2a7b51ce24fb75f9873f"],
+  ["/blog-assets/보험-증권-요청-문자-안내/request-five-points-a19f7f33.webp", "a19f7f330109c8e526ff28cd12befa7598d035d595d3e90a8862c53fe4e541f9"],
+  ["/blog-assets/보험-직업급수-확인-순서/cover.webp", "186a6438635efd04ca0d9798e3373a3dd40277588d6f87cdfbf8f6f72a05286d"],
+  ["/blog-assets/보험-직업급수-확인-순서/job-grade-flow-1aa003b0.webp", "1aa003b0936dffacc85dd6292d5c67bc51a9d50acb6b479d2ccb42877104e82e"],
+  ["/blog-assets/보험나이-계산법-6개월-예시/age-six-month-boundary-de9f39d4.webp", "de9f39d445c65b0be6a958df566510b979364303e52f4dd3e2dd37ad66abc56e"],
+  ["/blog-assets/보험나이-계산법-6개월-예시/cover.webp", "c7eb5910d64e7479146fd03a2b36986b37eaf20ceb5c86ecb14974a337321e9c"],
+  ["/blog-assets/보험설계사-고객관리표-필수-항목/cover.webp", "f014de8d84687ffd903d0af2e92776bd2128d879ac5da56bcee53d709509fad1"],
+  ["/blog-assets/보험설계사-고객관리표-필수-항목/seven-fields-ee30deb5.webp", "ee30deb517a97246dfa290c53ea9c65bb3f754e678db272eeed21f27169eb36e"],
+  ["/blog-assets/비교안내서-한눈에-보는-비교표/comparison-document-map-f092e43c.webp", "f092e43c903b283ed0191985c9ffae4359d82a8b574b6609cb59cd507d432a30"],
+  ["/blog-assets/비교안내서-한눈에-보는-비교표/cover.webp", "9f5889c19c2ab6fc3840a1498bf141e0dd8b660ee46d338a8a51134b35eea105"],
+  ["/blog-assets/비교안내서-한눈에-보는-비교표/official-verification-flow-575849cc.webp", "575849cc3dc876f4190bb86b19b44dd99076f45442ce822e9c0bc892c63f2340"],
+  ["/blog-assets/상담-예약-전날-당일-안내/booking-screen-f133e65d.webp", "f133e65d782df2918090f9efefd05380f707b78a5439d7f5250c327320b6adca"],
+  ["/blog-assets/상담-예약-전날-당일-안내/cover.webp", "80243b556fe34eb22a3a079dac086fccfe22b70eee4ac719e2ee27e795a6153f"],
+  ["/blog-assets/상담-예약률-높이는-문자와-화법/booking-screen-fb312def.webp", "fb312def5f9904f4af470ecda01fa6aba5d05938d402a3ed3637c911f1354808"],
+  ["/blog-assets/상담-예약률-높이는-문자와-화법/cover.webp", "b78990e68bfa806b11b5783d53a600400d0c8670268d840110e0def53e8b9ef7"],
+  ["/blog-assets/상담-준비에-쫓기던-새내기-하루-각색/cover.webp", "224057e2a211cfb66113d30234d52072b7f9125f82dd9c59710d452154f9ee63"],
+  ["/blog-assets/상담-준비에-쫓기던-새내기-하루-각색/workflow-before-after-9b0255d0.webp", "9b0255d00ff0a8ce7e360a58a7dbdf26312f752d2a1a4dc17963cf0b57178ed1"],
+  ["/blog-assets/신입-보험설계사-지인-영업-다음-할-일/cover.webp", "34f76c6242156060fcb69fe206d45f26b57d20a34bc74d7f969e32e285e141a8"],
+  ["/blog-assets/신입-보험설계사-지인-영업-다음-할-일/referral-flow-930062b1.webp", "930062b1683b28b713bd91992c21e9acf0a1593266f1e26949b289e066e6a536"],
+  ["/blog-assets/실손의료비보험-기본-쉽게-짚어보기/cover.webp", "20f9cc38a8ef0c61470d3a195f864c0606846a51afe37dfcc0fd00b4c3d18ccc"],
+  ["/blog-assets/실손의료비보험-기본-쉽게-짚어보기/indemnity-duplication-flow-2ee29336.webp", "2ee293365e08ebdf0745a39c0f6ffef4062fd46d90bd5e6205b48cbcad47a43a"],
+  ["/blog-assets/실손의료비보험-기본-쉽게-짚어보기/medical-expense-flow-d21248fe.webp", "d21248febd264b03825511f08118aca056449c78df344c0c3e12a9b09b9b65fb"],
+  ["/blog-assets/좋은-보험이란/cover.webp", "3a48eece8d14a07b148ab6d61b34913b9dcb10f192a8b8c91a7c7bd398467088"],
+  ["/blog-assets/좋은-보험이란/four-fit-questions-c0e6eda5.webp", "c0e6eda52b8270306ae5f2fc6a1dd54ec31fd2edab38a9569b889a8595b9b011"],
+  ["/blog-assets/회사마다-보험-담보-이름-다른-이유/cover.webp", "9d10d26f12fcd94fc4bf0425ccc511cfa0d8b4a20540afd555411bb99a68deb6"],
+  ["/blog-assets/회사마다-보험-담보-이름-다른-이유/normalization-flow-03c81356.webp", "03c81356e20b6567d4b004527e35dc44a031368d57a3138c5e484ebb9b19f237"],
+]);
+
+function verifyProtectedExistingAssetDigests({ slugs, digestByPath, errors }) {
+  for (const [assetPath, expectedDigest] of PROTECTED_EXISTING_ASSET_HASHES) {
+    const slug = assetPath.split("/")[2];
+    if (!slugs.has(slug)) continue;
+    if (digestByPath.get(assetPath) !== expectedDigest) {
+      errors.push(`${assetPath}: 기존 20편 자산은 승인된 v1 해시를 보존해야 합니다`);
+    }
+  }
+}
+
+const NEW_PRODUCT_CAPTURE_SLUGS = new Set([
+  "보험설계사-주간-계획표-고객-단계별-다음-행동",
+  "보험설계사-소개-카드-고객-확인사항",
+  "보험설계사-월말-복기-영업-숫자",
+  "보험설계사-고객-연간-일정-관리법",
+  "보험설계사-팀장-일대일-질문",
+]);
+
+function verifyNewPostProductCaptures({ posts, byPath, errors }) {
+  for (const post of posts) {
+    if (!NEW_PRODUCT_CAPTURE_SLUGS.has(post.meta.slug)) continue;
+    const productScreens = post.images
+      .map((assetPath) => byPath.get(assetPath))
+      .filter((record) => record?.role === "product-screen");
+    if (productScreens.length !== 1 || productScreens[0].source_type !== "product-capture") {
+      errors.push(`${post.filename}: 실제 인파 제품 화면(product-capture)이 정확히 1개 필요합니다`);
+    }
+  }
+}
 
 function parseArgs(argv) {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -221,8 +302,15 @@ export async function validateBlogRelease({ frontendRoot, contentRoot }) {
   for (const post of posts) {
     if (slugs.has(post.meta.slug)) errors.push(`${post.filename}: slug가 중복됩니다 (${post.meta.slug})`);
     slugs.add(post.meta.slug);
+    if (
+      typeof post.meta.publication_plan_at !== "string"
+      || !KST_PUBLICATION_PATTERN.test(post.meta.publication_plan_at)
+      || Number.isNaN(Date.parse(post.meta.publication_plan_at))
+    ) {
+      errors.push(`${post.filename}: publication_plan_at은 +09:00이 포함된 초 단위 시각이어야 합니다`);
+    }
   }
-  if (posts.length !== 20) errors.push(`릴리스 원고는 정확히 20편이어야 합니다 (현재 ${posts.length}편)`);
+  if (posts.length !== 25) errors.push(`릴리스 원고는 정확히 25편이어야 합니다 (현재 ${posts.length}편)`);
 
   const byPath = new Map();
   const coverHashes = new Map();
@@ -342,8 +430,10 @@ export async function validateBlogRelease({ frontendRoot, contentRoot }) {
     }
   }
 
+  verifyProtectedExistingAssetDigests({ slugs, digestByPath, errors });
+  verifyNewPostProductCaptures({ posts, byPath, errors });
   const coverRecords = manifest.filter((record) => record?.role === "cover" && safeAssetPath(record.path));
-  if (coverRecords.length !== 20) errors.push(`대표 이미지 manifest 항목은 정확히 20개여야 합니다 (현재 ${coverRecords.length}개)`);
+  if (coverRecords.length !== 25) errors.push(`대표 이미지 manifest 항목은 정확히 25개여야 합니다 (현재 ${coverRecords.length}개)`);
   const conservativeListBytes = coverRecords
     .map((record) => fileSizeByPath.get(record.path) ?? 0)
     .sort((a, b) => b - a)
@@ -412,4 +502,4 @@ async function main() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
 
-export { parseWebpDimensions };
+export { parseWebpDimensions, verifyNewPostProductCaptures, verifyProtectedExistingAssetDigests };

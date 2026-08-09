@@ -10,6 +10,7 @@ type BlogCoverImageProps = {
   categoryLabel: string;
   className?: string;
   sizes?: string;
+  eager?: boolean;
 };
 
 function BlogCoverFallback({ categoryLabel, className }: Pick<BlogCoverImageProps, "categoryLabel" | "className">) {
@@ -28,7 +29,7 @@ function BlogCoverFallback({ categoryLabel, className }: Pick<BlogCoverImageProp
   );
 }
 
-export function BlogCoverImage({ src, categoryLabel, className, sizes }: BlogCoverImageProps) {
+export function BlogCoverImage({ src, categoryLabel, className, sizes, eager = false }: BlogCoverImageProps) {
   const [hasError, setHasError] = useState(false);
   const isOwnedPath = !!src && src.startsWith("/blog-assets/");
   const asset = isOwnedPath && src ? getBlogAsset(src) : undefined;
@@ -46,6 +47,7 @@ export function BlogCoverImage({ src, categoryLabel, className, sizes }: BlogCov
           fill
           sizes={sizes ?? "(max-width: 767px) calc(100vw - 32px), (max-width: 1199px) 50vw, 320px"}
           className={`object-cover ${className ?? ""}`}
+          loading={eager ? "eager" : "lazy"}
           onError={() => setHasError(true)}
         />
       </div>
@@ -63,7 +65,7 @@ export function BlogCoverImage({ src, categoryLabel, className, sizes }: BlogCov
           width={1600}
           height={900}
           className={`h-full w-full object-cover ${className ?? ""}`}
-          loading="lazy"
+          loading={eager ? "eager" : "lazy"}
           onError={() => setHasError(true)}
         />
       </div>

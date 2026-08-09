@@ -202,6 +202,7 @@ export default async function BlogPostPage({
                 categoryLabel={post.category_label}
                 sizes="(max-width: 767px) calc(100vw - 32px), 680px"
                 className="h-auto w-full"
+                eager
               />
             </div>
           )}

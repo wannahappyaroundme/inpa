@@ -1,5 +1,5 @@
 <!-- blog-meta
-{"slug":"상담-준비에-쫓기던-새내기-하루-각색","category":"story","excerpt":"여러 설계사의 흔한 업무 장면을 합쳐 만든 가상 사례로, 흩어진 고객 기록과 증권을 상담 전 확인 흐름으로 정리하는 방법을 보여줍니다.","tags":["보험 상담 준비","가상 사례","고객 관리","증권 정리"],"seo_title":"보험 상담 준비가 흩어질 때, 가상 업무 사례","seo_description":"실제 고객 후기가 아닌 가상 합성 사례로, 고객 기록 확인부터 증권 정리와 다음 행동 기록까지 상담 준비 흐름을 설명합니다.","cover_asset_path":"/blog-assets/상담-준비에-쫓기던-새내기-하루-각색/cover.webp","is_published":true,"review_gate":"none","legal_review":null,"sources":[{"title":"인파 공식 서비스 소개","url":"https://www.inpa.kr/","checked_at":"2026-08-03"}]}
+{"slug":"상담-준비에-쫓기던-새내기-하루-각색","category":"story","excerpt":"여러 설계사의 흔한 업무 장면을 합쳐 만든 가상 사례로, 흩어진 고객 기록과 증권을 상담 전 확인 흐름으로 정리하는 방법을 보여줍니다.","tags":["보험 상담 준비","가상 사례","고객 관리","증권 정리"],"seo_title":"보험 상담 준비가 흩어질 때, 가상 업무 사례","seo_description":"실제 고객 후기가 아닌 가상 합성 사례로, 고객 기록 확인부터 증권 정리와 다음 행동 기록까지 상담 준비 흐름을 설명합니다.","cover_asset_path":"/blog-assets/상담-준비에-쫓기던-새내기-하루-각색/cover.webp","is_published":true,"review_gate":"none","legal_review":null,"publication_plan_at":"2026-07-15T10:20:00+09:00","sources":[{"title":"인파 공식 서비스 소개","url":"https://www.inpa.kr/","checked_at":"2026-08-03"}]}
 -->
 # 상담 준비가 흩어질 때, 가상 업무 사례
 

@@ -7,7 +7,11 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { parseWebpDimensions } from "./check-blog-release.mjs";
+import {
+  parseWebpDimensions,
+  verifyNewPostProductCaptures,
+  verifyProtectedExistingAssetDigests,
+} from "./check-blog-release.mjs";
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "check-blog-release.mjs");
 const VISUAL_FIXTURE_SVG = Buffer.from(`
@@ -37,7 +41,7 @@ async function makeValidRaster(width, height, seed) {
 }
 
 const VALID_FIXTURE_COVERS = await Promise.all(
-  Array.from({ length: 20 }, (_, index) => makeValidRaster(1600, 900, index + 101)),
+  Array.from({ length: 25 }, (_, index) => makeValidRaster(1600, 900, index + 101)),
 );
 const VALID_FIXTURE_INLINE = await makeValidRaster(1200, 800, 999);
 
@@ -114,7 +118,7 @@ function createFixture() {
   fs.mkdirSync(contentRoot, { recursive: true });
 
   const manifest = [];
-  const slugs = Array.from({ length: 20 }, (_, index) => `검증-글-${String(index + 1).padStart(2, "0")}`);
+  const slugs = Array.from({ length: 25 }, (_, index) => `검증-글-${String(index + 1).padStart(2, "0")}`);
   for (const [index, slug] of slugs.entries()) {
     const dir = path.join(assetsRoot, slug);
     fs.mkdirSync(dir, { recursive: true });
@@ -170,6 +174,7 @@ function createFixture() {
       is_published: true,
       review_gate: "none",
       legal_review: null,
+      publication_plan_at: `2026-08-${String(index + 1).padStart(2, "0")}T10:20:00+09:00`,
       sources: [],
     };
     fs.writeFileSync(
@@ -201,7 +206,7 @@ function expectFailure(mutate, expected) {
   }
 }
 
-test("accepts a complete 20-post fixture with Unicode paths", () => {
+test("accepts a complete 25-post fixture with Unicode paths and publication plans", () => {
   const fixture = createFixture();
   try {
     const shared = inlineEntry(fixture);
@@ -222,10 +227,58 @@ test("accepts a complete 20-post fixture with Unicode paths", () => {
   }
 });
 
+test("fails when publication_plan_at is missing or has no KST offset", () => {
+  for (const invalid of [undefined, "2026-08-10T10:20:00", "2026-08-10T01:20:00+00:00"]) {
+    expectFailure((fixture) => {
+      const doc = path.join(fixture.contentRoot, `01-${fixture.slugs[0]}.md`);
+      const source = fs.readFileSync(doc, "utf8");
+      const match = source.match(/<!--\s*blog-meta\s*\n([\s\S]*?)\n-->/);
+      const meta = JSON.parse(match[1]);
+      if (invalid === undefined) delete meta.publication_plan_at;
+      else meta.publication_plan_at = invalid;
+      fs.writeFileSync(doc, source.replace(match[1], JSON.stringify(meta)));
+    }, /publication_plan_at/);
+  }
+});
+
 test("reads VP8X, VP8L, and VP8 dimensions without external binaries", () => {
   assert.deepEqual(parseWebpDimensions(makeWebp(1600, 900)), { width: 1600, height: 900 });
   assert.deepEqual(parseWebpDimensions(makeVp8lWebp(1234, 777)), { width: 1234, height: 777 });
   assert.deepEqual(parseWebpDimensions(makeVp8Webp(640, 360)), { width: 640, height: 360 });
+});
+
+test("fails when an existing post asset changes from the approved v1 release", () => {
+  const protectedCover = "/blog-assets/보험-가입-전-확인사항/cover.webp";
+  const protectedInline = "/blog-assets/보험-가입-전-확인사항/five-questions-2ed62021.webp";
+  const errors = [];
+
+  verifyProtectedExistingAssetDigests({
+    slugs: new Set(["보험-가입-전-확인사항"]),
+    digestByPath: new Map([
+      [protectedCover, "changed"],
+      [protectedInline, "2ed6202123dad2ccf95520bc0ef7507932cf0a36cdde15d0bfc049320e59c2bf"],
+    ]),
+    errors,
+  });
+
+  assert.deepEqual(errors, [`${protectedCover}: 기존 20편 자산은 승인된 v1 해시를 보존해야 합니다`]);
+});
+
+test("fails when a new post uses a drawn mockup instead of a product capture", () => {
+  const errors = [];
+  const screenPath = "/blog-assets/보험설계사-주간-계획표-고객-단계별-다음-행동/screen-deadbeef.webp";
+
+  verifyNewPostProductCaptures({
+    posts: [{
+      filename: "21-sales.md",
+      meta: { slug: "보험설계사-주간-계획표-고객-단계별-다음-행동" },
+      images: [screenPath],
+    }],
+    byPath: new Map([[screenPath, { role: "product-screen", source_type: "original-diagram" }]]),
+    errors,
+  });
+
+  assert.deepEqual(errors, ["21-sales.md: 실제 인파 제품 화면(product-capture)이 정확히 1개 필요합니다"]);
 });
 
 test("fails for a manifest file that is missing on disk", () => {

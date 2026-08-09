@@ -34,6 +34,8 @@
   NT2 좋아요 생성 → 원글 작성자 board_like 알림 (자기 글 제외)
 """
 import json
+from datetime import timedelta
+from unittest import mock
 
 from django.contrib.admin.sites import AdminSite
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -1012,6 +1014,8 @@ def _make_blog(**kwargs):
         is_published=True,
     )
     defaults.update(kwargs)
+    if 'published_at' not in kwargs:
+        defaults['published_at'] = timezone.now() if defaults['is_published'] else None
     if not defaults.get('slug'):
         defaults['slug'] = BlogPost.generate_unique_slug(defaults['title'])
     return BlogPost.objects.create(**defaults)
@@ -1066,6 +1070,74 @@ class BlogPublicReadTests(TestCase):
             ids = [p['id'] for p in r.json()['results']]
             self.assertIn(pub.id, ids)
             self.assertNotIn(draft.id, ids)
+
+    def test_future_post_is_hidden_from_every_public_blog_surface(self):
+        """예약 글은 공개 시각 전 목록·상세·관련 글·사이트맵·조회수에서 제외된다."""
+        current = _make_blog(
+            title='현재 공개 글', slug='current-public-post', category='coverage',
+            published_at=timezone.now() - timedelta(hours=1),
+        )
+        future = _make_blog(
+            title='예약 공개 글', slug='future-public-post', category='coverage',
+            published_at=timezone.now() + timedelta(hours=1),
+        )
+
+        listed = self.anon.get('/api/v1/board/blog/').json()['results']
+        self.assertNotIn(future.slug, [row['slug'] for row in listed])
+        self.assertEqual(
+            self.anon.get(f'/api/v1/board/blog/{future.slug}/').status_code,
+            404,
+        )
+        related = self.anon.get(
+            f'/api/v1/board/blog/{current.slug}/',
+        ).json()['related_posts']
+        self.assertNotIn(future.slug, [row['slug'] for row in related])
+        sitemap = self.anon.get('/api/v1/board/blog/sitemap/').json()
+        self.assertNotIn(future.slug, [row['slug'] for row in sitemap])
+        future.refresh_from_db()
+        self.assertEqual(future.view_count, 0)
+        self.assertEqual(
+            self.admin_client.get(f'/api/v1/board/blog/{future.slug}/').status_code,
+            200,
+        )
+
+    def test_published_flag_without_published_at_is_hidden_from_public(self):
+        """게시 표시만 있고 시각이 없는 행은 공개 글로 취급하지 않는다."""
+        missing_time = _make_blog(
+            title='시각 없는 글', slug='missing-published-at',
+            is_published=True, published_at=None,
+        )
+
+        listed = self.anon.get('/api/v1/board/blog/').json()['results']
+
+        self.assertNotIn(missing_time.slug, [row['slug'] for row in listed])
+        self.assertEqual(
+            self.anon.get(f'/api/v1/board/blog/{missing_time.slug}/').status_code,
+            404,
+        )
+        self.assertEqual(
+            self.admin_client.get(f'/api/v1/board/blog/{missing_time.slug}/').status_code,
+            200,
+        )
+
+    def test_scheduled_post_becomes_public_at_exact_timestamp(self):
+        """예약 시각 경계에서는 글이 목록과 상세에 공개된다."""
+        scheduled_at = timezone.now() + timedelta(days=1)
+        scheduled = _make_blog(
+            title='경계 공개 글', slug='scheduled-boundary',
+            published_at=scheduled_at,
+        )
+
+        with mock.patch(
+            'inpa.boards.views.timezone.now', return_value=scheduled_at,
+        ):
+            listed = self.anon.get('/api/v1/board/blog/').json()['results']
+            detail = self.anon.get(f'/api/v1/board/blog/{scheduled.slug}/')
+
+        self.assertIn(scheduled.slug, [row['slug'] for row in listed])
+        self.assertEqual(detail.status_code, 200)
+        scheduled.refresh_from_db()
+        self.assertEqual(scheduled.view_count, 1)
 
     def test_list_paginated_shape(self):
         """목록 응답 = {count, next, previous, results} + body 미포함."""

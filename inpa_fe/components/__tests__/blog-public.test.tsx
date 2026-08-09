@@ -321,7 +321,7 @@ it("상세 페이지에는 추적되는 가입 CTA 하나만 보여준다", asyn
   }));
 });
 
-it("상세 본문은 읽기 좋은 680px 폭과 커버 전용 sizes를 사용한다", async () => {
+it("상세 본문은 읽기 좋은 680px 폭과 커버 전용 sizes를 사용하고 첫 이미지를 바로 불러온다", async () => {
   api.getBlogPost.mockResolvedValue(detailPost);
   const { container } = render(await BlogPostPage({ params: Promise.resolve({ slug: detailPost.slug }) }));
 
@@ -333,6 +333,7 @@ it("상세 본문은 읽기 좋은 680px 폭과 커버 전용 sizes를 사용한
     "sizes",
     "(max-width: 767px) calc(100vw - 32px), 680px",
   );
+  expect(detailCover).toHaveAttribute("loading", "eager");
 });
 
 it("소유 커버의 공유 메타데이터는 실제 1600×900 크기를 사용한다", async () => {
