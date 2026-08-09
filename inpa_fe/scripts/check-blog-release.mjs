@@ -17,6 +17,7 @@ const LIST_PAGE_BYTES = Math.floor(1.2 * 1024 * 1024);
 const DETAIL_PAGE_BYTES = 900 * 1024;
 const VISUAL_DUPLICATE_DISTANCE = 4;
 const FORBIDDEN_METADATA_CHUNKS = new Set(["EXIF", "XMP ", "ICCP"]);
+const KST_PUBLICATION_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+09:00$/;
 
 function parseArgs(argv) {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -221,8 +222,15 @@ export async function validateBlogRelease({ frontendRoot, contentRoot }) {
   for (const post of posts) {
     if (slugs.has(post.meta.slug)) errors.push(`${post.filename}: slug가 중복됩니다 (${post.meta.slug})`);
     slugs.add(post.meta.slug);
+    if (
+      typeof post.meta.publication_plan_at !== "string"
+      || !KST_PUBLICATION_PATTERN.test(post.meta.publication_plan_at)
+      || Number.isNaN(Date.parse(post.meta.publication_plan_at))
+    ) {
+      errors.push(`${post.filename}: publication_plan_at은 +09:00이 포함된 초 단위 시각이어야 합니다`);
+    }
   }
-  if (posts.length !== 20) errors.push(`릴리스 원고는 정확히 20편이어야 합니다 (현재 ${posts.length}편)`);
+  if (posts.length !== 25) errors.push(`릴리스 원고는 정확히 25편이어야 합니다 (현재 ${posts.length}편)`);
 
   const byPath = new Map();
   const coverHashes = new Map();
@@ -343,7 +351,7 @@ export async function validateBlogRelease({ frontendRoot, contentRoot }) {
   }
 
   const coverRecords = manifest.filter((record) => record?.role === "cover" && safeAssetPath(record.path));
-  if (coverRecords.length !== 20) errors.push(`대표 이미지 manifest 항목은 정확히 20개여야 합니다 (현재 ${coverRecords.length}개)`);
+  if (coverRecords.length !== 25) errors.push(`대표 이미지 manifest 항목은 정확히 25개여야 합니다 (현재 ${coverRecords.length}개)`);
   const conservativeListBytes = coverRecords
     .map((record) => fileSizeByPath.get(record.path) ?? 0)
     .sort((a, b) => b - a)

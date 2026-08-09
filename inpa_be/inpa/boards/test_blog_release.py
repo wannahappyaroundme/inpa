@@ -320,6 +320,20 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
         with self.assertRaisesRegex(ReleaseError, 'publication_plan_at'):
             load_release(self.content_dir, self.manifest_path)
 
+    def test_parser_rejects_publication_plan_without_seconds(self):
+        self.metadata[0]['publication_plan_at'] = '2026-07-01T09:20+09:00'
+        self.flush_package()
+
+        with self.assertRaisesRegex(ReleaseError, 'publication_plan_at'):
+            load_release(self.content_dir, self.manifest_path)
+
+    def test_parser_rejects_publication_plan_with_microseconds(self):
+        self.metadata[0]['publication_plan_at'] = '2026-07-01T09:20:00.123456+09:00'
+        self.flush_package()
+
+        with self.assertRaisesRegex(ReleaseError, 'publication_plan_at'):
+            load_release(self.content_dir, self.manifest_path)
+
     def test_parser_rejects_publication_plan_outside_kst(self):
         self.metadata[0]['publication_plan_at'] = '2026-07-01T00:20:00+00:00'
         self.flush_package()
@@ -351,6 +365,45 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
         _, _, errors = self.load_and_validate()
 
         self.assertTrue(any('발행 일정' in error for error in errors))
+
+    def test_validator_rejects_weekend_and_official_holiday_dates(self):
+        for index, invalid_at in enumerate((
+            '2026-07-04T09:20:00+09:00',
+            '2026-07-17T09:20:00+09:00',
+        )):
+            with self.subTest(publication_plan_at=invalid_at):
+                if index:
+                    self.package_tmp.cleanup()
+                    self.make_package()
+                self.metadata[0]['publication_plan_at'] = invalid_at
+                self.flush_package()
+
+                _, _, errors = self.load_and_validate()
+
+                self.assertTrue(any('주말과 휴일' in error for error in errors))
+
+    def test_validator_rejects_duplicate_publication_timestamp(self):
+        self.metadata[1]['publication_plan_at'] = self.metadata[0]['publication_plan_at']
+        self.flush_package()
+
+        _, _, errors = self.load_and_validate()
+
+        self.assertTrue(any('발행 시각이 중복' in error for error in errors))
+
+    def test_parser_rejects_file_number_order_different_from_schedule(self):
+        self.metadata[0], self.metadata[1] = self.metadata[1], self.metadata[0]
+        self.flush_package()
+
+        with self.assertRaisesRegex(ReleaseError, '파일 번호 순서'):
+            load_release(self.content_dir, self.manifest_path)
+
+    def test_validator_requires_regular_posts_to_be_published(self):
+        self.metadata[0]['is_published'] = False
+        self.flush_package()
+
+        _, _, errors = self.load_and_validate()
+
+        self.assertTrue(any('게시 상태' in error for error in errors))
 
     def test_validator_rejects_duplicate_slug(self):
         self.metadata[1]['slug'] = self.metadata[0]['slug']

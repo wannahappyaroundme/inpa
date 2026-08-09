@@ -37,7 +37,7 @@ async function makeValidRaster(width, height, seed) {
 }
 
 const VALID_FIXTURE_COVERS = await Promise.all(
-  Array.from({ length: 20 }, (_, index) => makeValidRaster(1600, 900, index + 101)),
+  Array.from({ length: 25 }, (_, index) => makeValidRaster(1600, 900, index + 101)),
 );
 const VALID_FIXTURE_INLINE = await makeValidRaster(1200, 800, 999);
 
@@ -114,7 +114,7 @@ function createFixture() {
   fs.mkdirSync(contentRoot, { recursive: true });
 
   const manifest = [];
-  const slugs = Array.from({ length: 20 }, (_, index) => `검증-글-${String(index + 1).padStart(2, "0")}`);
+  const slugs = Array.from({ length: 25 }, (_, index) => `검증-글-${String(index + 1).padStart(2, "0")}`);
   for (const [index, slug] of slugs.entries()) {
     const dir = path.join(assetsRoot, slug);
     fs.mkdirSync(dir, { recursive: true });
@@ -170,6 +170,7 @@ function createFixture() {
       is_published: true,
       review_gate: "none",
       legal_review: null,
+      publication_plan_at: `2026-08-${String(index + 1).padStart(2, "0")}T10:20:00+09:00`,
       sources: [],
     };
     fs.writeFileSync(
@@ -201,7 +202,7 @@ function expectFailure(mutate, expected) {
   }
 }
 
-test("accepts a complete 20-post fixture with Unicode paths", () => {
+test("accepts a complete 25-post fixture with Unicode paths and publication plans", () => {
   const fixture = createFixture();
   try {
     const shared = inlineEntry(fixture);
@@ -219,6 +220,20 @@ test("accepts a complete 20-post fixture with Unicode paths", () => {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("fails when publication_plan_at is missing or has no KST offset", () => {
+  for (const invalid of [undefined, "2026-08-10T10:20:00", "2026-08-10T01:20:00+00:00"]) {
+    expectFailure((fixture) => {
+      const doc = path.join(fixture.contentRoot, `01-${fixture.slugs[0]}.md`);
+      const source = fs.readFileSync(doc, "utf8");
+      const match = source.match(/<!--\s*blog-meta\s*\n([\s\S]*?)\n-->/);
+      const meta = JSON.parse(match[1]);
+      if (invalid === undefined) delete meta.publication_plan_at;
+      else meta.publication_plan_at = invalid;
+      fs.writeFileSync(doc, source.replace(match[1], JSON.stringify(meta)));
+    }, /publication_plan_at/);
   }
 });
 

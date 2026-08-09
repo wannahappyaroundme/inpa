@@ -168,6 +168,9 @@ _REFERENCE_DEFINITION_PATTERN = re.compile(
     r'^\s*\[(?P<label>[^\]]+)\]:\s*(?P<path>\S+)', re.MULTILINE,
 )
 _ISO_DATE_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+_KST_DATETIME_PATTERN = re.compile(
+    r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+09:00$'
+)
 _DIGEST_PATTERN = re.compile(r'^[0-9a-f]{64}$')
 
 
@@ -246,7 +249,9 @@ def _parse_source(path, source_bytes):
     publication_plan_at = metadata['publication_plan_at']
     parsed_publication_plan = (
         parse_datetime(publication_plan_at)
-        if type(publication_plan_at) is str else None
+        if type(publication_plan_at) is str
+        and _KST_DATETIME_PATTERN.fullmatch(publication_plan_at)
+        else None
     )
     if (
         parsed_publication_plan is None
@@ -304,6 +309,12 @@ def load_release(content_dir=None, manifest_path=None):
     digest_builder.update(manifest_bytes)
 
     items = [_parse_source(path, source_bytes) for path, source_bytes in source_records]
+    file_order_slugs = [item.slug for item in items]
+    if (
+        set(file_order_slugs) == RELEASE_SLUGS
+        and file_order_slugs != list(PUBLICATION_PLAN_BY_SLUG)
+    ):
+        raise ReleaseError('원고 파일 번호 순서와 승인된 발행 일정이 일치하지 않습니다')
     return sorted(items, key=lambda item: item.slug), digest_builder.hexdigest()
 
 
@@ -389,6 +400,17 @@ def validate_release(items, *, manifest_path=None):
     }
     if publication_plan != PUBLICATION_PLAN_BY_SLUG:
         errors.append('릴리스 원고의 승인된 발행 일정이 정확히 일치해야 합니다')
+    planned_datetimes = [item.publication_plan_at for item in items]
+    if len(planned_datetimes) != len(set(planned_datetimes)):
+        errors.append('릴리스 원고의 발행 시각이 중복되었습니다')
+    date_counts = {}
+    for planned_at in planned_datetimes:
+        local_date = planned_at.date()
+        date_counts[local_date] = date_counts.get(local_date, 0) + 1
+        if planned_at.weekday() >= 5 or local_date == date(2026, 7, 17):
+            errors.append('릴리스 원고의 발행 일정에는 주말과 휴일을 사용할 수 없습니다')
+    if any(count not in {1, 2} for count in date_counts.values()):
+        errors.append('릴리스 원고는 하루에 한 편 또는 두 편만 발행할 수 있습니다')
 
     cover_paths = [item.cover_asset_path for item in items if item.cover_asset_path]
     duplicate_covers = sorted({path for path in cover_paths if cover_paths.count(path) > 1})
@@ -470,6 +492,10 @@ def validate_release(items, *, manifest_path=None):
         if item.slug in SAFETY_SLUGS:
             if item.review_gate != 'legal':
                 errors.append(f'{item.slug}: 법무 검토 대상은 review_gate=legal이어야 합니다')
+            if item.is_published:
+                errors.append(f'{item.slug}: 법무 검토 대상은 임시저장 상태여야 합니다')
+        elif not item.is_published or item.review_gate != 'none':
+            errors.append(f'{item.slug}: 공개 대상 원고의 게시 상태가 올바르지 않습니다')
 
         normalized_body = ' '.join(item.body.split())
         if item.is_published and normalized_disclaimer in normalized_body:
