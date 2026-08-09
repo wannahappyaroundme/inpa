@@ -666,9 +666,14 @@ class InquiryReplyViewSet(viewsets.GenericViewSet):
 
 # ─── BlogPostViewSet (인파 노트 — 공개읽기) ──────────────────────────
 
-def _public_blog_posts():
-    """Return published rows, failing closed when a protected review is stale."""
-    qs = BlogPost.objects.select_related('author').filter(is_published=True)
+def _public_blog_posts(*, at=None):
+    """Return currently visible rows, failing closed before schedule or stale review."""
+    visible_at = at or timezone.now()
+    qs = BlogPost.objects.select_related('author').filter(
+        is_published=True,
+        published_at__isnull=False,
+        published_at__lte=visible_at,
+    )
     protected = qs.filter(
         Q(legal_review_required=True) | Q(review_gate=BlogPost.REVIEW_GATE_LEGAL)
     )
