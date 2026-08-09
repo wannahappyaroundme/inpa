@@ -1,7 +1,7 @@
 """Validated, versioned release tooling for repository-owned blog content."""
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 import hashlib
 import json
 import os
@@ -23,7 +23,7 @@ from .models import (
 )
 
 
-RELEASE_VERSION = '2026-08-blog-enrichment-v1'
+RELEASE_VERSION = '2026-08-blog-expansion-v2'
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONTENT_DIR = REPO_ROOT / 'docs' / 'blog-content'
 DEFAULT_MANIFEST_PATH = REPO_ROOT / 'inpa_fe' / 'public' / 'blog-assets' / 'manifest.json'
@@ -38,13 +38,11 @@ SAFETY_SLUGS = frozenset({
     '보험-갈아타기-설계사-순서',
 })
 RELEASE_CREATED_SLUGS = frozenset({
-    '보험-증권-요청-문자-안내',
-    '보험-상담-준비-체크리스트',
-    '보험-상담-후-기록-다음-연락',
-    '상담-예약-전날-당일-안내',
-    '보험설계사-고객관리표-필수-항목',
-    '보험나이-계산법-6개월-예시',
-    '보험-직업급수-확인-순서',
+    '보험설계사-주간-계획표-고객-단계별-다음-행동',
+    '보험설계사-소개-카드-고객-확인사항',
+    '보험설계사-월말-복기-영업-숫자',
+    '보험설계사-고객-연간-일정-관리법',
+    '보험설계사-팀장-일대일-질문',
 })
 RELEASE_EXISTING_SLUGS = frozenset({
     '신입-보험설계사-지인-영업-다음-할-일',
@@ -60,8 +58,42 @@ RELEASE_EXISTING_SLUGS = frozenset({
     '보험-가입-전-확인사항',
     '좋은-보험이란',
     '실손의료비보험-기본-쉽게-짚어보기',
+    '보험-증권-요청-문자-안내',
+    '보험-상담-준비-체크리스트',
+    '보험-상담-후-기록-다음-연락',
+    '상담-예약-전날-당일-안내',
+    '보험설계사-고객관리표-필수-항목',
+    '보험나이-계산법-6개월-예시',
+    '보험-직업급수-확인-순서',
 })
 RELEASE_SLUGS = RELEASE_EXISTING_SLUGS | RELEASE_CREATED_SLUGS
+PUBLICATION_PLAN_BY_SLUG = {
+    '신입-보험설계사-지인-영업-다음-할-일': '2026-07-01T09:20:00+09:00',
+    '상담-예약률-높이는-문자와-화법': '2026-07-03T14:40:00+09:00',
+    '보험-증권-보는-법-3분-체크리스트': '2026-07-06T09:40:00+09:00',
+    '갱신형-비갱신형-차이': '2026-07-06T15:20:00+09:00',
+    '3대-진단비란-암-뇌-심장': '2026-07-08T10:10:00+09:00',
+    '회사마다-보험-담보-이름-다른-이유': '2026-07-10T14:30:00+09:00',
+    '보험-갈아타기-비교': '2026-07-13T09:30:00+09:00',
+    '비교안내서-한눈에-보는-비교표': '2026-07-13T15:40:00+09:00',
+    '상담-준비에-쫓기던-새내기-하루-각색': '2026-07-15T10:20:00+09:00',
+    '보험-갈아타기-설계사-순서': '2026-07-16T14:50:00+09:00',
+    '보험-가입-전-확인사항': '2026-07-20T09:40:00+09:00',
+    '좋은-보험이란': '2026-07-22T10:30:00+09:00',
+    '실손의료비보험-기본-쉽게-짚어보기': '2026-07-22T15:10:00+09:00',
+    '보험-증권-요청-문자-안내': '2026-07-24T14:20:00+09:00',
+    '보험-상담-준비-체크리스트': '2026-07-27T09:50:00+09:00',
+    '보험-상담-후-기록-다음-연락': '2026-07-29T10:40:00+09:00',
+    '상담-예약-전날-당일-안내': '2026-07-29T15:30:00+09:00',
+    '보험설계사-고객관리표-필수-항목': '2026-07-31T14:10:00+09:00',
+    '보험나이-계산법-6개월-예시': '2026-08-04T10:20:00+09:00',
+    '보험-직업급수-확인-순서': '2026-08-07T15:20:00+09:00',
+    '보험설계사-주간-계획표-고객-단계별-다음-행동': '2026-08-10T10:20:00+09:00',
+    '보험설계사-소개-카드-고객-확인사항': '2026-08-12T14:40:00+09:00',
+    '보험설계사-월말-복기-영업-숫자': '2026-08-14T09:30:00+09:00',
+    '보험설계사-고객-연간-일정-관리법': '2026-08-18T15:10:00+09:00',
+    '보험설계사-팀장-일대일-질문': '2026-08-20T10:40:00+09:00',
+}
 
 PUBLIC_CONTENT_FIELDS = (
     'title',
@@ -115,6 +147,7 @@ _META_FIELDS = frozenset({
     'is_published',
     'review_gate',
     'legal_review',
+    'publication_plan_at',
     'sources',
 })
 _SOURCE_PATTERN = re.compile(
@@ -154,6 +187,7 @@ class BlogReleaseItem:
     is_published: bool
     review_gate: str
     legal_review: dict | None
+    publication_plan_at: datetime
     sources: list[dict]
     title: str
     body: str
@@ -209,6 +243,19 @@ def _parse_source(path, source_bytes):
         raise ReleaseError(f'{path.name}: review_gate는 none 또는 legal이어야 합니다')
     if metadata['legal_review'] is not None and not valid_blog_legal_review(metadata['legal_review']):
         raise ReleaseError(f'{path.name}: legal_review 기록이 완전하지 않습니다')
+    publication_plan_at = metadata['publication_plan_at']
+    parsed_publication_plan = (
+        parse_datetime(publication_plan_at)
+        if type(publication_plan_at) is str else None
+    )
+    if (
+        parsed_publication_plan is None
+        or parsed_publication_plan.utcoffset() != timedelta(hours=9)
+    ):
+        raise ReleaseError(
+            f'{path.name}: publication_plan_at은 +09:00이 포함된 시각이어야 합니다'
+        )
+    metadata['publication_plan_at'] = parsed_publication_plan
     if type(metadata['sources']) is not list:
         raise ReleaseError(f'{path.name}: sources는 목록이어야 합니다')
 
@@ -326,16 +373,22 @@ def validate_release(items, *, manifest_path=None):
     """Return all blocking package errors without mutating files or database rows."""
     manifest_path = Path(manifest_path) if manifest_path is not None else DEFAULT_MANIFEST_PATH
     errors = []
-    if len(items) != 20:
-        errors.append(f'릴리스 원고는 정확히 20개여야 합니다: 현재 {len(items)}개')
+    if len(items) != 25:
+        errors.append(f'릴리스 원고는 정확히 25개여야 합니다: 현재 {len(items)}개')
 
     slugs = [item.slug for item in items]
     duplicate_slugs = sorted({slug for slug in slugs if slugs.count(slug) > 1})
     errors.extend(f'중복 slug가 있습니다: {slug}' for slug in duplicate_slugs)
     if set(slugs) != RELEASE_SLUGS:
         errors.append(
-            '릴리스 원고는 승인된 20개 slug와 정확히 일치해야 합니다'
+            '릴리스 원고는 승인된 25개 slug와 정확히 일치해야 합니다'
         )
+    publication_plan = {
+        item.slug: item.publication_plan_at.isoformat()
+        for item in items
+    }
+    if publication_plan != PUBLICATION_PLAN_BY_SLUG:
+        errors.append('릴리스 원고의 승인된 발행 일정이 정확히 일치해야 합니다')
 
     cover_paths = [item.cover_asset_path for item in items if item.cover_asset_path]
     duplicate_covers = sorted({path for path in cover_paths if cover_paths.count(path) > 1})
@@ -658,13 +711,13 @@ def _validate_after_snapshot(after_path, digest):
         not _is_nonempty_string(slug) for slug in payload['created_slugs']
     ):
         raise ReleaseError('after snapshot release 구성이 올바르지 않습니다')
-    if len(payload['created_slugs']) != 7 or len(set(payload['created_slugs'])) != 7:
+    if len(payload['created_slugs']) != 5 or len(set(payload['created_slugs'])) != 5:
         raise ReleaseError('after snapshot release 구성이 올바르지 않습니다')
     if (
         payload['kind'] != 'after'
         or payload['version'] != RELEASE_VERSION
         or payload['release_digest'] != digest
-        or payload['item_count'] != 20
+        or payload['item_count'] != 25
         or set(payload['created_slugs']) != RELEASE_CREATED_SLUGS
     ):
         raise ReleaseError('after snapshot release 구성이 올바르지 않습니다')
@@ -727,8 +780,8 @@ def apply_release(*, items, digest, backup_path):
     if len(target_slugs) != len(set(target_slugs)):
         raise ReleaseError('apply 대상 slug가 중복되었습니다')
     target_slug_set = set(target_slugs)
-    if len(items) != 20 or target_slug_set != RELEASE_SLUGS:
-        raise ReleaseError('apply 대상은 승인된 13/7 slug 20개와 정확히 일치해야 합니다')
+    if len(items) != 25 or target_slug_set != RELEASE_SLUGS:
+        raise ReleaseError('apply 대상은 승인된 20/5 slug 25개와 정확히 일치해야 합니다')
     expected_existing_slugs = RELEASE_EXISTING_SLUGS
     existing = list(BlogPost.objects.filter(slug__in=target_slugs).order_by('slug'))
     existing_slugs = {post.slug for post in existing}
@@ -740,7 +793,7 @@ def apply_release(*, items, digest, backup_path):
     if existing_slugs != expected_existing_slugs:
         missing_count = len(expected_existing_slugs - existing_slugs)
         raise ReleaseError(
-            f'apply 전 기존 대상 글 13개가 필요합니다: 누락 {missing_count}개'
+            f'apply 전 기존 대상 글 20개가 필요합니다: 누락 {missing_count}개'
         )
     created_slugs = sorted(RELEASE_CREATED_SLUGS)
     before_snapshot = _build_snapshot(
@@ -755,7 +808,6 @@ def apply_release(*, items, digest, backup_path):
     guard_times = {post.slug: post.updated_at.isoformat() for post in existing}
     User = get_user_model()
     admin = User.objects.filter(profile__is_admin=True).order_by('id').first()
-    now = timezone.now()
     staged_after = None
     try:
         with transaction.atomic():
@@ -764,7 +816,7 @@ def apply_release(*, items, digest, backup_path):
                 for post in BlogPost.objects.select_for_update().filter(slug__in=target_slugs)
             }
             if set(locked) != expected_existing_slugs:
-                raise ReleaseError('백업 뒤 13/7 대상 구성이 바뀌어 apply를 중단했습니다')
+                raise ReleaseError('백업 뒤 20/5 대상 구성이 바뀌어 apply를 중단했습니다')
             if any(
                 locked[slug].updated_at.isoformat() != guard
                 for slug, guard in guard_times.items()
@@ -774,21 +826,22 @@ def apply_release(*, items, digest, backup_path):
             updated = created = 0
             applied_posts = []
             for item in items:
-                values = _release_values(item)
                 post = locked.get(item.slug)
                 if post is None:
+                    values = _release_values(item)
                     post = BlogPost(
                         slug=item.slug,
                         author=admin,
-                        published_at=now if item.is_published else None,
+                        published_at=(
+                            item.publication_plan_at if item.is_published else None
+                        ),
                         **values,
                     )
                     post.save()
                     created += 1
-                else:
-                    for field, value in values.items():
-                        setattr(post, field, value)
-                    post.save(update_fields=[*values, 'updated_at'])
+                elif item.slug not in SAFETY_SLUGS:
+                    post.published_at = item.publication_plan_at
+                    post.save(update_fields=['published_at', 'updated_at'])
                     updated += 1
                 applied_posts.append(post)
             after_snapshot = _build_snapshot(
@@ -853,11 +906,11 @@ def _validate_before_snapshot_payload(payload):
     if type(payload['posts']) is not list:
         raise ReleaseError('restore snapshot posts가 올바르지 않습니다')
     if (
-        payload['item_count'] != 20
-        or len(payload['posts']) != 13
+        payload['item_count'] != 25
+        or len(payload['posts']) != 20
         or set(payload['created_slugs']) != RELEASE_CREATED_SLUGS
     ):
-        raise ReleaseError('restore snapshot의 정확한 13/7 대상 구성이 올바르지 않습니다')
+        raise ReleaseError('restore snapshot의 정확한 20/5 대상 구성이 올바르지 않습니다')
 
     post_slugs = _validate_snapshot_rows(
         payload['posts'],
@@ -867,7 +920,7 @@ def _validate_before_snapshot_payload(payload):
     if set(post_slugs) & set(payload['created_slugs']):
         raise ReleaseError('restore snapshot 대상 slug 구성이 겹칩니다')
     if len(post_slugs) + len(payload['created_slugs']) != payload['item_count']:
-        raise ReleaseError('restore snapshot의 정확한 13/7 대상 수가 일치하지 않습니다')
+        raise ReleaseError('restore snapshot의 정확한 20/5 대상 수가 일치하지 않습니다')
     return payload
 
 
