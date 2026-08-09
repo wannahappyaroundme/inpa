@@ -764,9 +764,9 @@
     "caption": "고객 단계마다 질문과 다음 행동을 연결하는 주간 계획 도식"
   },
   {
-    "path": "/blog-assets/보험설계사-주간-계획표-고객-단계별-다음-행동/sales-stage-screen-eed208d0.webp",
+    "path": "/blog-assets/보험설계사-주간-계획표-고객-단계별-다음-행동/sales-stage-screen-86ea1f6f.webp",
     "role": "product-screen",
-    "source_type": "original-diagram",
+    "source_type": "product-capture",
     "license": "project-owned",
     "created_at": "2026-08-09",
     "used_by": ["보험설계사-주간-계획표-고객-단계별-다음-행동"],
@@ -774,8 +774,8 @@
     "rights_reviewed": true,
     "width": 1600,
     "height": 900,
-    "alt": "가상 고객만으로 구성한 단계별 영업 화면 예시",
-    "caption": "고객별 다음 행동과 날짜를 표시한 가상 영업 화면"
+    "alt": "촬영용 고객으로 구성한 인파 고객 단계별 화면",
+    "caption": "고객 흐름을 DB, TA, FA, 청약으로 나눠 보는 실제 인파 화면"
   },
   {
     "path": "/blog-assets/보험설계사-소개-카드-고객-확인사항/cover.webp",
@@ -806,9 +806,9 @@
     "caption": "고객이 연락 전에 확인할 소개 카드 다섯 항목"
   },
   {
-    "path": "/blog-assets/보험설계사-소개-카드-고객-확인사항/introduction-card-screen-39220fa3.webp",
+    "path": "/blog-assets/보험설계사-소개-카드-고객-확인사항/introduction-card-screen-08c29de5.webp",
     "role": "product-screen",
-    "source_type": "original-diagram",
+    "source_type": "product-capture",
     "license": "project-owned",
     "created_at": "2026-08-09",
     "used_by": ["보험설계사-소개-카드-고객-확인사항"],
@@ -816,8 +816,8 @@
     "rights_reviewed": true,
     "width": 1600,
     "height": 900,
-    "alt": "고객이 설계사 정보를 확인하고 직접 상담 신청을 고르는 화면 예시",
-    "caption": "가상 설계사 정보로 구성한 소개 카드 화면"
+    "alt": "고객이 설계사 소개를 확인하고 상담을 신청하는 인파 화면",
+    "caption": "촬영용 설계사 정보를 넣어 촬영한 실제 인파 소개 카드 화면"
   },
   {
     "path": "/blog-assets/보험설계사-월말-복기-영업-숫자/cover.webp",
@@ -848,9 +848,9 @@
     "caption": "신규 고객부터 다음 달 약속까지 연결한 월말 복기 도식"
   },
   {
-    "path": "/blog-assets/보험설계사-월말-복기-영업-숫자/dashboard-review-screen-aed634bb.webp",
+    "path": "/blog-assets/보험설계사-월말-복기-영업-숫자/dashboard-review-screen-01ba0a56.webp",
     "role": "product-screen",
-    "source_type": "original-diagram",
+    "source_type": "product-capture",
     "license": "project-owned",
     "created_at": "2026-08-09",
     "used_by": ["보험설계사-월말-복기-영업-숫자"],
@@ -858,8 +858,8 @@
     "rights_reviewed": true,
     "width": 1600,
     "height": 900,
-    "alt": "가상 자료로 구성한 월 목표와 고객 활동 요약 화면 예시",
-    "caption": "월 활동 수치와 다음 행동을 함께 보여주는 가상 대시보드"
+    "alt": "촬영용 자료로 구성한 인파 월 목표와 활동 요약 화면",
+    "caption": "월 목표와 고객 흐름을 함께 확인하는 실제 인파 대시보드"
   },
   {
     "path": "/blog-assets/보험설계사-고객-연간-일정-관리법/cover.webp",
@@ -890,9 +890,9 @@
     "caption": "기준일 앞뒤의 세 가지 행동과 다섯 일정 종류"
   },
   {
-    "path": "/blog-assets/보험설계사-고객-연간-일정-관리법/schedule-year-screen-9f18d77d.webp",
+    "path": "/blog-assets/보험설계사-고객-연간-일정-관리법/schedule-year-screen-0275c28d.webp",
     "role": "product-screen",
-    "source_type": "original-diagram",
+    "source_type": "product-capture",
     "license": "project-owned",
     "created_at": "2026-08-09",
     "used_by": ["보험설계사-고객-연간-일정-관리법"],
@@ -900,8 +900,8 @@
     "rights_reviewed": true,
     "width": 1600,
     "height": 900,
-    "alt": "가상 고객 일정만으로 구성한 네 달 연간 일정 화면 예시",
-    "caption": "목적별 색으로 고객과 업무 일정을 나눈 가상 일정 화면"
+    "alt": "촬영용 고객 일정으로 구성한 인파 일정 관리 화면",
+    "caption": "고객과 업무 일정을 목적별 색으로 나눠 보는 실제 인파 화면"
   },
   {
     "path": "/blog-assets/보험설계사-팀장-일대일-질문/cover.webp",
@@ -915,7 +915,7 @@
     "width": 1600,
     "height": 900,
     "alt": "",
-    "caption": "빈 노트를 사이에 두고 대화하는 두 사람의 편집 사진"
+    "caption": "빈 회의 테이블에 마주 놓인 노트와 펜의 편집 사진"
   },
   {
     "path": "/blog-assets/보험설계사-팀장-일대일-질문/one-to-one-questions-12dce29f.webp",
@@ -932,9 +932,9 @@
     "caption": "고객 흐름과 지원 요청을 차례로 확인하는 여섯 질문"
   },
   {
-    "path": "/blog-assets/보험설계사-팀장-일대일-질문/manager-summary-screen-1d61d6bf.webp",
+    "path": "/blog-assets/보험설계사-팀장-일대일-질문/manager-summary-screen-2b6483df.webp",
     "role": "product-screen",
-    "source_type": "original-diagram",
+    "source_type": "product-capture",
     "license": "project-owned",
     "created_at": "2026-08-09",
     "used_by": ["보험설계사-팀장-일대일-질문"],
@@ -942,7 +942,7 @@
     "rights_reviewed": true,
     "width": 1600,
     "height": 900,
-    "alt": "개인 고객 정보 없이 팀의 활동 흐름을 모아 본 관리 화면 예시",
-    "caption": "팀 활동 수치와 지원 항목을 함께 보여주는 가상 관리 화면"
+    "alt": "개별 고객 정보 없이 팀의 활동 흐름을 모아 본 인파 팀 현황 화면",
+    "caption": "팀 활동 수치와 단계 흐름을 함께 보여주는 실제 인파 화면"
   }
 ]

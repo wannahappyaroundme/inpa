@@ -1,5 +1,5 @@
 <!-- blog-meta
-{"slug":"보험설계사-소개-카드-고객-확인사항","category":"sales","excerpt":"고객이 연락하기 전에 설계사의 이름과 소속, 연락 방법, 상담 범위, 자료 전달 순서를 확인할 수 있도록 소개 카드의 다섯 가지 구성 요소를 정리했습니다.","tags":["보험설계사 소개 카드","상담 신청","소속 확인","고객 안내"],"seo_title":"보험설계사 소개 카드, 고객이 확인할 5가지","seo_description":"고객이 상담 신청 전에 설계사의 이름·소속, 연락 방법, 상담 범위, 자료 전달 순서와 다음 행동을 확인하는 소개 카드 구성법입니다.","cover_asset_path":"/blog-assets/보험설계사-소개-카드-고객-확인사항/cover.webp","is_published":true,"review_gate":"none","legal_review":null,"publication_plan_at":"2026-08-12T14:40:00+09:00","sources":[{"title":"손해보험협회 모집종사자 관리센터","url":"https://misi.knia.or.kr/m","checked_at":"2026-08-09"},{"title":"손해보험협회 E-클린보험시스템","url":"https://eclean.knia.or.kr/eclean/main010m","checked_at":"2026-08-09"},{"title":"인파 공식 서비스 소개","url":"https://www.inpa.kr/","checked_at":"2026-08-09"}]}
+{"slug":"보험설계사-소개-카드-고객-확인사항","category":"sales","excerpt":"고객이 연락하기 전에 설계사의 이름과 소속, 연락 방법, 상담 범위, 자료 전달 순서를 확인할 수 있도록 소개 카드의 다섯 가지 구성 요소를 정리했습니다.","tags":["보험설계사 소개 카드","상담 신청","소속 확인","고객 안내"],"seo_title":"보험설계사 소개 카드, 고객이 확인할 5가지","seo_description":"고객이 상담 신청 전에 설계사의 이름·소속, 연락 방법, 상담 범위, 자료 전달 순서와 다음 행동을 확인하는 소개 카드 구성법입니다.","cover_asset_path":"/blog-assets/보험설계사-소개-카드-고객-확인사항/cover.webp","is_published":true,"review_gate":"none","legal_review":null,"publication_plan_at":"2026-08-12T14:40:00+09:00","sources":[{"title":"손해보험협회 모집종사자 관리센터","url":"https://misi.knia.or.kr/m","checked_at":"2026-08-09"},{"title":"이클린보험서비스 보험설계사 정보조회","url":"https://www.e-cleanins.or.kr/","checked_at":"2026-08-09"},{"title":"인파 공식 서비스 소개","url":"https://www.inpa.kr/","checked_at":"2026-08-09"}]}
 -->
 # 보험설계사 소개 카드, 고객이 연락 전에 확인할 5가지
 
@@ -31,7 +31,7 @@
 
 ## 상담 신청 전에 무엇을 받는 게 적당할까요?
 
-![고객이 소개 정보를 확인하고 직접 상담 신청을 선택하는 화면 예시](/blog-assets/보험설계사-소개-카드-고객-확인사항/introduction-card-screen-39220fa3.webp)
+![고객이 설계사 소개를 확인하고 상담을 신청하는 인파 화면](/blog-assets/보험설계사-소개-카드-고객-확인사항/introduction-card-screen-08c29de5.webp)
 
 첫 신청에는 이름이나 불릴 이름, 답을 받을 연락 방법, 편한 시간, 궁금한 주제 정도면 흐름을 시작할 수 있습니다. 주민등록번호, 상세 병력, 계좌 정보, 가족 전체의 증권은 신청 단계에서 받을 정보가 아닙니다.
 
