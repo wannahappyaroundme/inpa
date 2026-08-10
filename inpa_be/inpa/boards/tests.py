@@ -41,7 +41,7 @@ from django.contrib.admin.sites import AdminSite
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.test import APIClient
@@ -669,6 +669,17 @@ class SeedBoardsNeutralCopyTests(TestCase):
         '같은 기준의 표와 그래프로 확인하는 기능이에요. '
         '인파가 등록된 보장 정보를 정리한 참고 자료입니다.'
     )
+    REVIEW_NOTICE = '이용 가이드: 증권 자동 정리 결과 확인하기'
+    REVIEW_QUESTIONS = (
+        '스캔 PDF나 휴대폰 사진으로 만든 증권도 정리할 수 있나요?',
+        '자동 정리한 값이 확실하지 않을 때는 어떻게 하나요?',
+        '여러 설계사가 동시에 증권을 올리면 자료가 섞이지 않나요?',
+        '고객 동의는 언제 받나요?',
+    )
+    LEGACY_PRIVACY_ANSWER = (
+        '네. 고객 정보는 설계사님 계정에만 보이도록 분리되어 있어요. 다른 설계사는 볼 수 '
+        '없습니다. 고객에게 보내는 공유 화면도 필요한 정보만 담기고, 민감한 내용은 빠집니다.'
+    )
 
     def setUp(self):
         self.admin, _ = _make_planner('seed-admin@test.com', is_admin=True)
@@ -816,6 +827,63 @@ class SeedBoardsNeutralCopyTests(TestCase):
         faq.refresh_from_db()
         self.assertEqual(notice.body, '관리자가 수정한 영업 공지입니다.')
         self.assertEqual(faq.answer, '관리자가 수정한 Manager 안내입니다.')
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=False)
+    def test_review_guidance_stays_hidden_while_gate_is_closed(self):
+        call_command('seed_boards')
+
+        self.assertFalse(Notice.objects.filter(title=self.REVIEW_NOTICE).exists())
+        self.assertFalse(Faq.objects.filter(question__in=self.REVIEW_QUESTIONS).exists())
+
+    @override_settings(INSURANCE_REVIEW_GATE_ENABLED=True)
+    def test_seeds_review_guidance_once_when_gate_is_open(self):
+        call_command('seed_boards')
+        call_command('seed_boards')
+
+        self.assertEqual(Notice.objects.filter(title=self.REVIEW_NOTICE).count(), 1)
+        for question in self.REVIEW_QUESTIONS:
+            self.assertEqual(Faq.objects.filter(question=question).count(), 1)
+
+        self.assertIn(
+            '직접 고친 뒤 확정',
+            Faq.objects.get(
+                question='자동 정리한 값이 확실하지 않을 때는 어떻게 하나요?',
+            ).answer,
+        )
+
+    def test_upgrades_only_untouched_privacy_faq(self):
+        Faq.objects.create(
+            author=self.admin,
+            category='개인정보·보안',
+            order=6,
+            question='제가 등록한 고객 정보는 안전한가요?',
+            answer=self.LEGACY_PRIVACY_ANSWER,
+            is_published=True,
+        )
+
+        call_command('seed_boards')
+
+        faq = Faq.objects.get(question='제가 등록한 고객 정보는 안전한가요?')
+        self.assertIn('계정별로 조회 범위', faq.answer)
+        self.assertIn('식별 정보를 먼저 가립니다', faq.answer)
+
+    def test_preserves_admin_edited_privacy_faq(self):
+        edited = '관리자가 현재 운영 방식에 맞게 수정한 개인정보 안내입니다.'
+        Faq.objects.create(
+            author=self.admin,
+            category='개인정보·보안',
+            order=6,
+            question='제가 등록한 고객 정보는 안전한가요?',
+            answer=edited,
+            is_published=True,
+        )
+
+        call_command('seed_boards')
+
+        self.assertTrue(Faq.objects.filter(
+            question='제가 등록한 고객 정보는 안전한가요?',
+            answer=edited,
+        ).exists())
 
 
 # ─── I1~I5: 1:1 문의 ────────────────────────────────────────────────
