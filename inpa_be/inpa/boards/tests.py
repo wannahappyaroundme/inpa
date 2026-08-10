@@ -34,6 +34,7 @@
   NT2 좋아요 생성 → 원글 작성자 board_like 알림 (자기 글 제외)
 """
 import json
+from io import StringIO
 from datetime import timedelta
 from unittest import mock
 
@@ -647,6 +648,50 @@ class FaqTests(TestCase):
             format='json',
         )
         self.assertEqual(r.status_code, 201)
+
+
+class CleanupDemoBoardsTests(TestCase):
+    def setUp(self):
+        self.admin, _ = _make_planner('cleanup-admin@test.com', is_admin=True)
+        self.demo_notice = Notice.objects.create(
+            author=self.admin,
+            title='[DEMO] 샘플 공지',
+            body='정리 대상입니다.',
+            is_published=True,
+        )
+        self.demo_faq = Faq.objects.create(
+            author=self.admin,
+            category='기능문의',
+            order=99,
+            question='[DEMO] 샘플 FAQ',
+            answer='정리 대상입니다.',
+            is_published=True,
+        )
+        self.demo_post = Post.objects.create(
+            author=self.admin,
+            title='[DEMO] 유지할 게시글',
+            body='공지와 FAQ 외 데이터는 유지합니다.',
+        )
+        self.real_notice = Notice.objects.create(
+            author=self.admin,
+            title='실제 공지',
+            body='운영 공지는 유지합니다.',
+            is_published=True,
+        )
+
+    def test_dry_run_keeps_every_row(self):
+        out = StringIO()
+        call_command('cleanup_demo_boards', stdout=out)
+        self.assertTrue(Notice.objects.filter(pk=self.demo_notice.pk).exists())
+        self.assertTrue(Faq.objects.filter(pk=self.demo_faq.pk).exists())
+        self.assertIn('공지 1건, FAQ 1건', out.getvalue())
+
+    def test_apply_deletes_only_demo_notices_and_faqs(self):
+        call_command('cleanup_demo_boards', apply=True)
+        self.assertFalse(Notice.objects.filter(pk=self.demo_notice.pk).exists())
+        self.assertFalse(Faq.objects.filter(pk=self.demo_faq.pk).exists())
+        self.assertTrue(Post.objects.filter(pk=self.demo_post.pk).exists())
+        self.assertTrue(Notice.objects.filter(pk=self.real_notice.pk).exists())
 
 
 class SeedBoardsNeutralCopyTests(TestCase):
