@@ -59,12 +59,13 @@ export function contentSimilarity(left, right) {
   const leftShingles = shingles(left.body);
   const rightShingles = shingles(right.body);
   const sharedShingles = sharedCount(leftShingles, rightShingles);
+  const shorterShingleSetSize = Math.min(leftShingles.size, rightShingles.size);
 
   return {
     titleJaccard: titleUnionSize === 0 ? 0 : sharedTitleTokens / titleUnionSize,
     sharedTitleTokens,
     sharedHeadings: sharedCount(leftHeadings, rightHeadings),
-    bodyContainment: leftShingles.size === 0 ? 0 : sharedShingles / leftShingles.size,
+    bodyContainment: shorterShingleSetSize === 0 ? 0 : sharedShingles / shorterShingleSetSize,
     sharedShingles,
   };
 }

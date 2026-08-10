@@ -20,6 +20,10 @@ import {
 } from "./check-blog-release.mjs";
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "check-blog-release.mjs");
+const DISTINCTNESS_SCRIPT = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "blog-content-distinctness.mjs",
+);
 const VISUAL_FIXTURE_SVG = Buffer.from(`
   <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900">
     <defs><linearGradient id="g"><stop stop-color="#3157d5"/><stop offset="1" stop-color="#f3f5f9"/></linearGradient></defs>
@@ -160,6 +164,71 @@ test("duplicated long content blocks a new post", () => {
   assert.equal(score.sharedShingles, 20);
   assert.equal(score.bodyContainment, 1);
   assert.ok(verifyContentDistinctness([recent, target], new Set([target.slug])).length > 0);
+});
+
+test("body containment uses the shorter shingle set for a longer copied target in either order", () => {
+  const recentBody = tokenSequence("shared", 24);
+  const targetBody = `${recentBody} ${tokenSequence("tail", 120)}`;
+  const recent = post({ slug: "짧은-기존-글", title: "첫 번째 제목", body: recentBody });
+  const target = post({ slug: "긴-신규-글", title: "두 번째 제목", body: targetBody });
+
+  const targetFirst = contentSimilarity(target, recent);
+  const recentFirst = contentSimilarity(recent, target);
+
+  assert.equal(targetFirst.sharedShingles, 20);
+  assert.equal(targetFirst.bodyContainment, 1);
+  assert.equal(recentFirst.bodyContainment, 1);
+  assert.deepEqual(verifyContentDistinctness([recent, target], new Set([target.slug])), [
+    "긴-신규-글: 짧은-기존-글 콘텐츠가 겹칩니다",
+  ]);
+});
+
+test("body containment is zero when either shingle set is empty", () => {
+  const empty = post({ slug: "빈-글", title: "빈 제목", body: "단어가 넷 이하" });
+  const populated = post({ slug: "긴-글", title: "긴 제목", body: tokenSequence("body", 9) });
+
+  assert.equal(contentSimilarity(empty, empty).bodyContainment, 0);
+  assert.equal(contentSimilarity(empty, populated).bodyContainment, 0);
+  assert.equal(contentSimilarity(populated, empty).bodyContainment, 0);
+});
+
+test("standalone distinctness CLI blocks a longer copied post regardless of file order", (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "inpa-blog-distinctness-"));
+  t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+  const recentBody = tokenSequence("shared", 24);
+  const targetBody = `${recentBody} ${tokenSequence("tail", 120)}`;
+  const cases = [
+    { name: "longer-file-sorts-last", recentFile: "a-recent.md", targetFile: "z-target.md" },
+    { name: "longer-file-sorts-first", recentFile: "z-recent.md", targetFile: "a-target.md" },
+  ];
+
+  for (const fixture of cases) {
+    const contentRoot = path.join(tempRoot, fixture.name);
+    fs.mkdirSync(contentRoot, { recursive: true });
+    const writePost = (filename, slug, title, body) => {
+      fs.writeFileSync(
+        path.join(contentRoot, filename),
+        `<!-- blog-meta\n${JSON.stringify({ slug })}\n-->\n# ${title}\n\n<!-- blog-body -->\n${body}\n`,
+      );
+    };
+    writePost(fixture.recentFile, "짧은-원고", "서로 다른 첫 제목", recentBody);
+    writePost(fixture.targetFile, "긴-복제-원고", "완전히 다른 둘 제목", targetBody);
+
+    const result = spawnSync(
+      process.execPath,
+      [DISTINCTNESS_SCRIPT, "--content-root", contentRoot],
+      { encoding: "utf8" },
+    );
+
+    assert.equal(
+      result.status,
+      1,
+      `${fixture.name}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    );
+    assert.match(result.stderr, /콘텐츠 중복 검사 실패/);
+    assert.match(result.stderr, /짧은-원고/);
+    assert.match(result.stderr, /긴-복제-원고/);
+  }
 });
 
 async function makeValidRaster(width, height, seed) {
