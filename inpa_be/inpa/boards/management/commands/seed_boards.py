@@ -7,6 +7,7 @@
 
 ★ 카피 레드라인: 쉬운 말, 긍정 어투, em-dash(—) 금지, 출시일/로드맵 비공개.
 """
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
@@ -47,6 +48,67 @@ COMPARE_FAQ_ANSWER = (
     '차이를 같은 기준의 표와 그래프로 확인하는 기능이에요. 같은 증권을 양쪽에 '
     '함께 넣을 수도 있어요. 인파가 등록된 보장 정보를 정리한 참고 자료입니다.'
 )
+
+LEGACY_PRIVACY_FAQ_ANSWER = (
+    '네. 고객 정보는 설계사님 계정에만 보이도록 분리되어 있어요. 다른 설계사는 볼 수 '
+    '없습니다. 고객에게 보내는 공유 화면도 필요한 정보만 담기고, 민감한 내용은 빠집니다.'
+)
+PRIVACY_FAQ_ANSWER = (
+    '등록한 고객, 증권, 분석 자료는 설계사님 계정별로 조회 범위가 나뉩니다. '
+    '자동 정리를 위해 외부 분석 단계를 사용할 때는 이름·전화번호·주민등록번호 같은 '
+    '식별 정보를 먼저 가립니다. 고객에게 보내는 공유 화면에는 선택한 자료만 담깁니다.'
+)
+
+REVIEW_NOTICES = [
+    {
+        'title': '이용 가이드: 증권 자동 정리 결과 확인하기',
+        'is_pinned': False,
+        'body': (
+            '증권을 올리면 원문과 자동 정리 결과를 나란히 확인할 수 있어요.\n\n'
+            '글자가 흐리거나 표가 복잡해 확신이 낮은 값은 확인 표시로 알려드립니다. '
+            '보험료, 가입금액, 기간을 원문과 대조한 뒤 바로 수정하고 확정해 주세요.\n\n'
+            '확정 전 초안은 고객 자료와 분석 합계에 반영되지 않습니다.'
+        ),
+    },
+]
+
+REVIEW_FAQS = [
+    {
+        'category': '기능문의', 'order': 8,
+        'question': '스캔 PDF나 휴대폰 사진으로 만든 증권도 정리할 수 있나요?',
+        'answer': (
+            '네. 사진을 PDF로 저장해 올리면 자동으로 글자와 표를 정리합니다. '
+            '문서를 평평하게 펴고 그림자와 반사를 줄여 촬영하면 더 또렷하게 읽을 수 있어요. '
+            '작은 글자는 원본 크기를 유지하고, 여러 페이지는 순서대로 한 파일에 담아 주세요.'
+        ),
+    },
+    {
+        'category': '기능문의', 'order': 9,
+        'question': '자동 정리한 값이 확실하지 않을 때는 어떻게 하나요?',
+        'answer': (
+            '확신이 낮은 값은 확인 표시와 함께 보여드립니다. 원문 페이지를 바로 열어 보험료, '
+            '가입금액, 기간을 대조하고 직접 고친 뒤 확정할 수 있어요. 확정 전 초안은 고객 자료와 '
+            '분석 합계에 반영되지 않습니다.'
+        ),
+    },
+    {
+        'category': '개인정보·보안', 'order': 10,
+        'question': '여러 설계사가 동시에 증권을 올리면 자료가 섞이지 않나요?',
+        'answer': (
+            '각 업로드는 설계사 계정, 고객, 작업 번호를 함께 묶어 처리합니다. 목록 조회와 결과 '
+            '확정도 같은 계정 소유 범위 안에서만 이어져 다른 설계사의 고객이나 증권과 섞이지 '
+            '않도록 분리되어 있습니다.'
+        ),
+    },
+    {
+        'category': '기능문의', 'order': 11,
+        'question': '고객 동의는 언제 받나요?',
+        'answer': (
+            '증권을 자동 정리하기 전에 고객 전용 동의 링크를 먼저 보내 주세요. 고객이 최신 '
+            '동의문을 확인하면 해당 고객의 증권 업로드를 바로 이어갈 수 있습니다.'
+        ),
+    },
+]
 
 NOTICES = [
     {
@@ -138,10 +200,7 @@ FAQS = [
     {
         'category': '개인정보·보안', 'order': 6,
         'question': '제가 등록한 고객 정보는 안전한가요?',
-        'answer': (
-            '네. 고객 정보는 설계사님 계정에만 보이도록 분리되어 있어요. 다른 설계사는 볼 수 '
-            '없습니다. 고객에게 보내는 공유 화면도 필요한 정보만 담기고, 민감한 내용은 빠집니다.'
-        ),
+        'answer': PRIVACY_FAQ_ANSWER,
     },
     {
         'category': '계정', 'order': 7,
@@ -189,8 +248,18 @@ class Command(BaseCommand):
                 question=COMPARE_FAQ_QUESTION,
                 answer=LEGACY_COMPARE_FAQ_ANSWER_AB,
             ).update(answer=COMPARE_FAQ_ANSWER)
+            Faq.objects.filter(
+                question='제가 등록한 고객 정보는 안전한가요?',
+                answer=LEGACY_PRIVACY_FAQ_ANSWER,
+            ).update(answer=PRIVACY_FAQ_ANSWER)
 
-            for n in NOTICES:
+            notices = list(NOTICES)
+            faqs = list(FAQS)
+            if settings.INSURANCE_REVIEW_GATE_ENABLED:
+                notices.extend(REVIEW_NOTICES)
+                faqs.extend(REVIEW_FAQS)
+
+            for n in notices:
                 _, created = Notice.objects.get_or_create(
                     title=n['title'],
                     defaults={
@@ -202,7 +271,7 @@ class Command(BaseCommand):
                     },
                 )
                 created_n += int(created)
-            for f in FAQS:
+            for f in faqs:
                 _, created = Faq.objects.get_or_create(
                     question=f['question'],
                     defaults={

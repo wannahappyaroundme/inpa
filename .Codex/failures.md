@@ -51,3 +51,9 @@ Symptom: 상담 원본 정리 cron 생성이 KICC 자격정보 누락으로 한 
 Cause: `render.yaml`의 `fromService.envVarKey`는 원본 웹 서비스에 실제 값이 없는 `sync: false` 선택 변수도 필수 참조로 취급한다. 닫힌 결제·CLOVA 경로와 OpenAI fallback 변수까지 상담 워커·cron에 연결했다.
 Fix: 현재 열린 OpenAI 경로에 필요한 기존 공용 모델·키만 워커에 전달하고, 닫힌 결제·CLOVA·중복 모델·콜백 변수 참조를 제거했다. 앱 설정의 빈 값 fallback과 기능 게이트는 그대로 유지했다.
 Prevention: Blueprint 파생 서비스는 현재 활성 경로의 필수 변수만 `fromService`로 참조한다. 회귀 테스트가 워커와 상담 정리 cron에 선택 변수가 다시 들어오는 것을 차단하고, 배포 후 Sync 상세의 `environment variable not found`와 실제 Resources 행 수를 함께 확인한다.
+
+### 2026-07-21 Rosetta 실행에서 esbuild CPU 패키지 불일치
+Symptom: arm64 Node로 설치한 `@esbuild/darwin-arm64`가 정상인데도 권한을 높여 `tsx`를 두 번 실행하면 x64 패키지가 필요하다는 오류로 테스트가 시작 전에 멈췄다.
+Cause: 권한을 높인 셸이 Rosetta x64 실행 경로를 사용해, 일반 셸의 arm64 Node와 같은 `node_modules`를 서로 다른 CPU로 읽었다.
+Fix: 일반 arm64 Node에서 `node --import tsx --test` 실행 경로로 단위 테스트를 실행해 `tsx` CLI의 임시 IPC 권한 요구를 없앴다. 제품 코드나 잠금 파일은 변경하지 않았다.
+Prevention: 이 Mac에서 프런트 테스트는 번들 Node를 직접 호출한다. 로컬 CPU 문제를 고치기 위해 `package.json`이나 `package-lock.json`에 다른 플랫폼 전용 패키지를 추가하지 않는다.

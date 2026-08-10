@@ -1,5 +1,5 @@
 <!-- blog-meta
-{"slug":"보험-증권-보는-법-3분-체크리스트","category":"coverage","excerpt":"보험 증권을 받았을 때 대상자, 계약 상태, 보험료, 기간, 담보와 지급 조건 순서로 먼저 확인하는 다섯 가지를 정리했습니다.","tags":["보험 증권","증권 보는 법","담보 확인","상담 준비"],"seo_title":"보험 증권 보는 법, 먼저 확인할 5가지","seo_description":"고객 증권에서 대상자, 계약 상태, 보험료, 납입·보장 기간, 담보와 지급 조건을 확인하는 순서와 개인정보를 가리는 방법을 정리했습니다.","cover_asset_path":"/blog-assets/보험-증권-보는-법-3분-체크리스트/cover.webp","is_published":true,"review_gate":"none","legal_review":null,"publication_plan_at":"2026-07-06T09:40:00+09:00","sources":[{"title":"알기쉬운 생명보험 안내자료","url":"https://consumer.insure.or.kr/info/insuranceGuide/1/view.do","checked_at":"2026-08-03"},{"title":"보험단계 안내: 보험계약시 알아둘 점","url":"https://edu.knia.or.kr/edu/step3_2.do","checked_at":"2026-08-03"},{"title":"인파 공식 서비스 소개","url":"https://www.inpa.kr/","checked_at":"2026-08-03"}]}
+{"slug":"보험-증권-보는-법-3분-체크리스트","category":"coverage","excerpt":"보험 증권을 받았을 때 대상자, 계약 상태, 보험료, 기간, 담보와 지급 조건 순서로 먼저 확인하는 다섯 가지를 정리했습니다.","tags":["보험 증권","증권 보는 법","담보 확인","상담 준비"],"seo_title":"보험 증권 보는 법, 먼저 확인할 5가지","seo_description":"고객 증권에서 대상자, 계약 상태, 보험료, 납입·보장 기간, 담보와 지급 조건을 확인하는 순서와 개인정보를 가리는 방법을 정리했습니다.","cover_asset_path":"/blog-assets/보험-증권-보는-법-3분-체크리스트/cover.webp","is_published":true,"review_gate":"none","legal_review":null,"publication_plan_at":"2026-07-06T09:40:00+09:00","sources":[{"title":"알기쉬운 생명보험 안내자료","url":"https://consumer.insure.or.kr/info/insuranceGuide/1/view.do","checked_at":"2026-08-03"},{"title":"보험단계 안내: 보험계약시 알아둘 점","url":"https://edu.knia.or.kr/edu/step3_2.do","checked_at":"2026-08-03"},{"title":"인파 공식 서비스 소개","url":"https://www.inpa.kr/","checked_at":"2026-08-03"},{"title":"인파 보장분석 솔루션","url":"https://www.inpa.kr/solutions/policy-analysis","checked_at":"2026-08-10"}]}
 -->
 # 보험 증권 보는 법, 먼저 확인할 5가지
 
@@ -43,6 +43,12 @@
 
 ![보장 항목과 보유 금액을 정리한 인파 분석 실제 화면](/blog-assets/보험-증권-보는-법-3분-체크리스트/analysis-screen-9d10d26f.webp)
 
+## 자동 정리 뒤에는 무엇을 다시 볼까요?
+
+원문 증권에서는 다섯 항목을 찾고, 프로그램이 자동으로 정리한 뒤에는 읽힌 값과 연결 결과를 다시 봅니다. 계약자·피보험자와 계약 상태가 맞는지, 보험료와 기간이 원문 그대로인지, 원래 담보명이 공통 보장 항목에 알맞게 연결됐는지 확인하세요. 읽히지 않은 금액은 0으로 채우지 않고 미상으로 남깁니다.
+
+정리 화면에 넉넉·적정·부족 표시가 있다면 어떤 기준이 적용됐는지도 확인합니다. 기준이 없는 영역은 보유 금액만 보고, 색이나 합계만으로 지급 조건이나 계약 방향을 설명하지 않습니다. [인파 보장분석 흐름](https://www.inpa.kr/solutions/policy-analysis)에서 원문과 자동 정리 화면을 나란히 확인할 수 있습니다.
+
 보험료 구조를 더 나눠 보려면 [갱신형과 비갱신형에서 확인할 항목](/blog/갱신형-비갱신형-차이)을 이어서 보세요. 담보 이름을 맞출 때 생기는 오해는 [회사마다 담보 이름이 다른 이유](/blog/회사마다-보험-담보-이름-다른-이유)에 정리했습니다.
 
 ## 흔히 놓치는 점
@@ -61,4 +67,4 @@
 - [ ] 납입기간과 보험기간을 따로 적었다
 - [ ] 약관에서 확인할 지급 조건을 메모했다
 
-인파는 고객 동의를 받은 증권의 보험과 담보를 같은 틀로 정리해 줍니다. 설계사가 원문과 대조할 순서를 유지하면서 여러 장을 한눈에 보고 싶은 경우에 활용할 수 있습니다.
+인파는 고객 동의를 받은 증권의 보험과 담보를 같은 틀로 정리해 줍니다. 먼저 원문 다섯 항목에 표시한 뒤, 자동 정리 화면에서 같은 항목을 다시 찾아 차이가 있는 줄부터 확인해보세요.

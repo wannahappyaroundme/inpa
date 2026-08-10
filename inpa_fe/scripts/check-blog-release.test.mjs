@@ -8,12 +8,22 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import {
+  contentSimilarity,
+  normalizeContentTokens,
+  verifyContentDistinctness,
+} from "./blog-content-distinctness.mjs";
+import {
+  PROTECTED_EXISTING_ASSET_PATHS,
   parseWebpDimensions,
   verifyNewPostProductCaptures,
   verifyProtectedExistingAssetDigests,
 } from "./check-blog-release.mjs";
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "check-blog-release.mjs");
+const DISTINCTNESS_SCRIPT = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "blog-content-distinctness.mjs",
+);
 const VISUAL_FIXTURE_SVG = Buffer.from(`
   <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900">
     <defs><linearGradient id="g"><stop stop-color="#3157d5"/><stop offset="1" stop-color="#f3f5f9"/></linearGradient></defs>
@@ -24,6 +34,202 @@ const VISUAL_FIXTURE_SVG = Buffer.from(`
 `);
 const VISUAL_COVER_A = await sharp(VISUAL_FIXTURE_SVG).webp({ quality: 72 }).toBuffer();
 const VISUAL_COVER_B = await sharp(VISUAL_FIXTURE_SVG).webp({ quality: 94 }).toBuffer();
+
+function post({ slug, title = "", body = "", headings = [] }) {
+  return { slug, filename: `${slug}.md`, title, body, headings };
+}
+
+function tokenSequence(prefix, count) {
+  return Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`).join(" ");
+}
+
+test("new post copied from a recent post is blocked", () => {
+  const copiedBody = `## 월요일에는 빈칸부터 찾습니다\n\n${tokenSequence("copied", 24)}`;
+  const recent = post({
+    slug: "보험설계사-주간-계획표-고객-단계별-다음-행동",
+    title: "보험설계사 주간 계획표, 고객 단계별로 다음 행동 정하기",
+    body: copiedBody,
+  });
+  const copied = post({
+    slug: "보험설계사-새로운-영업-계획",
+    title: "보험설계사 영업 계획표, 고객 단계별 다음 행동 정하기",
+    body: copiedBody,
+  });
+
+  const errors = verifyContentDistinctness([recent, copied], new Set([copied.slug]));
+
+  assert.ok(errors.some((error) => error.includes("콘텐츠가 겹칩니다")));
+});
+
+test("approved common words alone do not block distinct posts", () => {
+  const first = post({
+    slug: "첫-글",
+    title: "보험설계사 보험 고객 확인 방법 정리 인파 첫 주제",
+    body: "## 첫 번째 흐름\n\n서로 다른 내용을 설명합니다.",
+    headings: ["첫 번째 흐름"],
+  });
+  const second = post({
+    slug: "둘-글",
+    title: "보험설계사 보험 고객 확인 방법 정리 인파 둘 주제",
+    body: "## 두 번째 흐름\n\n전혀 다른 소재를 다룹니다.",
+    headings: ["두 번째 흐름"],
+  });
+
+  assert.deepEqual(normalizeContentTokens(first.title), ["첫", "주제"]);
+  assert.deepEqual(verifyContentDistinctness([first, second], new Set([second.slug])), []);
+});
+
+test("title similarity at the exact threshold blocks a new post", () => {
+  const shared = tokenSequence("shared", 18);
+  const recent = post({ slug: "최근", title: `${shared} left1 left2 left3` });
+  const target = post({ slug: "대상", title: `${shared} right1 right2 right3 right4` });
+
+  const score = contentSimilarity(target, recent);
+
+  assert.equal(score.titleJaccard, 0.72);
+  assert.equal(score.sharedTitleTokens, 18);
+  assert.ok(verifyContentDistinctness([recent, target], new Set([target.slug])).length > 0);
+});
+
+test("fewer than three shared title tokens do not block a new post", () => {
+  const recent = post({ slug: "최근", title: "shared1 shared2" });
+  const target = post({ slug: "대상", title: "shared1 shared2" });
+
+  const score = contentSimilarity(target, recent);
+
+  assert.equal(score.titleJaccard, 1);
+  assert.equal(score.sharedTitleTokens, 2);
+  assert.deepEqual(verifyContentDistinctness([recent, target], new Set([target.slug])), []);
+});
+
+test("one shared normalized H2 does not block a new post", () => {
+  const recent = post({ slug: "최근", title: "서로 다른 제목 하나", headings: ["같은 소제목"] });
+  const target = post({ slug: "대상", title: "완전히 다른 제목 둘", headings: ["같은 소제목"] });
+
+  assert.equal(contentSimilarity(target, recent).sharedHeadings, 1);
+  assert.deepEqual(verifyContentDistinctness([recent, target], new Set([target.slug])), []);
+});
+
+test("two boilerplate H2 headings do not block a new post", () => {
+  const recent = post({
+    slug: "최근",
+    title: "서로 다른 제목 하나",
+    headings: ["흔히 놓치는 점", "저장용 체크리스트"],
+  });
+  const target = post({
+    slug: "대상",
+    title: "완전히 다른 제목 둘",
+    headings: ["흔히 놓치는 점", "저장용 체크리스트"],
+  });
+
+  assert.equal(contentSimilarity(target, recent).sharedHeadings, 0);
+  assert.deepEqual(verifyContentDistinctness([recent, target], new Set([target.slug])), []);
+});
+
+test("two shared substantive H2 headings block a new post", () => {
+  const recent = post({
+    slug: "최근",
+    title: "서로 다른 제목 하나",
+    headings: ["상담 기록을 남기는 순서", "다음 연락을 정하는 기준"],
+  });
+  const target = post({
+    slug: "대상",
+    title: "완전히 다른 제목 둘",
+    headings: ["상담 기록을 남기는 순서", "다음 연락을 정하는 기준"],
+  });
+
+  assert.equal(contentSimilarity(target, recent).sharedHeadings, 2);
+  assert.ok(verifyContentDistinctness([recent, target], new Set([target.slug])).length > 0);
+});
+
+test("fourteen shared five-token shingles do not block a new post", () => {
+  const body = tokenSequence("body", 18);
+  const recent = post({ slug: "최근", title: "첫 번째 제목", body });
+  const target = post({ slug: "대상", title: "두 번째 제목", body });
+
+  const score = contentSimilarity(target, recent);
+
+  assert.equal(score.sharedShingles, 14);
+  assert.equal(score.bodyContainment, 1);
+  assert.deepEqual(verifyContentDistinctness([recent, target], new Set([target.slug])), []);
+});
+
+test("duplicated long content blocks a new post", () => {
+  const body = tokenSequence("body", 24);
+  const recent = post({ slug: "최근", title: "첫 번째 제목", body });
+  const target = post({ slug: "대상", title: "두 번째 제목", body });
+
+  const score = contentSimilarity(target, recent);
+
+  assert.equal(score.sharedShingles, 20);
+  assert.equal(score.bodyContainment, 1);
+  assert.ok(verifyContentDistinctness([recent, target], new Set([target.slug])).length > 0);
+});
+
+test("body containment uses the shorter shingle set for a longer copied target in either order", () => {
+  const recentBody = tokenSequence("shared", 24);
+  const targetBody = `${recentBody} ${tokenSequence("tail", 120)}`;
+  const recent = post({ slug: "짧은-기존-글", title: "첫 번째 제목", body: recentBody });
+  const target = post({ slug: "긴-신규-글", title: "두 번째 제목", body: targetBody });
+
+  const targetFirst = contentSimilarity(target, recent);
+  const recentFirst = contentSimilarity(recent, target);
+
+  assert.equal(targetFirst.sharedShingles, 20);
+  assert.equal(targetFirst.bodyContainment, 1);
+  assert.equal(recentFirst.bodyContainment, 1);
+  assert.deepEqual(verifyContentDistinctness([recent, target], new Set([target.slug])), [
+    "긴-신규-글: 짧은-기존-글 콘텐츠가 겹칩니다",
+  ]);
+});
+
+test("body containment is zero when either shingle set is empty", () => {
+  const empty = post({ slug: "빈-글", title: "빈 제목", body: "단어가 넷 이하" });
+  const populated = post({ slug: "긴-글", title: "긴 제목", body: tokenSequence("body", 9) });
+
+  assert.equal(contentSimilarity(empty, empty).bodyContainment, 0);
+  assert.equal(contentSimilarity(empty, populated).bodyContainment, 0);
+  assert.equal(contentSimilarity(populated, empty).bodyContainment, 0);
+});
+
+test("standalone distinctness CLI blocks a longer copied post regardless of file order", (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "inpa-blog-distinctness-"));
+  t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+  const recentBody = tokenSequence("shared", 24);
+  const targetBody = `${recentBody} ${tokenSequence("tail", 120)}`;
+  const cases = [
+    { name: "longer-file-sorts-last", recentFile: "a-recent.md", targetFile: "z-target.md" },
+    { name: "longer-file-sorts-first", recentFile: "z-recent.md", targetFile: "a-target.md" },
+  ];
+
+  for (const fixture of cases) {
+    const contentRoot = path.join(tempRoot, fixture.name);
+    fs.mkdirSync(contentRoot, { recursive: true });
+    const writePost = (filename, slug, title, body) => {
+      fs.writeFileSync(
+        path.join(contentRoot, filename),
+        `<!-- blog-meta\n${JSON.stringify({ slug })}\n-->\n# ${title}\n\n<!-- blog-body -->\n${body}\n`,
+      );
+    };
+    writePost(fixture.recentFile, "짧은-원고", "서로 다른 첫 제목", recentBody);
+    writePost(fixture.targetFile, "긴-복제-원고", "완전히 다른 둘 제목", targetBody);
+
+    const result = spawnSync(
+      process.execPath,
+      [DISTINCTNESS_SCRIPT, "--content-root", contentRoot],
+      { encoding: "utf8" },
+    );
+
+    assert.equal(
+      result.status,
+      1,
+      `${fixture.name}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    );
+    assert.match(result.stderr, /콘텐츠 중복 검사 실패/);
+    assert.match(result.stderr, /짧은-원고/);
+    assert.match(result.stderr, /긴-복제-원고/);
+  }
+});
 
 async function makeValidRaster(width, height, seed) {
   const pixels = Buffer.alloc(9 * 8);
@@ -41,9 +247,69 @@ async function makeValidRaster(width, height, seed) {
 }
 
 const VALID_FIXTURE_COVERS = await Promise.all(
-  Array.from({ length: 25 }, (_, index) => makeValidRaster(1600, 900, index + 101)),
+  Array.from({ length: 31 }, (_, index) => makeValidRaster(1600, 900, index + 101)),
 );
-const VALID_FIXTURE_INLINE = await makeValidRaster(1200, 800, 999);
+const VALID_FIXTURE_INLINE = await Promise.all(
+  Array.from({ length: 48 }, (_, index) => makeValidRaster(1600, 900, index + 1001)),
+);
+
+const NEW_RELEASE_SLUGS = [
+  "보험설계사-고객관리-프로그램-선택-기준",
+  "보험설계사-보장분석-프로그램-확인-항목",
+  "보험설계사-고객-자료-파일-정리",
+  "보험설계사-휴면-고객-다시-연락",
+  "보험설계사-상담-예약-링크",
+  "보장분석-결과-고객-공유",
+];
+
+const RECENT_PRIOR_RELEASE_SLUGS = [
+  "보험설계사-주간-계획표-고객-단계별-다음-행동",
+  "보험설계사-소개-카드-고객-확인사항",
+  "보험설계사-월말-복기-영업-숫자",
+  "보험설계사-고객-연간-일정-관리법",
+  "보험설계사-팀장-일대일-질문",
+];
+
+function readRealManifest() {
+  return JSON.parse(fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public/blog-assets/manifest.json"),
+    "utf8",
+  ));
+}
+
+test("booking request flow caption matches the five numbered stages", () => {
+  const record = readRealManifest().find((entry) => (
+    entry.path.endsWith("/booking-request-flow-1ea92e41.webp")
+  ));
+
+  assert.equal(record?.caption, "업무시간 설정과 고객 요청을 거쳐 상담을 확정하는 다섯 단계");
+});
+
+test("protected prior-asset lock exactly covers all 61 assets from posts 1 through 25", () => {
+  const manifest = readRealManifest();
+  const newSlugs = new Set(NEW_RELEASE_SLUGS);
+  const expectedPriorPaths = manifest
+    .filter((entry) => !entry.used_by.some((slug) => newSlugs.has(slug)))
+    .map((entry) => entry.path)
+    .sort();
+
+  assert.equal(expectedPriorPaths.length, 61);
+  assert.equal(Object.isFrozen(PROTECTED_EXISTING_ASSET_PATHS), true);
+  assert.deepEqual(PROTECTED_EXISTING_ASSET_PATHS, expectedPriorPaths);
+
+  for (const slug of RECENT_PRIOR_RELEASE_SLUGS) {
+    const recentPaths = manifest
+      .filter((entry) => entry.used_by.includes(slug))
+      .map((entry) => entry.path);
+    assert.equal(recentPaths.length, 3, `${slug} 보호 대상은 3개여야 합니다`);
+    for (const assetPath of recentPaths) {
+      assert.ok(
+        PROTECTED_EXISTING_ASSET_PATHS.includes(assetPath),
+        `${assetPath} 보호 잠금이 빠졌습니다`,
+      );
+    }
+  }
+});
 
 function makeWebp(width, height, seed = 0, padding = 0) {
   const payload = Buffer.alloc(10);
@@ -118,7 +384,11 @@ function createFixture() {
   fs.mkdirSync(contentRoot, { recursive: true });
 
   const manifest = [];
-  const slugs = Array.from({ length: 25 }, (_, index) => `검증-글-${String(index + 1).padStart(2, "0")}`);
+  const slugs = [
+    ...Array.from({ length: 25 }, (_, index) => `검증-글-${String(index + 1).padStart(2, "0")}`),
+    ...NEW_RELEASE_SLUGS,
+  ];
+  let inlineIndex = 0;
   for (const [index, slug] of slugs.entries()) {
     const dir = path.join(assetsRoot, slug);
     fs.mkdirSync(dir, { recursive: true });
@@ -140,29 +410,33 @@ function createFixture() {
       caption: `${slug} 글의 장식용 대표 이미지`,
     });
 
-    let body = "본문입니다.";
-    if (index === 0) {
-      const inline = VALID_FIXTURE_INLINE;
+    const inlineCount = index >= 25 ? 2 : index < 11 ? 2 : 1;
+    const bodyImages = [];
+    for (let imageIndex = 0; imageIndex < inlineCount; imageIndex += 1) {
+      const inline = VALID_FIXTURE_INLINE[inlineIndex++];
       const digest = crypto.createHash("sha256").update(inline).digest("hex").slice(0, 8);
-      const filename = `diagram-${digest}.webp`;
+      const isNewPost = index >= 25;
+      const isProductCapture = isNewPost && imageIndex === 1;
+      const filename = `${isProductCapture ? "product-screen" : "diagram"}-${digest}.webp`;
       fs.writeFileSync(path.join(dir, filename), inline);
       const inlinePath = `/blog-assets/${slug}/${filename}`;
       manifest.push({
         path: inlinePath,
-        role: "diagram",
-        source_type: "original-diagram",
+        role: isProductCapture ? "product-screen" : "diagram",
+        source_type: isProductCapture ? "product-capture" : "original-diagram",
         license: "project-owned",
-        created_at: "2026-08-03",
+        created_at: isNewPost ? "2026-08-10" : "2026-08-03",
         used_by: [slug],
         pii_reviewed: true,
         rights_reviewed: true,
-        width: 1200,
-        height: 800,
-        alt: "상담 준비 순서를 항목별로 차례대로 보여주는 설명 도식",
-        caption: "상담 준비 순서",
+        width: 1600,
+        height: 900,
+        alt: `검증화면${index + 1}항목${imageIndex + 1}가나다라마바사아자차카타파하정보그림`,
+        caption: isProductCapture ? "촬영용 합성 데이터 제품 화면" : "상담 준비 순서",
       });
-      body = `![상담 준비 순서를 항목별로 차례대로 보여주는 설명 도식](${inlinePath})`;
+      bodyImages.push(`![${manifest.at(-1).alt}](${inlinePath})`);
     }
+    const body = bodyImages.length ? bodyImages.join("\n\n") : "본문입니다.";
     const meta = {
       slug,
       category: "sales",
@@ -174,12 +448,12 @@ function createFixture() {
       is_published: true,
       review_gate: "none",
       legal_review: null,
-      publication_plan_at: `2026-08-${String(index + 1).padStart(2, "0")}T10:20:00+09:00`,
+      publication_plan_at: "2026-08-10T10:20:00+09:00",
       sources: [],
     };
     fs.writeFileSync(
       path.join(contentRoot, `${String(index + 1).padStart(2, "0")}-${slug}.md`),
-      `<!-- blog-meta\n${JSON.stringify(meta)}\n-->\n# ${slug}\n\n<!-- blog-body -->\n\n${body}\n`,
+      `<!-- blog-meta\n${JSON.stringify(meta)}\n-->\n# 검증제목${index + 1}\n\n<!-- blog-body -->\n\n${body}\n`,
     );
   }
   writeJson(path.join(assetsRoot, "manifest.json"), manifest);
@@ -206,25 +480,65 @@ function expectFailure(mutate, expected) {
   }
 }
 
-test("accepts a complete 25-post fixture with Unicode paths and publication plans", () => {
+test("accepts exactly 31 posts, 31 covers, and 79 assets", () => {
   const fixture = createFixture();
   try {
-    const shared = inlineEntry(fixture);
-    shared.used_by.push(fixture.slugs[1]);
-    const secondDoc = path.join(fixture.contentRoot, `02-${fixture.slugs[1]}.md`);
-    fs.writeFileSync(
-      secondDoc,
-      fs.readFileSync(secondDoc, "utf8").replace(
-        "본문입니다.",
-        `![상담 준비 순서를 항목별로 차례대로 보여주는 설명 도식](${shared.path})`,
-      ),
-    );
-    writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
     const result = run(fixture);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /원고 31편, 대표 이미지 31개, 전체 자산 79개/);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
+});
+
+test("fails when a new post does not have exactly one original diagram and one product capture", () => {
+  for (const sourceType of ["generated-object", "original-diagram"]) {
+    expectFailure((fixture) => {
+      const slug = NEW_RELEASE_SLUGS[0];
+      const entry = fixture.manifest.find((record) => (
+        record.used_by.includes(slug)
+        && (sourceType === "generated-object" ? record.role === "diagram" : record.role === "product-screen")
+      ));
+      entry.source_type = sourceType;
+      writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
+    }, /신규 글에는 original-diagram 도식과 product-capture 제품 화면이 각각 정확히 1개 필요합니다/);
+  }
+});
+
+test("fails when any new inline asset copies bytes from another asset", () => {
+  expectFailure((fixture) => {
+    const source = fixture.manifest.find((record) => (
+      record.role === "diagram" && record.used_by.includes(NEW_RELEASE_SLUGS[0])
+    ));
+    const target = fixture.manifest.find((record) => (
+      record.role === "product-screen" && record.used_by.includes(NEW_RELEASE_SLUGS[1])
+    ));
+    const sourceFile = path.join(fixture.frontendRoot, "public", ...source.path.slice(1).split("/"));
+    const targetFile = path.join(fixture.frontendRoot, "public", ...target.path.slice(1).split("/"));
+    const copied = fs.readFileSync(sourceFile);
+    const digest = crypto.createHash("sha256").update(copied).digest("hex").slice(0, 8);
+    const copiedName = `product-screen-${digest}.webp`;
+    const copiedPath = `/blog-assets/${NEW_RELEASE_SLUGS[1]}/${copiedName}`;
+    fs.unlinkSync(targetFile);
+    fs.writeFileSync(path.join(path.dirname(targetFile), copiedName), copied);
+    const oldPath = target.path;
+    target.path = copiedPath;
+    const doc = path.join(fixture.contentRoot, `27-${NEW_RELEASE_SLUGS[1]}.md`);
+    fs.writeFileSync(doc, fs.readFileSync(doc, "utf8").replace(oldPath, copiedPath));
+    writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
+  }, /신규 자산이 다른 자산과 바이트 단위로 중복됩니다/);
+});
+
+test("fails unless the manifest contains exactly 79 assets", () => {
+  expectFailure((fixture) => {
+    const removed = fixture.manifest.pop();
+    const file = path.join(fixture.frontendRoot, "public", ...removed.path.slice(1).split("/"));
+    fs.unlinkSync(file);
+    const doc = path.join(fixture.contentRoot, `31-${NEW_RELEASE_SLUGS.at(-1)}.md`);
+    const source = fs.readFileSync(doc, "utf8");
+    fs.writeFileSync(doc, source.replace(new RegExp(`\\n\\n!\\[[^\\]]+\\]\\(${removed.path.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\)`), ""));
+    writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
+  }, /전체 자산 manifest 항목은 정확히 79개여야 합니다/);
 });
 
 test("fails when publication_plan_at is missing or has no KST offset", () => {
@@ -261,7 +575,7 @@ test("fails when an existing post asset changes from the approved v1 release", (
     errors,
   });
 
-  assert.deepEqual(errors, [`${protectedCover}: 기존 20편 자산은 승인된 v1 해시를 보존해야 합니다`]);
+  assert.deepEqual(errors, [`${protectedCover}: 기존 25편 자산은 승인된 해시를 보존해야 합니다`]);
 });
 
 test("fails when a new post uses a drawn mockup instead of a product capture", () => {

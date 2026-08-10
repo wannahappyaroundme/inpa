@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from inpa.accounts.models import Profile, User
+from inpa.boards import blog_release
 from inpa.boards.blog_release import (
     BLOG_TEMPLATE_DISCLAIMER,
     PUBLIC_CONTENT_FIELDS,
@@ -63,6 +64,34 @@ EXPECTED_PUBLICATION_PLAN = {
     '보험설계사-월말-복기-영업-숫자': '2026-08-14T09:30:00+09:00',
     '보험설계사-고객-연간-일정-관리법': '2026-08-18T15:10:00+09:00',
     '보험설계사-팀장-일대일-질문': '2026-08-20T10:40:00+09:00',
+    '보험설계사-고객관리-프로그램-선택-기준': '2026-08-25T10:20:00+09:00',
+    '보험설계사-보장분석-프로그램-확인-항목': '2026-09-08T09:30:00+09:00',
+    '보험설계사-고객-자료-파일-정리': '2026-09-22T10:40:00+09:00',
+    '보험설계사-휴면-고객-다시-연락': '2026-10-06T09:50:00+09:00',
+    '보험설계사-상담-예약-링크': '2026-10-20T10:10:00+09:00',
+    '보장분석-결과-고객-공유': '2026-11-03T09:40:00+09:00',
+}
+BASE_RELEASE_VERSION = '2026-08-blog-expansion-v2'
+BASE_RELEASE_CREATED_SLUGS = {
+    '보험설계사-주간-계획표-고객-단계별-다음-행동',
+    '보험설계사-소개-카드-고객-확인사항',
+    '보험설계사-월말-복기-영업-숫자',
+    '보험설계사-고객-연간-일정-관리법',
+    '보험설계사-팀장-일대일-질문',
+}
+NEW_PUBLICATION_PLAN = {
+    slug: published_at
+    for slug, published_at in EXPECTED_PUBLICATION_PLAN.items()
+    if slug not in BASE_RELEASE_CREATED_SLUGS
+    and published_at >= '2026-08-25T00:00:00+09:00'
+}
+UPDATED_EXISTING_SLUGS = {
+    '신입-보험설계사-지인-영업-다음-할-일',
+    '보험-증권-보는-법-3분-체크리스트',
+    '보험-증권-요청-문자-안내',
+    '보험-상담-준비-체크리스트',
+    '보험-상담-후-기록-다음-연락',
+    '보험설계사-고객관리표-필수-항목',
 }
 PRIMARY_EXISTING_SLUG = sorted(RELEASE_EXISTING_SLUGS)[0]
 SECONDARY_EXISTING_SLUG = sorted(RELEASE_EXISTING_SLUGS)[1]
@@ -156,7 +185,47 @@ class ReleasePackageMixin:
     def existing_release_items(self, items):
         return [item for item in items if item.slug not in RELEASE_CREATED_SLUGS]
 
-    def seed_existing_targets(self, items, *, author=None, count=20):
+    def serialize_public_fields(self, post):
+        values = {}
+        for field in PUBLIC_CONTENT_FIELDS:
+            value = getattr(post, field)
+            if field == 'cover_image':
+                value = value.name
+            elif field in {'published_at', 'legal_reviewed_at'}:
+                value = value.isoformat() if value is not None else None
+            values[field] = value
+        return values
+
+    def create_base_release_marker(self, posts):
+        digest = 'b' * 64
+        unsigned = {
+            'kind': 'after',
+            'version': BASE_RELEASE_VERSION,
+            'release_digest': digest,
+            'item_count': 25,
+            'created_slugs': sorted(BASE_RELEASE_CREATED_SLUGS),
+            'posts': [{
+                'slug': post.slug,
+                'guard_updated_at': post.updated_at.isoformat(),
+                'fields': self.serialize_public_fields(post),
+            } for post in sorted(posts, key=lambda row: row.slug)],
+        }
+        snapshot = {
+            **unsigned,
+            'snapshot_digest': hashlib.sha256(json.dumps(
+                unsigned, ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+            ).encode('utf-8')).hexdigest(),
+        }
+        return BlogContentRelease.objects.create(
+            version=BASE_RELEASE_VERSION,
+            digest=digest,
+            item_count=25,
+            after_snapshot=snapshot,
+        )
+
+    def seed_existing_targets(
+        self, items, *, author=None, count=25, create_base_marker=True,
+    ):
         published_at = timezone.now().replace(microsecond=0)
         posts = []
         for index, item in enumerate(self.existing_release_items(items)[:count]):
@@ -183,6 +252,8 @@ class ReleasePackageMixin:
                 is_noindex=True,
                 view_count=100 + index,
             ))
+        if create_base_marker and count == 25:
+            self.create_base_release_marker(posts)
         return posts
 
 
@@ -197,7 +268,7 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
         items, digest, errors = self.load_and_validate()
 
         self.assertEqual(errors, [])
-        self.assertEqual(len(items), 25)
+        self.assertEqual(len(items), 31)
         self.assertEqual([item.slug for item in items], sorted(item.slug for item in items))
         parsed = next(item for item in items if item.slug == PRIMARY_EXISTING_SLUG)
         expected_index = list(EXPECTED_PUBLICATION_PLAN).index(PRIMARY_EXISTING_SLUG) + 1
@@ -213,6 +284,20 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
             EXPECTED_PUBLICATION_PLAN[PRIMARY_EXISTING_SLUG],
         )
         self.assertRegex(digest, r'^[0-9a-f]{64}$')
+
+    def test_release_contract_names_exact_v3_sets(self):
+        self.assertEqual(blog_release.RELEASE_VERSION, '2026-08-internal-organic-v3')
+        self.assertEqual(
+            getattr(blog_release, 'BASE_RELEASE_VERSION', None),
+            BASE_RELEASE_VERSION,
+        )
+        self.assertEqual(set(blog_release.RELEASE_CREATED_SLUGS), set(NEW_PUBLICATION_PLAN))
+        self.assertEqual(
+            set(getattr(blog_release, 'RELEASE_UPDATED_SLUGS', ())),
+            UPDATED_EXISTING_SLUGS,
+        )
+        self.assertEqual(len(blog_release.RELEASE_EXISTING_SLUGS), 25)
+        self.assertTrue(callable(getattr(blog_release, '_merge_approved_fields', None)))
 
     def test_digest_normalizes_line_endings(self):
         _, lf_digest = load_release(self.content_dir, self.manifest_path)
@@ -341,22 +426,22 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
         with self.assertRaisesRegex(ReleaseError, 'publication_plan_at'):
             load_release(self.content_dir, self.manifest_path)
 
-    def test_validator_requires_exactly_twenty_five_items(self):
+    def test_validator_requires_exactly_thirty_one_items(self):
         self.metadata.pop()
         self.bodies.pop()
         self.flush_package()
 
         _, _, errors = self.load_and_validate()
 
-        self.assertTrue(any('25개' in error for error in errors))
+        self.assertTrue(any('31개' in error for error in errors))
 
-    def test_validator_rejects_slug_outside_approved_twenty_five_post_catalog(self):
+    def test_validator_rejects_slug_outside_approved_thirty_one_post_catalog(self):
         self.metadata[0]['slug'] = '승인-목록-밖-글'
         self.flush_package()
 
         _, _, errors = self.load_and_validate()
 
-        self.assertTrue(any('승인된 25개 slug' in error for error in errors))
+        self.assertTrue(any('승인된 31개 slug' in error for error in errors))
 
     def test_validator_rejects_changed_publication_plan(self):
         self.metadata[0]['publication_plan_at'] = '2026-07-02T09:20:00+09:00'
@@ -366,21 +451,38 @@ class BlogReleaseParserTests(ReleasePackageMixin, TestCase):
 
         self.assertTrue(any('발행 일정' in error for error in errors))
 
-    def test_validator_rejects_weekend_and_official_holiday_dates(self):
+    def test_validator_rejects_new_post_weekend_and_official_holiday_dates(self):
+        new_index = next(
+            index for index, metadata in enumerate(self.metadata)
+            if metadata['slug'] in NEW_PUBLICATION_PLAN
+        )
         for index, invalid_at in enumerate((
-            '2026-07-04T09:20:00+09:00',
-            '2026-07-17T09:20:00+09:00',
+            '2026-08-29T09:20:00+09:00',
+            '2026-09-24T09:20:00+09:00',
+            '2026-10-05T09:20:00+09:00',
         )):
             with self.subTest(publication_plan_at=invalid_at):
                 if index:
                     self.package_tmp.cleanup()
                     self.make_package()
-                self.metadata[0]['publication_plan_at'] = invalid_at
+                self.metadata[new_index]['publication_plan_at'] = invalid_at
                 self.flush_package()
 
                 _, _, errors = self.load_and_validate()
 
                 self.assertTrue(any('주말과 휴일' in error for error in errors))
+
+    def test_validator_requires_every_new_post_on_tuesday(self):
+        new_index = next(
+            index for index, metadata in enumerate(self.metadata)
+            if metadata['slug'] in NEW_PUBLICATION_PLAN
+        )
+        self.metadata[new_index]['publication_plan_at'] = '2026-08-26T10:20:00+09:00'
+        self.flush_package()
+
+        _, _, errors = self.load_and_validate()
+
+        self.assertTrue(any('화요일' in error for error in errors))
 
     def test_validator_rejects_duplicate_publication_timestamp(self):
         self.metadata[1]['publication_plan_at'] = self.metadata[0]['publication_plan_at']
@@ -635,38 +737,38 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
         self.package_tmp.cleanup()
         self.backup_tmp.cleanup()
 
-    def create_existing_targets(self, count=20):
+    def create_existing_targets(self, count=25, create_base_marker=True):
         return self.seed_existing_targets(
-            self.items, author=self.other_author, count=count,
+            self.items,
+            author=self.other_author,
+            count=count,
+            create_base_marker=create_base_marker,
         )
 
-    def test_apply_only_reschedules_existing_posts_and_writes_marker(self):
+    def test_apply_updates_six_approved_rows_creates_six_and_writes_marker(self):
         existing = self.create_existing_targets()
-        ordinary = next(post for post in existing if post.slug not in SAFETY_SLUGS)
-        expected_public_fields = {
-            field: ordinary.cover_image.name
-            if field == 'cover_image' else getattr(ordinary, field)
-            for field in PUBLIC_CONTENT_FIELDS
-            if field != 'published_at'
-        }
-        original_author = ordinary.author
-        original_view_count = ordinary.view_count
+        updated = next(post for post in existing if post.slug in UPDATED_EXISTING_SLUGS)
+        untouched = next(
+            post for post in existing
+            if post.slug not in UPDATED_EXISTING_SLUGS and post.slug not in SAFETY_SLUGS
+        )
+        untouched_fields = self.serialize_public_fields(untouched)
+        original_published_at = updated.published_at
+        desired = next(item for item in self.items if item.slug == updated.slug)
 
         result = apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
 
-        self.assertEqual(result, {'created': 5, 'updated': 17})
-        refreshed = BlogPost.objects.get(slug=ordinary.slug)
-        for field, expected in expected_public_fields.items():
-            actual = refreshed.cover_image.name if field == 'cover_image' else getattr(
-                refreshed, field,
-            )
-            self.assertEqual(actual, expected, field)
-        self.assertEqual(
-            refreshed.published_at,
-            datetime.fromisoformat(EXPECTED_PUBLICATION_PLAN[ordinary.slug]),
-        )
-        self.assertEqual(refreshed.author, original_author)
-        self.assertEqual(refreshed.view_count, original_view_count)
+        self.assertEqual(result, {'created': 6, 'updated': 6, 'preserved_edits': {}})
+        updated.refresh_from_db()
+        self.assertEqual(updated.title, desired.title)
+        self.assertEqual(updated.body, desired.body)
+        self.assertEqual(updated.excerpt, desired.excerpt)
+        self.assertEqual(updated.tags, ','.join(desired.tags))
+        self.assertEqual(updated.seo_title, desired.seo_title)
+        self.assertEqual(updated.seo_description, desired.seo_description)
+        self.assertEqual(updated.published_at, original_published_at)
+        untouched.refresh_from_db()
+        self.assertEqual(self.serialize_public_fields(untouched), untouched_fields)
         created_slug = sorted(RELEASE_CREATED_SLUGS)[0]
         created = BlogPost.objects.get(slug=created_slug)
         self.assertEqual(created.author, self.admin)
@@ -676,9 +778,66 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
         )
         marker = BlogContentRelease.objects.get(version=RELEASE_VERSION)
         self.assertEqual(marker.digest, self.digest)
-        self.assertEqual(marker.item_count, 25)
+        self.assertEqual(marker.item_count, 31)
+        self.assertEqual(len(marker.before_snapshot['posts']), 25)
+        self.assertEqual(len(marker.after_snapshot['posts']), 31)
+        self.assertEqual(set(marker.after_snapshot['created_slugs']), set(NEW_PUBLICATION_PLAN))
         self.assertTrue(self.backup_path.exists())
         self.assertTrue((self.backup_path.parent / f'{RELEASE_VERSION}-after.json').exists())
+
+    def test_apply_preserves_only_admin_edited_fields_and_all_nonapproved_state(self):
+        existing = self.create_existing_targets(create_base_marker=False)
+        body_post = next(post for post in existing if post.slug in UPDATED_EXISTING_SLUGS)
+        title_post = next(
+            post for post in existing
+            if post.slug in UPDATED_EXISTING_SLUGS and post.slug != body_post.slug
+        )
+        body_post.cover_image = 'blog/admin-kept.webp'
+        body_post.cover_asset_path = '/admin/kept-cover.webp'
+        body_post.is_published = False
+        body_post.review_gate = BlogPost.REVIEW_GATE_LEGAL
+        body_post.legal_review_required = True
+        body_post.is_noindex = True
+        body_post.save()
+        marker = self.create_base_release_marker(existing)
+        body_post.body = '운영자가 직접 고친 본문'
+        body_post.save(update_fields=['body', 'updated_at'])
+        title_post.title = '운영자가 직접 고친 제목'
+        title_post.save(update_fields=['title', 'updated_at'])
+        self.assertGreater(body_post.updated_at, marker.applied_at)
+        protected = {
+            'author_id': body_post.author_id,
+            'view_count': body_post.view_count,
+            'published_at': body_post.published_at,
+            'cover_image': body_post.cover_image.name,
+            'cover_asset_path': body_post.cover_asset_path,
+            'is_published': body_post.is_published,
+            'review_gate': body_post.review_gate,
+            'legal_review_required': body_post.legal_review_required,
+            'is_noindex': body_post.is_noindex,
+        }
+        desired = next(item for item in self.items if item.slug == body_post.slug)
+
+        result = apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+
+        self.assertEqual(result['created'], 6)
+        self.assertEqual(result['updated'], 6)
+        self.assertEqual(result['preserved_edits'][body_post.slug], ['body'])
+        self.assertEqual(result['preserved_edits'][title_post.slug], ['title'])
+        body_post.refresh_from_db()
+        self.assertEqual(body_post.body, '운영자가 직접 고친 본문')
+        self.assertEqual(body_post.title, desired.title)
+        self.assertEqual(body_post.excerpt, desired.excerpt)
+        self.assertEqual(body_post.tags, ','.join(desired.tags))
+        self.assertEqual(body_post.seo_title, desired.seo_title)
+        self.assertEqual(body_post.seo_description, desired.seo_description)
+        for field, expected in protected.items():
+            actual = body_post.cover_image.name if field == 'cover_image' else getattr(
+                body_post, field,
+            )
+            self.assertEqual(actual, expected, field)
+        title_post.refresh_from_db()
+        self.assertEqual(title_post.title, '운영자가 직접 고친 제목')
 
     def test_same_release_version_is_noop_and_preserves_later_admin_edit(self):
         self.create_existing_targets()
@@ -689,7 +848,7 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
 
         result = apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
 
-        self.assertEqual(result, {'created': 0, 'updated': 0})
+        self.assertEqual(result, {'created': 0, 'updated': 0, 'preserved_edits': {}})
         post.refresh_from_db()
         self.assertEqual(post.title, '관리자가 나중에 고친 제목')
 
@@ -710,7 +869,7 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
             backup_path=alternate_backup,
         )
 
-        self.assertEqual(result, {'created': 0, 'updated': 0})
+        self.assertEqual(result, {'created': 0, 'updated': 0, 'preserved_edits': {}})
         post.refresh_from_db()
         self.assertEqual(post.title, '관리자 후속 편집 유지')
         self.assertEqual(canonical_after.read_bytes(), canonical_bytes)
@@ -729,8 +888,8 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
         with self.assertRaisesRegex(ReleaseError, 'backup'):
             apply_release(items=self.items, digest=self.digest, backup_path=None)
 
-        self.assertFalse(BlogContentRelease.objects.exists())
-        self.assertEqual(BlogPost.objects.count(), 20)
+        self.assertFalse(BlogContentRelease.objects.filter(version=RELEASE_VERSION).exists())
+        self.assertEqual(BlogPost.objects.count(), 25)
 
     def test_apply_rejects_reserved_after_snapshot_as_backup_path(self):
         self.create_existing_targets()
@@ -740,18 +899,76 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
             apply_release(items=self.items, digest=self.digest, backup_path=collision_path)
 
         self.assertFalse(collision_path.exists())
-        self.assertFalse(BlogContentRelease.objects.exists())
-        self.assertEqual(BlogPost.objects.count(), 20)
+        self.assertFalse(BlogContentRelease.objects.filter(version=RELEASE_VERSION).exists())
+        self.assertEqual(BlogPost.objects.count(), 25)
 
-    def test_apply_requires_exact_twenty_existing_and_five_new_slugs(self):
-        self.create_existing_targets(count=19)
+    def test_apply_requires_exact_twenty_five_existing_and_six_new_slugs(self):
+        self.create_existing_targets(count=24)
 
-        with self.assertRaisesRegex(ReleaseError, '20개'):
+        with self.assertRaisesRegex(ReleaseError, '25개'):
             apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
 
         self.assertFalse(self.backup_path.exists())
-        self.assertFalse(BlogContentRelease.objects.exists())
-        self.assertEqual(BlogPost.objects.count(), 19)
+        self.assertFalse(BlogContentRelease.objects.filter(version=RELEASE_VERSION).exists())
+        self.assertEqual(BlogPost.objects.count(), 24)
+
+    def test_apply_requires_active_v2_base_release(self):
+        self.create_existing_targets(create_base_marker=False)
+
+        with self.assertRaisesRegex(ReleaseError, '기준 release'):
+            apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+
+        self.assertFalse(BlogContentRelease.objects.filter(version=RELEASE_VERSION).exists())
+
+    def test_apply_rejects_invalid_v2_marker_digest(self):
+        self.create_existing_targets()
+        marker = BlogContentRelease.objects.get(version=BASE_RELEASE_VERSION)
+        marker.digest = 'invalid'
+        marker.save(update_fields=['digest'])
+
+        with self.assertRaisesRegex(ReleaseError, '기준 release digest'):
+            apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+
+        self.assertFalse(BlogContentRelease.objects.filter(version=RELEASE_VERSION).exists())
+
+    def test_apply_rejects_reverted_v2_base_release(self):
+        self.create_existing_targets()
+        marker = BlogContentRelease.objects.get(version=BASE_RELEASE_VERSION)
+        marker.reverted_at = timezone.now()
+        marker.save(update_fields=['reverted_at'])
+
+        with self.assertRaisesRegex(ReleaseError, '활성 기준 release'):
+            apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+
+        self.assertFalse(BlogContentRelease.objects.filter(version=RELEASE_VERSION).exists())
+
+    def test_apply_rejects_tampered_v2_after_snapshot(self):
+        self.create_existing_targets()
+        marker = BlogContentRelease.objects.get(version=BASE_RELEASE_VERSION)
+        marker.after_snapshot['posts'][0]['fields']['title'] = '변조된 기준 제목'
+        marker.save(update_fields=['after_snapshot'])
+
+        with self.assertRaisesRegex(ReleaseError, '기준 after snapshot digest'):
+            apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+
+        self.assertFalse(BlogContentRelease.objects.filter(version=RELEASE_VERSION).exists())
+
+    def test_apply_rejects_v2_snapshot_without_exact_twenty_five_rows(self):
+        self.create_existing_targets()
+        marker = BlogContentRelease.objects.get(version=BASE_RELEASE_VERSION)
+        snapshot = marker.after_snapshot
+        snapshot['posts'].pop()
+        unsigned = {key: value for key, value in snapshot.items() if key != 'snapshot_digest'}
+        snapshot['snapshot_digest'] = hashlib.sha256(json.dumps(
+            unsigned, ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+        ).encode('utf-8')).hexdigest()
+        marker.after_snapshot = snapshot
+        marker.save(update_fields=['after_snapshot'])
+
+        with self.assertRaisesRegex(ReleaseError, '기준 after snapshot.*25개'):
+            apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
+
+        self.assertFalse(BlogContentRelease.objects.filter(version=RELEASE_VERSION).exists())
 
     def test_apply_rejects_preexisting_release_created_slug(self):
         self.create_existing_targets()
@@ -763,7 +980,7 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
             apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
 
         self.assertFalse(self.backup_path.exists())
-        self.assertFalse(BlogContentRelease.objects.exists())
+        self.assertFalse(BlogContentRelease.objects.filter(version=RELEASE_VERSION).exists())
 
     def test_after_snapshot_finalize_failure_is_recovered_by_idempotent_retry(self):
         self.create_existing_targets()
@@ -787,7 +1004,7 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
 
         result = apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
 
-        self.assertEqual(result, {'created': 0, 'updated': 0})
+        self.assertEqual(result, {'created': 0, 'updated': 0, 'preserved_edits': {}})
         self.assertTrue(after_path.exists())
         post.refresh_from_db()
         self.assertEqual(post.title, '관리자 후속 편집')
@@ -887,8 +1104,8 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
             with self.assertRaisesRegex(RuntimeError, 'marker write failed'):
                 apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
 
-        self.assertEqual(BlogPost.objects.count(), 20)
-        self.assertFalse(BlogContentRelease.objects.exists())
+        self.assertEqual(BlogPost.objects.count(), 25)
+        self.assertFalse(BlogContentRelease.objects.filter(version=RELEASE_VERSION).exists())
         self.assertEqual(
             BlogPost.objects.get(slug=self.items[0].slug).title,
             original_title,
@@ -937,7 +1154,7 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
 
         self.assertIsNone(BlogContentRelease.objects.get(version=RELEASE_VERSION).reverted_at)
 
-    def test_restore_rejects_wrong_twenty_five_snapshot_composition(self):
+    def test_restore_rejects_wrong_thirty_one_snapshot_composition(self):
         self.create_existing_targets()
         apply_release(items=self.items, digest=self.digest, backup_path=self.backup_path)
         snapshot = json.loads(self.backup_path.read_text(encoding='utf-8'))
@@ -949,7 +1166,7 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
         snapshot['snapshot_digest'] = hashlib.sha256(canonical).hexdigest()
         self.backup_path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding='utf-8')
 
-        with self.assertRaisesRegex(ReleaseError, '20/5'):
+        with self.assertRaisesRegex(ReleaseError, '25/6'):
             restore_release(snapshot_path=self.backup_path, confirm_version=RELEASE_VERSION)
 
         self.assertIsNone(BlogContentRelease.objects.get(version=RELEASE_VERSION).reverted_at)
@@ -992,8 +1209,8 @@ class BlogReleaseDatabaseTests(ReleasePackageMixin, TestCase):
             confirm_version=RELEASE_VERSION,
         )
 
-        self.assertEqual(result['restored'], 20)
-        self.assertEqual(result['unpublished'], 5)
+        self.assertEqual(result['restored'], 25)
+        self.assertEqual(result['unpublished'], 6)
         restored = BlogPost.objects.get(slug=self.items[0].slug)
         for field, expected in expected_fields.items():
             actual = restored.cover_image.name if field == 'cover_image' else getattr(restored, field)
@@ -1083,8 +1300,11 @@ class RefreshBlogContentCommandTests(ReleasePackageMixin, TestCase):
         )
 
         output = stdout.getvalue()
-        self.assertIn('dry-run', output)
-        self.assertIn('items=25', output)
+        self.assertIn(
+            'dry-run version=2026-08-internal-organic-v3 targets=31 '
+            'existing=25 new=6 update_targets=6',
+            output,
+        )
         self.assertIn(PRIMARY_EXISTING_SLUG, output)
         self.assertNotIn('본문 1입니다', output)
         self.assertNotIn('@example.com', output)
@@ -1119,8 +1339,8 @@ class RefreshBlogContentCommandTests(ReleasePackageMixin, TestCase):
         )
 
         output = stdout.getvalue()
-        self.assertIn('created=5', output)
-        self.assertIn('updated=17', output)
+        self.assertIn('created=6', output)
+        self.assertIn('updated=6', output)
         self.assertIn(PRIMARY_EXISTING_SLUG, output)
         self.assertNotIn('본문 1입니다', output)
         self.assertNotIn('@example.com', output)
@@ -1148,8 +1368,8 @@ class RefreshBlogContentCommandTests(ReleasePackageMixin, TestCase):
         )
 
         output = stdout.getvalue()
-        self.assertIn('restored=20', output)
-        self.assertIn('unpublished=5', output)
+        self.assertIn('restored=25', output)
+        self.assertIn('unpublished=6', output)
         self.assertIn(PRIMARY_EXISTING_SLUG, output)
         self.assertNotIn('기존 본문', output)
         self.assertNotIn('@example.com', output)
@@ -1176,8 +1396,8 @@ class RefreshBlogContentCommandTests(ReleasePackageMixin, TestCase):
             stdout=stdout,
         )
 
-        self.assertIn('restored=20', stdout.getvalue())
-        self.assertIn('unpublished=5', stdout.getvalue())
+        self.assertIn('restored=25', stdout.getvalue())
+        self.assertIn('unpublished=6', stdout.getvalue())
 
     def test_apply_and_restore_options_are_mutually_exclusive(self):
         with self.assertRaisesRegex(CommandError, '동시에'):
