@@ -177,9 +177,20 @@ async function makeValidRaster(width, height, seed) {
 }
 
 const VALID_FIXTURE_COVERS = await Promise.all(
-  Array.from({ length: 25 }, (_, index) => makeValidRaster(1600, 900, index + 101)),
+  Array.from({ length: 31 }, (_, index) => makeValidRaster(1600, 900, index + 101)),
 );
-const VALID_FIXTURE_INLINE = await makeValidRaster(1200, 800, 999);
+const VALID_FIXTURE_INLINE = await Promise.all(
+  Array.from({ length: 48 }, (_, index) => makeValidRaster(1600, 900, index + 1001)),
+);
+
+const NEW_RELEASE_SLUGS = [
+  "보험설계사-고객관리-프로그램-선택-기준",
+  "보험설계사-보장분석-프로그램-확인-항목",
+  "보험설계사-고객-자료-파일-정리",
+  "보험설계사-휴면-고객-다시-연락",
+  "보험설계사-상담-예약-링크",
+  "보장분석-결과-고객-공유",
+];
 
 function makeWebp(width, height, seed = 0, padding = 0) {
   const payload = Buffer.alloc(10);
@@ -254,7 +265,11 @@ function createFixture() {
   fs.mkdirSync(contentRoot, { recursive: true });
 
   const manifest = [];
-  const slugs = Array.from({ length: 25 }, (_, index) => `검증-글-${String(index + 1).padStart(2, "0")}`);
+  const slugs = [
+    ...Array.from({ length: 25 }, (_, index) => `검증-글-${String(index + 1).padStart(2, "0")}`),
+    ...NEW_RELEASE_SLUGS,
+  ];
+  let inlineIndex = 0;
   for (const [index, slug] of slugs.entries()) {
     const dir = path.join(assetsRoot, slug);
     fs.mkdirSync(dir, { recursive: true });
@@ -276,29 +291,33 @@ function createFixture() {
       caption: `${slug} 글의 장식용 대표 이미지`,
     });
 
-    let body = "본문입니다.";
-    if (index === 0) {
-      const inline = VALID_FIXTURE_INLINE;
+    const inlineCount = index >= 25 ? 2 : index < 11 ? 2 : 1;
+    const bodyImages = [];
+    for (let imageIndex = 0; imageIndex < inlineCount; imageIndex += 1) {
+      const inline = VALID_FIXTURE_INLINE[inlineIndex++];
       const digest = crypto.createHash("sha256").update(inline).digest("hex").slice(0, 8);
-      const filename = `diagram-${digest}.webp`;
+      const isNewPost = index >= 25;
+      const isProductCapture = isNewPost && imageIndex === 1;
+      const filename = `${isProductCapture ? "product-screen" : "diagram"}-${digest}.webp`;
       fs.writeFileSync(path.join(dir, filename), inline);
       const inlinePath = `/blog-assets/${slug}/${filename}`;
       manifest.push({
         path: inlinePath,
-        role: "diagram",
-        source_type: "original-diagram",
+        role: isProductCapture ? "product-screen" : "diagram",
+        source_type: isProductCapture ? "product-capture" : "original-diagram",
         license: "project-owned",
-        created_at: "2026-08-03",
+        created_at: isNewPost ? "2026-08-10" : "2026-08-03",
         used_by: [slug],
         pii_reviewed: true,
         rights_reviewed: true,
-        width: 1200,
-        height: 800,
-        alt: "상담 준비 순서를 항목별로 차례대로 보여주는 설명 도식",
-        caption: "상담 준비 순서",
+        width: 1600,
+        height: 900,
+        alt: `검증화면${index + 1}항목${imageIndex + 1}가나다라마바사아자차카타파하정보그림`,
+        caption: isProductCapture ? "촬영용 합성 데이터 제품 화면" : "상담 준비 순서",
       });
-      body = `![상담 준비 순서를 항목별로 차례대로 보여주는 설명 도식](${inlinePath})`;
+      bodyImages.push(`![${manifest.at(-1).alt}](${inlinePath})`);
     }
+    const body = bodyImages.length ? bodyImages.join("\n\n") : "본문입니다.";
     const meta = {
       slug,
       category: "sales",
@@ -310,12 +329,12 @@ function createFixture() {
       is_published: true,
       review_gate: "none",
       legal_review: null,
-      publication_plan_at: `2026-08-${String(index + 1).padStart(2, "0")}T10:20:00+09:00`,
+      publication_plan_at: "2026-08-10T10:20:00+09:00",
       sources: [],
     };
     fs.writeFileSync(
       path.join(contentRoot, `${String(index + 1).padStart(2, "0")}-${slug}.md`),
-      `<!-- blog-meta\n${JSON.stringify(meta)}\n-->\n# ${slug}\n\n<!-- blog-body -->\n\n${body}\n`,
+      `<!-- blog-meta\n${JSON.stringify(meta)}\n-->\n# 검증제목${index + 1}\n\n<!-- blog-body -->\n\n${body}\n`,
     );
   }
   writeJson(path.join(assetsRoot, "manifest.json"), manifest);
@@ -342,25 +361,65 @@ function expectFailure(mutate, expected) {
   }
 }
 
-test("accepts a complete 25-post fixture with Unicode paths and publication plans", () => {
+test("accepts exactly 31 posts, 31 covers, and 79 assets", () => {
   const fixture = createFixture();
   try {
-    const shared = inlineEntry(fixture);
-    shared.used_by.push(fixture.slugs[1]);
-    const secondDoc = path.join(fixture.contentRoot, `02-${fixture.slugs[1]}.md`);
-    fs.writeFileSync(
-      secondDoc,
-      fs.readFileSync(secondDoc, "utf8").replace(
-        "본문입니다.",
-        `![상담 준비 순서를 항목별로 차례대로 보여주는 설명 도식](${shared.path})`,
-      ),
-    );
-    writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
     const result = run(fixture);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /원고 31편, 대표 이미지 31개, 전체 자산 79개/);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
+});
+
+test("fails when a new post does not have exactly one original diagram and one product capture", () => {
+  for (const sourceType of ["generated-object", "original-diagram"]) {
+    expectFailure((fixture) => {
+      const slug = NEW_RELEASE_SLUGS[0];
+      const entry = fixture.manifest.find((record) => (
+        record.used_by.includes(slug)
+        && (sourceType === "generated-object" ? record.role === "diagram" : record.role === "product-screen")
+      ));
+      entry.source_type = sourceType;
+      writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
+    }, /신규 글에는 original-diagram 도식과 product-capture 제품 화면이 각각 정확히 1개 필요합니다/);
+  }
+});
+
+test("fails when any new inline asset copies bytes from another asset", () => {
+  expectFailure((fixture) => {
+    const source = fixture.manifest.find((record) => (
+      record.role === "diagram" && record.used_by.includes(NEW_RELEASE_SLUGS[0])
+    ));
+    const target = fixture.manifest.find((record) => (
+      record.role === "product-screen" && record.used_by.includes(NEW_RELEASE_SLUGS[1])
+    ));
+    const sourceFile = path.join(fixture.frontendRoot, "public", ...source.path.slice(1).split("/"));
+    const targetFile = path.join(fixture.frontendRoot, "public", ...target.path.slice(1).split("/"));
+    const copied = fs.readFileSync(sourceFile);
+    const digest = crypto.createHash("sha256").update(copied).digest("hex").slice(0, 8);
+    const copiedName = `product-screen-${digest}.webp`;
+    const copiedPath = `/blog-assets/${NEW_RELEASE_SLUGS[1]}/${copiedName}`;
+    fs.unlinkSync(targetFile);
+    fs.writeFileSync(path.join(path.dirname(targetFile), copiedName), copied);
+    const oldPath = target.path;
+    target.path = copiedPath;
+    const doc = path.join(fixture.contentRoot, `27-${NEW_RELEASE_SLUGS[1]}.md`);
+    fs.writeFileSync(doc, fs.readFileSync(doc, "utf8").replace(oldPath, copiedPath));
+    writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
+  }, /신규 자산이 다른 자산과 바이트 단위로 중복됩니다/);
+});
+
+test("fails unless the manifest contains exactly 79 assets", () => {
+  expectFailure((fixture) => {
+    const removed = fixture.manifest.pop();
+    const file = path.join(fixture.frontendRoot, "public", ...removed.path.slice(1).split("/"));
+    fs.unlinkSync(file);
+    const doc = path.join(fixture.contentRoot, `31-${NEW_RELEASE_SLUGS.at(-1)}.md`);
+    const source = fs.readFileSync(doc, "utf8");
+    fs.writeFileSync(doc, source.replace(new RegExp(`\\n\\n!\\[[^\\]]+\\]\\(${removed.path.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\)`), ""));
+    writeJson(path.join(fixture.assetsRoot, "manifest.json"), fixture.manifest);
+  }, /전체 자산 manifest 항목은 정확히 79개여야 합니다/);
 });
 
 test("fails when publication_plan_at is missing or has no KST offset", () => {
@@ -397,7 +456,7 @@ test("fails when an existing post asset changes from the approved v1 release", (
     errors,
   });
 
-  assert.deepEqual(errors, [`${protectedCover}: 기존 20편 자산은 승인된 v1 해시를 보존해야 합니다`]);
+  assert.deepEqual(errors, [`${protectedCover}: 기존 25편 자산은 승인된 해시를 보존해야 합니다`]);
 });
 
 test("fails when a new post uses a drawn mockup instead of a product capture", () => {

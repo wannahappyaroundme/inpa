@@ -19,8 +19,8 @@ const DETAIL_PAGE_BYTES = 900 * 1024;
 const VISUAL_DUPLICATE_DISTANCE = 4;
 const FORBIDDEN_METADATA_CHUNKS = new Set(["EXIF", "XMP ", "ICCP"]);
 const KST_PUBLICATION_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+09:00$/;
-// 2026-08-blog-enrichment-v1에서 승인된 기존 20편의 정적 자산.
-// v2는 발행 시각만 바꾸므로 파일 바이트도 계약으로 고정한다.
+// 2026-08-10 신규 6편 직전까지 승인된 기존 25편의 정적 자산.
+// 원고 확장 작업은 앞선 25편의 파일 바이트를 바꾸지 않으므로 계약으로 고정한다.
 const PROTECTED_EXISTING_ASSET_HASHES = new Map([
   ["/blog-assets/3대-진단비란-암-뇌-심장/cover.webp", "1301ce93e826c10acd2edae62df7c3a34785c8abf45179aafa33089a130a9ca7"],
   ["/blog-assets/3대-진단비란-암-뇌-심장/diagnosis-three-areas-4697ee3c.webp", "4697ee3c1e7858ddafe9440d08c05fcd5511531d4089ca3c4a5204f1efd72fe8"],
@@ -68,6 +68,21 @@ const PROTECTED_EXISTING_ASSET_HASHES = new Map([
   ["/blog-assets/좋은-보험이란/four-fit-questions-c0e6eda5.webp", "c0e6eda52b8270306ae5f2fc6a1dd54ec31fd2edab38a9569b889a8595b9b011"],
   ["/blog-assets/회사마다-보험-담보-이름-다른-이유/cover.webp", "9d10d26f12fcd94fc4bf0425ccc511cfa0d8b4a20540afd555411bb99a68deb6"],
   ["/blog-assets/회사마다-보험-담보-이름-다른-이유/normalization-flow-03c81356.webp", "03c81356e20b6567d4b004527e35dc44a031368d57a3138c5e484ebb9b19f237"],
+  ["/blog-assets/보험설계사-주간-계획표-고객-단계별-다음-행동/cover.webp", "be00114ad22dacc69b205a76c9425009296867d1f9bc8ff8da5f3ce915d5e1c9"],
+  ["/blog-assets/보험설계사-주간-계획표-고객-단계별-다음-행동/weekly-board-06f7a2ea.webp", "06f7a2ea5a00a35503bce27e5a56b267aa394ae6d25bdc64d214c645b55cde41"],
+  ["/blog-assets/보험설계사-주간-계획표-고객-단계별-다음-행동/sales-stage-screen-86ea1f6f.webp", "86ea1f6f50365ed8b254738e17339d87cbe62b6d425f9406274cbd139d5add16"],
+  ["/blog-assets/보험설계사-소개-카드-고객-확인사항/cover.webp", "1da2cd8bb2f0b6545416511757adfec23c4427ba4e7b10a79d39dd99b7fe2550"],
+  ["/blog-assets/보험설계사-소개-카드-고객-확인사항/intro-checklist-3302096d.webp", "3302096dfadd07044783fd8658d4c8e3dd127ad6c6deddb49424b621a3de7b07"],
+  ["/blog-assets/보험설계사-소개-카드-고객-확인사항/introduction-card-screen-08c29de5.webp", "08c29de5d8338c49d2caec9aeefbd34a3d51de3ca0c894db736fa4653a039a5b"],
+  ["/blog-assets/보험설계사-월말-복기-영업-숫자/cover.webp", "1fd5e5638f9dd2bcd229a54608c2296ca89fd376c6ca5c05ccbe2e9a378634bd"],
+  ["/blog-assets/보험설계사-월말-복기-영업-숫자/monthly-review-04d93eef.webp", "04d93eef5fa411e6ead5f873da88c4709d67b4c8f656d4a9b06d3bab41e2ef17"],
+  ["/blog-assets/보험설계사-월말-복기-영업-숫자/dashboard-review-screen-01ba0a56.webp", "01ba0a569db0b95732cb708544124864130f681b934ac7d77d9becdfefe61296"],
+  ["/blog-assets/보험설계사-고객-연간-일정-관리법/cover.webp", "7dd47c900d0ae1d16489886d1eb1ec10cfb0f4cc71fc5e3d14989606b9385c54"],
+  ["/blog-assets/보험설계사-고객-연간-일정-관리법/annual-calendar-b6a9d8e9.webp", "b6a9d8e9648c95c720bb0bed40a1248a6a6618e29bacdb482b4292d79df4dfb9"],
+  ["/blog-assets/보험설계사-고객-연간-일정-관리법/schedule-year-screen-0275c28d.webp", "0275c28dc2abf32c7f77a1e9cba475a822c5fa4660106c9aeefd7a1247e755fa"],
+  ["/blog-assets/보험설계사-팀장-일대일-질문/cover.webp", "fe0c4fde8fc0a0d86420f6373f54e2f228679597e9accf74f4cdfe7a12612ad2"],
+  ["/blog-assets/보험설계사-팀장-일대일-질문/one-to-one-questions-12dce29f.webp", "12dce29f8448f3b80c2ac0cebdaffba4b08a1ea11c01349e6a55d0027b6cfa4e"],
+  ["/blog-assets/보험설계사-팀장-일대일-질문/manager-summary-screen-2b6483df.webp", "2b6483df0e18a6f556b493c7adecd2c87054a42e78ca1f3dbb09fbdf06c77abe"],
 ]);
 
 function verifyProtectedExistingAssetDigests({ slugs, digestByPath, errors }) {
@@ -75,7 +90,7 @@ function verifyProtectedExistingAssetDigests({ slugs, digestByPath, errors }) {
     const slug = assetPath.split("/")[2];
     if (!slugs.has(slug)) continue;
     if (digestByPath.get(assetPath) !== expectedDigest) {
-      errors.push(`${assetPath}: 기존 20편 자산은 승인된 v1 해시를 보존해야 합니다`);
+      errors.push(`${assetPath}: 기존 25편 자산은 승인된 해시를 보존해야 합니다`);
     }
   }
 }
@@ -86,6 +101,12 @@ const NEW_PRODUCT_CAPTURE_SLUGS = new Set([
   "보험설계사-월말-복기-영업-숫자",
   "보험설계사-고객-연간-일정-관리법",
   "보험설계사-팀장-일대일-질문",
+  "보험설계사-고객관리-프로그램-선택-기준",
+  "보험설계사-보장분석-프로그램-확인-항목",
+  "보험설계사-고객-자료-파일-정리",
+  "보험설계사-휴면-고객-다시-연락",
+  "보험설계사-상담-예약-링크",
+  "보장분석-결과-고객-공유",
 ]);
 
 const DISTINCTNESS_TARGET_SLUGS = new Set([
@@ -97,6 +118,8 @@ const DISTINCTNESS_TARGET_SLUGS = new Set([
   "보장분석-결과-고객-공유",
 ]);
 
+const NEW_RELEASE_SLUGS = new Set(DISTINCTNESS_TARGET_SLUGS);
+
 function verifyNewPostProductCaptures({ posts, byPath, errors }) {
   for (const post of posts) {
     if (!NEW_PRODUCT_CAPTURE_SLUGS.has(post.meta.slug)) continue;
@@ -105,6 +128,40 @@ function verifyNewPostProductCaptures({ posts, byPath, errors }) {
       .filter((record) => record?.role === "product-screen");
     if (productScreens.length !== 1 || productScreens[0].source_type !== "product-capture") {
       errors.push(`${post.filename}: 실제 인파 제품 화면(product-capture)이 정확히 1개 필요합니다`);
+    }
+  }
+}
+
+function verifyNewReleaseInlineRoles({ posts, byPath, errors }) {
+  for (const post of posts) {
+    if (!NEW_RELEASE_SLUGS.has(post.meta.slug)) continue;
+    const records = post.images.map((assetPath) => byPath.get(assetPath)).filter(Boolean);
+    const diagrams = records.filter((record) => (
+      record.role === "diagram" && record.source_type === "original-diagram"
+    ));
+    const productScreens = records.filter((record) => (
+      record.role === "product-screen" && record.source_type === "product-capture"
+    ));
+    if (diagrams.length !== 1 || productScreens.length !== 1 || records.length !== 2) {
+      errors.push(`${post.filename}: 신규 글에는 original-diagram 도식과 product-capture 제품 화면이 각각 정확히 1개 필요합니다`);
+    }
+  }
+}
+
+function verifyNewAssetByteDuplicates({ digestByPath, byPath, errors }) {
+  const pathsByDigest = new Map();
+  for (const [assetPath, digest] of digestByPath) {
+    if (!pathsByDigest.has(digest)) pathsByDigest.set(digest, []);
+    pathsByDigest.get(digest).push(assetPath);
+  }
+  for (const paths of pathsByDigest.values()) {
+    if (paths.length < 2) continue;
+    const newPaths = paths.filter((assetPath) => (
+      byPath.get(assetPath)?.used_by?.some((slug) => NEW_RELEASE_SLUGS.has(slug))
+    ));
+    for (const assetPath of newPaths) {
+      const duplicate = paths.find((candidate) => candidate !== assetPath);
+      errors.push(`${assetPath}: 신규 자산이 다른 자산과 바이트 단위로 중복됩니다 (${duplicate})`);
     }
   }
 }
@@ -330,7 +387,7 @@ export async function validateBlogRelease({ frontendRoot, contentRoot }) {
       errors.push(`${post.filename}: publication_plan_at은 +09:00이 포함된 초 단위 시각이어야 합니다`);
     }
   }
-  if (posts.length !== 25) errors.push(`릴리스 원고는 정확히 25편이어야 합니다 (현재 ${posts.length}편)`);
+  if (posts.length !== 31) errors.push(`릴리스 원고는 정확히 31편이어야 합니다 (현재 ${posts.length}편)`);
   errors.push(...verifyContentDistinctness(posts, DISTINCTNESS_TARGET_SLUGS));
 
   const byPath = new Map();
@@ -453,8 +510,11 @@ export async function validateBlogRelease({ frontendRoot, contentRoot }) {
 
   verifyProtectedExistingAssetDigests({ slugs, digestByPath, errors });
   verifyNewPostProductCaptures({ posts, byPath, errors });
+  verifyNewReleaseInlineRoles({ posts, byPath, errors });
+  verifyNewAssetByteDuplicates({ digestByPath, byPath, errors });
   const coverRecords = manifest.filter((record) => record?.role === "cover" && safeAssetPath(record.path));
-  if (coverRecords.length !== 25) errors.push(`대표 이미지 manifest 항목은 정확히 25개여야 합니다 (현재 ${coverRecords.length}개)`);
+  if (coverRecords.length !== 31) errors.push(`대표 이미지 manifest 항목은 정확히 31개여야 합니다 (현재 ${coverRecords.length}개)`);
+  if (manifest.length !== 79) errors.push(`전체 자산 manifest 항목은 정확히 79개여야 합니다 (현재 ${manifest.length}개)`);
   const conservativeListBytes = coverRecords
     .map((record) => fileSizeByPath.get(record.path) ?? 0)
     .sort((a, b) => b - a)
