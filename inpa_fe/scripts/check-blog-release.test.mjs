@@ -8,6 +8,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import {
+  contentSimilarity,
+  normalizeContentTokens,
+  verifyContentDistinctness,
+} from "./blog-content-distinctness.mjs";
+import {
   parseWebpDimensions,
   verifyNewPostProductCaptures,
   verifyProtectedExistingAssetDigests,
@@ -24,6 +29,137 @@ const VISUAL_FIXTURE_SVG = Buffer.from(`
 `);
 const VISUAL_COVER_A = await sharp(VISUAL_FIXTURE_SVG).webp({ quality: 72 }).toBuffer();
 const VISUAL_COVER_B = await sharp(VISUAL_FIXTURE_SVG).webp({ quality: 94 }).toBuffer();
+
+function post({ slug, title = "", body = "", headings = [] }) {
+  return { slug, filename: `${slug}.md`, title, body, headings };
+}
+
+function tokenSequence(prefix, count) {
+  return Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`).join(" ");
+}
+
+test("new post copied from a recent post is blocked", () => {
+  const copiedBody = `## 월요일에는 빈칸부터 찾습니다\n\n${tokenSequence("copied", 24)}`;
+  const recent = post({
+    slug: "보험설계사-주간-계획표-고객-단계별-다음-행동",
+    title: "보험설계사 주간 계획표, 고객 단계별로 다음 행동 정하기",
+    body: copiedBody,
+  });
+  const copied = post({
+    slug: "보험설계사-새로운-영업-계획",
+    title: "보험설계사 영업 계획표, 고객 단계별 다음 행동 정하기",
+    body: copiedBody,
+  });
+
+  const errors = verifyContentDistinctness([recent, copied], new Set([copied.slug]));
+
+  assert.ok(errors.some((error) => error.includes("콘텐츠가 겹칩니다")));
+});
+
+test("approved common words alone do not block distinct posts", () => {
+  const first = post({
+    slug: "첫-글",
+    title: "보험설계사 보험 고객 확인 방법 정리 인파 첫 주제",
+    body: "## 첫 번째 흐름\n\n서로 다른 내용을 설명합니다.",
+    headings: ["첫 번째 흐름"],
+  });
+  const second = post({
+    slug: "둘-글",
+    title: "보험설계사 보험 고객 확인 방법 정리 인파 둘 주제",
+    body: "## 두 번째 흐름\n\n전혀 다른 소재를 다룹니다.",
+    headings: ["두 번째 흐름"],
+  });
+
+  assert.deepEqual(normalizeContentTokens(first.title), ["첫", "주제"]);
+  assert.deepEqual(verifyContentDistinctness([first, second], new Set([second.slug])), []);
+});
+
+test("title similarity at the exact threshold blocks a new post", () => {
+  const shared = tokenSequence("shared", 18);
+  const recent = post({ slug: "최근", title: `${shared} left1 left2 left3` });
+  const target = post({ slug: "대상", title: `${shared} right1 right2 right3 right4` });
+
+  const score = contentSimilarity(target, recent);
+
+  assert.equal(score.titleJaccard, 0.72);
+  assert.equal(score.sharedTitleTokens, 18);
+  assert.ok(verifyContentDistinctness([recent, target], new Set([target.slug])).length > 0);
+});
+
+test("fewer than three shared title tokens do not block a new post", () => {
+  const recent = post({ slug: "최근", title: "shared1 shared2" });
+  const target = post({ slug: "대상", title: "shared1 shared2" });
+
+  const score = contentSimilarity(target, recent);
+
+  assert.equal(score.titleJaccard, 1);
+  assert.equal(score.sharedTitleTokens, 2);
+  assert.deepEqual(verifyContentDistinctness([recent, target], new Set([target.slug])), []);
+});
+
+test("one shared normalized H2 does not block a new post", () => {
+  const recent = post({ slug: "최근", title: "서로 다른 제목 하나", headings: ["같은 소제목"] });
+  const target = post({ slug: "대상", title: "완전히 다른 제목 둘", headings: ["같은 소제목"] });
+
+  assert.equal(contentSimilarity(target, recent).sharedHeadings, 1);
+  assert.deepEqual(verifyContentDistinctness([recent, target], new Set([target.slug])), []);
+});
+
+test("two boilerplate H2 headings do not block a new post", () => {
+  const recent = post({
+    slug: "최근",
+    title: "서로 다른 제목 하나",
+    headings: ["흔히 놓치는 점", "저장용 체크리스트"],
+  });
+  const target = post({
+    slug: "대상",
+    title: "완전히 다른 제목 둘",
+    headings: ["흔히 놓치는 점", "저장용 체크리스트"],
+  });
+
+  assert.equal(contentSimilarity(target, recent).sharedHeadings, 0);
+  assert.deepEqual(verifyContentDistinctness([recent, target], new Set([target.slug])), []);
+});
+
+test("two shared substantive H2 headings block a new post", () => {
+  const recent = post({
+    slug: "최근",
+    title: "서로 다른 제목 하나",
+    headings: ["상담 기록을 남기는 순서", "다음 연락을 정하는 기준"],
+  });
+  const target = post({
+    slug: "대상",
+    title: "완전히 다른 제목 둘",
+    headings: ["상담 기록을 남기는 순서", "다음 연락을 정하는 기준"],
+  });
+
+  assert.equal(contentSimilarity(target, recent).sharedHeadings, 2);
+  assert.ok(verifyContentDistinctness([recent, target], new Set([target.slug])).length > 0);
+});
+
+test("fourteen shared five-token shingles do not block a new post", () => {
+  const body = tokenSequence("body", 18);
+  const recent = post({ slug: "최근", title: "첫 번째 제목", body });
+  const target = post({ slug: "대상", title: "두 번째 제목", body });
+
+  const score = contentSimilarity(target, recent);
+
+  assert.equal(score.sharedShingles, 14);
+  assert.equal(score.bodyContainment, 1);
+  assert.deepEqual(verifyContentDistinctness([recent, target], new Set([target.slug])), []);
+});
+
+test("duplicated long content blocks a new post", () => {
+  const body = tokenSequence("body", 24);
+  const recent = post({ slug: "최근", title: "첫 번째 제목", body });
+  const target = post({ slug: "대상", title: "두 번째 제목", body });
+
+  const score = contentSimilarity(target, recent);
+
+  assert.equal(score.sharedShingles, 20);
+  assert.equal(score.bodyContainment, 1);
+  assert.ok(verifyContentDistinctness([recent, target], new Set([target.slug])).length > 0);
+});
 
 async function makeValidRaster(width, height, seed) {
   const pixels = Buffer.alloc(9 * 8);

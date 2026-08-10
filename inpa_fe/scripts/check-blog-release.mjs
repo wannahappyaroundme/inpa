@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import remarkParse from "remark-parse";
 import sharp from "sharp";
 import { unified } from "unified";
+import { verifyContentDistinctness } from "./blog-content-distinctness.mjs";
 
 const ROLES = new Set(["cover", "inline", "diagram", "product-screen"]);
 const SOURCE_TYPES = new Set(["generated-object", "product-capture", "original-diagram", "licensed-photo"]);
@@ -85,6 +86,15 @@ const NEW_PRODUCT_CAPTURE_SLUGS = new Set([
   "보험설계사-월말-복기-영업-숫자",
   "보험설계사-고객-연간-일정-관리법",
   "보험설계사-팀장-일대일-질문",
+]);
+
+const DISTINCTNESS_TARGET_SLUGS = new Set([
+  "보험설계사-고객관리-프로그램-선택-기준",
+  "보험설계사-보장분석-프로그램-확인-항목",
+  "보험설계사-고객-자료-파일-정리",
+  "보험설계사-휴면-고객-다시-연락",
+  "보험설계사-상담-예약-링크",
+  "보장분석-결과-고객-공유",
 ]);
 
 function verifyNewPostProductCaptures({ posts, byPath, errors }) {
@@ -274,7 +284,17 @@ function loadPosts(contentRoot, errors) {
         errors.push(`${filename}: slug가 없습니다`);
         continue;
       }
-      posts.push({ filename, meta, images: extractImagePaths(source) });
+      const body = source.split(/<!--\s*blog-body\s*-->/, 2)[1] ?? "";
+      posts.push({
+        filename,
+        meta,
+        images: extractImagePaths(source),
+        source,
+        slug: meta.slug,
+        title: source.match(/^#\s+(.+)$/m)?.[1].trim() ?? "",
+        body,
+        headings: [...body.matchAll(/^##\s+(.+)$/gm)].map((heading) => heading[1].trim()),
+      });
     } catch (error) {
       errors.push(`${filename}: blog-meta JSON을 읽을 수 없습니다 (${error.message})`);
     }
@@ -311,6 +331,7 @@ export async function validateBlogRelease({ frontendRoot, contentRoot }) {
     }
   }
   if (posts.length !== 25) errors.push(`릴리스 원고는 정확히 25편이어야 합니다 (현재 ${posts.length}편)`);
+  errors.push(...verifyContentDistinctness(posts, DISTINCTNESS_TARGET_SLUGS));
 
   const byPath = new Map();
   const coverHashes = new Map();
