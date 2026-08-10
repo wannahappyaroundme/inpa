@@ -1300,8 +1300,11 @@ class RefreshBlogContentCommandTests(ReleasePackageMixin, TestCase):
         )
 
         output = stdout.getvalue()
-        self.assertIn('dry-run', output)
-        self.assertIn('items=31', output)
+        self.assertIn(
+            'dry-run version=2026-08-internal-organic-v3 targets=31 '
+            'existing=25 new=6 update_targets=6',
+            output,
+        )
         self.assertIn(PRIMARY_EXISTING_SLUG, output)
         self.assertNotIn('본문 1입니다', output)
         self.assertNotIn('@example.com', output)

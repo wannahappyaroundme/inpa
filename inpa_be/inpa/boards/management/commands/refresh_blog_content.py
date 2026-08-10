@@ -3,6 +3,9 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 
 from inpa.boards.blog_release import (
+    RELEASE_CREATED_SLUGS,
+    RELEASE_EXISTING_SLUGS,
+    RELEASE_UPDATED_SLUGS,
     RELEASE_VERSION,
     ReleaseError,
     apply_release,
@@ -66,7 +69,10 @@ class Command(BaseCommand):
         published = sum(item.is_published for item in items)
         if not apply_requested:
             self.stdout.write(
-                f'dry-run version={RELEASE_VERSION} items={len(items)} '
+                f'dry-run version={RELEASE_VERSION} targets={len(items)} '
+                f'existing={len(RELEASE_EXISTING_SLUGS)} '
+                f'new={len(RELEASE_CREATED_SLUGS)} '
+                f'update_targets={len(RELEASE_UPDATED_SLUGS)} '
                 f'published={published} drafts={len(items) - published} digest={digest}'
             )
             self._write_slugs([item.slug for item in items])
