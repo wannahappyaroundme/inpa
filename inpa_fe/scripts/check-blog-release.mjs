@@ -85,6 +85,10 @@ const PROTECTED_EXISTING_ASSET_HASHES = new Map([
   ["/blog-assets/보험설계사-팀장-일대일-질문/manager-summary-screen-2b6483df.webp", "2b6483df0e18a6f556b493c7adecd2c87054a42e78ca1f3dbb09fbdf06c77abe"],
 ]);
 
+export const PROTECTED_EXISTING_ASSET_PATHS = Object.freeze(
+  [...PROTECTED_EXISTING_ASSET_HASHES.keys()].sort(),
+);
+
 function verifyProtectedExistingAssetDigests({ slugs, digestByPath, errors }) {
   for (const [assetPath, expectedDigest] of PROTECTED_EXISTING_ASSET_HASHES) {
     const slug = assetPath.split("/")[2];

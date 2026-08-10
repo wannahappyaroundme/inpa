@@ -13,6 +13,7 @@ import {
   verifyContentDistinctness,
 } from "./blog-content-distinctness.mjs";
 import {
+  PROTECTED_EXISTING_ASSET_PATHS,
   parseWebpDimensions,
   verifyNewPostProductCaptures,
   verifyProtectedExistingAssetDigests,
@@ -191,6 +192,55 @@ const NEW_RELEASE_SLUGS = [
   "보험설계사-상담-예약-링크",
   "보장분석-결과-고객-공유",
 ];
+
+const RECENT_PRIOR_RELEASE_SLUGS = [
+  "보험설계사-주간-계획표-고객-단계별-다음-행동",
+  "보험설계사-소개-카드-고객-확인사항",
+  "보험설계사-월말-복기-영업-숫자",
+  "보험설계사-고객-연간-일정-관리법",
+  "보험설계사-팀장-일대일-질문",
+];
+
+function readRealManifest() {
+  return JSON.parse(fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public/blog-assets/manifest.json"),
+    "utf8",
+  ));
+}
+
+test("booking request flow caption matches the five numbered stages", () => {
+  const record = readRealManifest().find((entry) => (
+    entry.path.endsWith("/booking-request-flow-1ea92e41.webp")
+  ));
+
+  assert.equal(record?.caption, "업무시간 설정과 고객 요청을 거쳐 상담을 확정하는 다섯 단계");
+});
+
+test("protected prior-asset lock exactly covers all 61 assets from posts 1 through 25", () => {
+  const manifest = readRealManifest();
+  const newSlugs = new Set(NEW_RELEASE_SLUGS);
+  const expectedPriorPaths = manifest
+    .filter((entry) => !entry.used_by.some((slug) => newSlugs.has(slug)))
+    .map((entry) => entry.path)
+    .sort();
+
+  assert.equal(expectedPriorPaths.length, 61);
+  assert.equal(Object.isFrozen(PROTECTED_EXISTING_ASSET_PATHS), true);
+  assert.deepEqual(PROTECTED_EXISTING_ASSET_PATHS, expectedPriorPaths);
+
+  for (const slug of RECENT_PRIOR_RELEASE_SLUGS) {
+    const recentPaths = manifest
+      .filter((entry) => entry.used_by.includes(slug))
+      .map((entry) => entry.path);
+    assert.equal(recentPaths.length, 3, `${slug} 보호 대상은 3개여야 합니다`);
+    for (const assetPath of recentPaths) {
+      assert.ok(
+        PROTECTED_EXISTING_ASSET_PATHS.includes(assetPath),
+        `${assetPath} 보호 잠금이 빠졌습니다`,
+      );
+    }
+  }
+});
 
 function makeWebp(width, height, seed = 0, padding = 0) {
   const payload = Buffer.alloc(10);
