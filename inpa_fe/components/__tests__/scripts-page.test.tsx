@@ -347,7 +347,7 @@ describe("/scripts page state", () => {
     expect(
       await screen.findByRole("heading", { name: "관리 후 소개 부탁" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "나만의 화법 연결이 잠시 끊겼어요",
     );
 
