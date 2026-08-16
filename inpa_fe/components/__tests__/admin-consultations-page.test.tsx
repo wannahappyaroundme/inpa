@@ -24,6 +24,7 @@ const response = {
   settings: {
     recording_enabled: false,
     ai_summary_enabled: false,
+    general_access_enabled: false,
     max_duration_seconds: 3600,
     max_bytes: 104857600,
     global_active_limit: 20,
@@ -124,6 +125,166 @@ describe("상담 녹음 관리자 화면", () => {
         ai_summary_enabled: true,
       });
     });
+  });
+
+  it("파일럿만 쓰는 상태를 보여주고 모든 설계사에게 열 수 있다", async () => {
+    adminApi.adminUpdateConsultationSettings.mockResolvedValue({
+      ...response,
+      settings: {
+        ...response.settings,
+        general_access_enabled: true,
+        recording_enabled: true,
+        ai_summary_enabled: true,
+      },
+    });
+    render(<AdminConsultationsPage />);
+    await screen.findByText("상담 녹음 운영");
+
+    expect(screen.getByText("공개 범위")).toBeInTheDocument();
+    expect(screen.getByText("지금은 파일럿 계정만 쓸 수 있어요.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "모든 설계사에게 열기" }));
+
+    await waitFor(() => {
+      expect(adminApi.adminUpdateConsultationSettings).toHaveBeenCalledWith({
+        general_access_enabled: true,
+      });
+    });
+    expect(await screen.findByText("공개 범위를 저장했어요.")).toBeInTheDocument();
+    expect(screen.getByText("모든 설계사가 쓸 수 있어요.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "파일럿 계정만 쓰도록 좁히기" }),
+    ).toBeInTheDocument();
+  });
+
+  it("모두에게 열어도 녹음 스위치가 꺼져 있으면 켤 차례임을 알린다", async () => {
+    adminApi.adminGetConsultationSettings.mockResolvedValue({
+      ...response,
+      settings: {
+        ...response.settings,
+        general_access_enabled: true,
+        recording_enabled: false,
+        ai_summary_enabled: false,
+      },
+    });
+    render(<AdminConsultationsPage />);
+    await screen.findByText("상담 녹음 운영");
+
+    expect(
+      screen.getByText(
+        "모든 설계사에게 열어 두었어요. 녹음 스위치를 켜면 바로 쓸 수 있어요.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("모든 설계사가 쓸 수 있어요.")).toBeNull();
+  });
+
+  it("녹음만 열려 있으면 AI 요약 스위치가 남았음을 알린다", async () => {
+    adminApi.adminGetConsultationSettings.mockResolvedValue({
+      ...response,
+      settings: {
+        ...response.settings,
+        general_access_enabled: true,
+        recording_enabled: true,
+        ai_summary_enabled: false,
+      },
+    });
+    render(<AdminConsultationsPage />);
+    await screen.findByText("상담 녹음 운영");
+
+    expect(
+      screen.getByText(
+        "지금은 녹음까지 열려 있어요. AI 요약 스위치를 켜면 요약도 함께 열려요.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("모두에게 열린 상태에서는 파일럿 조정을 잠그고 되돌리는 길을 안내한다", async () => {
+    adminApi.adminGetConsultationSettings.mockResolvedValue({
+      ...response,
+      settings: {
+        ...response.settings,
+        general_access_enabled: true,
+        recording_enabled: true,
+        ai_summary_enabled: true,
+      },
+      pilot_users: [{
+        user_id: 7,
+        email: "pilot@inpa.kr",
+        recording_allowed: true,
+        summary_allowed: false,
+        updated_at: "2026-07-26T12:00:00Z",
+      }],
+    });
+    render(<AdminConsultationsPage />);
+    await screen.findByText("상담 녹음 운영");
+
+    expect(
+      screen.getByText(
+        "지금은 모든 설계사에게 열려 있어요. 계정별로 좁히려면 공개 범위를 파일럿으로 되돌린 뒤 여기서 조정해 주세요.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("설계사 이메일")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "파일럿 추가" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "녹음 허용 중" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "AI 요약 허용" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "파일럿에서 빼기" }),
+    ).toBeDisabled();
+  });
+
+  it("모두에게 열린 상태에서는 다시 파일럿 계정만 쓰도록 좁힌다", async () => {
+    adminApi.adminGetConsultationSettings.mockResolvedValue({
+      ...response,
+      settings: {
+        ...response.settings,
+        general_access_enabled: true,
+        recording_enabled: true,
+        ai_summary_enabled: true,
+      },
+    });
+    adminApi.adminUpdateConsultationSettings.mockResolvedValue(response);
+    render(<AdminConsultationsPage />);
+    await screen.findByText("상담 녹음 운영");
+
+    expect(screen.getByText("모든 설계사가 쓸 수 있어요.")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "파일럿 계정만 쓰도록 좁히기" }),
+    );
+
+    await waitFor(() => {
+      expect(adminApi.adminUpdateConsultationSettings).toHaveBeenCalledWith({
+        general_access_enabled: false,
+      });
+    });
+    expect(
+      await screen.findByText("지금은 파일럿 계정만 쓸 수 있어요."),
+    ).toBeInTheDocument();
+  });
+
+  it("동시 녹음 상한을 고쳐 저장한다", async () => {
+    adminApi.adminUpdateConsultationSettings.mockResolvedValue({
+      ...response,
+      settings: { ...response.settings, global_active_limit: 35 },
+    });
+    render(<AdminConsultationsPage />);
+    await screen.findByText("상담 녹음 운영");
+
+    const input = screen.getByLabelText("동시 녹음 상한(건)");
+    expect(input).toHaveValue(20);
+    fireEvent.change(input, { target: { value: "35" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "동시 녹음 상한 저장" }),
+    );
+
+    await waitFor(() => {
+      expect(adminApi.adminUpdateConsultationSettings).toHaveBeenCalledWith({
+        global_active_limit: 35,
+      });
+    });
+    expect(
+      await screen.findByText("동시 녹음 상한을 저장했어요."),
+    ).toBeInTheDocument();
   });
 
   it("백엔드가 먼저 교체되는 동안 이전 작업 응답도 안전하게 표시한다", async () => {

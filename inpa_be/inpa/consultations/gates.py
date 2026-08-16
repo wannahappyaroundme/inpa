@@ -15,7 +15,8 @@ def showcase_consultation_pilot_enabled(user):
 def recording_feature_enabled(user=None):
     if not settings.CONSULTATION_RECORDING_ENABLED:
         return False
-    if not ConsultationRuntimeConfig.solo().recording_enabled:
+    config = ConsultationRuntimeConfig.solo()
+    if not config.recording_enabled:
         return False
     if user is None:
         return True
@@ -26,6 +27,8 @@ def recording_feature_enabled(user=None):
         return False
     profile = getattr(user, 'profile', None)
     if profile is not None and profile.is_admin:
+        return True
+    if config.general_access_enabled:
         return True
     access = ConsultationPilotAccess.objects.filter(user=user).first()
     return bool(access and access.recording_allowed)
@@ -34,7 +37,8 @@ def recording_feature_enabled(user=None):
 def summary_feature_enabled(user=None):
     if not settings.CONSULTATION_AI_SUMMARY_ENABLED:
         return False
-    if not ConsultationRuntimeConfig.solo().ai_summary_enabled:
+    config = ConsultationRuntimeConfig.solo()
+    if not config.ai_summary_enabled:
         return False
     if user is None:
         return True
@@ -45,6 +49,8 @@ def summary_feature_enabled(user=None):
         return False
     profile = getattr(user, 'profile', None)
     if profile is not None and profile.is_admin:
+        return True
+    if config.general_access_enabled:
         return True
     access = ConsultationPilotAccess.objects.filter(user=user).first()
     return bool(access and access.summary_allowed)

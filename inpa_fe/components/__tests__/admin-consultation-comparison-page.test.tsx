@@ -566,6 +566,7 @@ describe("상담 녹음 운영 화면의 비교 진입점", () => {
       settings: {
         recording_enabled: false,
         ai_summary_enabled: false,
+        general_access_enabled: false,
         max_duration_seconds: 3600,
         max_bytes: 104857600,
         global_active_limit: 20,

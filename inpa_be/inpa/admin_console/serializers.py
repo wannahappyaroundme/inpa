@@ -783,6 +783,7 @@ class AdminConsultationConfigSerializer(serializers.ModelSerializer):
             'global_active_limit',
             'daily_ai_cost_limit_krw',
             'monthly_ai_cost_limit_krw',
+            'general_access_enabled',
             'updated_at',
         ]
         read_only_fields = ['updated_at']

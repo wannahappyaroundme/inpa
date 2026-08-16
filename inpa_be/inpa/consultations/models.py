@@ -187,6 +187,7 @@ class ConsultationRuntimeConfig(models.Model):
     global_active_limit = models.PositiveSmallIntegerField(default=20)
     daily_ai_cost_limit_krw = models.PositiveIntegerField(default=50_000)
     monthly_ai_cost_limit_krw = models.PositiveIntegerField(default=500_000)
+    general_access_enabled = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
