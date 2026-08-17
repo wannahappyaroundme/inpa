@@ -57,3 +57,9 @@ Symptom: arm64 Node로 설치한 `@esbuild/darwin-arm64`가 정상인데도 권�
 Cause: 권한을 높인 셸이 Rosetta x64 실행 경로를 사용해, 일반 셸의 arm64 Node와 같은 `node_modules`를 서로 다른 CPU로 읽었다.
 Fix: 일반 arm64 Node에서 `node --import tsx --test` 실행 경로로 단위 테스트를 실행해 `tsx` CLI의 임시 IPC 권한 요구를 없앴다. 제품 코드나 잠금 파일은 변경하지 않았다.
 Prevention: 이 Mac에서 프런트 테스트는 번들 Node를 직접 호출한다. 로컬 CPU 문제를 고치기 위해 `package.json`이나 `package-lock.json`에 다른 플랫폼 전용 패키지를 추가하지 않는다.
+
+### 2026-08-17 gitleaks generic-api-key 오탐 (저장 키 이름 상수)
+Symptom: PR #170 Secret scan 2회 실패 (leaks found: 2)
+Cause: (1) 식별자에 key/token/secret 포함 + 리터럴 엔트로피 3.5 이상이면 generic-api-key 발화. 이번에는 localStorage 저장 키 이름 상수(`inpa_banner_consult_v1` 등)가 걸렸고 실제 비밀값은 없었다. 저장소에 `.gitleaks.toml`은 없고 액션은 v3다. (2) 액션은 PR 커밋 범위 전체를 스캔하므로 나중 커밋에 allow 주석을 달아도 원본 커밋이 계속 걸린다.
+Fix: 인라인 `// gitleaks:allow` (JSX 리터럴은 상단 const로 추출) + 커밋 squash로 히스토리 평탄화
+Prevention: KEY류 식별자 상수를 새로 만들 땐 그 패턴을 도입하는 커밋에서부터 allow 주석을 함께 작성한다. CI 실패는 매번 이 파일에 기록 + 같은 PR에 예방 조치(PM 2026-08-17 표준 규칙).

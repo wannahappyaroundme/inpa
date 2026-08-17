@@ -18,6 +18,7 @@ import {
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { InpaMark } from "@/components/inpa-logo";
+import { LandingAnnouncementBanner } from "@/components/landing-announcement-banner";
 import { PublicDiscoverySection } from "@/components/public-discovery";
 import { LandingProductGallery } from "@/components/landing-product-gallery";
 import { PricingFourTiers } from "@/components/brand-story-sections";
@@ -32,7 +33,7 @@ import {
   buildServiceUrl,
 } from "@/lib/landing-content";
 
-type CtaPosition = "header" | "hero" | "pricing" | "footer";
+type CtaPosition = "banner" | "header" | "hero" | "pricing" | "footer";
 type CtaAction = "register" | "login";
 
 const FACT_ICONS = [LayoutGrid, ScanLine, SlidersHorizontal] as const;
@@ -83,6 +84,12 @@ export function ServiceLanding() {
 
   return (
     <div id="top" className="theme-light min-h-screen overflow-x-clip bg-[var(--surface)] text-[var(--ink)]">
+      {/* 새 기능 공지 — 헤더 위 맨 윗줄. 가입 링크는 헤더·히어로와 같은 유입값 처리를 쓴다. */}
+      <LandingAnnouncementBanner
+        ctaHref={registerUrl}
+        onCtaClick={() => landingTrack("landing_test_cta", { position: "banner", action: "register" })}
+      />
+
       <header className="sticky top-0 z-50 h-16 border-b border-[var(--line)] bg-white/95 backdrop-blur">
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <a
