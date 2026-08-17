@@ -1437,6 +1437,7 @@ export async function adminListRecruitingAudit(
 export interface AdminConsultationSettings {
   recording_enabled: boolean;
   ai_summary_enabled: boolean;
+  general_access_enabled: boolean;
   max_duration_seconds: number;
   max_bytes: number;
   global_active_limit: number;
@@ -1555,6 +1556,7 @@ export async function adminUpdateConsultationSettings(
     AdminConsultationSettings,
     | "recording_enabled"
     | "ai_summary_enabled"
+    | "general_access_enabled"
     | "max_duration_seconds"
     | "max_bytes"
     | "global_active_limit"

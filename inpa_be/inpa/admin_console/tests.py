@@ -54,6 +54,7 @@ from inpa.admin_console.models import PolicyVersion
 from inpa.analysis.models import AnalysisCategory, AnalysisDetail, AnalysisSubCategory, UnmatchedLog
 from inpa.billing.credit import add_months
 from inpa.billing.models import (
+    BillingAdminAction,
     BillingAgreement,
     Coupon,
     CouponClaim,
@@ -2654,6 +2655,103 @@ class AdminConsultationSettingsTest(TestCase):
             'CONSULTATION_ENV_GATE_CLOSED',
         )
         self.assertFalse(ConsultationRuntimeConfig.solo().recording_enabled)
+
+    def test_admin_can_open_and_narrow_general_access(self):
+        first = self.client_admin.get('/api/v1/admin/consultations/')
+
+        self.assertEqual(first.status_code, 200)
+        self.assertIn('general_access_enabled', first.data['settings'])
+        self.assertFalse(first.data['settings']['general_access_enabled'])
+
+        opened = self.client_admin.patch(
+            '/api/v1/admin/consultations/',
+            {'general_access_enabled': True},
+            format='json',
+        )
+
+        self.assertEqual(opened.status_code, 200)
+        self.assertTrue(opened.data['settings']['general_access_enabled'])
+        self.assertTrue(
+            ConsultationRuntimeConfig.solo().general_access_enabled,
+        )
+
+        reloaded = self.client_admin.get('/api/v1/admin/consultations/')
+
+        self.assertEqual(reloaded.status_code, 200)
+        self.assertTrue(reloaded.data['settings']['general_access_enabled'])
+
+        narrowed = self.client_admin.patch(
+            '/api/v1/admin/consultations/',
+            {'general_access_enabled': False},
+            format='json',
+        )
+
+        self.assertEqual(narrowed.status_code, 200)
+        self.assertFalse(narrowed.data['settings']['general_access_enabled'])
+        self.assertFalse(
+            ConsultationRuntimeConfig.solo().general_access_enabled,
+        )
+
+    @override_settings(CONSULTATION_RECORDING_ENABLED=False)
+    def test_general_access_patch_stays_open_while_env_gate_is_closed(self):
+        response = self.client_admin.patch(
+            '/api/v1/admin/consultations/',
+            {'general_access_enabled': True},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['settings']['general_access_enabled'])
+        self.assertFalse(ConsultationRuntimeConfig.solo().recording_enabled)
+
+    def test_settings_patch_records_audit_action_with_field_names_only(self):
+        response = self.client_admin.patch(
+            '/api/v1/admin/consultations/',
+            {'general_access_enabled': True, 'global_active_limit': 12},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        action = BillingAdminAction.objects.filter(
+            action='consultation_settings_updated',
+        ).latest('created_at')
+        self.assertEqual(action.admin, self.admin)
+        self.assertEqual(action.target_type, 'runtime_config')
+        self.assertEqual(
+            action.target_id,
+            str(ConsultationRuntimeConfig.solo().pk),
+        )
+        self.assertEqual(
+            action.details,
+            {'updated_fields': ['general_access_enabled', 'global_active_limit']},
+        )
+        self.assertNotIn('12', str(action.details))
+
+    def test_admin_can_adjust_global_active_limit_within_bounds(self):
+        accepted = self.client_admin.patch(
+            '/api/v1/admin/consultations/',
+            {'global_active_limit': 35},
+            format='json',
+        )
+
+        self.assertEqual(accepted.status_code, 200)
+        self.assertEqual(accepted.data['settings']['global_active_limit'], 35)
+        self.assertEqual(
+            ConsultationRuntimeConfig.solo().global_active_limit,
+            35,
+        )
+
+        rejected = self.client_admin.patch(
+            '/api/v1/admin/consultations/',
+            {'global_active_limit': 0},
+            format='json',
+        )
+
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(
+            ConsultationRuntimeConfig.solo().global_active_limit,
+            35,
+        )
 
     @override_settings(CONSULTATION_RECORDING_ENABLED=True)
     def test_admin_can_add_update_and_remove_pilot_without_customer_data(self):

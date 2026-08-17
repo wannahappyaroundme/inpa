@@ -2935,6 +2935,15 @@ class AdminConsultationSettingsView(APIView):
             )
             serializer.is_valid(raise_exception=True)
             serializer.save()
+            _admin_action(
+                request,
+                action='consultation_settings_updated',
+                target_type='runtime_config',
+                target_id=config.pk,
+                details={
+                    'updated_fields': sorted(serializer.validated_data.keys()),
+                },
+            )
         return Response(self._response(config))
 
 

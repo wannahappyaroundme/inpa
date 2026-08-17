@@ -35,6 +35,25 @@ function CountCard({
   );
 }
 
+function accessSummaryText({
+  generalAccessOpen,
+  recordingLive,
+  summaryLive,
+}: {
+  generalAccessOpen: boolean;
+  recordingLive: boolean;
+  summaryLive: boolean;
+}) {
+  if (!generalAccessOpen) return "지금은 파일럿 계정만 쓸 수 있어요.";
+  if (!recordingLive) {
+    return "모든 설계사에게 열어 두었어요. 녹음 스위치를 켜면 바로 쓸 수 있어요.";
+  }
+  if (!summaryLive) {
+    return "지금은 녹음까지 열려 있어요. AI 요약 스위치를 켜면 요약도 함께 열려요.";
+  }
+  return "모든 설계사가 쓸 수 있어요.";
+}
+
 function providerLabel(provider?: string) {
   if (provider === "openai") return "OpenAI";
   if (provider === "anthropic") return "Anthropic";
@@ -147,6 +166,25 @@ export default function AdminConsultationsPage() {
     }
   }
 
+  async function toggleGeneralAccess() {
+    if (!data || saving) return;
+    setSaving(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const next = !data.settings.general_access_enabled;
+      const updated = await adminUpdateConsultationSettings({
+        general_access_enabled: next,
+      });
+      setData(updated);
+      setMessage("공개 범위를 저장했어요.");
+    } catch {
+      setError("저장 상태를 확인한 뒤 공개 범위를 다시 눌러 주세요.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveCostLimits() {
     if (!data || saving) return;
     setSaving(true);
@@ -161,6 +199,24 @@ export default function AdminConsultationsPage() {
       setMessage("AI 비용 상한을 저장했어요.");
     } catch {
       setError("하루 상한과 한 달 상한을 확인한 뒤 다시 저장해 주세요.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveActiveLimit() {
+    if (!data || saving) return;
+    setSaving(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const updated = await adminUpdateConsultationSettings({
+        global_active_limit: data.settings.global_active_limit,
+      });
+      setData(updated);
+      setMessage("동시 녹음 상한을 저장했어요.");
+    } catch {
+      setError("동시 녹음 상한을 1건부터 100건 사이로 맞춘 뒤 다시 저장해 주세요.");
     } finally {
       setSaving(false);
     }
@@ -230,6 +286,14 @@ export default function AdminConsultationsPage() {
       ? data.retention_days
       : null
   );
+  const generalAccessOpen = data.settings.general_access_enabled;
+  const accessSummary = accessSummaryText({
+    generalAccessOpen,
+    recordingLive: data.environment_gate_open && data.settings.recording_enabled,
+    summaryLive: (
+      data.ai_environment_gate_open && data.settings.ai_summary_enabled
+    ),
+  });
   return (
     <div className="max-w-5xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -283,6 +347,28 @@ export default function AdminConsultationsPage() {
           음성 변환과 AI 연결 검증을 마치면 여기서 요약 기능을 켤 수 있어요.
         </p>
       )}
+      <section className="mt-4 rounded-2xl bg-surface p-4" aria-labelledby="consultation-access-title">
+        <h2 id="consultation-access-title" className="text-[14px] font-extrabold text-ink">
+          공개 범위
+        </h2>
+        <p className="mt-1 text-[13px] leading-6 text-ink2">{accessSummary}</p>
+        <p className="mt-1 text-[12px] leading-5 text-ink3">
+          열어 두면 파일럿 명단과 상관없이 모든 설계사에게 열려요. 실제 사용은 녹음과 AI 요약 스위치가 켜져 있을 때 시작돼요. 언제든 다시 좁힐 수 있어요.
+        </p>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void toggleGeneralAccess()}
+          className="mt-3 min-h-11 rounded-xl border border-line bg-surface px-4 text-[13px] font-bold text-brand disabled:opacity-50"
+        >
+          {saving
+            ? "저장 중"
+            : generalAccessOpen
+              ? "파일럿 계정만 쓰도록 좁히기"
+              : "모든 설계사에게 열기"}
+        </button>
+      </section>
+
       {message && <p aria-live="polite" className="mt-4 text-[13px] text-success-ink">{message}</p>}
       {error && <p role="alert" className="mt-4 text-[13px] text-danger-ink">{error}</p>}
       {retentionDays === null && (
@@ -318,6 +404,40 @@ export default function AdminConsultationsPage() {
           <CountCard label="삭제 재확인" value={status.delete_failure_count} note="다음 삭제 작업에서 다시 확인할 건" />
           <CountCard label="연결 없는 저장 파일" value={status.orphan_object_count} note={status.storage_audit_available ? "DB 연결 없이 저장공간에 남은 파일" : "저장공간 점검을 실행하면 표시됩니다"} />
           <CountCard label="찾을 수 없는 원본" value={status.missing_object_count} note={status.storage_audit_available ? "DB에는 있으나 저장공간에서 찾지 못한 파일" : "저장공간 점검을 실행하면 표시됩니다"} />
+        </div>
+
+        <div className="mt-4 rounded-2xl bg-surface p-4">
+          <h3 className="text-[14px] font-extrabold text-ink">동시 녹음 상한</h3>
+          <p className="mt-1 text-[12px] leading-5 text-ink3">
+            동시에 진행할 수 있는 녹음 수예요. 상한에 닿으면 새 녹음은 잠시 뒤에 시작하도록 안내해요.
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-[12px] font-semibold text-ink2">
+              동시 녹음 상한(건)
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={data.settings.global_active_limit}
+                onChange={(event) => setData((current) => current ? {
+                  ...current,
+                  settings: {
+                    ...current.settings,
+                    global_active_limit: Number(event.target.value),
+                  },
+                } : current)}
+                className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-[13px] text-ink"
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void saveActiveLimit()}
+            className="mt-3 min-h-11 rounded-xl bg-brand px-4 text-[13px] font-bold text-white disabled:opacity-50"
+          >
+            동시 녹음 상한 저장
+          </button>
         </div>
       </section>
 
@@ -406,8 +526,10 @@ export default function AdminConsultationsPage() {
 
       <section className="mt-8" aria-labelledby="pilot-title">
         <h2 id="pilot-title" className="text-[16px] font-extrabold text-ink">파일럿 계정</h2>
-        <p className="mt-1 text-[12px] text-ink3">
-          먼저 확인할 설계사만 추가해 운영 범위를 좁힙니다.
+        <p className="mt-1 text-[12px] leading-5 text-ink3">
+          {generalAccessOpen
+            ? "지금은 모든 설계사에게 열려 있어요. 계정별로 좁히려면 공개 범위를 파일럿으로 되돌린 뒤 여기서 조정해 주세요."
+            : "먼저 확인할 설계사만 추가해 운영 범위를 좁힙니다."}
         </p>
         <form onSubmit={(event) => void addPilot(event)} className="mt-3 flex flex-col gap-2 sm:flex-row">
           <label htmlFor="consultation-pilot-email" className="sr-only">설계사 이메일</label>
@@ -415,11 +537,12 @@ export default function AdminConsultationsPage() {
             id="consultation-pilot-email"
             type="email"
             value={email}
+            disabled={generalAccessOpen}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="가입된 설계사 이메일"
-            className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-3 text-[13px] text-ink"
+            className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-3 text-[13px] text-ink disabled:opacity-50"
           />
-          <button type="submit" disabled={adding} className="min-h-11 rounded-xl bg-brand px-4 text-[13px] font-bold text-white disabled:opacity-50">
+          <button type="submit" disabled={adding || generalAccessOpen} className="min-h-11 rounded-xl bg-brand px-4 text-[13px] font-bold text-white disabled:opacity-50">
             {adding ? "추가 중" : "파일럿 추가"}
           </button>
         </form>
@@ -435,6 +558,7 @@ export default function AdminConsultationsPage() {
                 <p className="min-w-0 flex-1 break-all text-[13px] font-bold text-ink">{pilot.email}</p>
                 <button
                   type="button"
+                  disabled={generalAccessOpen}
                   onClick={async () => {
                     const changed = await adminUpdateConsultationPilot(pilot.user_id, {
                       recording_allowed: !pilot.recording_allowed,
@@ -444,12 +568,13 @@ export default function AdminConsultationsPage() {
                       pilot_users: current.pilot_users.map((row) => row.user_id === changed.user_id ? changed : row),
                     } : current);
                   }}
-                  className="min-h-11 rounded-xl border border-line px-3 text-[12px] font-bold text-ink2"
+                  className="min-h-11 rounded-xl border border-line px-3 text-[12px] font-bold text-ink2 disabled:opacity-50"
                 >
                   {pilot.recording_allowed ? "녹음 허용 중" : "녹음 허용"}
                 </button>
                 <button
                   type="button"
+                  disabled={generalAccessOpen}
                   onClick={async () => {
                     const changed = await adminUpdateConsultationPilot(pilot.user_id, {
                       summary_allowed: !pilot.summary_allowed,
@@ -459,12 +584,13 @@ export default function AdminConsultationsPage() {
                       pilot_users: current.pilot_users.map((row) => row.user_id === changed.user_id ? changed : row),
                     } : current);
                   }}
-                  className="min-h-11 rounded-xl border border-line px-3 text-[12px] font-bold text-ink2"
+                  className="min-h-11 rounded-xl border border-line px-3 text-[12px] font-bold text-ink2 disabled:opacity-50"
                 >
                   {pilot.summary_allowed ? "AI 요약 허용 중" : "AI 요약 허용"}
                 </button>
                 <button
                   type="button"
+                  disabled={generalAccessOpen}
                   onClick={async () => {
                     await adminRemoveConsultationPilot(pilot.user_id);
                     setData((current) => current ? {
@@ -472,7 +598,7 @@ export default function AdminConsultationsPage() {
                       pilot_users: current.pilot_users.filter((row) => row.user_id !== pilot.user_id),
                     } : current);
                   }}
-                  className="min-h-11 rounded-xl px-3 text-[12px] font-bold text-danger-ink"
+                  className="min-h-11 rounded-xl px-3 text-[12px] font-bold text-danger-ink disabled:opacity-50"
                 >
                   파일럿에서 빼기
                 </button>
