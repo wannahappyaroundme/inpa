@@ -8,6 +8,18 @@
 
 **Tech Stack:** Django 5.2/DRF/Decimal, Next.js 16/React 19/TypeScript, Vitest/Testing Library, Django TestCase.
 
+## 2026-08-18 검증 결과 (아래 원문은 그대로 유지)
+
+**이 릴리스 범위의 지적은 전부 해소된 상태다. 재검증 불필요.** 2026-08-18 세션에서 코드 대조로 확인했다.
+
+- 보장 기준선 단위·상품군·연령·성별 판정: 2026-07-29 `analysis/baselines.py` 신설로 판정 권위가 한곳으로 모였고 골든 테스트로 고정됐다.
+- 비교·공유·영업 문구 사실성: `comparison_source`/`guide_source` 표기, 중립 색상, "공유 당시" + `captured_at` KST 표기가 적용됐다.
+- 소개 카드 연락처 필수: FE·BE가 동일 정규식으로 검증한다.
+- 셀프진단 동의 선커밋: 외부 AI 호출 전 별도 트랜잭션으로 동의 증적을 먼저 커밋한다.
+- 미발급 공유 토큰 404: `LEGACY_SHARE_FALLBACK_ENABLED`로 분리했고 기본값은 `False`다.
+
+아래 원문은 당시 구현 계획 기록으로 보존한다. 전체 잔존 목록은 `docs/superpowers/specs/2026-07-21-comprehensive-stability-upgrade.md` §0 참고.
+
 ## Global Constraints
 
 - 승인 설계는 `docs/superpowers/specs/2026-07-21-comprehensive-stability-upgrade.md`의 Release 1이다.

@@ -8,6 +8,22 @@
 
 **Tech Stack:** Django 5.2/PostgreSQL, Next.js 16.2.9/React 19, Vitest, Git CLI, npm audit, Render/Vercel.
 
+## 2026-08-18 검증 결과 (아래 원문은 그대로 유지)
+
+**이 릴리스 범위는 거의 전부 해소됐다.** 2026-08-18 세션에서 코드 대조 + 테스트 실행으로 확인했다.
+
+해소:
+- **베타 계측** (PR #174, 머지 `4b067b4`): `billing/credit.py::_consume`의 early return을 제거해 '차단은 없지만 계측은 하는' 계약으로 바꿨다. 무제한 모드에서도 `UsageMeter`가 증가하고, 반환 dict의 `limit`/`remaining`은 계속 `None`(호출자 계약 유지), `count`/`year_month`만 실제값이다. **핵심: 무제한일 때 `resolve_effective_plan`을 호출하지 않는다.** Free Plan 미시드 환경에서 RuntimeError로 계측이 죽는 것을 막기 위함이다. `GET /billing/usage/`는 무제한 시 한도·잔여를 null로 내리되 `_build_usage_response(hide_limits_when_unlimited=)`로 분리해 관리자 경로는 명목 한도를 유지한다. 환불 대칭성은 `import_services`의 `credit_consumed`/`credit_year_month`로 이미 확보돼 추가 코드가 없었다. 마이그레이션 0. 검증: BE 2,585 OK/39 skip, billing+admin_console+consultations 548 OK.
+- **전역 오류 경계** (PR #173, 머지 `52cf912`): FE 루트 `error.tsx`/`global-error.tsx`/`not-found.tsx` 신설. `global-error`는 전역 CSS가 적용되지 않아 인라인 스타일을 쓰고, 두 경계 모두 현행 Next 16 계약대로 `unstable_retry ?? reset`을 사용한다. Playwright로 실렌더 확인.
+- 평가 명령 hermetic 실행: `extraction_eval.py`가 존재하지 않는 `prunable` record만 무시하도록 이미 처리됨.
+- Render Blueprint 정합: 2026-07-22 `4251bdb`로 이미 처리됨.
+- `docs/dev/20-devops-and-deploy.md`의 Render Free 플랜 표기: 2026-08-18에 Starter 운영 상태로 정정 완료 (같은 파일의 2026-07-22 전환 기록과 일치).
+
+잔존:
+- `analysis/models.py`의 `INSURANCE_TYPE` choices에 실손(3)이 없다.
+
+아래 원문은 당시 구현 계획 기록으로 보존한다. 전체 잔존 목록은 `docs/superpowers/specs/2026-07-21-comprehensive-stability-upgrade.md` §0 참고.
+
 ## Global Constraints
 
 - 승인 설계는 `docs/superpowers/specs/2026-07-21-comprehensive-stability-upgrade.md`의 Release 4다.

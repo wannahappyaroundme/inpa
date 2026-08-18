@@ -366,7 +366,7 @@ vercel rollback <deployment-url>
 | 항목 | 값 |
 |---|---|
 | **서비스 타입** | Web Service |
-| **플랜** | Free (무료, 슬립 있음) → MVP 졸업 시 Starter $7/월 |
+| **플랜** | **Starter $7/월 (현재 운영 상태, 2026-07-22 전환 완료 · §14 G-10)**. 작업공간은 Hobby 무료 유지, `inpa-be` 인스턴스만 Starter. 초기 계획이던 Free(슬립 있음)는 더 이상 사용하지 않는다 |
 | **GitHub 연동** | Render 대시보드 → "New Web Service" → GitHub 레포 선택 |
 | **Production 브랜치** | `main` |
 | **빌드 명령** | `pip install -r requirements.txt` |

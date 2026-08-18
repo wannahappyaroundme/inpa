@@ -8,6 +8,21 @@
 
 **Tech Stack:** Next.js 16/React 19/TypeScript, Vitest/Testing Library, DRF `ApiError` contract, Intl DateTimeFormat.
 
+## 2026-08-18 검증 결과 (아래 원문은 그대로 유지)
+
+**이 릴리스 범위는 일부만 해소됐다. 잔존 항목이 가장 많이 남은 릴리스다.** 2026-08-18 세션에서 코드 대조로 확인했다.
+
+해소:
+- 예약 설정 로드 실패 시 저장 차단은 적용됨.
+
+잔존 (후속 후보, 아직 미착수):
+1. `/analysis` 화면의 고객 목록이 API 실패 시 재시도 없이 빈 상태로 표시된다 (`inpa_fe/app/analysis/page.tsx:176-187`).
+2. 요청 경합 가드가 세 곳에 미적용이다 (`app/home/page.tsx:212`, `app/schedule/page.tsx:125`, `app/customers/page.tsx:221`). 유틸 `lib/latest-request.ts`는 이미 존재하므로 적용만 하면 된다.
+3. 일정 입력이 브라우저 시간대에 의존한다 (`app/schedule/page.tsx:74,76,81`). 공용 KST 모듈이 아직 없다.
+4. 예약 설정 저장이 전체 payload PATCH다. diff PATCH 미적용.
+
+아래 원문은 당시 구현 계획 기록으로 보존한다. 전체 잔존 목록은 `docs/superpowers/specs/2026-07-21-comprehensive-stability-upgrade.md` §0 참고.
+
 ## Global Constraints
 
 - 승인 설계는 `docs/superpowers/specs/2026-07-21-comprehensive-stability-upgrade.md`의 Release 2다.

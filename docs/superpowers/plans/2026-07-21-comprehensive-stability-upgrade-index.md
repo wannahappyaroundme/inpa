@@ -8,6 +8,17 @@
 
 **Tech Stack:** Django 5.2 LTS/DRF/PostgreSQL, Next.js 16/React 19/TypeScript/Tailwind, Celery/Redis, Google Calendar API, Vitest/Testing Library, Django TestCase, Render/Vercel.
 
+## 2026-08-18 검증 결과 (아래 원문은 그대로 유지)
+
+2026-08-18 세션에서 설계서 지적 12건을 코드 대조 + 테스트 실행으로 재확인했다. **결론: 8건은 이미 다른 릴리스에서 해소, 2건은 2026-08-18 릴리스로 처리, 6개 항목이 잔존한다.** 같은 검증을 반복하지 말 것.
+
+- Release 1 범위: 전부 해소 (`analysis/baselines.py`, 비교·공유 문구 사실성, 소개 카드 연락처, 셀프진단 동의 선커밋, 미발급 공유 토큰 404).
+- Release 2 범위: 예약 설정 로드 실패 시 저장 차단만 해소. 화면 오류 상태·요청 경합·시간대 항목은 잔존.
+- Release 3 범위: PR #173(`52cf912`)으로 처리. WorkHour 완전중복 DB 제약만 잔존.
+- Release 4 범위: 베타 계측은 PR #174(`4b067b4`), 전역 오류 경계는 PR #173, 평가 명령 hermetic·Render Blueprint 정합은 기존 해소. `INSURANCE_TYPE` 실손(3) 누락만 잔존.
+
+잔존 6건의 정확한 파일·라인 목록은 설계서 `docs/superpowers/specs/2026-07-21-comprehensive-stability-upgrade.md` §0에 있다. 이 인덱스는 요약만 둔다.
+
 ## 승인 기준 문서
 
 - 설계 SSOT: `docs/superpowers/specs/2026-07-21-comprehensive-stability-upgrade.md`
