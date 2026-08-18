@@ -1,0 +1,2564 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>인파 영업·마케팅 실행판</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --canvas: #f3f5f9;
+      --surface: #ffffff;
+      --surface-2: #f4f6fa;
+      --ink: #14171f;
+      --ink-2: #475569;
+      --ink-3: #6b7280;
+      --line: #e6e9ef;
+      --line-2: #cdd3dd;
+      --brand: #2f58dc;
+      --brand-ink: #22409e;
+      --brand-tint: #e9eefc;
+      --success: #3f7a48;
+      --success-tint: #e7f1e9;
+      --warning: #8a6418;
+      --warning-tint: #fbf1dc;
+      --danger: #9a2d28;
+      --danger-tint: #fbeae9;
+      --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html { max-width: 100%; overflow-x: hidden; scroll-behavior: smooth; }
+    body {
+      max-width: 100%;
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select, textarea { font: inherit; }
+    button, input, select { min-height: 44px; }
+    button { cursor: pointer; }
+    a { color: inherit; }
+    :focus-visible { outline: 3px solid rgba(47, 88, 220, 0.28); outline-offset: 2px; }
+    .skip-link {
+      position: absolute;
+      left: 12px;
+      top: -80px;
+      z-index: 100;
+      background: var(--ink);
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: 8px;
+    }
+    .skip-link:focus { top: 12px; }
+
+    .app-shell { min-width: 0; min-height: 100vh; }
+    .hero {
+      background:
+        radial-gradient(circle at 88% 15%, rgba(255,255,255,0.18), transparent 28%),
+        linear-gradient(135deg, #22409e 0%, #2f58dc 58%, #5877e2 100%);
+      color: #fff;
+      padding: 28px clamp(18px, 5vw, 64px) 26px;
+    }
+    .hero-inner { max-width: 1540px; margin: 0 auto; }
+    .eyebrow { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.08em; opacity: 0.82; }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: end;
+    }
+    .hero-title-input,
+    .hero-summary-input {
+      width: 100%;
+      border: 1px solid transparent;
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+      border-radius: 12px;
+      padding: 8px 10px;
+    }
+    .hero-title-input {
+      font-size: clamp(27px, 4vw, 44px);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+    }
+    .hero-summary-input {
+      min-height: 68px;
+      margin-top: 6px;
+      resize: vertical;
+      line-height: 1.6;
+    }
+    .hero-title-input::placeholder,
+    .hero-summary-input::placeholder { color: rgba(255,255,255,0.7); }
+    .hero-title-input:hover,
+    .hero-title-input:focus,
+    .hero-summary-input:hover,
+    .hero-summary-input:focus { border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.13); }
+    .hero-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+      align-items: center;
+    }
+    .hero-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 6px 10px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.1);
+      font-size: 13px;
+    }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid var(--line-2);
+      border-radius: 11px;
+      background: var(--surface);
+      color: var(--ink);
+      padding: 9px 13px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+    .btn:hover { background: var(--surface-2); }
+    .btn-primary { border-color: var(--brand); background: var(--brand); color: #fff; }
+    .btn-primary:hover { background: var(--brand-ink); }
+    .btn-ghost { border-color: rgba(255,255,255,0.25); background: rgba(255,255,255,0.1); color: #fff; }
+    .btn-ghost:hover { background: rgba(255,255,255,0.17); }
+    .btn-danger { border-color: #efc1be; background: var(--danger-tint); color: var(--danger); }
+    .btn-small { min-height: 36px; padding: 6px 10px; font-size: 13px; }
+    .icon { width: 18px; height: 18px; display: inline-block; }
+
+    .section-nav-wrap {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      max-width: 100%;
+      overflow: hidden;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,0.96);
+      backdrop-filter: blur(12px);
+    }
+    .section-nav {
+      max-width: 1540px;
+      margin: 0 auto;
+      padding: 8px clamp(18px, 5vw, 64px);
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+    .section-nav button {
+      flex: 0 0 auto;
+      min-height: 40px;
+      border: 0;
+      padding: 9px 12px;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--ink-2);
+      font-size: 14px;
+      font-weight: 650;
+    }
+    .section-nav button:hover { background: var(--brand-tint); color: var(--brand-ink); }
+    .section-nav button[aria-selected="true"] { background: var(--brand); color: #fff; }
+    .tab-panel[hidden] { display: none; }
+
+    main {
+      min-width: 0;
+      max-width: 1540px;
+      margin: 0 auto;
+      padding: 26px clamp(18px, 5vw, 64px) 80px;
+    }
+    .section { min-width: 0; scroll-margin-top: 78px; margin-top: 32px; }
+    .section:first-child { margin-top: 0; }
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .section-title { margin: 0; font-size: 24px; letter-spacing: -0.035em; }
+    .section-desc { margin: 5px 0 0; color: var(--ink-3); line-height: 1.55; }
+    .section-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+    .card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .card-body { padding: 18px; }
+    .notice {
+      display: none;
+      margin: 0 0 16px;
+      padding: 13px 15px;
+      border: 1px solid #e8d3a2;
+      border-radius: 12px;
+      background: var(--warning-tint);
+      color: var(--warning);
+    }
+    .notice.is-visible { display: block; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .summary-card { padding: 17px; }
+    .summary-label { color: var(--ink-3); font-size: 13px; }
+    .summary-value { display: block; margin-top: 8px; font-size: 29px; font-weight: 750; letter-spacing: -0.04em; }
+    .summary-context { margin-top: 6px; color: var(--ink-2); font-size: 13px; }
+    .summary-card.is-brand { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .summary-card.is-brand .summary-label,
+    .summary-card.is-brand .summary-context { color: rgba(255,255,255,0.78); }
+
+    .progress-track { height: 9px; overflow: hidden; border-radius: 999px; background: var(--surface-2); }
+    .progress-bar { height: 100%; border-radius: inherit; background: var(--brand); transition: width 180ms ease; }
+    .progress-bar.is-success { background: var(--success); }
+    .progress-bar.is-warning { background: #d69a24; }
+    .kpi-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; }
+    .kpi-layout > * { min-width: 0; }
+    .focus-card { padding: 18px; background: var(--brand-tint); border-color: #cad5f5; }
+    .focus-card h3 { margin: 0 0 8px; color: var(--brand-ink); }
+    .focus-card p { margin: 0; color: var(--ink-2); line-height: 1.6; }
+    .focus-list { margin: 15px 0 0; padding-left: 20px; color: var(--ink-2); line-height: 1.7; }
+
+    .table-wrap { width: 100%; max-width: 100%; overflow-x: auto; border-radius: var(--radius); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: var(--surface-2); color: var(--ink-2); font-size: 12px; font-weight: 750; white-space: nowrap; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr.is-done { background: #f4f9f5; }
+    tbody tr.is-overdue { background: #fff9ed; }
+    .num { font-variant-numeric: tabular-nums; text-align: right; }
+    .nowrap { white-space: nowrap; }
+
+    .field,
+    .field-select,
+    .field-area {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ink);
+      padding: 7px 8px;
+    }
+    .field { min-width: 92px; }
+    .field[type="number"] { min-width: 70px; text-align: right; }
+    .field[type="date"] { min-width: 142px; }
+    .field-select { min-width: 110px; }
+    .field-area { min-width: 180px; min-height: 64px; resize: vertical; line-height: 1.45; }
+    .field:hover, .field:focus,
+    .field-select:hover, .field-select:focus,
+    .field-area:hover, .field-area:focus { border-color: var(--line-2); background: #fff; }
+    .field-compact { min-width: 64px; width: 72px; }
+    .check-wrap { display: inline-grid; place-items: center; width: 44px; height: 44px; }
+    .check-wrap input { width: 21px; height: 21px; accent-color: var(--brand); }
+
+    .today-summary {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 15px 17px;
+      margin-bottom: 12px;
+      background: var(--brand-tint);
+      border-color: #cad5f5;
+    }
+    .today-summary strong { color: var(--brand-ink); font-size: 20px; }
+    .today-summary .progress-track { flex: 1 1 180px; }
+    .checklist-stack { display: grid; gap: 10px; }
+    .checklist-item {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .checklist-item.is-done { background: #f4f9f5; }
+    .checklist-item.is-overdue { border-color: #e8d3a2; background: #fffaf0; }
+    .checklist-complete {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--surface-2);
+    }
+    .checklist-complete input { width: 23px; height: 23px; accent-color: var(--brand); }
+    .checklist-content { min-width: 0; }
+    .checklist-action-input {
+      width: 100%;
+      min-height: 50px;
+      padding: 8px 10px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--ink);
+      font-size: 16px;
+      font-weight: 750;
+      line-height: 1.45;
+      resize: vertical;
+    }
+    .checklist-action-input:hover, .checklist-action-input:focus { border-color: var(--line-2); background: #fff; }
+    .checklist-fields {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .mini-control { display: grid; gap: 4px; min-width: 0; color: var(--ink-3); font-size: 11px; font-weight: 700; }
+    .mini-control input, .mini-control select, .mini-control textarea {
+      width: 100%;
+      min-width: 0;
+      min-height: 40px;
+      padding: 7px 8px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .mini-control textarea { resize: vertical; line-height: 1.4; }
+    .checklist-actions { display: grid; gap: 6px; }
+    .overdue-panel { margin-bottom: 14px; overflow: hidden; }
+    .overdue-panel > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 16px;
+      cursor: pointer;
+      color: var(--warning);
+      font-weight: 750;
+      list-style: none;
+    }
+    .overdue-panel .checklist-stack { padding: 0 14px 14px; }
+
+    .calendar-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+    .calendar-month-title { margin: 0; font-size: 20px; letter-spacing: -0.03em; }
+    .calendar-nav-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+    .calendar-scroll { width: 100%; max-width: 100%; overflow-x: auto; border-radius: var(--radius); }
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      min-width: 980px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--line);
+      gap: 1px;
+      box-shadow: var(--shadow);
+    }
+    .calendar-weekday {
+      padding: 10px 8px;
+      background: var(--surface-2);
+      color: var(--ink-2);
+      text-align: center;
+      font-size: 12px;
+      font-weight: 750;
+    }
+    .calendar-weekday:first-child { color: var(--danger); }
+    .calendar-day {
+      min-width: 0;
+      min-height: 148px;
+      padding: 8px;
+      background: var(--surface);
+    }
+    .calendar-day.is-outside { background: #fafbfc; }
+    .calendar-day.is-outside .calendar-date-button, .calendar-day.is-outside .calendar-task { opacity: 0.48; }
+    .calendar-day.is-selected { box-shadow: inset 0 0 0 2px var(--brand); }
+    .calendar-day.is-today .calendar-date-button { background: var(--brand); color: #fff; }
+    .calendar-date-button {
+      min-width: 32px;
+      min-height: 32px;
+      padding: 4px 7px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--ink);
+      font-weight: 750;
+    }
+    .calendar-tasks { display: grid; gap: 5px; margin-top: 5px; }
+    .calendar-task {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      min-width: 0;
+      padding: 6px 7px;
+      border-radius: 8px;
+      background: var(--brand-tint);
+      color: var(--brand-ink);
+      font-size: 11px;
+      line-height: 1.35;
+      cursor: pointer;
+    }
+    .calendar-task.is-done { background: var(--success-tint); color: var(--success); text-decoration: line-through; }
+    .calendar-task input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: var(--brand); }
+    .calendar-task span { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .calendar-more { margin: 5px 2px 0; color: var(--ink-3); font-size: 11px; font-weight: 700; }
+    .calendar-detail { margin-top: 18px; }
+    .calendar-detail-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .calendar-detail-head h3 { margin: 0; font-size: 19px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--ink-2);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge-brand { background: var(--brand-tint); color: var(--brand-ink); }
+    .badge-success { background: var(--success-tint); color: var(--success); }
+    .badge-warning { background: var(--warning-tint); color: var(--warning); }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: end;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .control { display: grid; gap: 5px; }
+    .control label { color: var(--ink-3); font-size: 12px; font-weight: 700; }
+    .control input, .control select {
+      border: 1px solid var(--line-2);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--ink);
+      padding: 8px 10px;
+    }
+    .switch {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      gap: 8px;
+      padding: 0 6px;
+      color: var(--ink-2);
+      font-weight: 650;
+    }
+    .switch input { width: 20px; height: 20px; accent-color: var(--brand); }
+
+    .month-group { margin-top: 13px; }
+    .month-group > summary,
+    .scenario-card > summary,
+    .review-card > summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 15px 17px;
+      font-weight: 750;
+    }
+    summary::-webkit-details-marker { display: none; }
+    .month-group > summary::after,
+    .scenario-card > summary::after,
+    .review-card > summary::after { content: "펼치기"; color: var(--brand-ink); font-size: 12px; }
+    details[open] > summary::after { content: "접기"; }
+    .month-body, .scenario-body, .review-body { border-top: 1px solid var(--line); padding: 14px 17px 17px; }
+    .empty-state { padding: 34px 18px; text-align: center; color: var(--ink-3); }
+
+    .scenario-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .scenario-card { overflow: hidden; }
+    .scenario-number {
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      background: var(--brand-tint);
+      color: var(--brand-ink);
+      font-size: 12px;
+    }
+    .scenario-summary-main { display: flex; gap: 10px; align-items: center; min-width: 0; }
+    .scenario-summary-main span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .form-grid .control textarea {
+      width: 100%;
+      min-height: 92px;
+      border: 1px solid var(--line-2);
+      border-radius: 10px;
+      padding: 10px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+    .form-grid .control.is-wide { grid-column: 1 / -1; }
+
+    .review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .review-card { overflow: hidden; }
+    .review-fields { display: grid; gap: 10px; }
+    .review-fields label { display: grid; gap: 5px; color: var(--ink-2); font-size: 13px; font-weight: 650; }
+    .review-fields textarea { min-height: 76px; border: 1px solid var(--line-2); border-radius: 10px; padding: 10px; resize: vertical; line-height: 1.5; }
+
+    .toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 60;
+      max-width: min(420px, calc(100vw - 40px));
+      padding: 12px 15px;
+      border-radius: 11px;
+      background: var(--ink);
+      color: #fff;
+      box-shadow: 0 12px 30px rgba(20,23,31,0.22);
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: 160ms ease;
+    }
+    .toast.is-visible { opacity: 1; transform: none; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .segmented { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+    .segmented button { min-height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); padding: 7px 11px; font-weight: 700; }
+    .segmented button.is-active { background: var(--surface); color: var(--brand-ink); box-shadow: var(--shadow); }
+    .target-filters { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(5, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px; }
+    .target-filters .field, .target-filters .field-select { width: 100%; }
+    .target-primary { min-width: 250px; }
+    .target-primary strong { display: block; margin-bottom: 4px; }
+    .target-address { min-width: 290px; color: var(--ink-2); line-height: 1.45; }
+    .target-address-actions, .route-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+    .target-score { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; border-radius: 999px; background: var(--success-tint); color: var(--success); font-weight: 800; }
+    .target-mobile-list { display: none; gap: 10px; }
+    .target-mobile-card { padding: 16px; }
+    .target-mobile-card h3 { margin: 0; font-size: 17px; }
+    .target-mobile-card p { margin: 7px 0 0; color: var(--ink-2); line-height: 1.5; }
+    .route-decision { margin-bottom: 14px; padding: 18px; border-color: #cad5f5; background: var(--brand-tint); }
+    .route-decision h3 { margin: 0 0 8px; color: var(--brand-ink); }
+    .route-decision ol { margin: 0; padding-left: 22px; color: var(--ink-2); line-height: 1.75; }
+    .route-overview { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .route-node { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+    .route-node.is-selected { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(47,88,220,.12); }
+    .route-node button { width: 100%; min-height: 0; border: 0; padding: 0; background: transparent; text-align: left; }
+    .route-node strong, .route-node span { display: block; }
+    .route-node span { margin-top: 5px; color: var(--ink-3); font-size: 12px; }
+    .route-cluster-list { display: grid; gap: 12px; }
+    .route-card { padding: 18px; }
+    .route-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .route-card h3 { margin: 0; font-size: 18px; }
+    .route-stop-list { margin: 13px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+    .route-stop { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px; border-radius: 11px; background: var(--surface-2); }
+    .route-stop-order { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 800; }
+    .route-stop strong, .route-stop span { display: block; }
+    .route-stop span { margin-top: 3px; color: var(--ink-3); font-size: 12px; }
+    .monthly-goal-table td { min-width: 110px; }
+    .source-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .source-card { padding: 14px; }
+    .source-card h3 { margin: 0 0 7px; font-size: 16px; }
+    .source-card p { margin: 4px 0; color: var(--ink-2); line-height: 1.5; }
+
+    @media (max-width: 1100px) {
+      .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .kpi-layout { grid-template-columns: minmax(0, 1fr); }
+      .scenario-grid, .review-grid { grid-template-columns: minmax(0, 1fr); }
+      .checklist-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .target-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .route-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 760px) {
+      .hero { padding: 22px 16px; }
+      .hero-grid { grid-template-columns: 1fr; }
+      .hero-summary-input { min-height: 116px; }
+      .hero-actions { justify-content: flex-start; }
+      .hero-actions .btn { flex: 1 1 132px; }
+      .section-nav { padding: 7px 12px; }
+      main { padding: 20px 14px 64px; }
+      .section-head { align-items: flex-start; flex-direction: column; }
+      .section-actions { width: 100%; justify-content: flex-start; }
+      .section-actions .btn { flex: 1 1 140px; }
+      .summary-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .summary-card { padding: 14px; }
+      .summary-value { font-size: 24px; }
+      .form-grid { grid-template-columns: 1fr; }
+      .form-grid .control.is-wide { grid-column: auto; }
+      .toolbar { align-items: stretch; }
+      .control { flex: 1 1 145px; }
+      .switch { flex: 1 1 100%; }
+      .calendar-toolbar, .calendar-detail-head { align-items: flex-start; flex-direction: column; }
+      .calendar-grid { min-width: 920px; }
+      .checklist-item { grid-template-columns: auto minmax(0, 1fr); }
+      .checklist-actions { grid-column: 2; display: flex; flex-wrap: wrap; }
+      .checklist-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .target-filters { grid-template-columns: 1fr 1fr; }
+      .target-desktop-table { display: none; }
+      .target-mobile-list { display: grid; }
+      .route-overview, .source-list { grid-template-columns: 1fr; }
+      .route-stop { grid-template-columns: 38px minmax(0, 1fr); }
+      .route-stop .route-actions { grid-column: 2; }
+      th, td { padding: 9px 8px; }
+    }
+    @media (max-width: 430px) {
+      .summary-grid { grid-template-columns: 1fr; }
+      .section-title { font-size: 21px; }
+      .hero-actions .btn { flex-basis: 100%; }
+    }
+
+    @media print {
+      @page { size: A4 landscape; margin: 10mm; }
+      body { background: #fff; font-size: 10pt; }
+      .hero { background: #fff; color: #000; padding: 0 0 10mm; }
+      .hero-title-input, .hero-summary-input { color: #000; background: #fff; border: 0; padding: 0; }
+      .hero-chip { color: #000; border-color: #aaa; background: #fff; }
+      .hero-actions, .section-nav-wrap, .section-actions, .toolbar, .row-actions, .toast, .notice { display: none !important; }
+      main { max-width: none; padding: 0; }
+      .section { break-before: page; margin-top: 0; }
+      #todaySection { break-before: auto; }
+      .card, .month-group, .scenario-card, .review-card { box-shadow: none; break-inside: avoid; }
+      .table-wrap { overflow: visible; }
+      .calendar-scroll { overflow: visible; }
+      .calendar-grid { min-width: 0; box-shadow: none; }
+      .calendar-nav-actions, .checklist-actions { display: none !important; }
+      table { font-size: 8pt; }
+      .field, .field-select, .field-area, .review-fields textarea, .form-grid .control textarea { border: 0; padding: 2px; min-height: auto; }
+      details:not([open]) > *:not(summary) { display: block; }
+      details > summary::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#mainContent">본문 바로가기</a>
+  <div class="app-shell" id="appRoot">
+    <header class="hero" id="campaignHeader"></header>
+    <div class="section-nav-wrap">
+      <nav class="section-nav" id="sectionNav" aria-label="실행판 메뉴">
+        <button type="button" role="tab" id="todayTab" aria-controls="todayPanel" aria-selected="true" tabindex="0" data-action="switch-tab" data-tab="today">오늘 실행</button>
+        <button type="button" role="tab" id="targetsTab" aria-controls="targetsPanel" aria-selected="false" tabindex="-1" data-action="switch-tab" data-tab="targets">대상 관리</button>
+        <button type="button" role="tab" id="planningTab" aria-controls="planningPanel" aria-selected="false" tabindex="-1" data-action="switch-tab" data-tab="planning">계획·성과</button>
+        <button type="button" role="tab" id="locationsTab" aria-controls="locationsPanel" aria-selected="false" tabindex="-1" data-action="switch-tab" data-tab="locations">위치·동선</button>
+        <button type="button" role="tab" id="scenariosTab" aria-controls="scenariosPanel" aria-selected="false" tabindex="-1" data-action="switch-tab" data-tab="scenarios">영업 시나리오</button>
+      </nav>
+    </div>
+
+    <main id="mainContent">
+      <p class="notice" id="storageNotice" role="status"></p>
+      <div class="tab-panel" id="todayPanel" role="tabpanel" aria-labelledby="todayTab">
+        <section class="section" id="todaySection" aria-labelledby="todayTitle"></section>
+      </div>
+      <div class="tab-panel" id="targetsPanel" role="tabpanel" aria-labelledby="targetsTab" hidden>
+        <section class="section" id="targetSection" aria-labelledby="targetTitle"></section>
+      </div>
+      <div class="tab-panel" id="planningPanel" role="tabpanel" aria-labelledby="planningTab" hidden>
+        <section class="section" id="monthlyGoalSection" aria-labelledby="monthlyGoalTitle"></section>
+        <section class="section" id="augustExecutionSection" aria-labelledby="augustExecutionTitle"></section>
+        <section class="section" id="calendarSection" aria-labelledby="calendarTitle"></section>
+        <section class="section" id="overviewSection" aria-labelledby="overviewTitle"></section>
+        <section class="section" id="partnerSection" aria-labelledby="partnerTitle"></section>
+        <section class="section" id="researchSection" aria-labelledby="researchTitle"></section>
+        <section class="section" id="reviewSection" aria-labelledby="reviewTitle"></section>
+      </div>
+      <div class="tab-panel" id="locationsPanel" role="tabpanel" aria-labelledby="locationsTab" hidden>
+        <section class="section" id="locationSection" aria-labelledby="locationTitle"></section>
+      </div>
+      <div class="tab-panel" id="scenariosPanel" role="tabpanel" aria-labelledby="scenariosTab" hidden>
+        <section class="section" id="scenarioSection" aria-labelledby="scenarioTitle"></section>
+      </div>
+    </main>
+  </div>
+
+  <input class="sr-only" type="file" id="importFile" accept="application/json,.json">
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const STORAGE_KEY = "inpa-sales-marketing-execution-v1";
+      const SCHEMA_VERSION = 2;
+      const CAMPAIGN_START = "2026-08-03";
+      const CAMPAIGN_END = "2026-12-31";
+      const STATUS_OPTIONS = [
+        "조사", "연락 예정", "자료 전달", "일정 확정", "방문 완료",
+        "설계사 소개", "설계파트너", "첫 사용", "재사용", "6주 완료",
+        "최종 사용자", "중단"
+      ];
+      const CONTACT_STATUS_OPTIONS = ["미연락", "1차연락", "담당자연결", "미팅제안", "미팅확정", "보류", "거절"];
+      const MEETING_STATUS_OPTIONS = ["미정", "일정확정", "완료", "재방문", "종료"];
+      const JUDGEMENT_OPTIONS = ["", "미달", "달성", "초과달성"];
+      const ROLE_OPTIONS = ["대표", "운영담당", "두 명 함께"];
+      const TASK_CATEGORIES = ["준비", "전화·문자", "방문", "설명", "첫 사용", "인터뷰", "소개", "출장", "회고"];
+      const PHASES = [
+        { start: "2026-08-03", end: "2026-08-07", region: "서울 전역", mode: "준비" },
+        { start: "2026-08-10", end: "2026-08-31", region: "서울 4개 권역", mode: "서울 집중" },
+        { start: "2026-09-01", end: "2026-09-30", region: "서울·인천·부천·수원·성남", mode: "수도권 확장" },
+        { start: "2026-10-01", end: "2026-10-15", region: "천안·대전·청주", mode: "충청 출장" },
+        { start: "2026-10-16", end: "2026-10-31", region: "대구·부산", mode: "영남 출장" },
+        { start: "2026-11-01", end: "2026-11-13", region: "울산·창원 또는 광주·전주", mode: "신규 모집 마감" },
+        { start: "2026-11-14", end: "2026-12-31", region: "성과 상위 4개 권역", mode: "유지·인터뷰" }
+      ];
+      const REGION_ROTATIONS = {
+        "서울 집중": [
+          "여의도·영등포·구로·금천",
+          "강남·서초·송파·강동",
+          "종로·중구·마포·서대문",
+          "성동·광진·노원·강북"
+        ],
+        "수도권 확장": ["서울 재방문", "인천·부천", "수원·성남", "서울 서남권", "서울 동남권"],
+        "충청 출장": ["천안", "대전", "청주"],
+        "영남 출장": ["대구", "부산"],
+        "신규 모집 마감": ["울산·창원", "광주·전주"],
+        "유지·인터뷰": ["서울", "수도권", "충청", "영남·호남"]
+      };
+      const OFFICIAL_SOURCE_URLS = {"kyobo":"https://www.kyobo.com/dgt/web/dtm/cs/ub/PCSUBNL7000","samsungFire":"https://www.samsungfire.com/sfmi/ui/m/home/cust/MO_CS_SearchBranchList.html","db":"https://www.idbins.com/FWCUSP1331.do"};
+      const TARGET_ACTIONS = {
+        base: "지점 대표번호로 지점장·팀장 연결 요청 → 15분 시연·사용성 인터뷰 일정 확정",
+        cluster: "같은 건물의 지점별 관리직 미팅을 30분 간격으로 사전 확정 → 손글씨 엽서·리플렛·명함·스티커 전달",
+        national: "같은 권역 2곳 이상 일정 확정 후 KTX·항공 이동 → 1명은 심층 인터뷰, 나머지는 15분 시연"
+      };
+      const OFFICIAL_TARGET_ROWS = [[1,"우선 40","8/3-8/7","구로·신도림","신도림테크노마트","생명","교보생명","FP","남서울FP","서울 구로구 새말로 97 26층 남서울FP지점 (구로동, 신도림테크노마트)","02-851-2996",5,5,5,5,"cluster","kyobo"],[2,"우선 40","8/3-8/7","구로·신도림","신도림테크노마트","생명","교보생명","FP","금천FP","서울 구로구 새말로 97 27층 교보생명 금천FP지점 (구로동, 신도림테크노마트)","02-852-1765",5,5,5,5,"cluster","kyobo"],[3,"우선 40","8/3-8/7","구로·신도림","신도림테크노마트","생명","교보생명","FP","대방FP","서울 구로구 새말로 97 26층 (구로동, 신도림테크노마트)","02-862-5653",5,5,5,5,"cluster","kyobo"],[4,"우선 40","8/3-8/7","구로·신도림","신도림테크노마트","생명","교보생명","FP","천일FP","서울 구로구 새말로 97 27층 (구로동, 신도림테크노마트)","02-837-9758",5,5,5,5,"cluster","kyobo"],[5,"우선 40","8/3-8/7","구로·신도림","신도림테크노마트","생명","교보생명","FP","프라임FP","서울 구로구 새말로 97 27층 (구로동, 신도림테크노마트)","02-869-0351",5,5,5,5,"cluster","kyobo"],[6,"우선 40","8/3-8/7","구로·신도림","신도림테크노마트","생명","교보생명","FP","한솔FP","서울 구로구 새말로 97 27층 한솔FP지점 (구로동, 신도림테크노마트)","02-859-7943",5,5,5,5,"cluster","kyobo"],[7,"우선 40","8/3-8/7","구로·신도림","신도림 디큐브시티","손해","삼성화재","RC","신도림지점","서울 구로구 경인로 662 29층 삼성화재 신도림지점 (신도림동, 디큐브시티)","02-320-7115",5,5,5,5,"cluster","samsungFire"],[8,"우선 40","8/3-8/7","구로·신도림","신도림 디큐브시티","손해","삼성화재","RC","영등포지점","서울 구로구 경인로 662 33층 영등포지점 (신도림동, 디큐브시티)","02-320-7230",5,5,5,5,"cluster","samsungFire"],[9,"우선 40","8/3-8/7","구로·신도림","신도림 디큐브시티","손해","삼성화재","RC","신화지점","서울 구로구 경인로 662 디큐브시티 오피스동 34층 삼성화재 신화지점 (신도림동)","02-330-3540",5,5,5,5,"cluster","samsungFire"],[10,"우선 40","8/3-8/7","구로·신도림","신도림 디큐브시티","손해","삼성화재","RC","강서삼성지점","서울 구로구 경인로 662 34층 강서삼성지점 (신도림동, 디큐브시티)","02-850-6151",5,5,5,5,"cluster","samsungFire"],[11,"우선 40","8/3-8/7","구로·신도림","신도림 디큐브시티","손해","삼성화재","RC","노블레스서부지점","서울 구로구 경인로 662 32층 노블레스서부지점 (신도림동, 디큐브시티)","02-330-3511",5,5,5,5,"cluster","samsungFire"],[12,"우선 40","8/3-8/7","구로·신도림","신도림 디큐브시티","손해","삼성화재","RC","목동금융지점","서울 구로구 경인로 662 35층 서부금융지점 (신도림동, 디큐브시티)","02-320-7021",5,4,5,5,"cluster","samsungFire"],[13,"우선 40","8/3-8/7","구로·신도림","신도림 디큐브시티","손해","삼성화재","RC","강서금융지점","서울 구로구 경인로 662 35층 당산지점 (신도림동, 디큐브시티)","02-330-3737",5,4,5,5,"cluster","samsungFire"],[14,"우선 40","8/3-8/7","구로디지털","구로 G밸리","손해","DB손해보험","PA","개봉지점","서울 구로구 디지털로 300 5층 (구로동, 지밸리비즈플라자)","02-860-0553",5,5,5,5,"cluster","db"],[15,"우선 40","8/3-8/7","구로디지털","구로 G밸리","손해","DB손해보험","PA","금천지점","서울 구로구 디지털로 300 5층 (구로동, 지밸리비즈플라자)","02-860-0512",5,5,5,5,"cluster","db"],[16,"우선 40","8/3-8/7","구로디지털","구로 G밸리","손해","DB손해보험","PA","상도지점","서울 구로구 디지털로 300 5층 (구로동, 지밸리비즈플라자)","02-860-0541",5,5,5,5,"cluster","db"],[17,"우선 40","8/3-8/7","구로디지털","구로 G밸리","손해","DB손해보험","PA","신길지점","서울 구로구 디지털로 300 5층 (구로동, 지밸리비즈플라자)","02-860-0572",5,5,5,5,"cluster","db"],[18,"우선 40","8/3-8/7","구로디지털","구로 G밸리","손해","DB손해보험","PA","신대방지점","서울 구로구 디지털로 306 206호 (구로동, 대륭포스트타워2차)","02-860-0564",5,5,5,5,"cluster","db"],[19,"우선 40","8/10-8/14","영등포·당산","교보생명 당산사옥","생명","교보생명","FP","영등포FP","서울 영등포구 영등포로 96 2층 영등포FP지점 (당산동2가, 교보생명빌딩)","02-2672-5296",5,5,5,5,"cluster","kyobo"],[20,"우선 40","8/10-8/14","영등포·당산","교보생명 당산사옥","생명","교보생명","FP","여의도FP","서울 영등포구 영등포로 96 3층 여의도FP지점 (당산동2가, 교보생명빌딩)","02-2631-5809",5,5,5,5,"cluster","kyobo"],[21,"우선 40","8/10-8/14","영등포·당산","교보생명 당산사옥","생명","교보생명","FP","당산FP","서울 영등포구 영등포로 96 4층 당산FP지점 (당산동2가, 교보생명빌딩)","02-2671-5022",5,5,5,5,"cluster","kyobo"],[22,"우선 40","8/10-8/14","영등포·당산","교보생명 당산사옥","생명","교보생명","FP","대림FP","서울 영등포구 영등포로 96 2층 대림FP지점 (당산동2가, 교보생명빌딩)","02-2634-5071",5,5,5,5,"cluster","kyobo"],[23,"우선 40","8/10-8/14","영등포·당산","교보생명 당산사옥","생명","교보생명","FP","양남FP","서울 영등포구 영등포로 96 4층 양남FP지점 (당산동2가, 교보생명빌딩)","02-2634-8621",5,5,5,5,"cluster","kyobo"],[24,"우선 40","8/10-8/14","문래","문래 세미콜론","손해","삼성화재","RC","양천지점","서울 영등포구 문래로28길 25 4층 양천지점 (문래동3가, 영시티N타워)","02-2654-4807",5,5,5,5,"cluster","samsungFire"],[25,"우선 40","8/10-8/14","문래","문래 세미콜론","손해","삼성화재","RC","여의도지점","서울 영등포구 문래로28길 25 4층 삼성화재 여의도지점 (문래동3가, 세미콜론문래)","02-857-2432",5,5,5,5,"cluster","samsungFire"],[26,"우선 40","8/10-8/14","문래","문래 세미콜론","손해","삼성화재","RC","문래삼성지점","서울 영등포구 문래로28길 25 5층 문래삼성지점 (문래동3가, 세미콜론문래N타워)","02-2636-2584",5,5,5,5,"cluster","samsungFire"],[27,"우선 40","8/10-8/14","문래","문래 세미콜론","손해","삼성화재","RC","문래SF지점","서울 영등포구 문래로28길 25 8층 영등포SF지점 (문래동3가, 영시티N타워)","02-850-7950",5,5,5,5,"cluster","samsungFire"],[28,"우선 40","8/17-8/21","강서·발산","강서 송화쇼핑센터","생명","교보생명","FP","강서FP","서울 강서구 강서로 267 7층 강서FP지점 (내발산동, 송화쇼핑센터)","02-2602-3741",5,5,5,4,"cluster","kyobo"],[29,"우선 40","8/17-8/21","강서·발산","강서 송화쇼핑센터","생명","교보생명","FP","마곡FP","서울 강서구 강서로 267 7층 마곡FP지점 (내발산동, 송화쇼핑센터)","02-2696-6092",5,5,5,4,"cluster","kyobo"],[30,"우선 40","8/17-8/21","강서·발산","강서 송화쇼핑센터","생명","교보생명","FP","양천FP","서울 강서구 강서로 267 6층 양천FP지점 (내발산동, 송화쇼핑센터)","02-2696-6141",5,5,5,4,"cluster","kyobo"],[31,"우선 40","8/17-8/21","강서·발산","강서 송화쇼핑센터","생명","교보생명","FP","방화FP","서울 강서구 강서로 267 8층 방화FP지점 (내발산동, 송화쇼핑센터)","02-2664-7489",5,5,5,4,"cluster","kyobo"],[32,"우선 40","8/17-8/21","마곡","마곡 NY타워","손해","DB손해보험","PA","마곡지점","서울 강서구 마곡동로3길 6 5층 (마곡동, NY타워)","02-2650-3833",4,5,5,4,"cluster","db"],[33,"우선 40","8/17-8/21","마곡","마곡 NY타워","손해","DB손해보험","PA","양천지점","서울 강서구 마곡동로3길 6 11층 (마곡동, NY타워)","02-2650-3830",4,5,5,4,"cluster","db"],[34,"우선 40","8/17-8/21","마곡","마곡 NY타워","손해","DB손해보험","PA","화곡지점","서울 강서구 마곡동로3길 6 6층 602호 (마곡동, NY타워)","02-2650-3880",4,5,5,4,"cluster","db"],[35,"우선 40","8/17-8/21","마곡","마곡 마커스빌딩","손해","삼성화재","RC","강서혁신지점","서울 강서구 마곡동로 55 4층 강서지점 (마곡동, 마커스빌딩)","02-2601-6449",4,5,5,4,"cluster","samsungFire"],[36,"우선 40","8/17-8/21","마곡","마곡 마커스빌딩","손해","삼성화재","RC","마곡혁신지점","서울 강서구 마곡동로 55 3층 (마곡동, 마커스빌딩)","02-2604-5049",4,5,5,4,"cluster","samsungFire"],[37,"우선 40","8/24-8/28","상암","상암 성암로 179","손해","삼성화재","RC","마포지점","서울 마포구 성암로 179 11층 마포지점 (상암동, 한샘상암)","02-317-5070",4,5,5,4,"cluster","samsungFire"],[38,"우선 40","8/24-8/28","상암","상암 성암로 179","손해","삼성화재","RC","상암DMC지점","서울 마포구 성암로 179 11층 서대문지점 (상암동)","02-317-5131",4,5,5,4,"cluster","samsungFire"],[39,"우선 40","8/24-8/28","합정","합정오피스빌딩","손해","DB손해보험","PA","서부지점","서울 마포구 양화로 19 10층 (합정동, 합정오피스빌딩)","02-311-0114",4,5,5,4,"cluster","db"],[40,"우선 40","8/24-8/28","합정","합정오피스빌딩","손해","DB손해보험","PA","서대문지점","서울 마포구 양화로 19 10층 (합정동, 합정오피스빌딩)","02-311-0117",4,5,5,4,"cluster","db"],[41,"확장 40","9월 1주","강남·서초","교보타워 서초","생명","교보생명","FP","강남FP","서울 서초구 강남대로 465 A동 4층 강남FP지점 (서초동, 교보타워)","02-3480-4561",5,5,5,3,"base","kyobo"],[42,"확장 40","9월 1주","강남·서초","교보타워 서초","생명","교보생명","FP","강남VIPFP","서울 서초구 강남대로 465 A동 5층 강남VIPFP지점 (서초동, 교보타워)","02-588-7459",5,5,5,3,"base","kyobo"],[43,"확장 40","9월 1주","강남·서초","교보타워 서초","생명","교보생명","FP","강남타워FP","서울 서초구 강남대로 465 A동 13층 강남타워FP지점 (서초동, 교보타워)","02-3480-4570",5,5,5,3,"base","kyobo"],[44,"확장 40","9월 1주","강남·서초","국제전자센터","생명","교보생명","FP","도곡FP","서울 서초구 효령로 304 17층 도곡FP지점 (서초동, 국제전자센터)","02-3481-2471",4,5,5,3,"base","kyobo"],[45,"확장 40","9월 1주","강남·서초","삼성화재 서초사옥","손해","삼성화재","RC","강남미래지점","서울 서초구 강남대로 355 7층 YB1지점 (서초동, 삼성화재 서초사옥)","02-3465-8300",4,5,5,3,"base","samsungFire"],[46,"확장 40","9월 1주","강남·서초","삼성화재 역삼빌딩","손해","삼성화재","RC","강남중앙지점","서울 강남구 테헤란로 114 19층 (역삼동, 역삼빌딩)","02-3468-9535",4,5,5,3,"base","samsungFire"],[47,"확장 40","9월 1주","방배·사당","방배 구산타워","손해","삼성화재","RC","방배지점","서울 서초구 방배천로 91 15층 방배지점 (방배동, 구산타워)","02-585-7114",4,5,5,3,"base","samsungFire"],[48,"확장 40","9월 1주","방배·사당","방배 구산타워","손해","삼성화재","RC","서초지점","서울 서초구 방배천로 91 16층 서초비전지점 (방배동, 구산타워)","02-521-9830",4,5,5,3,"base","samsungFire"],[49,"확장 40","9월 2주","광명","광명 대호엠스퀘어","생명","교보생명","FP","광명FP","경기 광명시 신기로 21 10층 광명FP지점 (일직동, 대호엠스퀘어)","02-2682-3225",4,5,5,4,"base","kyobo"],[50,"확장 40","9월 2주","광명","광명 대호엠스퀘어","생명","교보생명","FP","광명제일FP","경기 광명시 신기로 21 9층 광명제일FP지점 (일직동, 대호엠스퀘어)","02-892-5827",4,5,5,4,"base","kyobo"],[51,"확장 40","9월 2주","부천","부천 상동","생명","교보생명","FP","중동FP","경기 부천시 송내대로 66 7층 중동FP지점 (상동, 용운빌딩)","032-327-8811",3,5,5,4,"base","kyobo"],[52,"확장 40","9월 2주","안양","교보생명 안양사옥","생명","교보생명","FP","안양미래FP","경기 안양시 만안구 안양로 331 4층 안양미래FP지점 (안양동)","031-448-2298",3,5,5,3,"base","kyobo"],[53,"확장 40","9월 2주","인천","인천 구월동","생명","교보생명","FP","인천미래FP","인천 남동구 예술로140번길 35 6층 인천미래FP지점 (구월동, 위너스글로벌)","032-433-0548",3,5,5,2,"base","kyobo"],[54,"확장 40","9월 2주","부천","부천 한화생명빌딩","손해","DB손해보험","PA","부천지점","경기 부천시 원미구 신흥로 179 14층 부천지점 (중동, 한화생명빌딩)","032-222-5738",4,5,5,4,"base","db"],[55,"확장 40","9월 2주","부천","부천 한화생명빌딩","손해","DB손해보험","PA","신중동지점","경기 부천시 원미구 신흥로 179 14층 신중동지점 (중동, 한화생명빌딩)","032-222-5722",4,5,5,4,"base","db"],[56,"확장 40","9월 2주","안양","DB손해보험 안양사옥","손해","DB손해보험","PA","안양지점","경기 안양시 만안구 안양로 119 5층 DB손해보험 (안양동, 계양빌딩)","031-463-6120",3,5,5,3,"base","db"],[57,"확장 40","10월 1주","대전·천안","교보생명 대전사옥","생명","교보생명","FP","대전FP","대전 중구 중앙로 69 6층 대전FP지점 (선화동, 교보생명빌딩)","042-229-5587",3,5,5,1,"national","kyobo"],[58,"확장 40","10월 1주","대전·천안","대전 오라클빌딩","손해","DB손해보험","PA","대덕지점","대전 서구 대덕대로 182 9층 (둔산동, 오라클빌딩)","042-600-7170",4,5,5,1,"national","db"],[59,"확장 40","10월 1주","대전·천안","대전 오라클빌딩","손해","DB손해보험","PA","둔산지점","대전 서구 대덕대로 182 9층 (둔산동, 오라클빌딩)","042-600-7154",4,5,5,1,"national","db"],[60,"확장 40","10월 1주","대전·천안","교보생명 천안사옥","생명","교보생명","FP","천안FP","충남 천안시 동남구 충절로 138 3층 천안FP지점 (원성동)","041-564-6262",3,5,5,1,"national","kyobo"],[61,"확장 40","10월 2주","부산","교보생명 부전동사옥","생명","교보생명","FP","경성FP","부산 부산진구 중앙대로 658 3층 경성FP지점 (부전동, 교보생명빌딩)","051-811-7199",4,5,5,1,"national","kyobo"],[62,"확장 40","10월 2주","부산","교보생명 부전동사옥","생명","교보생명","FP","남부산FP","부산 부산진구 중앙대로 658 4층 남부산FP지점 (부전동, 교보생명빌딩)","051-811-7129",4,5,5,1,"national","kyobo"],[63,"확장 40","10월 2주","부산","DB금융센터 부산","손해","DB손해보험","PA","부산중앙지점","부산 부산진구 중앙대로 742 7층 부산중앙지점 (부전동, DB금융센터부산)","051-460-4810",3,5,5,1,"national","db"],[64,"확장 40","10월 2주","부산","해운대 신세계프라자","손해","DB손해보험","PA","해운대지점","부산 해운대구 해운대로 407 2층 (우동, 신세계프라자)","051-620-0772",3,5,5,1,"national","db"],[65,"확장 40","10월 3주","대구·포항","교보생명 동성로사옥","생명","교보생명","FP","동성로FP","대구 중구 국채보상로 586 6층 동성로FP지점 (동성로2가)","053-430-3690",3,5,5,1,"national","kyobo"],[66,"확장 40","10월 3주","대구·포항","KT대구지사","손해","DB손해보험","PA","대구지점","대구 중구 동덕로 167 11층 (동인동2가, KT대구지사)","053-430-5210",3,5,5,1,"national","db"],[67,"확장 40","10월 3주","대구·포항","교보생명 포항사옥","생명","교보생명","FP","대해FP","경북 포항시 북구 중흥로 109 5층 대해FP지점 (죽도동, 교보생명빌딩)","054-271-6220",3,5,5,1,"national","kyobo"],[68,"확장 40","10월 3주","대구·포항","포항 산업은행빌딩","손해","DB손해보험","PA","포항지점","경북 포항시 북구 중흥로 156 3층 (죽도동, 산업은행빌딩)","054-271-4624",3,5,5,1,"national","db"],[69,"확장 40","11월 1주","광주·전주","광주 디오빌","생명","교보생명","FP","광주중앙FP","광주 서구 시청로 41 3층 광주중앙FP지점 (치평동, 디오빌)","062-513-6059",3,5,5,1,"national","kyobo"],[70,"확장 40","11월 1주","광주·전주","광주 오션5빌딩","손해","DB손해보험","PA","광주서부지점","광주 서구 상무중앙로 42 4층 광주서부지점 (치평동, 오션5빌딩)","062-370-7521",3,5,5,1,"national","db"],[71,"확장 40","11월 1주","광주·전주","교보생명 전주사옥","생명","교보생명","FP","전주중앙FP","전북 전주시 덕진구 기린대로 389 6층 전주중앙FP지점 (금암동, 교보생명빌딩)","063-259-5022",3,5,5,1,"national","kyobo"],[72,"확장 40","11월 1주","광주·전주","전주 대우빌딩","손해","DB손해보험","PA","남전주지점","전북 전주시 완산구 기린대로 213 11층 (서노송동, 대우빌딩)","063-230-4012",3,5,5,1,"national","db"],[73,"확장 40","11월 2주","울산·창원","교보생명 울산사옥","생명","교보생명","FP","남울산FP","울산 남구 중앙로 186 3층 남울산FP지점 (달동, 교보생명빌딩)","052-266-4438",3,5,5,1,"national","kyobo"],[74,"확장 40","11월 2주","울산·창원","울산 청보빌딩","손해","DB손해보험","PA","울산지점","울산 남구 번영로 122 6층 (달동, 청보빌딩)","052-228-4052",3,5,5,1,"national","db"],[75,"확장 40","11월 2주","울산·창원","창원 교원공제회관","생명","교보생명","FP","창원FP","경남 창원시 성산구 중앙대로 107 8층 창원FP지점 (중앙동, 교원공제회관)","055-282-1249",3,5,5,1,"national","kyobo"],[76,"확장 40","11월 2주","울산·창원","창원 STX빌딩","손해","DB손해보험","PA","성산지점","경남 창원시 성산구 중앙대로 105 14층 (중앙동, STX빌딩)","055-280-8213",3,5,5,1,"national","db"],[77,"확장 40","11월 3주","강원·제주","춘천 MK빌딩","생명","교보생명","FP","춘천FP","강원 춘천시 방송길 98-1 5층 교보생명 춘천FP지점 (온의동, MK빌딩)","033-242-2245",3,5,5,1,"national","kyobo"],[78,"확장 40","11월 3주","강원·제주","원주 센트럴스퀘어","손해","DB손해보험","PA","원주지점","강원 원주시 황금로 8 센트럴스퀘어 4층 DB손해보험 원주지점 (반곡동)","033-749-4020",3,5,5,1,"national","db"],[79,"확장 40","11월 3주","강원·제주","교보생명 제주사옥","생명","교보생명","FP","탐라FP","제주 제주시 전농로 118 7층 탐라FP지점 (이도일동, 교보빌딩)","064-751-0164",3,5,5,1,"national","kyobo"],[80,"확장 40","11월 3주","강원·제주","제주 전문건설회관","손해","DB손해보험","PA","제주지점","제주 제주시 연북로 17 4층 전문건설회관 DB손해보험 제주지점 (노형동)","064-710-5530",3,5,5,1,"national","db"]];
+      const ROUTE_CLUSTER_ROWS = [[1,"8/3-8/7","구로·신도림","신도림테크노마트","서울 구로구 새말로 97","교보생명","8/5 오전","FP 6개 지점에 지점별 시간 확정, 2~3개 지점만 연속 방문"],[2,"8/3-8/7","구로·신도림","신도림 디큐브시티","서울 구로구 경인로 662","삼성화재","8/6 오전","RC 7개 지점, 대표번호 통화 후 지점장 미팅이 잡힌 곳만 방문"],[3,"8/3-8/7","구로디지털","구로 G밸리","서울 구로구 디지털로 300·306","DB손해보험","8/7 오전","PA 5개 지점, 가까운 회사 기반 첫 피드백 사용자 확보"],[4,"8/10-8/14","영등포·당산","교보생명 당산사옥","서울 영등포구 영등포로 96","교보생명","8/12 오전","FP 5개 지점, 오전 2곳·오후 1곳을 목표로 일정 분산"],[5,"8/10-8/14","문래","문래 세미콜론","서울 영등포구 문래로28길 25","삼성화재","8/13 오전","RC 4개 지점, 관리자 미팅 후 관심 설계사 1명 소개 요청"],[6,"8/17-8/21","강서·발산","강서 송화쇼핑센터","서울 강서구 강서로 267","교보생명","8/19 오전","FP 4개 지점, 설명보다 실제 증권 정리 시연을 중심으로 진행"],[7,"8/17-8/21","마곡","마곡 NY타워","서울 강서구 마곡동로3길 6","DB손해보험","8/20 오전","PA 3개 지점, 지점장 승인 뒤 경험 많은 설계사 연결 요청"],[8,"8/17-8/21","마곡","마곡 마커스빌딩","서울 강서구 마곡동로 55","삼성화재","8/20 오후","RC 2개 지점, 같은 날 NY타워 일정과 묶기"],[9,"8/24-8/28","상암","상암 성암로 179","서울 마포구 성암로 179","삼성화재","8/26 오전","RC 2개 지점, 8월 누적 반응을 반영한 시연으로 개선"],[10,"8/24-8/28","합정","합정오피스빌딩","서울 마포구 양화로 19","DB손해보험","8/27 오전","PA 2개 지점, 사용 시작자와 커피 심층 인터뷰 일정까지 확정"]];
+
+      function plannedDateForWeek(week) {
+        return {
+          "8/3-8/7": "2026-08-03", "8/10-8/14": "2026-08-10", "8/17-8/21": "2026-08-17", "8/24-8/28": "2026-08-24",
+          "9월 1주": "2026-09-01", "9월 2주": "2026-09-07", "10월 1주": "2026-10-05", "10월 2주": "2026-10-12",
+          "10월 3주": "2026-10-19", "11월 1주": "2026-11-02", "11월 2주": "2026-11-09", "11월 3주": "2026-11-16"
+        }[week] || CAMPAIGN_START;
+      }
+
+      const AUGUST_DAILY_ROWS = [["2026-08-03","월","1차 연락","1~18번: 신도림테크노마트 6, 디큐브시티 7, 구로 G밸리 5",18,4,0,0,0,"지점장·팀장 연결 요청, 15분 시연 목적 설명","통화 결과와 관리직 이름 기록, 미연결 지점 문자 후속","18곳 모두 담당자·재통화 시간·거절 중 하나로 분류","대기"],["2026-08-04","화","약속 확정","1~18번 중 연결·재통화 대상",12,6,0,0,0,"미팅 시간 확정, 지점별 30분 간격 배치","시연 계정 점검, 손글씨 엽서와 인쇄물 세트 준비","8/5~8/7 관리직 약속 6건 이상 확정","대기"],["2026-08-05","수","현장","1~6번: 신도림테크노마트 교보생명 FP",3,3,2,1,0,"관리직 15분 시연, 경험 있는 설계사 1명 소개 요청","차량 대기 중 미팅 기록, 감사 문자 초안 준비","미팅 2건, 실제 사용 시작 1명, 소개 1명","대기"],["2026-08-06","목","현장","7~13번: 신도림 디큐브시티 삼성화재 RC",4,3,3,1,0,"관리직 시연, 첫 사용 날짜를 현장에서 확정","미팅별 반응·거절 이유 기록, 다음 약속 조정","미팅 3건, 실제 사용 시작 1명, 재접촉 1건","대기"],["2026-08-07","금","현장·후속","14~18번: 구로 G밸리 DB손해보험 PA",5,2,2,1,1,"미팅과 첫 사용 확인, 다음 주 커피 인터뷰 제안","1~18번 전체 상태 정리, 다음 주 우선순위 재배치","주간 합계 미팅 6건 이상, 사용 3명, 피드백 1명","대기"],["2026-08-10","월","사용 확인","1주차 사용 시작자와 소개받은 설계사",6,1,0,0,2,"사용 중 막힌 지점 10분 통화, 인터뷰 제안","질문·불편·요청을 기능별로 한 줄씩 기록","피드백 2명, 재방문 또는 커피 약속 1건","대기"],["2026-08-11","화","1차 연락","19~27번: 당산 교보생명 FP 5, 문래 삼성화재 RC 4",9,4,0,0,0,"관리직 연결과 방문 시간 확정","9곳 통화 상태와 담당자 기록, 인쇄물 세트 준비","9곳 전부 분류, 관리직 약속 4건 이상","대기"],["2026-08-12","수","현장","19~23번: 교보생명 당산사옥 FP",3,3,3,1,0,"관리직 3명 시연, 설계사 소개 2명 요청","현장 반응 기록, 감사 문자와 첫 사용 안내","미팅 3건, 사용 1명, 소개 2명","대기"],["2026-08-13","목","현장","24~27번: 문래 세미콜론 삼성화재 RC",3,2,2,1,0,"관리직 2명 시연, 사용 시작 시간 약속","운영 질문 기록, 48시간 확인 일정 등록","미팅 2건, 사용 1명, 후속 일정 2건","대기"],["2026-08-14","금","후속·인터뷰","1~27번 중 사용 시작자·관심 설계사",6,1,0,0,2,"커피 심층 인터뷰 1건, 소개 요청","누적 사용·피드백·거절 이유 정리","누적 사용 5명, 누적 피드백 3명 이상","대기"],["2026-08-17","월","1차 연락","28~36번: 강서 교보생명 FP 4, 마곡 DB PA 3, 삼성화재 RC 2",9,4,0,0,0,"관리직 연결, 8/19~8/20 약속 확정","담당자 이름·시간 기록, 미연결 후속","9곳 전부 분류, 관리직 약속 4건 이상","대기"],["2026-08-18","화","약속·사용 확인","28~36번 재통화, 기존 사용 시작자",8,4,0,0,1,"현장 약속 재확인, 기존 사용자 막힘 확인","시연 계정·동선·인쇄물 세트 점검","현장 약속 4건 유지, 피드백 1명 추가","대기"],["2026-08-19","수","현장","28~31번: 강서 송화쇼핑센터 교보생명 FP",3,2,2,1,0,"실제 증권 정리 시연, 경험 설계사 소개 요청","미팅별 사용 시작일과 48시간 확인 일정 기록","미팅 2건, 사용 1명, 소개 1명","대기"],["2026-08-20","목","현장","32~36번: 마곡 NY타워 DB PA, 마커스빌딩 삼성화재 RC",4,3,3,2,0,"오전 DB, 오후 삼성화재 시연과 첫 사용 확정","두 건물 이동 중 후속 문자, 반응 정리","미팅 3건, 사용 2명, 후속 일정 3건","대기"],["2026-08-21","금","후속·인터뷰","1~36번 중 사용 시작자·관심 설계사",8,1,0,0,2,"커피 심층 인터뷰 1건, 소개 요청","사용자별 피드백을 문제·빈도·영향으로 기록","누적 사용 8명, 누적 피드백 6명 이상","대기"],["2026-08-24","월","1차 연락·재접촉","37~40번 4곳과 이전 보류·관심 8곳",12,4,0,0,0,"상암·합정 약속 확정, 보류 대상 재제안","통화 결과 분류, 이번 주 인터뷰 대상 선정","관리직 약속 4건, 심층 인터뷰 2건 확정","대기"],["2026-08-25","화","심층 인터뷰","기존 피드백 사용자 중 사용량 높은 2명",2,0,0,0,2,"커피 인터뷰 2건, 실제 사용 화면을 함께 확인","발언을 요약하지 말고 상황·행동·불편으로 기록","심층 인터뷰 2건, 개선 우선순위 3개 도출","대기"],["2026-08-26","수","현장","37~38번: 상암 삼성화재 RC",2,2,2,1,0,"8월 개선 내용을 반영해 시연, 첫 사용 확정","현장 반응과 기존 시연 대비 차이 기록","미팅 2건, 사용 1명, 후속 일정 1건","대기"],["2026-08-27","목","현장","39~40번: 합정 DB손해보험 PA",2,2,2,1,0,"관리직 시연, 첫 사용과 커피 인터뷰 일정 확정","감사 문자와 사용 확인 일정 등록","미팅 2건, 사용 1명, 인터뷰 약속 1건","대기"],["2026-08-28","금","월 마감","우선 40곳 전체와 8월 사용 시작자",10,0,0,0,2,"보류·거절 사유 확인, 9월 소개 요청","40곳 상태 마감, 9월 41~56번 연락표 준비","40곳 100% 분류, 사용 10명, 피드백 8명 목표","대기"]];
+
+      function buildAugustDailyActions() {
+        return AUGUST_DAILY_ROWS.map((row) => ({
+          id: `august-${row[0]}`,
+          date: row[0],
+          weekday: row[1],
+          stage: row[2],
+          exactTarget: row[3],
+          contactGoal: row[4],
+          managerAppointments: row[5],
+          fieldMeetings: row[6],
+          usageStarts: row[7],
+          feedbackGoal: row[8],
+          representativeRole: row[9],
+          operationsRole: row[10],
+          completion: row[11],
+          status: row[12]
+        }));
+      }
+
+      function buildOfficialTargets() {
+        return OFFICIAL_TARGET_ROWS.map((row) => {
+          const [rank, phase, week, region, cluster, sector, company, channel, branch, address, phone, managerImpact, plannerAccess, officialCertainty, guroAccess, actionCode, sourceKey] = row;
+          return {
+            id: `official-target-${rank}`, rank, phase, week, region, cluster, sector, company, channel, branch, address, phone,
+            managerImpact, plannerAccess, officialCertainty, guroAccess,
+            effectScore: Math.round((managerImpact * 30 + plannerAccess * 35 + officialCertainty * 20 + guroAccess * 15) / 5),
+            recommendedApproach: TARGET_ACTIONS[actionCode], contactStatus: "미연락", meetingStatus: "미정", managerTeam: "",
+            lastContactAt: "", meetingAt: "", activeUsers: 0, feedbackUsers: 0, source: OFFICIAL_SOURCE_URLS[sourceKey],
+            sourceCheckedAt: "2026-08-03", isOfficialSeed: true, position: "", name: "", contactRoute: "대표번호",
+            status: "조사", nextActionAt: plannedDateForWeek(week), introducer: "", note: ""
+          };
+        });
+      }
+
+      function buildRouteClusters() {
+        const targets = buildOfficialTargets();
+        return ROUTE_CLUSTER_ROWS.map((row) => ({
+          order: row[0], week: row[1], region: row[2], cluster: row[3], representativeAddress: row[4],
+          company: row[5], recommendedDate: row[6], operation: row[7],
+          targetCount: targets.filter((target) => target.cluster === row[3]).length
+        }));
+      }
+
+      function buildMonthlyGoals() {
+        return [
+          { id: "goal-2026-08", month: "2026-08", monthLabel: "8월", newTargets: "1~40번 40곳", managerMeetings: 18, newUsers: 10, feedbackUsers: 8, finalUsers: 0, travelCondition: "서울 서부권 차량 운영", completion: "40곳 상태 100% 분류, 피드백 사용자 8명", judgement: "" },
+          { id: "goal-2026-09", month: "2026-09", monthLabel: "9월", newTargets: "41~56번 16곳", managerMeetings: 8, newUsers: 4, feedbackUsers: 12, finalUsers: 0, travelCondition: "서울 강남·광명·부천·안양·인천", completion: "누적 피드백 사용자 12명", judgement: "" },
+          { id: "goal-2026-10", month: "2026-10", monthLabel: "10월", newTargets: "57~68번 12곳", managerMeetings: 6, newUsers: 3, feedbackUsers: 15, finalUsers: 0, travelCondition: "한 권역 2곳 이상 약속 확정 시 이동", completion: "대전·부산·대구 권역 검증, 누적 15명", judgement: "" },
+          { id: "goal-2026-11", month: "2026-11", monthLabel: "11월", newTargets: "69~80번 12곳", managerMeetings: 6, newUsers: 3, feedbackUsers: 18, finalUsers: 0, travelCondition: "한 권역 2곳 이상 약속 확정 시 이동", completion: "광주·전주·울산·창원·강원·제주 검증, 누적 18명", judgement: "" },
+          { id: "goal-2026-12", month: "2026-12", monthLabel: "12월", newTargets: "기존 사용자와 소개 대상", managerMeetings: 6, newUsers: 2, feedbackUsers: 20, finalUsers: 20, travelCondition: "신규 장거리 방문보다 재방문 우선", completion: "실제 사용과 반복 피드백이 확인된 20명 확정", judgement: "" }
+        ];
+      }
+
+      function buildSelectionCriteria() {
+        return [
+          { id: "criterion-planner", label: "설계사 접점", weight: 35, fivePoint: "전속 설계사가 상주하는 FP·RC·PA 지점", meaning: "실제 사용 시작자와 반복 피드백 가능성" },
+          { id: "criterion-manager", label: "관리직 효과", weight: 30, fivePoint: "같은 건물에 여러 지점·팀이 밀집", meaning: "한 명의 조직 구매자가 아니라 초기 사용자 소개자 확보" },
+          { id: "criterion-official", label: "공식확인", weight: 20, fivePoint: "원수사 공식 지점검색의 최신 결과", meaning: "고객센터·보상센터 혼입 방지" },
+          { id: "criterion-access", label: "구로 접근", weight: 15, fivePoint: "구로·신도림에서 차량 이동이 쉬움", meaning: "8월 차량 운영 기간 내 반복 방문 가능성" }
+        ];
+      }
+
+      function buildSourceRegistry() {
+        return [
+          { id: "source-kyobo", category: "영업점", organization: "교보생명", checked: "보험가입·계약상담 FP 지점 393개 검색 결과에서 선정", checkedAt: "2026-08-03", url: OFFICIAL_SOURCE_URLS.kyobo, note: "FP·GFP·지원단 중 FP 현장지점 중심" },
+          { id: "source-samsung", category: "영업점", organization: "삼성화재", checked: "지역단·지점 검색 결과에서 RC 현장지점 선정", checkedAt: "2026-08-03", url: OFFICIAL_SOURCE_URLS.samsungFire, note: "GA·TM·CS·보상·법인 조직 제외" },
+          { id: "source-db", category: "영업점", organization: "DB손해보험", checked: "보험가입상담 및 PA 창업 문의 영업지점 결과에서 선정", checkedAt: "2026-08-03", url: OFFICIAL_SOURCE_URLS.db, note: "고객서비스센터·보상·정비망 제외" },
+          { id: "source-life-association", category: "회원사", organization: "생명보험협회", checked: "생명보험 정회원사와 본사 연락처 확인", checkedAt: "2026-08-03", url: "https://www.klia.or.kr/klia/company/member/list.do", note: "다른 생명 원수사 2차 연결 근거" },
+          { id: "source-nonlife-association", category: "회원사", organization: "손해보험협회", checked: "손해보험 정회원사 범위 확인", checkedAt: "2026-08-03", url: "https://kpub.knia.or.kr/managementDisc/spot/spotDisclosure.do", note: "다른 손해 원수사 2차 연결 근거" },
+          { id: "source-ga", category: "GA 2차", organization: "보험대리점공시", checked: "법인보험대리점 명부·공시 확인", checkedAt: "2026-08-03", url: "https://gapub.insure.or.kr/", note: "원수사 1차 실행 후 대형 법인 GA부터 정리" },
+          { id: "source-clean", category: "GA 2차", organization: "e클린보험서비스", checked: "보험설계사·대리점 등록정보 확인", checkedAt: "2026-08-03", url: "https://www.e-cleanins.or.kr/", note: "개별 연락 전 소속·등록 상태 검증" },
+          { id: "source-exclusion", category: "제외원칙", organization: "공통", checked: "고객PLAZA·보상센터·TM·GA센터·법인전담은 이번 80곳에서 제외", checkedAt: "2026-08-03", url: "", note: "개인 설계사 사용·피드백 목표에 맞춤" }
+        ];
+      }
+
+      function buildFieldPrinciples() {
+        return [
+          "전화 우선: 지점장·팀장에게 15분 시연과 실제 사용성 피드백 요청",
+          "미팅 확정 후 방문: 사전 승인 없는 인쇄물 전달은 보조로만 사용",
+          "관리직 역할: 팀 가입 결정권자가 아니라 본인 사용과 설계사 소개를 돕는 인플루언서",
+          "현장 목표: 한 지점에서 관리직 1명과 경험 있는 설계사 1명 소개",
+          "후속 목표: 사용 시작 48시간 안에 첫 확인, 7일 안에 커피 심층 인터뷰 제안",
+          "최종 KPI: 2026년 실제 피드백 사용자 20명 확보"
+        ];
+      }
+
+      function buildMapUrl(provider, address) {
+        const encoded = encodeURIComponent(String(address || "").trim());
+        return provider === "kakao" ? `https://map.kakao.com/link/search/${encoded}` : `https://map.naver.com/p/search/${encoded}`;
+      }
+
+      let runtimeId = 0;
+      let state;
+      let saveTimer;
+      let toastTimer;
+
+      function uid(prefix) {
+        runtimeId += 1;
+        return `${prefix}-${Date.now().toString(36)}-${runtimeId.toString(36)}`;
+      }
+
+      function parseDate(dateString) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateString || ""))) return null;
+        const date = new Date(`${dateString}T12:00:00`);
+        return Number.isNaN(date.getTime()) ? null : date;
+      }
+
+      function toDateString(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      }
+
+      function addDays(dateString, days) {
+        const date = parseDate(dateString);
+        if (!date) return dateString;
+        date.setDate(date.getDate() + days);
+        return toDateString(date);
+      }
+
+      function daysBetween(start, end) {
+        const startDate = parseDate(start);
+        const endDate = parseDate(end);
+        if (!startDate || !endDate) return Number.POSITIVE_INFINITY;
+        return Math.floor((endDate.getTime() - startDate.getTime()) / 86400000);
+      }
+
+      function formatDate(dateString, includeYear = false) {
+        const date = parseDate(dateString);
+        if (!date) return dateString || "날짜 없음";
+        return new Intl.DateTimeFormat("ko-KR", {
+          year: includeYear ? "numeric" : undefined,
+          month: "long",
+          day: "numeric",
+          weekday: "short"
+        }).format(date);
+      }
+
+      function formatMonth(monthKey) {
+        const date = parseDate(`${monthKey}-01`);
+        return date ? new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long" }).format(date) : monthKey;
+      }
+
+      function shiftMonth(monthKey, amount) {
+        const date = parseDate(`${monthKey}-01`);
+        if (!date) return CAMPAIGN_START.slice(0, 7);
+        date.setMonth(date.getMonth() + amount);
+        return toDateString(date).slice(0, 7);
+      }
+
+      function buildMonthCells(monthKey) {
+        const first = parseDate(`${monthKey}-01`);
+        if (!first) return [];
+        const gridStart = new Date(first);
+        gridStart.setDate(first.getDate() - first.getDay());
+        return Array.from({ length: 42 }, (_, index) => {
+          const date = new Date(gridStart);
+          date.setDate(gridStart.getDate() + index);
+          const dateString = toDateString(date);
+          return {
+            date: dateString,
+            day: date.getDate(),
+            isCurrentMonth: dateString.startsWith(monthKey)
+          };
+        });
+      }
+
+      function getTodayPresentationDate(inputState, today = toDateString(new Date())) {
+        const current = inputState || state;
+        const dates = [...new Set(current.tasks.map((task) => task.date).filter(Boolean))].sort();
+        if (today >= current.meta.startDate && today <= current.meta.endDate && dates.includes(today)) return today;
+        const next = dates.find((date) => date >= today && date >= current.meta.startDate && date <= current.meta.endDate);
+        if (next) return next;
+        const previous = [...dates].reverse().find((date) => date <= current.meta.endDate);
+        return previous || current.meta.startDate;
+      }
+
+      function getOverdueTasks(inputState, date) {
+        const current = inputState || state;
+        return current.tasks
+          .filter((task) => !task.done && task.date < date)
+          .sort((a, b) => a.date.localeCompare(b.date));
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function valueOf(element) {
+        if (element.type === "checkbox") return element.checked;
+        if (element.type === "number") return element.value === "" ? "" : Number(element.value);
+        return element.value;
+      }
+
+      function phaseFor(dateString) {
+        return PHASES.find((phase) => dateString >= phase.start && dateString <= phase.end) || PHASES.at(-1);
+      }
+
+      function businessDates(start, end) {
+        const result = [];
+        let current = parseDate(start);
+        const finish = parseDate(end);
+        while (current && finish && current <= finish) {
+          const day = current.getDay();
+          if (day !== 0 && day !== 6) result.push(toDateString(current));
+          current.setDate(current.getDate() + 1);
+        }
+        return result;
+      }
+
+      function phaseRegion(phase, weekIndex) {
+        const rotation = REGION_ROTATIONS[phase.mode];
+        if (!rotation) return phase.region;
+        return rotation[weekIndex % rotation.length];
+      }
+
+      function taskSpec(category, action, metricId, target, unit, owner, method, note = "") {
+        return { category, action, metricId, target, unit, owner, method, note };
+      }
+
+      function dailyTaskSpecs(dateString, phase, weekIndex) {
+        const weekday = parseDate(dateString).getDay();
+        const mode = phase.mode;
+        if (dateString === "2026-11-13") {
+          return [
+            taskSpec("회고", "신규 설계파트너 모집을 마감하고 60명 명단의 후속 일정을 전수 확인", "none", 60, "명", "두 명 함께", "명단 점검", "D7·D14·D30·D42 날짜가 없는 사람을 모두 채운다."),
+            taskSpec("전화·문자", "첫 사용이 남은 설계파트너에게 개인별 다음 행동을 문자로 확정", "first_value_support", 12, "명", "운영담당", "1:1 문자·전화", "답장이 없으면 한 번 더 확인하고 이후에는 다음 약속일까지 기다린다.")
+          ];
+        }
+        if (dateString === "2026-12-31") {
+          return [
+            taskSpec("회고", "최종 반복 사용자 20명의 조건과 최근 사용일을 확인해 명단 확정", "none", 20, "명", "두 명 함께", "최종 점검", "조건을 충족하지 않은 사람은 후보로 별도 기록한다."),
+            taskSpec("인터뷰", "최종 사용자에게 감사 연락을 하고 다음 분기 피드백 참여 의향 확인", "none", 20, "명", "대표", "1:1 전화·문자", "사용을 강요하지 않고 참여 의향만 확인한다.")
+          ];
+        }
+
+        if (mode === "준비") {
+          const prep = {
+            1: [
+              taskSpec("준비", "서울 생명보험·손해보험 원수사 영업 거점 80곳을 조사하고 우선 대상 40곳 선정", "official_contacts", 20, "곳", "운영담당", "공식 지점 정보 조사", "회사별·권역별로 한쪽에 몰리지 않게 선정한다."),
+              taskSpec("준비", "관리직용 손글씨 홍보물 세트 20개를 작성하고 방문 순서대로 분류", "none", 20, "세트", "대표", "리플렛·엽서·명함·스티커", "대상 직책과 방문 목적을 한 줄씩 다르게 적는다.")
+            ],
+            2: [
+              taskSpec("전화·문자", "우선 대상 원수사 대표번호로 방문 요청 담당과 자료 전달 방법 확인", "official_contacts", 12, "곳", "운영담당", "대표번호 전화", "통화 결과와 다시 연락할 날짜를 즉시 기록한다."),
+              taskSpec("준비", "인파 15분 설명 흐름을 가상 고객 자료로 두 번 리허설", "none", 2, "회", "대표", "화면 시연", "고객 관리부터 다음 일정까지 한 흐름으로 보여준다.")
+            ],
+            3: [
+              taskSpec("전화·문자", "자료 수신을 허락한 관리직에게 1회 소개자료를 전달하고 확인 문자 발송", "permission_received", 6, "곳", "운영담당", "문자·전화", "자료 전달과 방문 요청을 한 번에 길게 설명하지 않는다."),
+              taskSpec("준비", "첫 미팅 질문 7개와 반응 기록표를 확정", "none", 1, "세트", "두 명 함께", "미팅 준비", "업무 방식, 현재 도구, 반복 업무, 외부 도구 기준을 묻는다.")
+            ],
+            4: [
+              taskSpec("방문", "서울 시범 영업 거점 두 곳을 방문해 관리직 설명 진행", "actual_visits", 2, "곳", "두 명 함께", "예약 방문", "첫 다섯 번 미팅은 두 명이 함께 들어간다."),
+              taskSpec("설명", "지점장·팀장에게 가상 자료로 30분 설명하고 중견 설계사 자율 소개 요청", "manager_meetings", 3, "명", "대표", "1:1 설명", "팀 도입이 아니라 6주 사용성 검증으로 제안한다.")
+            ],
+            5: [
+              taskSpec("전화·문자", "이번 주 접촉 대상에게 결과별 후속 연락을 하고 다음 주 방문 네 건 확정", "visits_confirmed", 4, "곳", "운영담당", "문자·전화", "확정·보류·중단을 구분해 기록한다."),
+              taskSpec("회고", "첫 주 거절 이유와 반응이 좋았던 설명 순서를 정리", "none", 1, "회", "두 명 함께", "주간 회고", "다음 주에 한 가지 설명만 바꾼다.")
+            ]
+          };
+          return prep[weekday] || prep[1];
+        }
+
+        const commonByWeekday = {
+          1: [
+            taskSpec("전화·문자", `${phaseRegion(phase, weekIndex)} 신규 영업 거점의 대표번호로 방문 요청과 자료 전달 경로 확인`, "official_contacts", mode === "유지·인터뷰" ? 4 : 12, "곳", "운영담당", "대표번호 전화", "담당자, 통화 시각, 다음 행동일을 남긴다."),
+            taskSpec("전화·문자", "지난주에 소개받은 관리직·설계사에게 개인별 방문 또는 설명 일정 확정", "visits_confirmed", mode === "유지·인터뷰" ? 2 : 4, "건", "대표", "1:1 문자·전화", "소개자를 첫 문장에 밝히고 가능한 시간 두 개를 제시한다.")
+          ],
+          2: [
+            taskSpec(mode.includes("출장") ? "출장" : "방문", `${phaseRegion(phase, weekIndex)} 같은 동선의 원수사 영업 거점 두 곳 방문`, "actual_visits", mode === "유지·인터뷰" ? 1 : 2, "곳", "두 명 함께", "예약 방문", "오전·오후 한 곳씩 배치하고 차량에서 바로 기록한다."),
+            taskSpec("설명", "지점장·팀장에게 30분 설명하고 중견 설계사 자율 참가 자리 요청", "manager_meetings", mode === "유지·인터뷰" ? 2 : 3, "명", "대표", "관리직 1:1", "설명 후 다른 관리직 한 명의 전달 소개를 부탁한다.")
+          ],
+          3: [
+            taskSpec(mode === "유지·인터뷰" ? "인터뷰" : "방문", mode === "유지·인터뷰" ? "D14·D30 대상자와 커피 인터뷰를 진행해 반복 사용과 막힌 지점 확인" : `${phaseRegion(phase, weekIndex)} 예약 없는 거점 4곳에 관리직용 개인 자료 전달 허락 요청`, mode === "유지·인터뷰" ? "none" : "permission_received", mode === "유지·인터뷰" ? 4 : 4, mode === "유지·인터뷰" ? "명" : "곳", "대표", mode === "유지·인터뷰" ? "심층 인터뷰" : "안내 데스크 방문", "가입이나 소개의 대가가 아니라 시간에 대한 감사로 커피를 제공한다."),
+            taskSpec("소개", "관리직이 연결한 중견 설계사와 현재 업무 방식 20분 인터뷰", "planner_intros", mode === "유지·인터뷰" ? 4 : 8, "명", "대표", "1:1 인터뷰", "경력과 실제 사용 빈도를 확인한 뒤 설계파트너를 제안한다.")
+          ],
+          4: [
+            taskSpec("설명", "중견 설계사 대상 4~6명 미니 설명회 또는 개인 화면 시연", "personal_demos", mode === "유지·인터뷰" ? 4 : 6, "명", "대표", "소규모 설명", "각 참석자가 본인 의사로 후속 일정을 선택하게 한다."),
+            taskSpec("첫 사용", mode === "유지·인터뷰" ? "기존 설계파트너의 D7·D14 재사용을 화면 공유로 지원" : "신규 설계파트너의 가입과 첫 번째 업무 흐름을 1:1로 지원", "first_value_support", mode === "유지·인터뷰" ? 8 : 4, "명", "운영담당", "전화·문자·화면 공유", "첫 행동이 끝날 때 다음 사용 날짜를 확정한다.")
+          ],
+          5: [
+            taskSpec("전화·문자", mode === "유지·인터뷰" ? "이번 주 미사용 설계파트너의 다음 사용일과 인터뷰 일정 재확인" : "D2·D7 대상자에게 첫 사용과 막힌 이유를 개인별로 확인", "first_value_support", mode === "유지·인터뷰" ? 8 : 6, "명", "운영담당", "1:1 문자·전화", "연락 중단 요청이 있으면 즉시 중단으로 표시한다."),
+            taskSpec("회고", "이번 주 전환 수치, 소개 연결, 거절 이유를 기록하고 다음 주 한 가지 행동 결정", "manager_referrals", mode === "유지·인터뷰" ? 1 : 2, "건", "두 명 함께", "주간 회고", "잘된 행동 하나는 두 배로 늘리고 효과가 없는 행동 하나는 중단한다.")
+          ]
+        };
+        return commonByWeekday[weekday] || commonByWeekday[1];
+      }
+
+      function buildTasks() {
+        const dates = businessDates(CAMPAIGN_START, CAMPAIGN_END);
+        const augustByDate = new Map(buildAugustDailyActions().map((item) => [item.date, item]));
+        return dates.flatMap((dateString, dateIndex) => {
+          const phase = phaseFor(dateString);
+          const weekIndex = Math.floor(dateIndex / 5);
+          const exact = augustByDate.get(dateString);
+          if (exact) {
+            return [{
+              id: `task-${dateString}-spreadsheet`,
+              date: dateString,
+              phase: exact.stage,
+              region: exact.exactTarget,
+              category: exact.stage.includes("현장") ? "방문" : exact.stage.includes("인터뷰") ? "인터뷰" : "전화·문자",
+              action: `${exact.stage}: ${exact.exactTarget}`,
+              metricId: "none",
+              target: 1,
+              actual: 0,
+              unit: "일",
+              owner: "두 명 함께",
+              method: `대표: ${exact.representativeRole} / 운영: ${exact.operationsRole}`,
+              note: `하루 완료 기준: ${exact.completion}`,
+              done: exact.status === "완료"
+            }];
+          }
+          return dailyTaskSpecs(dateString, phase, weekIndex).map((spec, specIndex) => ({
+            id: `task-${dateString}-${specIndex + 1}`,
+            date: dateString,
+            phase: phase.mode,
+            region: phaseRegion(phase, weekIndex),
+            category: spec.category,
+            action: spec.action,
+            metricId: spec.metricId,
+            target: spec.target,
+            actual: 0,
+            unit: spec.unit,
+            owner: spec.owner,
+            method: spec.method,
+            note: spec.note,
+            done: false
+          }));
+        });
+      }
+
+      function scenario(id, title, suitable, objective, preparation, steps, success, stop, followup) {
+        const category = id <= 3 ? "첫 접촉" : id <= 10 ? "관리직 미팅" : id <= 15 ? "소개·출장" : id <= 23 ? "사용·피드백" : "온라인·확장";
+        return { id: `scenario-${id}`, category, title, suitable, objective, preparation, steps, success, stop, followup };
+      }
+
+      function buildScenarios() {
+        return [
+          scenario(1, "대표번호로 방문 담당 찾기", "처음 접촉하는 원수사 영업 거점", "자료를 전달할 담당자와 방문 요청 경로를 확보", "회사·지점명, 대표번호, 권역, 통화 기록표", "1. 인파 소속과 방문 목적을 짧게 밝힌다.\n2. 지점장·팀장에게 업무도구 설명을 요청할 담당자를 묻는다.\n3. 자료 전달 허락과 다시 연락할 날짜를 확인한다.", "담당자·자료 전달 방법·다음 연락일 세 가지 확보", "두 차례 확인에도 담당 경로가 없거나 연락 중단 요청", "허락된 방법으로 자료 전달 후 2영업일 안에 일정 확인"),
+          scenario(2, "종이 방문 요청서 직접 전달", "공식 연락 경로가 불분명한 가까운 거점", "관리직 책상까지 개인 자료 한 세트가 도착하게 함", "관리직용 리플렛·손글씨 엽서·명함·스티커", "1. 안내 데스크에서 외부 자료 전달 가능 여부를 묻는다.\n2. 관리직용 한 세트만 전달한다.\n3. 방문 설명 요청 접수 방법을 확인한다.", "자료 수령 담당과 연락 가능한 시간 확보", "출입 또는 전달이 어렵다는 안내", "그 자리에서 더 설득하지 않고 공식 접촉 경로만 기록"),
+          scenario(3, "예약 없는 권역 개척", "차량으로 같은 권역을 도는 날", "하루 4~6개 거점의 공식 접촉 경로 확보", "동선표, 개인 자료 6세트, 공용 전단", "1. 같은 권역만 묶는다.\n2. 거점마다 10분 이내로 안내 데스크에 요청한다.\n3. 공용 전단은 허락된 곳에만 5~10부 둔다.", "방문한 곳의 절반 이상에서 담당 경로 확보", "보안 경고, 출입 제한, 명확한 거절", "당일 차량에서 기록하고 다음 영업일에 허락된 대상만 연락"),
+          scenario(4, "지점장 30분 1:1 설명", "방문 권한과 설계사 소개가 가능한 지점장", "관리직 본인 사용 가능성과 자율 설명회 허락 확인", "가상 고객 데모, 질문 7개, 개인 홍보물", "1. 현재 관리 방식을 5분 묻는다.\n2. 가상 자료로 10분 시연한다.\n3. 본인 사용 흐름을 10분 확인한다.\n4. 중견 설계사 설명 자리를 5분 요청한다.", "다음 행동일 또는 소규모 설명 일정 확정", "회사 기준상 외부 도구 설명이 어렵다는 확인", "당일 감사 연락, D2에 합의된 다음 행동 확인"),
+          scenario(5, "팀장 20분 1:1 설명", "개인 영업을 병행하는 팀장", "팀장 본인의 업무 흐름에서 첫 사용 가설 확보", "휴대폰 데모, 관리직용 개인 자료", "1. 본인 영업과 팀 지원 중 더 시급한 일을 묻는다.\n2. 해당 흐름 하나만 보여준다.\n3. 직접 써볼 날짜를 잡는다.", "7일 안에 첫 행동 일정 확정", "팀원 강제 가입만 요구하거나 본인 사용 의향이 없음", "본인 사용 또는 자율 참가자 소개 중 하나만 후속"),
+          scenario(6, "관리직 2~3명 소규모 설명", "같은 지점의 지점장·팀장이 함께 있는 경우", "관리직 공통 질문을 한 번에 정리하고 내부 기준 확인", "30분 공통 데모, 질문 기록지", "1. 각자의 역할을 확인한다.\n2. 공통 가상 자료를 시연한다.\n3. 외부 도구 기준과 자율 참가 방식을 합의한다.", "담당 관리직 한 명과 후속 일정 확정", "조직 도입 계약이나 공식 제휴로 오해", "합의 내용을 한 페이지로 정리해 담당자에게만 전달"),
+          scenario(7, "중견 설계사 미니 설명회", "관리직이 자율 참가자 4~6명을 모아준 경우", "개인 신청과 첫 사용 약속 확보", "가상 데모, 개인 홍보물, 신청 QR", "1. 5분간 현재 업무를 묻는다.\n2. 10분간 핵심 흐름을 보여준다.\n3. 10분간 질문을 받는다.\n4. 개인별 후속 의사를 확인한다.", "참석자의 40% 이상이 1:1 후속 신청", "상사의 권유만으로 참석하고 개인 의사가 없음", "신청자에게만 D2·D7 연락"),
+          scenario(8, "점심시간 20분 화면 시연", "업무 중 긴 시간을 내기 어려운 지점", "짧은 시간에 실제 화면과 사용 흐름 전달", "노트북, 모바일 화면, 20분 타이머", "1. 문제 한 가지를 묻는다.\n2. 화면 한 흐름만 시연한다.\n3. 관심자에게 1:1 시간을 선택하게 한다.", "개인 설명 약속 2건 이상", "식사와 휴식을 방해한다는 반응", "관심자만 오후 또는 다른 날로 연결"),
+          scenario(9, "아침 조회 전후 15분 설명", "관리직이 공식적으로 시간을 준 지점", "한 번에 여러 설계사에게 존재와 핵심 가치 알림", "15분 데모, 개인 자료", "1. 3분 문제 확인.\n2. 7분 화면 시연.\n3. 5분 자율 신청 안내.", "개인 후속 신청 3건 이상", "조회 운영에 방해되거나 강제 참석 분위기", "관리직이 아닌 신청자 본인에게만 후속"),
+          scenario(10, "퇴근 전 20분 설명", "오후 일정이 끝나는 시간이 분명한 지점", "당일 업무 경험이 생생할 때 불편을 듣고 데모", "휴대폰 중심 데모, 간단한 다과", "1. 오늘 반복 업무를 묻는다.\n2. 맞는 화면만 보여준다.\n3. 다음 주 첫 사용을 약속한다.", "첫 사용 약속 2건 이상", "예정 시간보다 10분 이상 지연", "시간을 넘기지 않고 1:1 일정으로 전환"),
+          scenario(11, "관리직의 다른 지점장 소개", "만족한 관리직 미팅 직후", "다음 지역의 신뢰 있는 첫 연결 확보", "전달용 한 문장 소개, 방문 요청서", "1. 주변에서 비슷한 고민이 있는 한 명을 묻는다.\n2. 연락처를 받기보다 관리직이 먼저 전달하도록 부탁한다.\n3. 상대가 동의하면 세 사람을 연결한다.", "한 달 동안 관리직 소개 20건", "소개를 선물이나 가입과 연결하게 되는 상황", "소개받은 상대에게 소개자를 밝히고 한 번만 연락"),
+          scenario(12, "생명·손해 관리직 교차 소개", "서로 다른 업권의 지인을 가진 관리직", "제품 가설을 업권별로 균형 있게 검증", "업권별 질문 차이 기록", "1. 현재 업권에서 나온 질문을 공유한다.\n2. 다른 업권 관점을 들을 한 명을 부탁한다.\n3. 같은 설명이 아닌 업권 맞춤 질문을 준비한다.", "생명·손해 각각 최소 3개 회사 확보", "한 업권 사용자가 최종 후보의 60% 초과", "부족한 업권을 다음 달 우선 대상으로 지정"),
+          scenario(13, "사용 설계사의 동료 한 명 소개", "D14 이상 실제 사용한 설계파트너", "비슷한 업무를 하는 동료에게 자연스럽게 확장", "사용자가 설명하기 쉬운 한 문장", "1. 실제로 도움이 된 흐름을 묻는다.\n2. 같은 불편이 있는 동료 한 명을 떠올리게 한다.\n3. 사용자가 먼저 의사를 묻도록 부탁한다.", "D14 사용자 세 명당 소개 한 건", "사용 전이거나 만족하지 않은 사용자에게 소개 요청", "새 대상의 자율 동의를 확인한 후 설명 일정 확정"),
+          scenario(14, "지역 출장 전 온라인 사전 설명", "왕복 이동이 긴 지방 관리직", "출장 전에 관심과 미팅 적합성 확인", "20분 화면 공유, 출장 후보표", "1. 관리직 20분 사전 설명.\n2. 관심 설계사 수 확인.\n3. 실제 방문 때 필요한 시간 확정.", "48시간 전 관리직 미팅 3건과 설계사 시간 6칸 확정", "확정 기준 미달", "출장을 취소하고 온라인 인터뷰로 전환"),
+          scenario(15, "지방 2일 1박 묶음 방문", "충청·영남·호남 권역", "한 번의 이동으로 신규 3곳과 기존 사용자 1곳 접촉", "승차권, 동선, 예약표, 홍보물, 백업 장비", "1. 1일차 오후 신규 두 곳.\n2. 2일차 오전 신규 한 곳.\n3. 2일차 오후 기존 사용자 재방문.\n4. 귀가 전 기록 완료.", "출장당 설계파트너 2명 이상", "48시간 전 확정 미달 또는 출장당 데모 4명 미만", "성과가 기준 이하인 권역은 신규 재방문 중단"),
+          scenario(16, "D2 가입·첫 설정 지원", "설계파트너 신청 후 이틀째", "가입만 하고 멈추는 사람을 첫 행동까지 연결", "10분 통화, 화면 공유 준비", "1. 가입 여부 확인.\n2. 가장 쉬운 첫 행동 선택.\n3. 막힌 지점 해결.\n4. D7 약속 확정.", "신청자의 70%가 7일 안에 첫 행동", "연락 중단 요청", "한 번 더 가능한 시간을 묻고 이후 합의된 날짜까지 대기"),
+          scenario(17, "D7 첫 사용 확인", "첫 주 설계파트너", "가상 흥미가 아니라 실제 업무 적합성 확인", "첫 행동 기록, 질문 5개", "1. 무엇을 사용했는지 확인.\n2. 도움이 된 점과 막힌 점을 각각 묻는다.\n3. 두 번째 사용일을 정한다.", "첫 사용 완료 42명", "사용하지 않았는데 좋은 평가만 요청하는 상황", "미사용 이유를 제품·시간·기준·필요 없음으로 구분"),
+          scenario(18, "D14 커피 심층 인터뷰", "두 번째 사용을 시도한 사람", "반복 사용 이유와 제품 개선점을 깊게 수집", "30분 질문지, 커피 예산, 사용 기록", "1. 최근 업무 흐름을 재구성한다.\n2. 인파를 연 시점과 닫은 시점을 묻는다.\n3. 가장 먼저 고칠 한 가지를 확인한다.", "14일 재사용 30명, 인터뷰 메모 30건", "가입·소개·후기와 커피를 연동", "다음 사용일과 제품 피드백 확인일을 기록"),
+          scenario(19, "D30 반복 사용 인터뷰", "한 달차 설계파트너", "습관 가능성과 잔존 이유 검증", "사용 횟수, 기능별 기록, 개선 이력", "1. 최근 4주 사용 주차를 확인한다.\n2. 실제로 반복한 흐름을 묻는다.\n3. 다음 한 달 사용 의향을 확인한다.", "의미 있는 사용 주차와 핵심 흐름 수 확보", "기억에 의존해 실제 사용을 과장", "D42 최종 판정 조건을 함께 확인"),
+          scenario(20, "D42 최종 사용자 판정", "6주차 설계파트너", "최종 20명 후보를 동일한 기준으로 선별", "6주 기록, 피드백 수, 최근 사용일", "1. 의미 있는 사용 6주 확인.\n2. 핵심 흐름 2개 확인.\n3. 피드백 3회 확인.\n4. 최근 활동 확인.", "6주 완료 24명, 최종 반복 사용자 20명", "호감이나 소개만으로 최종 사용자 판정", "충족자는 다음 분기 패널 의향, 미충족자는 후보로 기록"),
+          scenario(21, "사용 중단자 이탈 인터뷰", "첫 사용 전후 멈춘 설계파트너", "억지 재활성보다 정확한 중단 이유 확보", "10분 질문, 중단 이유 분류", "1. 다시 쓰라고 설득하지 않는다.\n2. 기대와 실제의 차이를 묻는다.\n3. 가장 큰 중단 이유 한 가지를 선택한다.", "중단자의 50% 이상에서 이유 확보", "연락 중단 요청 또는 불편 표시", "중단 처리하고 제품 개선 목록에 이유만 반영"),
+          scenario(22, "활발한 사용자 공동 피드백", "D30 이상 사용자 4~6명", "개별 인터뷰에서 보이지 않는 공통 문제 검증", "60분 진행표, 가상 화면, 질문 보드", "1. 각자 반복 흐름 공유.\n2. 공통 불편을 묶는다.\n3. 우선순위 세 개를 함께 정한다.", "공통 개선점 3개와 반대 의견 기록", "특정 관리직이 발언을 독점", "개별 의견을 익명 메모로 추가 수집"),
+          scenario(23, "관리직 월간 결과 공유", "설계파트너를 소개한 지점장·팀장", "조직 제휴 오해 없이 진행 상황과 배운 점 공유", "개인정보 없는 집계, 다음 달 계획", "1. 참가·첫 사용·재사용 수만 공유.\n2. 개인 고객정보는 제외.\n3. 다음 달 자율 설명 요청을 확인한다.", "관리직 재방문 또는 추가 소개 한 건", "회사나 지점의 공식 추천처럼 표현", "방문 사실과 회사명은 별도 허락 없이 홍보에 사용하지 않음"),
+          scenario(24, "인스타그램 화면 영상 신청", "대표의 현장 활동을 확인하는 잠재 대상", "자발적인 설명 신청 입구 확보", "30~45초 실제 화면 영상, 신청 방법", "1. 현장 질문 하나를 고른다.\n2. 화면 한 흐름으로 답한다.\n3. 프로필에서 관리직 설명 또는 개인 데모 신청을 받는다.", "주 2개 영상, 월 4건 이상 자발적 신청", "과장된 성과나 확인되지 않은 사례 사용", "신청자에게 희망 시간 두 개를 받아 설명 확정"),
+          scenario(25, "현장 질문을 인파 노트로 전환", "같은 질문이 세 번 이상 나온 경우", "방문 전 신뢰 확인 자료 축적", "현장 질문 기록, 실제 화면, 쉬운 표현", "1. 질문을 한 문장으로 정리한다.\n2. 실제 화면과 사용 순서로 답한다.\n3. 다음 방문 전 참고자료로 전달한다.", "주 1편, 방문 전 열람 확인", "현장 개인정보나 회사 내부 내용을 노출", "다음 미팅에서 글이 질문 해결에 도움이 됐는지 확인"),
+          scenario(26, "소개 대상 1:1 문자 일정 확정", "관리직이나 사용자가 먼저 연결해 준 대상", "긴 설명 없이 첫 통화 또는 방문 시간 확보", "소개자 이름, 가능한 시간 두 개, 연락 기록", "1. 소개자를 밝힌다.\n2. 방문 목적을 한 줄로 말한다.\n3. 가능한 시간 두 개를 제시한다.\n4. 답이 없으면 한 번만 확인한다.", "소개 연결의 50% 이상이 설명 일정으로 전환", "연락 중단 요청 또는 두 차례 무응답", "확정자는 일정 전날 한 번만 확인"),
+          scenario(27, "지역 우수 사용자 재방문 동행", "지역에서 반복 사용 중인 설계파트너", "제품 설명보다 실제 사용자 경험으로 신뢰 보강", "동행 의향, 역할 구분, 식사·교통비 기준", "1. 사용자가 자발적으로 동행할지 확인.\n2. 대표는 제품, 사용자는 실제 경험만 설명.\n3. 과장 없이 질문을 나눠 답한다.", "신규 설명 후 첫 사용 약속 2건 이상", "보상 조건으로 후기나 소개 요구", "동행 후 별도 감사와 개선 의견 인터뷰"),
+          scenario(28, "12월 감사 인터뷰", "최종 반복 사용자와 핵심 후보", "올해의 사용 결과와 다음 분기 참여 의향 확인", "최종 사용 기록, 감사 카드, 질문 6개", "1. 올해 가장 가치 있던 흐름 확인.\n2. 계속 쓰는 이유 확인.\n3. 다음 분기 피드백 참여 의향 확인.", "최종 사용자 20명 확정, 다음 분기 패널 12명", "유료 전환을 즉석에서 압박", "정책이 정리된 뒤 별도 안내하기로 합의"),
+          scenario(29, "하루 현장 클리닉", "한 지점에서 자율 참가자 6명 이상 확보", "설명에서 끝내지 않고 그날 첫 행동까지 지원", "회의 공간, 와이파이, 가상 자료, 시간표", "1. 오전 관리직 설명.\n2. 점심 미니 설명.\n3. 오후 개인별 20분 첫 행동.\n4. 끝나기 전 후속 일정 확정.", "하루 첫 사용 4명 이상", "회사 기준 확인 없이 실제 고객정보 사용", "D2에 전원 진행 상태 확인"),
+          scenario(30, "지역 온라인 오피스아워", "출장 후 질문이 남은 지방 사용자", "재방문 사이의 지원 공백 해소", "주 1회 60분 고정 시간, 참여 링크", "1. 질문을 미리 받는다.\n2. 가상 화면으로 공통 답변.\n3. 개인 상황은 별도 1:1로 분리한다.", "회당 3명 이상 참여, 다음 행동 2건", "개인 고객정보가 공동 화면에 노출", "참석자별 다음 행동을 문자로 확인"),
+          scenario(31, "사용자 업무 흐름 관찰", "D14 이상이며 관찰에 동의한 설계파트너", "말로 설명되지 않는 실제 동선과 반복 업무 발견", "관찰 범위 합의, 개인정보 없는 환경", "1. 어떤 업무를 볼지 합의.\n2. 개입 없이 흐름을 관찰.\n3. 끝난 뒤 이유를 질문.\n4. 개선 가설 한 개만 확인.", "업무 흐름별 막힘 3개와 개선 가설 1개", "고객정보나 통화 내용이 포함되는 순간", "관찰 메모에서 개인·고객 식별정보 제거"),
+          scenario(32, "상위 권역 집중 재방문", "11월 14일 이후 성과가 높은 네 권역", "신규 이동보다 반복 사용 20명 확정에 집중", "권역별 전환율, D30·D42 대상 명단", "1. 권역별 첫 사용과 재사용을 비교한다.\n2. 상위 네 권역만 고른다.\n3. 주 2개 거점을 재방문한다.\n4. 주 5명 D42 인터뷰를 진행한다.", "6주 완료 24명, 최종 20명", "신규 지역 욕심으로 후속 일정 누락", "12월 말 최종 조건과 다음 분기 의향 정리")
+        ];
+      }
+
+      function buildReviews() {
+        const mondays = businessDates(CAMPAIGN_START, "2026-12-28").filter((dateString) => parseDate(dateString).getDay() === 1);
+        return mondays.map((weekStart, index) => ({
+          id: `review-${weekStart}`,
+          weekStart,
+          weekEnd: addDays(weekStart, 4),
+          bestMethod: "",
+          rejectionReason: "",
+          activationBlocker: "",
+          stopAction: "",
+          doubleAction: "",
+          productFeedback: "",
+          decision: index === 0 ? "서울 관리직 방문 약속 4건 확보 여부를 금요일에 판단" : ""
+        }));
+      }
+
+      function buildDefaultState() {
+        return {
+          version: SCHEMA_VERSION,
+          meta: {
+            title: "인파 2026 영업·마케팅 실행판",
+            summary: "서울 원수사 관리직부터 문을 열고, 소개받은 중견 설계사가 6주 동안 인파를 실제로 사용하도록 지원해 반복 피드백 사용자 20명을 확보합니다.",
+            startDate: CAMPAIGN_START,
+            endDate: CAMPAIGN_END,
+            finalGoalLabel: "최종 반복 사용자",
+            finalGoal: 20,
+            operatingRule: "온라인으로 약속을 만들고, 오프라인에서 신뢰를 형성하며, 다시 전화·문자로 첫 사용과 반복 사용을 관리합니다.",
+            lastSavedAt: ""
+          },
+          kpis: [
+            { id: "official_contacts", label: "공식 접촉 거점", target: 120, source: "task", manualActual: "", unit: "곳" },
+            { id: "permission_received", label: "자료 전달 허락", target: 40, source: "task", manualActual: "", unit: "곳" },
+            { id: "visits_confirmed", label: "방문 일정 확정", target: 40, source: "task", manualActual: "", unit: "건" },
+            { id: "actual_visits", label: "실제 방문 거점", target: 28, source: "task", manualActual: "", unit: "곳" },
+            { id: "manager_meetings", label: "지점장·팀장 대면", target: 45, source: "task", manualActual: "", unit: "명" },
+            { id: "planner_intros", label: "소개받은 설계사", target: 100, source: "task", manualActual: "", unit: "명" },
+            { id: "personal_demos", label: "개인·소규모 설명", target: 96, source: "task", manualActual: "", unit: "명" },
+            { id: "partner_signups", label: "설계파트너 신청", target: 60, source: "partner", partnerField: "joined", manualActual: "", unit: "명" },
+            { id: "first_value", label: "7일 안에 첫 사용", target: 42, source: "partner", partnerField: "firstValue", manualActual: "", unit: "명" },
+            { id: "d14_reuse", label: "14일 안에 재사용", target: 30, source: "partner", partnerField: "reusedD14", manualActual: "", unit: "명" },
+            { id: "d42_complete", label: "6주 사용 완료", target: 24, source: "partner", partnerField: "completedD42", manualActual: "", unit: "명" },
+            { id: "final_users", label: "최종 반복 사용자", target: 20, source: "final", manualActual: "", unit: "명" },
+            { id: "manager_referrals", label: "관리직 소개 연결", target: 20, source: "task", manualActual: "", unit: "건" }
+          ],
+          tasks: buildTasks(),
+          augustDailyActions: buildAugustDailyActions(),
+          targets: buildOfficialTargets(),
+          partners: [{
+            id: "partner-1", name: "", company: "", branch: "", role: "", careerYears: "", startedAt: "", joined: false, firstValue: false, reusedD14: false, completedD42: false, meaningfulWeeks: 0, coreFlows: 0, feedbackCount: 0, activeWeeksLast4: 0, lastUsedAt: "", nextFollowupAt: "", note: ""
+          }],
+          scenarios: buildScenarios(),
+          reviews: buildReviews(),
+          monthlyGoals: buildMonthlyGoals(),
+          routeClusters: buildRouteClusters(),
+          selectionCriteria: buildSelectionCriteria(),
+          sources: buildSourceRegistry(),
+          fieldPrinciples: buildFieldPrinciples(),
+          settings: {
+            activeTab: "today",
+            focusDate: CAMPAIGN_START,
+            selectedDate: CAMPAIGN_START,
+            calendarMonth: "2026-08",
+            monthFilter: "2026-08",
+            incompleteOnly: false,
+            search: "",
+            targetView: "priority40",
+            targetFilters: { search: "", company: "", sector: "", region: "", cluster: "", contactStatus: "", meetingStatus: "" },
+            selectedCluster: "신도림테크노마트",
+            origin: "구로",
+            scenarioCategory: "전체"
+          }
+        };
+      }
+
+      function normalizeString(value, fallback = "") {
+        return typeof value === "string" ? value : fallback;
+      }
+
+      function normalizeNumber(value, fallback = 0) {
+        if (value === "") return "";
+        const number = Number(value);
+        return Number.isFinite(number) ? number : fallback;
+      }
+
+      function normalizeKpi(item, index) {
+        const defaults = buildDefaultState().kpis[index] || buildDefaultState().kpis[0];
+        const source = ["task", "partner", "final"].includes(item?.source) ? item.source : defaults.source;
+        return {
+          ...defaults,
+          ...(item && typeof item === "object" ? item : {}),
+          id: normalizeString(item?.id, uid("kpi")),
+          label: normalizeString(item?.label, defaults.label),
+          target: normalizeNumber(item?.target, defaults.target),
+          source,
+          manualActual: item?.manualActual === "" ? "" : normalizeNumber(item?.manualActual, ""),
+          unit: normalizeString(item?.unit, defaults.unit)
+        };
+      }
+
+      function normalizeTask(item) {
+        return {
+          id: normalizeString(item?.id, uid("task")),
+          date: normalizeString(item?.date, CAMPAIGN_START),
+          phase: normalizeString(item?.phase, "직접 추가"),
+          region: normalizeString(item?.region, ""),
+          category: normalizeString(item?.category, "준비"),
+          action: normalizeString(item?.action, ""),
+          metricId: normalizeString(item?.metricId, "none"),
+          target: normalizeNumber(item?.target, 0),
+          actual: normalizeNumber(item?.actual, 0),
+          unit: normalizeString(item?.unit, "건"),
+          owner: normalizeString(item?.owner, "두 명 함께"),
+          method: normalizeString(item?.method, ""),
+          note: normalizeString(item?.note, ""),
+          done: Boolean(item?.done)
+        };
+      }
+
+      function normalizeTarget(item) {
+        return {
+          id: normalizeString(item?.id, uid("target")),
+          rank: normalizeNumber(item?.rank, ""),
+          phase: normalizeString(item?.phase, item?.rank && Number(item.rank) <= 40 ? "우선 40" : item?.rank ? "확장 40" : "직접 추가"),
+          week: normalizeString(item?.week),
+          company: normalizeString(item?.company),
+          branch: normalizeString(item?.branch),
+          region: normalizeString(item?.region),
+          cluster: normalizeString(item?.cluster),
+          sector: normalizeString(item?.sector),
+          channel: normalizeString(item?.channel),
+          address: normalizeString(item?.address),
+          phone: normalizeString(item?.phone),
+          managerImpact: normalizeNumber(item?.managerImpact, ""),
+          plannerAccess: normalizeNumber(item?.plannerAccess, ""),
+          officialCertainty: normalizeNumber(item?.officialCertainty, ""),
+          guroAccess: normalizeNumber(item?.guroAccess, ""),
+          effectScore: normalizeNumber(item?.effectScore, ""),
+          recommendedApproach: normalizeString(item?.recommendedApproach),
+          contactStatus: CONTACT_STATUS_OPTIONS.includes(item?.contactStatus) ? item.contactStatus : "미연락",
+          meetingStatus: MEETING_STATUS_OPTIONS.includes(item?.meetingStatus) ? item.meetingStatus : "미정",
+          managerTeam: normalizeString(item?.managerTeam),
+          lastContactAt: normalizeString(item?.lastContactAt),
+          meetingAt: normalizeString(item?.meetingAt),
+          activeUsers: normalizeNumber(item?.activeUsers, 0),
+          feedbackUsers: normalizeNumber(item?.feedbackUsers, 0),
+          source: normalizeString(item?.source),
+          sourceCheckedAt: normalizeString(item?.sourceCheckedAt),
+          isOfficialSeed: Boolean(item?.isOfficialSeed),
+          position: normalizeString(item?.position),
+          name: normalizeString(item?.name),
+          contactRoute: normalizeString(item?.contactRoute, "대표번호"),
+          status: STATUS_OPTIONS.includes(item?.status) ? item.status : "조사",
+          nextActionAt: normalizeString(item?.nextActionAt),
+          introducer: normalizeString(item?.introducer),
+          note: normalizeString(item?.note)
+        };
+      }
+
+      function isBlankLegacyTarget(item) {
+        if (!item || item.isOfficialSeed) return false;
+        return ![item.company, item.branch, item.name, item.note, item.phone, item.address, item.managerTeam].some((value) => String(value || "").trim());
+      }
+
+      function mergeOfficialTargets(items) {
+        const incoming = Array.isArray(items) ? items : [];
+        const official = buildOfficialTargets().map((seed) => {
+          const saved = incoming.find((item) => item?.id === seed.id || (item?.isOfficialSeed && Number(item?.rank) === seed.rank));
+          return normalizeTarget(saved ? { ...seed, ...saved, id: seed.id, rank: seed.rank, isOfficialSeed: true } : seed);
+        });
+        const custom = incoming
+          .filter((item) => !item?.isOfficialSeed && !/^official-target-\d+$/.test(String(item?.id || "")))
+          .map(normalizeTarget)
+          .filter((item) => !isBlankLegacyTarget(item));
+        return [...official, ...custom];
+      }
+
+      function normalizeMonthlyGoal(item, index) {
+        const fallback = buildMonthlyGoals()[index] || buildMonthlyGoals()[0];
+        return {
+          ...fallback,
+          ...(item && typeof item === "object" ? item : {}),
+          id: normalizeString(item?.id, fallback.id),
+          judgement: JUDGEMENT_OPTIONS.includes(item?.judgement) ? item.judgement : ""
+        };
+      }
+
+      function getFilteredTargets(inputState, overrides = {}) {
+        const current = inputState || state;
+        const settings = current?.settings || {};
+        const filters = { ...(settings.targetFilters || {}), ...overrides };
+        const targetView = overrides.targetView || settings.targetView || "priority40";
+        const search = String(filters.search || "").trim().toLowerCase();
+        return (current?.targets || []).filter((target) => {
+          if (targetView === "priority40" && (!target.isOfficialSeed || Number(target.rank) > 40)) return false;
+          if (filters.company && target.company !== filters.company) return false;
+          if (filters.sector && target.sector !== filters.sector) return false;
+          if (filters.region && target.region !== filters.region) return false;
+          if (filters.cluster && target.cluster !== filters.cluster) return false;
+          if (filters.contactStatus && target.contactStatus !== filters.contactStatus) return false;
+          if (filters.meetingStatus && target.meetingStatus !== filters.meetingStatus) return false;
+          if (!search) return true;
+          return [target.rank, target.company, target.branch, target.region, target.cluster, target.address, target.phone, target.managerTeam, target.note]
+            .some((value) => String(value || "").toLowerCase().includes(search));
+        });
+      }
+
+      function normalizePartner(item) {
+        return {
+          id: normalizeString(item?.id, uid("partner")),
+          name: normalizeString(item?.name),
+          company: normalizeString(item?.company),
+          branch: normalizeString(item?.branch),
+          role: normalizeString(item?.role),
+          careerYears: normalizeNumber(item?.careerYears, ""),
+          startedAt: normalizeString(item?.startedAt),
+          joined: Boolean(item?.joined),
+          firstValue: Boolean(item?.firstValue),
+          reusedD14: Boolean(item?.reusedD14),
+          completedD42: Boolean(item?.completedD42),
+          meaningfulWeeks: normalizeNumber(item?.meaningfulWeeks, 0),
+          coreFlows: normalizeNumber(item?.coreFlows, 0),
+          feedbackCount: normalizeNumber(item?.feedbackCount, 0),
+          activeWeeksLast4: normalizeNumber(item?.activeWeeksLast4, 0),
+          lastUsedAt: normalizeString(item?.lastUsedAt),
+          nextFollowupAt: normalizeString(item?.nextFollowupAt),
+          note: normalizeString(item?.note)
+        };
+      }
+
+      function normalizeScenario(item, index) {
+        const fallback = buildScenarios()[index] || scenario(index + 1, "새 영업 시나리오", "", "", "", "", "", "", "");
+        return {
+          ...fallback,
+          ...(item && typeof item === "object" ? item : {}),
+          id: normalizeString(item?.id, uid("scenario")),
+          category: normalizeString(item?.category, fallback.category),
+          title: normalizeString(item?.title, fallback.title),
+          suitable: normalizeString(item?.suitable),
+          objective: normalizeString(item?.objective),
+          preparation: normalizeString(item?.preparation),
+          steps: normalizeString(item?.steps),
+          success: normalizeString(item?.success),
+          stop: normalizeString(item?.stop),
+          followup: normalizeString(item?.followup)
+        };
+      }
+
+      function normalizeReview(item) {
+        return {
+          id: normalizeString(item?.id, uid("review")),
+          weekStart: normalizeString(item?.weekStart, CAMPAIGN_START),
+          weekEnd: normalizeString(item?.weekEnd, addDays(CAMPAIGN_START, 4)),
+          bestMethod: normalizeString(item?.bestMethod),
+          rejectionReason: normalizeString(item?.rejectionReason),
+          activationBlocker: normalizeString(item?.activationBlocker),
+          stopAction: normalizeString(item?.stopAction),
+          doubleAction: normalizeString(item?.doubleAction),
+          productFeedback: normalizeString(item?.productFeedback),
+          decision: normalizeString(item?.decision)
+        };
+      }
+
+      function normalizeState(input) {
+        const defaults = buildDefaultState();
+        if (!input || typeof input !== "object") return defaults;
+        const incomingSettings = input.settings && typeof input.settings === "object" ? input.settings : {};
+        const fallbackDate = parseDate(incomingSettings.focusDate) ? incomingSettings.focusDate : defaults.settings.focusDate;
+        const selectedDate = parseDate(incomingSettings.selectedDate) ? incomingSettings.selectedDate : fallbackDate;
+        const legacyMonth = /^\d{4}-\d{2}$/.test(String(incomingSettings.monthFilter || "")) ? incomingSettings.monthFilter : selectedDate.slice(0, 7);
+        const calendarMonth = /^\d{4}-\d{2}$/.test(String(incomingSettings.calendarMonth || "")) ? incomingSettings.calendarMonth : legacyMonth;
+        return {
+          ...defaults,
+          ...input,
+          version: SCHEMA_VERSION,
+          meta: { ...defaults.meta, ...(input.meta && typeof input.meta === "object" ? input.meta : {}) },
+          settings: {
+            ...defaults.settings,
+            ...incomingSettings,
+            activeTab: ["today", "targets", "planning", "locations", "scenarios"].includes(incomingSettings.activeTab) ? incomingSettings.activeTab : defaults.settings.activeTab,
+            focusDate: fallbackDate,
+            selectedDate,
+            calendarMonth,
+            targetView: ["priority40", "all80"].includes(incomingSettings.targetView) ? incomingSettings.targetView : defaults.settings.targetView,
+            targetFilters: {
+              ...defaults.settings.targetFilters,
+              ...(incomingSettings.targetFilters && typeof incomingSettings.targetFilters === "object" ? incomingSettings.targetFilters : {})
+            }
+          },
+          kpis: Array.isArray(input.kpis) ? input.kpis.map(normalizeKpi) : defaults.kpis,
+          tasks: Array.isArray(input.tasks) ? input.tasks.map(normalizeTask) : defaults.tasks,
+          augustDailyActions: defaults.augustDailyActions.map((fallback) => {
+            const saved = Array.isArray(input.augustDailyActions) ? input.augustDailyActions.find((item) => item?.id === fallback.id) : null;
+            return saved && typeof saved === "object" ? { ...fallback, ...saved, id: fallback.id } : fallback;
+          }),
+          targets: mergeOfficialTargets(input.targets),
+          partners: Array.isArray(input.partners) ? input.partners.map(normalizePartner) : defaults.partners,
+          scenarios: Array.isArray(input.scenarios) ? input.scenarios.map(normalizeScenario) : defaults.scenarios,
+          reviews: Array.isArray(input.reviews) ? input.reviews.map(normalizeReview) : defaults.reviews,
+          monthlyGoals: Array.isArray(input.monthlyGoals) ? input.monthlyGoals.map(normalizeMonthlyGoal) : defaults.monthlyGoals,
+          routeClusters: defaults.routeClusters,
+          selectionCriteria: defaults.selectionCriteria,
+          sources: defaults.sources,
+          fieldPrinciples: defaults.fieldPrinciples
+        };
+      }
+
+      function showStorageNotice(message) {
+        const notice = document.getElementById("storageNotice");
+        if (!notice) return;
+        notice.textContent = message;
+        notice.classList.toggle("is-visible", Boolean(message));
+      }
+
+      function loadState() {
+        try {
+          const raw = window.localStorage.getItem(STORAGE_KEY);
+          if (!raw) return buildDefaultState();
+          return normalizeState(JSON.parse(raw));
+        } catch (error) {
+          try {
+            const corrupt = window.localStorage.getItem(STORAGE_KEY);
+            if (corrupt) window.localStorage.setItem(`${STORAGE_KEY}-recovery-${Date.now()}`, corrupt);
+          } catch (_) {
+            // The dashboard still works in memory when browser storage is unavailable.
+          }
+          window.setTimeout(() => {
+            showStorageNotice("저장 내용을 읽는 과정에서 기본 계획을 열었습니다. 이전 값은 복구용으로 보관했고, JSON 백업으로 다시 불러올 수 있습니다.");
+          }, 0);
+          return buildDefaultState();
+        }
+      }
+
+      function setSaveStatus(text) {
+        const element = document.getElementById("saveStatus");
+        if (element) element.textContent = text;
+      }
+
+      function saveState() {
+        try {
+          state.meta.lastSavedAt = new Date().toISOString();
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          const time = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());
+          setSaveStatus(`저장됨 ${time}`);
+          showStorageNotice("");
+        } catch (error) {
+          setSaveStatus("브라우저 저장 확인 필요");
+          showStorageNotice("이 브라우저에서는 자동 저장 범위가 제한될 수 있습니다. 상단의 JSON 백업을 함께 사용하면 내용을 안전하게 옮길 수 있습니다.");
+        }
+      }
+
+      function queueSave() {
+        setSaveStatus("저장 중");
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(saveState, 220);
+      }
+
+      function showToast(message) {
+        const toast = document.getElementById("toast");
+        if (!toast) return;
+        toast.textContent = message;
+        toast.classList.add("is-visible");
+        window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 2600);
+      }
+
+      function qualifiesFinalPartner(partner, campaignEnd = state?.meta?.endDate || CAMPAIGN_END) {
+        const recentDays = daysBetween(partner.lastUsedAt, campaignEnd);
+        return Number(partner.meaningfulWeeks) >= 6
+          && Number(partner.coreFlows) >= 2
+          && Number(partner.feedbackCount) >= 3
+          && Number(partner.activeWeeksLast4) >= 3
+          && recentDays >= 0
+          && recentDays <= 30;
+      }
+
+      function calculateKpis(inputState) {
+        const current = inputState || state;
+        return current.kpis.map((kpi) => {
+          let automaticActual = 0;
+          if (kpi.source === "task") {
+            automaticActual = current.tasks
+              .filter((task) => task.metricId === kpi.id)
+              .reduce((sum, task) => sum + (Number(task.actual) || 0), 0);
+          } else if (kpi.source === "partner") {
+            automaticActual = current.partners.filter((partner) => Boolean(partner[kpi.partnerField])).length;
+          } else if (kpi.source === "final") {
+            automaticActual = current.partners.filter((partner) => qualifiesFinalPartner(partner, current.meta.endDate)).length;
+          }
+          const hasOverride = kpi.manualActual !== "" && Number.isFinite(Number(kpi.manualActual));
+          const actual = hasOverride ? Number(kpi.manualActual) : automaticActual;
+          const target = Math.max(0, Number(kpi.target) || 0);
+          const percent = target > 0 ? Math.round((actual / target) * 100) : 0;
+          return {
+            ...kpi,
+            automaticActual,
+            actual,
+            target,
+            percent,
+            remaining: Math.max(0, target - actual),
+            hasOverride
+          };
+        });
+      }
+
+      function completionRate() {
+        if (!state.tasks.length) return 0;
+        return Math.round((state.tasks.filter((task) => task.done).length / state.tasks.length) * 100);
+      }
+
+      function campaignDaysLeft() {
+        const today = toDateString(new Date());
+        if (today < state.meta.startDate) return Math.max(0, daysBetween(state.meta.startDate, state.meta.endDate) + 1);
+        if (today > state.meta.endDate) return 0;
+        return Math.max(0, daysBetween(today, state.meta.endDate) + 1);
+      }
+
+      function optionMarkup(options, selected) {
+        return options.map((option) => `<option value="${escapeHtml(option)}"${option === selected ? " selected" : ""}>${escapeHtml(option)}</option>`).join("");
+      }
+
+      function collectionControl(collection, id, field, value, options = {}) {
+        const common = `data-collection="${collection}" data-id="${escapeHtml(id)}" data-field="${field}"`;
+        if (options.type === "checkbox") {
+          return `<label class="check-wrap"><span class="sr-only">${escapeHtml(options.label || field)}</span><input type="checkbox" ${common}${value ? " checked" : ""}></label>`;
+        }
+        if (options.type === "select") {
+          return `<select class="field-select" ${common}>${optionMarkup(options.values, value)}</select>`;
+        }
+        if (options.type === "textarea") {
+          return `<textarea class="field-area" ${common} aria-label="${escapeHtml(options.label || field)}">${escapeHtml(value)}</textarea>`;
+        }
+        const type = options.type || "text";
+        const min = options.min !== undefined ? ` min="${options.min}"` : "";
+        const step = options.step !== undefined ? ` step="${options.step}"` : "";
+        const className = options.compact ? "field field-compact" : "field";
+        return `<input class="${className}" type="${type}" value="${escapeHtml(value)}" ${common}${min}${step} aria-label="${escapeHtml(options.label || field)}">`;
+      }
+
+      function renderHeader() {
+        const header = document.getElementById("campaignHeader");
+        const finalKpi = calculateKpis(state).find((kpi) => kpi.id === "final_users");
+        const savedLabel = state.meta.lastSavedAt ? `저장 기록 있음` : "자동 저장 대기";
+        header.innerHTML = `
+          <div class="hero-inner">
+            <p class="eyebrow">INPA FIELD EXECUTION 2026</p>
+            <div class="hero-grid">
+              <div>
+                <label class="sr-only" for="campaignTitleInput">실행판 제목</label>
+                <input id="campaignTitleInput" class="hero-title-input" data-scope="meta" data-field="title" value="${escapeHtml(state.meta.title)}" placeholder="실행판 제목">
+                <label class="sr-only" for="campaignSummaryInput">실행판 설명</label>
+                <textarea id="campaignSummaryInput" class="hero-summary-input" data-scope="meta" data-field="summary" placeholder="실행 목표와 운영 원칙을 작성하세요">${escapeHtml(state.meta.summary)}</textarea>
+                <div class="hero-meta">
+                  <span class="hero-chip">${formatDate(state.meta.startDate)} ~ ${formatDate(state.meta.endDate, true)}</span>
+                  <span class="hero-chip">${escapeHtml(state.meta.finalGoalLabel)} ${finalKpi?.actual || 0}/${finalKpi?.target || state.meta.finalGoal}명</span>
+                  <span class="hero-chip" id="saveStatus">${savedLabel}</span>
+                </div>
+              </div>
+              <div class="hero-actions" aria-label="데이터 작업">
+                <button class="btn btn-ghost" type="button" data-action="export">JSON 백업</button>
+                <button class="btn btn-ghost" type="button" data-action="import">백업 불러오기</button>
+                <button class="btn btn-ghost" type="button" data-action="print">인쇄</button>
+                <button class="btn btn-ghost" type="button" data-action="reset">기본 계획 복원</button>
+              </div>
+            </div>
+          </div>`;
+      }
+
+      function renderOverview() {
+        const section = document.getElementById("overviewSection");
+        const kpis = calculateKpis(state);
+        const finalKpi = kpis.find((kpi) => kpi.id === "final_users");
+        const partnerKpi = kpis.find((kpi) => kpi.id === "partner_signups");
+        const lowest = [...kpis].filter((kpi) => kpi.target > 0).sort((a, b) => a.percent - b.percent)[0];
+        const completed = state.tasks.filter((task) => task.done).length;
+        const total = state.tasks.length;
+        section.innerHTML = `
+          <div class="section-head">
+            <div>
+              <h2 class="section-title" id="overviewTitle">전체 현황</h2>
+              <p class="section-desc">보낸 수보다 실제 방문, 첫 사용, 반복 사용을 기준으로 봅니다.</p>
+            </div>
+          </div>
+          <div class="summary-grid">
+            <article class="card summary-card is-brand">
+              <span class="summary-label">최종 반복 사용자</span>
+              <strong class="summary-value num">${finalKpi.actual}/${finalKpi.target}</strong>
+              <p class="summary-context">6주 사용과 피드백 조건을 모두 충족한 사람</p>
+            </article>
+            <article class="card summary-card">
+              <span class="summary-label">설계파트너</span>
+              <strong class="summary-value num">${partnerKpi.actual}/${partnerKpi.target}</strong>
+              <p class="summary-context">첫 사용과 D14·D42 후속을 관리할 후보</p>
+            </article>
+            <article class="card summary-card">
+              <span class="summary-label">실행 체크 완료</span>
+              <strong class="summary-value num">${completed}/${total}</strong>
+              <div class="progress-track" aria-label="실행 완료율 ${completionRate()}%"><div class="progress-bar is-success" style="width:${Math.min(100, completionRate())}%"></div></div>
+            </article>
+            <article class="card summary-card">
+              <span class="summary-label">캠페인 남은 기간</span>
+              <strong class="summary-value num">${campaignDaysLeft()}일</strong>
+              <p class="summary-context">신규 모집은 11월 13일 마감, 이후 반복 사용 집중</p>
+            </article>
+          </div>
+          <div class="kpi-layout">
+            <div class="card table-wrap">
+              <table aria-label="핵심 KPI">
+                <thead><tr><th>KPI</th><th class="num">목표</th><th class="num">자동 집계</th><th class="num">수동 실적</th><th class="num">적용 실적</th><th>달성률</th><th class="num">남은 수</th></tr></thead>
+                <tbody>
+                  ${kpis.map((kpi) => `
+                    <tr>
+                      <td>${collectionControl("kpis", kpi.id, "label", kpi.label, { label: "KPI 이름" })}</td>
+                      <td>${collectionControl("kpis", kpi.id, "target", kpi.target, { type: "number", min: 0, compact: true, label: `${kpi.label} 목표` })}</td>
+                      <td class="num nowrap">${kpi.automaticActual}${escapeHtml(kpi.unit)}</td>
+                      <td>${collectionControl("kpis", kpi.id, "manualActual", kpi.manualActual, { type: "number", min: 0, compact: true, label: `${kpi.label} 수동 실적` })}</td>
+                      <td class="num nowrap"><strong>${kpi.actual}${escapeHtml(kpi.unit)}</strong></td>
+                      <td style="min-width:150px">
+                        <div class="progress-track" aria-label="${escapeHtml(kpi.label)} 달성률 ${kpi.percent}%"><div class="progress-bar${kpi.percent >= 100 ? " is-success" : kpi.percent < 30 ? " is-warning" : ""}" style="width:${Math.min(100, kpi.percent)}%"></div></div>
+                        <span class="summary-context num">${kpi.percent}%${kpi.hasOverride ? " · 수동값 적용" : ""}</span>
+                      </td>
+                      <td class="num nowrap">${kpi.remaining}${escapeHtml(kpi.unit)}</td>
+                    </tr>`).join("")}
+                </tbody>
+              </table>
+            </div>
+            <aside class="card focus-card">
+              <h3>지금 가장 부족한 KPI</h3>
+              <p><strong>${escapeHtml(lowest.label)}</strong> ${lowest.actual}/${lowest.target}${escapeHtml(lowest.unit)}, 달성률 ${lowest.percent}%입니다. 다음 일정에서 이 KPI로 연결되는 행동을 먼저 배치하세요.</p>
+              <label class="control" style="margin-top:14px">
+                <span>운영 원칙, 직접 수정 가능</span>
+                <textarea class="field-area" data-scope="meta" data-field="operatingRule">${escapeHtml(state.meta.operatingRule)}</textarea>
+              </label>
+              <ul class="focus-list">
+                <li>방문 전 관리직 약속을 먼저 확보</li>
+                <li>방문 후 D2·D7 첫 사용 지원</li>
+                <li>D14·D30·D42 인터뷰를 방문 당일 예약</li>
+              </ul>
+            </aside>
+          </div>`;
+      }
+
+      function taskRows(tasks, includeDate = true) {
+        if (!tasks.length) return `<tr><td colspan="12" class="empty-state">조건에 맞는 일정이 없습니다. 새 실행 항목을 추가해 계획을 이어가세요.</td></tr>`;
+        return tasks.map((task) => `
+          <tr class="${task.done ? "is-done" : ""}">
+            <td>${collectionControl("tasks", task.id, "done", task.done, { type: "checkbox", label: `${task.action} 완료` })}</td>
+            ${includeDate ? `<td>${collectionControl("tasks", task.id, "date", task.date, { type: "date", label: "실행 날짜" })}<span class="summary-context nowrap">${formatDate(task.date)}</span></td>` : ""}
+            <td>${collectionControl("tasks", task.id, "region", task.region, { label: "권역" })}</td>
+            <td>${collectionControl("tasks", task.id, "category", task.category, { type: "select", values: TASK_CATEGORIES, label: "분류" })}</td>
+            <td style="min-width:280px">${collectionControl("tasks", task.id, "action", task.action, { type: "textarea", label: "실행 행동" })}<span class="summary-context">${escapeHtml(task.phase)}</span></td>
+            <td>${collectionControl("tasks", task.id, "target", task.target, { type: "number", min: 0, compact: true, label: "목표" })}${collectionControl("tasks", task.id, "unit", task.unit, { compact: true, label: "단위" })}</td>
+            <td>${collectionControl("tasks", task.id, "actual", task.actual, { type: "number", min: 0, compact: true, label: "실적" })}</td>
+            <td>${collectionControl("tasks", task.id, "owner", task.owner, { type: "select", values: ROLE_OPTIONS, label: "담당" })}</td>
+            <td>${collectionControl("tasks", task.id, "method", task.method, { label: "방식" })}</td>
+            <td style="min-width:220px">${collectionControl("tasks", task.id, "note", task.note, { type: "textarea", label: "메모" })}</td>
+            <td class="row-actions nowrap">
+              <button class="btn btn-small" type="button" data-action="duplicate-task" data-id="${escapeHtml(task.id)}">복제</button>
+              <button class="btn btn-small btn-danger" type="button" data-action="delete-record" data-collection="tasks" data-id="${escapeHtml(task.id)}">삭제</button>
+            </td>
+          </tr>`).join("");
+      }
+
+      function taskTable(tasks, includeDate = true) {
+        return `<div class="card table-wrap"><table aria-label="실행 일정"><thead><tr><th>완료</th>${includeDate ? "<th>날짜</th>" : ""}<th>권역</th><th>분류</th><th>실행 행동</th><th>목표</th><th>실적</th><th>담당</th><th>방식</th><th>메모</th><th>관리</th></tr></thead><tbody>${taskRows(tasks, includeDate)}</tbody></table></div>`;
+      }
+
+      function taskChecklist(tasks, options = {}) {
+        if (!tasks.length) return `<div class="card empty-state">이 날짜에 등록된 할 일이 없습니다. 새 할 일을 추가해 실행 흐름을 이어가세요.</div>`;
+        return `<div class="checklist-stack">${tasks.map((task) => `
+          <article class="checklist-item${task.done ? " is-done" : ""}${options.overdue ? " is-overdue" : ""}">
+            <label class="checklist-complete">
+              <span class="sr-only">${escapeHtml(task.action)} 완료</span>
+              <input type="checkbox" data-collection="tasks" data-id="${escapeHtml(task.id)}" data-field="done"${task.done ? " checked" : ""}>
+            </label>
+            <div class="checklist-content">
+              <textarea class="checklist-action-input" data-collection="tasks" data-id="${escapeHtml(task.id)}" data-field="action" aria-label="실행 행동">${escapeHtml(task.action)}</textarea>
+              <div class="checklist-fields">
+                <label class="mini-control"><span>날짜</span>${collectionControl("tasks", task.id, "date", task.date, { type: "date", label: "실행 날짜" })}</label>
+                <label class="mini-control"><span>분류</span>${collectionControl("tasks", task.id, "category", task.category, { type: "select", values: TASK_CATEGORIES, label: "분류" })}</label>
+                <label class="mini-control"><span>담당</span>${collectionControl("tasks", task.id, "owner", task.owner, { type: "select", values: ROLE_OPTIONS, label: "담당" })}</label>
+                <div class="mini-control"><span>목표</span><span style="display:grid;grid-template-columns:minmax(0,1fr) 64px;gap:5px">${collectionControl("tasks", task.id, "target", task.target, { type: "number", min: 0, label: "목표" })}${collectionControl("tasks", task.id, "unit", task.unit, { label: "단위" })}</span></div>
+                <label class="mini-control"><span>실적</span>${collectionControl("tasks", task.id, "actual", task.actual, { type: "number", min: 0, label: "실적" })}</label>
+                <label class="mini-control"><span>권역</span>${collectionControl("tasks", task.id, "region", task.region, { label: "권역" })}</label>
+                <label class="mini-control"><span>방식</span>${collectionControl("tasks", task.id, "method", task.method, { label: "방식" })}</label>
+                <label class="mini-control"><span>메모</span>${collectionControl("tasks", task.id, "note", task.note, { type: "textarea", label: "메모" })}</label>
+              </div>
+            </div>
+            <div class="checklist-actions">
+              <button class="btn btn-small" type="button" data-action="duplicate-task" data-id="${escapeHtml(task.id)}">복제</button>
+              <button class="btn btn-small btn-danger" type="button" data-action="delete-record" data-collection="tasks" data-id="${escapeHtml(task.id)}">삭제</button>
+            </div>
+          </article>`).join("")}</div>`;
+      }
+
+      function renderToday() {
+        const section = document.getElementById("todaySection");
+        const actualToday = toDateString(new Date());
+        const presentationDate = getTodayPresentationDate(state, actualToday);
+        const referenceDate = actualToday >= state.meta.startDate && actualToday <= state.meta.endDate ? actualToday : presentationDate;
+        const tasks = state.tasks.filter((task) => task.date === presentationDate);
+        const overdue = getOverdueTasks(state, referenceDate);
+        const completed = tasks.filter((task) => task.done).length;
+        const percent = tasks.length ? Math.round((completed / tasks.length) * 100) : 0;
+        const isToday = presentationDate === actualToday;
+        section.innerHTML = `
+          <div class="section-head">
+            <div>
+              <h2 class="section-title" id="todayTitle">오늘 할 일</h2>
+              <p class="section-desc">${isToday ? `${formatDate(presentationDate, true)} 업무입니다.` : `오늘 계획이 없어 가장 가까운 실행일인 ${formatDate(presentationDate, true)} 업무를 보여드립니다.`}</p>
+            </div>
+            <div class="section-actions">
+              <button class="btn" type="button" data-action="switch-tab" data-tab="targets">오늘 연락할 곳</button>
+              <button class="btn" type="button" data-action="switch-tab" data-tab="locations">오늘 이동 순서</button>
+              <button class="btn" type="button" data-action="switch-tab" data-tab="scenarios">상황별 대화 방식</button>
+              <button class="btn btn-primary" type="button" data-action="add-task" data-date="${escapeHtml(presentationDate)}">이 날짜에 할 일 추가</button>
+            </div>
+          </div>
+          <div class="card today-summary">
+            <strong>${completed}/${tasks.length}개 완료</strong>
+            <div class="progress-track" aria-label="오늘 할 일 완료율 ${percent}%"><div class="progress-bar is-success" style="width:${percent}%"></div></div>
+            <span class="badge badge-brand">${percent}%</span>
+          </div>
+          ${overdue.length ? `<details class="card overdue-panel"><summary><span>먼저 확인할 지난 미완료 업무</span><span class="badge badge-warning">${overdue.length}개</span></summary>${taskChecklist(overdue, { overdue: true })}</details>` : ""}
+          ${taskChecklist(tasks)}`;
+      }
+
+      function renderCalendar() {
+        const section = document.getElementById("calendarSection");
+        const calendarMonth = state.settings.calendarMonth || state.settings.selectedDate.slice(0, 7);
+        const selectedDate = state.settings.selectedDate || state.meta.startDate;
+        const actualToday = toDateString(new Date());
+        const monthCells = buildMonthCells(calendarMonth);
+        const taskMap = state.tasks.reduce((map, task) => {
+          if (!map[task.date]) map[task.date] = [];
+          map[task.date].push(task);
+          return map;
+        }, {});
+        const selectedTasks = state.tasks.filter((task) => task.date === selectedDate);
+        const minMonth = state.meta.startDate.slice(0, 7);
+        const maxMonth = state.meta.endDate.slice(0, 7);
+        const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
+        section.innerHTML = `
+          <div class="section-head">
+            <div>
+              <h2 class="section-title" id="calendarTitle">월간 실행 캘린더</h2>
+              <p class="section-desc">날짜 칸에서 핵심 할 일을 바로 확인하고 완료 체크까지 할 수 있습니다.</p>
+            </div>
+          </div>
+          <div class="card calendar-toolbar">
+            <h3 class="calendar-month-title">${formatMonth(calendarMonth)}</h3>
+            <div class="calendar-nav-actions" aria-label="캘린더 이동">
+              <button class="btn btn-small" type="button" data-action="calendar-prev"${calendarMonth <= minMonth ? " disabled" : ""}>이전 달</button>
+              <button class="btn btn-small" type="button" data-action="calendar-today">오늘</button>
+              <button class="btn btn-small" type="button" data-action="calendar-next"${calendarMonth >= maxMonth ? " disabled" : ""}>다음 달</button>
+            </div>
+          </div>
+          <div class="calendar-scroll">
+            <div class="calendar-grid" role="grid" aria-label="${escapeHtml(formatMonth(calendarMonth))} 실행 캘린더">
+              ${weekdayLabels.map((label) => `<div class="calendar-weekday" role="columnheader">${label}</div>`).join("")}
+              ${monthCells.map((cell) => {
+                const cellTasks = (taskMap[cell.date] || []).slice(0, 3);
+                const remaining = Math.max(0, (taskMap[cell.date] || []).length - cellTasks.length);
+                const inCampaign = cell.date >= state.meta.startDate && cell.date <= state.meta.endDate;
+                return `<div class="calendar-day${cell.isCurrentMonth ? "" : " is-outside"}${cell.date === selectedDate ? " is-selected" : ""}${cell.date === actualToday ? " is-today" : ""}" data-calendar-date="${cell.date}" role="gridcell">
+                  <button class="calendar-date-button" type="button" data-action="select-calendar-date" data-date="${cell.date}" aria-label="${formatDate(cell.date, true)} 선택"${inCampaign ? "" : " disabled"}>${cell.day}</button>
+                  <div class="calendar-tasks">
+                    ${cellTasks.map((task) => `<label class="calendar-task${task.done ? " is-done" : ""}"><input type="checkbox" data-collection="tasks" data-id="${escapeHtml(task.id)}" data-field="done" aria-label="${escapeHtml(task.action)} 완료"${task.done ? " checked" : ""}><span>${escapeHtml(task.action)}</span></label>`).join("")}
+                  </div>
+                  ${remaining ? `<p class="calendar-more">+${remaining}개 더</p>` : ""}
+                </div>`;
+              }).join("")}
+            </div>
+          </div>
+          <div class="calendar-detail">
+            <div class="calendar-detail-head">
+              <div><h3 id="calendarDetailTitle">${formatDate(selectedDate, true)} 전체 체크리스트</h3><p class="section-desc">${selectedTasks.filter((task) => task.done).length}/${selectedTasks.length}개 완료</p></div>
+              <button class="btn btn-primary" type="button" data-action="add-task" data-date="${escapeHtml(selectedDate)}">이 날짜에 할 일 추가</button>
+            </div>
+            ${taskChecklist(selectedTasks)}
+          </div>`;
+      }
+
+      function uniqueTargetValues(field) {
+        return [...new Set(state.targets.map((target) => target[field]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "ko"));
+      }
+
+      function targetFilterSelect(field, label, values) {
+        const selected = state.settings.targetFilters?.[field] || "";
+        return `<label class="control"><span>${label}</span><select class="field-select" data-target-filter="${field}"><option value="">전체</option>${optionMarkup(values, selected)}</select></label>`;
+      }
+
+      function mapLinks(address, compact = false) {
+        const label = compact ? "지도" : "주소 확인";
+        return `<div class="target-address-actions">
+          <a class="btn btn-small" data-map-provider="naver" href="${escapeHtml(buildMapUrl("naver", address))}" target="_blank" rel="noopener noreferrer">네이버 ${label}</a>
+          <a class="btn btn-small" data-map-provider="kakao" href="${escapeHtml(buildMapUrl("kakao", address))}" target="_blank" rel="noopener noreferrer">카카오 ${label}</a>
+          <button class="btn btn-small" type="button" data-action="copy-address" data-address="${escapeHtml(address)}">주소 복사</button>
+        </div>`;
+      }
+
+      function targetExecutionControls(target) {
+        return `<div class="form-grid">
+          <label class="control"><span>연락 상태</span>${collectionControl("targets", target.id, "contactStatus", target.contactStatus, { type: "select", values: CONTACT_STATUS_OPTIONS, label: "연락 상태" })}</label>
+          <label class="control"><span>미팅 상태</span>${collectionControl("targets", target.id, "meetingStatus", target.meetingStatus, { type: "select", values: MEETING_STATUS_OPTIONS, label: "미팅 상태" })}</label>
+          <label class="control"><span>관리직·팀</span>${collectionControl("targets", target.id, "managerTeam", target.managerTeam, { label: "관리직과 팀" })}</label>
+          <label class="control"><span>최근 연락일</span>${collectionControl("targets", target.id, "lastContactAt", target.lastContactAt, { type: "date", label: "최근 연락일" })}</label>
+          <label class="control"><span>미팅일</span>${collectionControl("targets", target.id, "meetingAt", target.meetingAt, { type: "date", label: "미팅일" })}</label>
+          <label class="control"><span>사용 시작</span>${collectionControl("targets", target.id, "activeUsers", target.activeUsers, { type: "number", min: 0, compact: true, label: "사용 시작자" })}</label>
+          <label class="control"><span>피드백 사용자</span>${collectionControl("targets", target.id, "feedbackUsers", target.feedbackUsers, { type: "number", min: 0, compact: true, label: "피드백 사용자" })}</label>
+          <label class="control is-wide"><span>메모</span>${collectionControl("targets", target.id, "note", target.note, { type: "textarea", label: "메모" })}</label>
+        </div>`;
+      }
+
+      function renderTargets() {
+        const section = document.getElementById("targetSection");
+        const filtered = getFilteredTargets(state);
+        const officialCount = state.targets.filter((target) => target.isOfficialSeed).length;
+        const priorityCount = state.targets.filter((target) => target.isOfficialSeed && Number(target.rank) <= 40).length;
+        const contactCount = state.targets.filter((target) => target.contactStatus && target.contactStatus !== "미연락").length;
+        const meetingCount = state.targets.filter((target) => ["일정확정", "완료", "재방문"].includes(target.meetingStatus)).length;
+        section.innerHTML = `
+          <div class="section-head">
+            <div>
+              <h2 class="section-title" id="targetTitle">원수사 영업 거점</h2>
+              <p class="section-desc">공식 지점검색에서 확인한 80곳입니다. 8월에는 구로에서 가까운 우선 40곳부터 관리직 약속을 만드세요.</p>
+            </div>
+            <div class="section-actions">
+              <div class="segmented" aria-label="대상 범위">
+                <button type="button" class="${state.settings.targetView === "priority40" ? "is-active" : ""}" data-action="set-target-view" data-view="priority40">우선 40곳</button>
+                <button type="button" class="${state.settings.targetView === "all80" ? "is-active" : ""}" data-action="set-target-view" data-view="all80">전체 80곳</button>
+              </div>
+              <button class="btn btn-primary" type="button" data-action="add-target">직접 대상 추가</button>
+            </div>
+          </div>
+          <div class="summary-grid">
+            <article class="card summary-card"><span class="summary-label">공식 후보</span><strong class="summary-value">${officialCount}</strong><span class="summary-context">주소·전화·공식 출처 포함</span></article>
+            <article class="card summary-card"><span class="summary-label">8월 우선</span><strong class="summary-value">${priorityCount}</strong><span class="summary-context">10개 건물·클러스터</span></article>
+            <article class="card summary-card"><span class="summary-label">연락 진행</span><strong class="summary-value">${contactCount}</strong><span class="summary-context">미연락을 제외한 거점</span></article>
+            <article class="card summary-card is-brand"><span class="summary-label">미팅 확정·완료</span><strong class="summary-value">${meetingCount}</strong><span class="summary-context">차량 동선에 넣을 수 있는 거점</span></article>
+          </div>
+          <div class="target-filters" aria-label="영업 대상 필터">
+            <label class="control"><span>검색</span><input class="field" type="search" value="${escapeHtml(state.settings.targetFilters?.search || "")}" placeholder="회사, 지점, 주소, 전화" data-target-filter="search"></label>
+            ${targetFilterSelect("company", "회사", uniqueTargetValues("company"))}
+            ${targetFilterSelect("sector", "보험", uniqueTargetValues("sector"))}
+            ${targetFilterSelect("region", "권역", uniqueTargetValues("region"))}
+            ${targetFilterSelect("contactStatus", "연락 상태", CONTACT_STATUS_OPTIONS)}
+            ${targetFilterSelect("meetingStatus", "미팅 상태", MEETING_STATUS_OPTIONS)}
+          </div>
+          <p class="section-desc" style="margin:0 0 10px">현재 ${filtered.length}곳 표시. 효과점수는 설계사 접점 35%, 관리직 효과 30%, 공식확인 20%, 구로 접근 15%를 반영합니다.</p>
+          <div class="card table-wrap target-desktop-table">
+            <table aria-label="원수사 영업 대상">
+              <thead><tr><th>순위·대상</th><th>주소·전화</th><th>효과</th><th>연락</th><th>미팅</th><th>관리직·팀</th><th>최근 연락</th><th>미팅일</th><th>사용</th><th>피드백</th><th>메모</th><th>관리</th></tr></thead>
+              <tbody>${filtered.length ? filtered.map((target) => `<tr>
+                <td class="target-primary"><strong>${target.rank ? `${target.rank}. ` : ""}${escapeHtml(target.company)} ${escapeHtml(target.branch)}</strong><span class="badge badge-brand">${escapeHtml(target.sector || "직접 추가")} ${escapeHtml(target.channel)}</span><span class="badge">${escapeHtml(target.cluster || target.region)}</span><p class="summary-context">${escapeHtml(target.week || "직접 일정")} · ${escapeHtml(target.recommendedApproach || "다음 행동을 메모하세요")}</p></td>
+                <td class="target-address">${escapeHtml(target.address || "주소를 입력하세요")}<br><a href="tel:${escapeHtml(target.phone)}">${escapeHtml(target.phone || "전화 입력")}</a>${target.address ? mapLinks(target.address, true) : ""}</td>
+                <td><span class="target-score">${escapeHtml(target.effectScore || "-")}</span></td>
+                <td>${collectionControl("targets", target.id, "contactStatus", target.contactStatus, { type: "select", values: CONTACT_STATUS_OPTIONS, label: "연락 상태" })}</td>
+                <td>${collectionControl("targets", target.id, "meetingStatus", target.meetingStatus, { type: "select", values: MEETING_STATUS_OPTIONS, label: "미팅 상태" })}</td>
+                <td>${collectionControl("targets", target.id, "managerTeam", target.managerTeam, { label: "관리직과 팀" })}</td>
+                <td>${collectionControl("targets", target.id, "lastContactAt", target.lastContactAt, { type: "date", label: "최근 연락일" })}</td>
+                <td>${collectionControl("targets", target.id, "meetingAt", target.meetingAt, { type: "date", label: "미팅일" })}</td>
+                <td>${collectionControl("targets", target.id, "activeUsers", target.activeUsers, { type: "number", min: 0, compact: true, label: "사용 시작자" })}</td>
+                <td>${collectionControl("targets", target.id, "feedbackUsers", target.feedbackUsers, { type: "number", min: 0, compact: true, label: "피드백 사용자" })}</td>
+                <td>${collectionControl("targets", target.id, "note", target.note, { type: "textarea", label: "메모" })}</td>
+                <td class="row-actions">${target.source ? `<a class="btn btn-small" href="${escapeHtml(target.source)}" target="_blank" rel="noopener noreferrer">공식 출처</a>` : ""}${target.isOfficialSeed ? "" : `<button class="btn btn-small btn-danger" type="button" data-action="delete-record" data-collection="targets" data-id="${escapeHtml(target.id)}">삭제</button>`}</td>
+              </tr>`).join("") : `<tr><td colspan="12" class="empty-state">조건에 맞는 대상이 없습니다. 필터를 하나씩 풀어보세요.</td></tr>`}</tbody>
+            </table>
+          </div>
+          <div class="target-mobile-list">${filtered.length ? filtered.map((target) => `<article class="card target-mobile-card">
+            <h3>${target.rank ? `${target.rank}. ` : ""}${escapeHtml(target.company)} ${escapeHtml(target.branch)}</h3>
+            <p>${escapeHtml(target.cluster || target.region)} · ${escapeHtml(target.phone)}</p>
+            <p>${escapeHtml(target.address || "주소를 입력하세요")}</p>
+            ${target.address ? mapLinks(target.address, true) : ""}
+            <details style="margin-top:12px"><summary>진행 기록 열기</summary><div style="margin-top:12px">${targetExecutionControls(target)}</div></details>
+          </article>`).join("") : `<div class="card empty-state">조건에 맞는 대상이 없습니다. 필터를 하나씩 풀어보세요.</div>`}</div>`;
+      }
+
+      function renderPartners() {
+        const section = document.getElementById("partnerSection");
+        const focusDate = state.settings.focusDate || CAMPAIGN_START;
+        const meaningfulPartners = state.partners.filter((partner) => partner.name || partner.company);
+        const qualified = meaningfulPartners.filter((partner) => qualifiesFinalPartner(partner, state.meta.endDate)).length;
+        section.innerHTML = `
+          <div class="section-head">
+            <div>
+              <h2 class="section-title" id="partnerTitle">설계파트너 6주 관리</h2>
+              <p class="section-desc">가입이 아니라 첫 사용, 재사용, 6주 완료, 피드백 횟수를 추적합니다.</p>
+            </div>
+            <div class="section-actions"><span class="badge badge-success">최종 조건 충족 ${qualified}명</span><button class="btn btn-primary" type="button" data-action="add-partner">설계파트너 추가</button></div>
+          </div>
+          <div class="card table-wrap">
+            <table aria-label="설계파트너">
+              <thead><tr><th>이름</th><th>회사·거점</th><th>역할·경력</th><th>시작일</th><th>신청</th><th>D7 첫 사용</th><th>D14 재사용</th><th>D42 완료</th><th>사용 주</th><th>핵심 흐름</th><th>피드백</th><th>최근 4주</th><th>최근 사용</th><th>다음 후속</th><th>판정·메모</th><th>관리</th></tr></thead>
+              <tbody>${state.partners.length ? state.partners.map((partner) => {
+                const finalUser = qualifiesFinalPartner(partner, state.meta.endDate);
+                const overdue = partner.nextFollowupAt && partner.nextFollowupAt < focusDate && !finalUser;
+                return `<tr class="${overdue ? "is-overdue" : finalUser ? "is-done" : ""}">
+                  <td>${collectionControl("partners", partner.id, "name", partner.name, { label: "이름" })}</td>
+                  <td>${collectionControl("partners", partner.id, "company", partner.company, { label: "회사" })}${collectionControl("partners", partner.id, "branch", partner.branch, { label: "거점" })}</td>
+                  <td>${collectionControl("partners", partner.id, "role", partner.role, { label: "역할" })}${collectionControl("partners", partner.id, "careerYears", partner.careerYears, { type: "number", min: 0, compact: true, label: "경력 연수" })}<span class="summary-context">년</span></td>
+                  <td>${collectionControl("partners", partner.id, "startedAt", partner.startedAt, { type: "date", label: "시작일" })}</td>
+                  <td>${collectionControl("partners", partner.id, "joined", partner.joined, { type: "checkbox", label: "설계파트너 신청" })}</td>
+                  <td>${collectionControl("partners", partner.id, "firstValue", partner.firstValue, { type: "checkbox", label: "D7 첫 사용" })}</td>
+                  <td>${collectionControl("partners", partner.id, "reusedD14", partner.reusedD14, { type: "checkbox", label: "D14 재사용" })}</td>
+                  <td>${collectionControl("partners", partner.id, "completedD42", partner.completedD42, { type: "checkbox", label: "D42 완료" })}</td>
+                  <td>${collectionControl("partners", partner.id, "meaningfulWeeks", partner.meaningfulWeeks, { type: "number", min: 0, compact: true, label: "의미 있는 사용 주" })}</td>
+                  <td>${collectionControl("partners", partner.id, "coreFlows", partner.coreFlows, { type: "number", min: 0, compact: true, label: "핵심 흐름 수" })}</td>
+                  <td>${collectionControl("partners", partner.id, "feedbackCount", partner.feedbackCount, { type: "number", min: 0, compact: true, label: "피드백 횟수" })}</td>
+                  <td>${collectionControl("partners", partner.id, "activeWeeksLast4", partner.activeWeeksLast4, { type: "number", min: 0, max: 4, compact: true, label: "최근 4주 중 활동 주" })}</td>
+                  <td>${collectionControl("partners", partner.id, "lastUsedAt", partner.lastUsedAt, { type: "date", label: "최근 사용일" })}</td>
+                  <td>${collectionControl("partners", partner.id, "nextFollowupAt", partner.nextFollowupAt, { type: "date", label: "다음 후속일" })}${overdue ? `<span class="badge badge-warning">후속 확인</span>` : ""}</td>
+                  <td>${finalUser ? `<span class="badge badge-success">최종 사용자</span>` : `<span class="badge">후속 진행</span>`}${collectionControl("partners", partner.id, "note", partner.note, { type: "textarea", label: "메모" })}</td>
+                  <td class="row-actions"><button class="btn btn-small btn-danger" type="button" data-action="delete-record" data-collection="partners" data-id="${escapeHtml(partner.id)}">삭제</button></td>
+                </tr>`;
+              }).join("") : `<tr><td colspan="16" class="empty-state">설계파트너를 추가해 6주 후속을 시작하세요.</td></tr>`}</tbody>
+            </table>
+          </div>`;
+      }
+
+      function scenarioField(item, field, label, wide = false) {
+        return `<label class="control${wide ? " is-wide" : ""}"><span>${label}</span><textarea data-collection="scenarios" data-id="${escapeHtml(item.id)}" data-field="${field}">${escapeHtml(item[field])}</textarea></label>`;
+      }
+
+      function renderScenarios() {
+        const section = document.getElementById("scenarioSection");
+        const categories = ["전체", "첫 접촉", "관리직 미팅", "소개·출장", "사용·피드백", "온라인·확장"];
+        const selectedCategory = categories.includes(state.settings.scenarioCategory) ? state.settings.scenarioCategory : "전체";
+        const visibleScenarios = selectedCategory === "전체" ? state.scenarios : state.scenarios.filter((item) => item.category === selectedCategory);
+        section.innerHTML = `
+          <div class="section-head">
+            <div>
+              <h2 class="section-title" id="scenarioTitle">영업·마케팅 시나리오</h2>
+              <p class="section-desc">상황에 맞는 방식을 골라 실행하고, 반응에 따라 문구와 기준을 직접 바꾸세요.</p>
+            </div>
+            <div class="section-actions"><span class="badge badge-brand">${state.scenarios.length}개 방식</span><button class="btn btn-primary" type="button" data-action="add-scenario">시나리오 추가</button></div>
+          </div>
+          <div class="segmented" style="margin-bottom:12px;max-width:100%;overflow-x:auto" aria-label="시나리오 상황">${categories.map((category) => `<button type="button" class="${category === selectedCategory ? "is-active" : ""}" data-action="set-scenario-category" data-category="${escapeHtml(category)}">${escapeHtml(category)}</button>`).join("")}</div>
+          <div class="scenario-grid">
+            ${visibleScenarios.map((item) => {
+              const index = state.scenarios.findIndex((candidate) => candidate.id === item.id);
+              return `
+              <details class="card scenario-card">
+                <summary><span class="scenario-summary-main"><span class="scenario-number">${index + 1}</span><span><span class="badge">${escapeHtml(item.category)}</span> ${escapeHtml(item.title)}</span></span></summary>
+                <div class="scenario-body">
+                  <div class="form-grid">
+                    <label class="control is-wide"><span>시나리오 이름</span><input class="field" value="${escapeHtml(item.title)}" data-collection="scenarios" data-id="${escapeHtml(item.id)}" data-field="title"></label>
+                    ${scenarioField(item, "suitable", "언제 쓰는가")}
+                    ${scenarioField(item, "objective", "목표")}
+                    ${scenarioField(item, "preparation", "준비물")}
+                    ${scenarioField(item, "steps", "실행 순서", true)}
+                    ${scenarioField(item, "success", "성공 기준")}
+                    ${scenarioField(item, "stop", "중단 기준")}
+                    ${scenarioField(item, "followup", "후속 행동", true)}
+                  </div>
+                  <div class="row-actions" style="margin-top:12px"><button class="btn btn-small btn-danger" type="button" data-action="delete-record" data-collection="scenarios" data-id="${escapeHtml(item.id)}">시나리오 삭제</button></div>
+                </div>
+              </details>`;
+            }).join("")}
+          </div>`;
+      }
+
+      function reviewField(item, field, label) {
+        return `<label>${label}<textarea data-collection="reviews" data-id="${escapeHtml(item.id)}" data-field="${field}">${escapeHtml(item[field])}</textarea></label>`;
+      }
+
+      function renderReviews() {
+        const section = document.getElementById("reviewSection");
+        section.innerHTML = `
+          <div class="section-head">
+            <div>
+              <h2 class="section-title" id="reviewTitle">주간 회고와 다음 결정</h2>
+              <p class="section-desc">매주 금요일 30분, 잘된 행동과 멈출 행동을 한 가지씩 결정합니다.</p>
+            </div>
+            <div class="section-actions"><button class="btn btn-primary" type="button" data-action="add-review">회고 주차 추가</button></div>
+          </div>
+          <div class="review-grid">
+            ${state.reviews.map((item, index) => `
+              <details class="card review-card"${index === 0 ? " open" : ""}>
+                <summary><span>${formatDate(item.weekStart)} ~ ${formatDate(item.weekEnd)}</span><span class="badge">${index + 1}주차</span></summary>
+                <div class="review-body">
+                  <div class="review-fields">
+                    <div class="form-grid">
+                      <label class="control"><span>시작일</span><input type="date" value="${escapeHtml(item.weekStart)}" data-collection="reviews" data-id="${escapeHtml(item.id)}" data-field="weekStart"></label>
+                      <label class="control"><span>종료일</span><input type="date" value="${escapeHtml(item.weekEnd)}" data-collection="reviews" data-id="${escapeHtml(item.id)}" data-field="weekEnd"></label>
+                    </div>
+                    ${reviewField(item, "bestMethod", "이번 주 가장 잘된 접촉 방식")}
+                    ${reviewField(item, "rejectionReason", "가장 많이 나온 거절 이유")}
+                    ${reviewField(item, "activationBlocker", "첫 사용을 막은 이유")}
+                    ${reviewField(item, "stopAction", "다음 주 중단할 행동")}
+                    ${reviewField(item, "doubleAction", "다음 주 두 배로 늘릴 행동")}
+                    ${reviewField(item, "productFeedback", "제품에 반영할 피드백")}
+                    ${reviewField(item, "decision", "다음 주 결정")}
+                  </div>
+                  <div class="row-actions" style="margin-top:12px"><button class="btn btn-small btn-danger" type="button" data-action="delete-record" data-collection="reviews" data-id="${escapeHtml(item.id)}">회고 삭제</button></div>
+                </div>
+              </details>`).join("")}
+          </div>`;
+      }
+
+      function renderMonthlyGoals() {
+        const section = document.getElementById("monthlyGoalSection");
+        section.innerHTML = `
+          <div class="section-head">
+            <div>
+              <h2 class="section-title" id="monthlyGoalTitle">연말 20명 달성 월별 기준</h2>
+              <p class="section-desc">신규 가입 수보다 실제 기능 사용과 반복 피드백을 기준으로 매달 완료 여부를 판단합니다.</p>
+            </div>
+          </div>
+          <div class="card table-wrap">
+            <table class="monthly-goal-table" id="monthlyGoalTable" aria-label="월별 영업 목표">
+              <thead><tr><th>월</th><th>신규 대상</th><th>관리직 미팅</th><th>신규 사용</th><th>누적 피드백 사용자</th><th>장거리 이동 조건</th><th>월말 완료 기준</th><th>판정</th></tr></thead>
+              <tbody>${state.monthlyGoals.map((goal) => `<tr>
+                <td><strong>${escapeHtml(goal.monthLabel)}</strong></td>
+                <td>${escapeHtml(goal.newTargets)}</td>
+                <td>${goal.managerMeetings}명</td>
+                <td>${goal.newUsers}명</td>
+                <td>${goal.feedbackUsers}명</td>
+                <td>${escapeHtml(goal.travelCondition)}</td>
+                <td>${escapeHtml(goal.completion)}</td>
+                <td>${collectionControl("monthlyGoals", goal.id, "judgement", goal.judgement, { type: "select", values: JUDGEMENT_OPTIONS, label: `${goal.monthLabel} 판정` })}</td>
+              </tr>`).join("")}</tbody>
+            </table>
+          </div>`;
+      }
+
+      function renderAugustExecution() {
+        const section = document.getElementById("augustExecutionSection");
+        section.innerHTML = `
+          <div class="section-head"><div><h2 class="section-title" id="augustExecutionTitle">8월 날짜별 바로 실행</h2><p class="section-desc">숫자는 단순 활동량이 아니라 하루 완료 기준입니다. 먼저 관리직 약속을 만들고, 확정된 곳만 방문합니다.</p></div></div>
+          <div class="card table-wrap"><table aria-label="8월 날짜별 실행 계획">
+            <thead><tr><th>날짜</th><th>단계</th><th>정확한 대상</th><th>연락</th><th>관리직 약속</th><th>현장 미팅</th><th>사용 시작</th><th>피드백</th><th>대표 역할</th><th>운영 역할</th><th>하루 완료 기준</th><th>상태</th></tr></thead>
+            <tbody>${state.augustDailyActions.map((item) => `<tr><td><strong>${formatDate(item.date)}</strong></td><td><span class="badge badge-brand">${escapeHtml(item.stage)}</span></td><td style="min-width:260px">${escapeHtml(item.exactTarget)}</td><td>${item.contactGoal}</td><td>${item.managerAppointments}</td><td>${item.fieldMeetings}</td><td>${item.usageStarts}</td><td>${item.feedbackGoal}</td><td style="min-width:240px">${escapeHtml(item.representativeRole)}</td><td style="min-width:250px">${escapeHtml(item.operationsRole)}</td><td style="min-width:270px">${escapeHtml(item.completion)}</td><td>${collectionControl("augustDailyActions", item.id, "status", item.status, { type: "select", values: ["대기", "진행 중", "완료", "다음 날 이월"], label: `${item.date} 상태` })}</td></tr>`).join("")}</tbody>
+          </table></div>`;
+      }
+
+      function renderResearch() {
+        const section = document.getElementById("researchSection");
+        section.innerHTML = `
+          <div class="section-head"><div><h2 class="section-title" id="researchTitle">선정 기준과 공식 출처</h2><p class="section-desc">이번 80곳이 왜 우선 대상인지, 어느 공식 페이지에서 확인했는지 함께 보관합니다.</p></div></div>
+          <div class="card table-wrap" style="margin-bottom:12px">
+            <table aria-label="영업 대상 선정 기준"><thead><tr><th>평가항목</th><th>가중치</th><th>5점 기준</th><th>선정 의미</th></tr></thead>
+              <tbody>${state.selectionCriteria.map((item) => `<tr><td><strong>${escapeHtml(item.label)}</strong></td><td>${item.weight}%</td><td>${escapeHtml(item.fivePoint)}</td><td>${escapeHtml(item.meaning)}</td></tr>`).join("")}</tbody>
+            </table>
+          </div>
+          <div class="source-list">${state.sources.map((item) => `<article class="card source-card"><span class="badge">${escapeHtml(item.category)}</span><h3>${escapeHtml(item.organization)}</h3><p>${escapeHtml(item.checked)}</p><p>${escapeHtml(item.note)}</p><p>확인일 ${escapeHtml(item.checkedAt)}</p>${item.url ? `<a class="btn btn-small" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">공식 페이지 열기</a>` : ""}</article>`).join("")}</div>
+          <div class="card card-body" style="margin-top:12px"><h3 style="margin-top:0">현장 적용 원칙</h3><ol class="focus-list">${state.fieldPrinciples.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></div>`;
+      }
+
+      function routeRecommendation() {
+        const confirmed = state.targets.filter((target) => ["일정확정", "완료", "재방문"].includes(target.meetingStatus));
+        if (confirmed.length === 0) return "확정 미팅 0건: 오늘은 차량 출발보다 우선 40곳 전화와 관리직 일정 확정에 집중하세요.";
+        if (confirmed.length === 1) return `확정 미팅 1건: ${confirmed[0].cluster || confirmed[0].branch} 한 곳만 정확히 방문하고, 주변 거점은 전화 후속으로 남기세요.`;
+        const clusters = [...new Set(confirmed.map((target) => target.cluster).filter(Boolean))];
+        if (clusters.length === 1) return `같은 건물 확정 미팅 ${confirmed.length}건: ${clusters[0]}에서 30분 간격으로 배치하고, 미팅 사이 10분 기록 시간을 확보하세요.`;
+        return `여러 건물 확정 미팅 ${confirmed.length}건: 약속 시간이 빠른 곳부터 이동하고, 같은 건물 미팅은 연속으로 묶으세요.`;
+      }
+
+      function renderLocations() {
+        const section = document.getElementById("locationSection");
+        const routes = state.routeClusters;
+        const selected = routes.find((route) => route.cluster === state.settings.selectedCluster) || routes[0];
+        if (selected && state.settings.selectedCluster !== selected.cluster) state.settings.selectedCluster = selected.cluster;
+        const stops = selected ? state.targets.filter((target) => target.cluster === selected.cluster).sort((a, b) => Number(a.rank) - Number(b.rank)) : [];
+        const nationwide = [...new Map(state.targets.filter((target) => target.isOfficialSeed && Number(target.rank) > 40).map((target) => [target.week, target])).values()];
+        section.innerHTML = `
+          <div class="section-head">
+            <div><h2 class="section-title" id="locationTitle">구로 출발 위치·동선</h2><p class="section-desc">주소를 보고 바로 출발하는 목록이 아닙니다. 전화로 관리직 미팅을 먼저 확정한 뒤, 같은 건물 2~3개 약속을 한 동선으로 묶으세요.</p></div>
+            <label class="control"><span>출발지</span><input class="field" value="${escapeHtml(state.settings.origin || "구로")}" data-scope="settings" data-field="origin"></label>
+          </div>
+          <article class="card route-decision"><h3>오늘 출발 판단</h3><p style="margin:0 0 10px;color:var(--ink-2)">${escapeHtml(routeRecommendation())}</p><ol><li>확정 미팅이 없으면 출발하지 않고 전화 목록을 완료합니다.</li><li>같은 건물 2건 이상이면 30분 간격으로 묶습니다.</li><li>다른 건물은 약속 시간 우선, 이동 순서 후순위로 정합니다.</li><li>전국 권역은 관리직 약속 2건 이상일 때만 이동합니다.</li></ol></article>
+          <div class="section-head"><div><h3 style="margin:0">8월 우선 10개 건물</h3><p class="section-desc">왼쪽 위 1번부터 시작하세요. 건물을 누르면 지점별 전화·방문 순서가 열립니다.</p></div></div>
+          <div class="route-overview" aria-label="8월 우선 동선">${routes.map((route) => `<article class="route-node${selected?.cluster === route.cluster ? " is-selected" : ""}"><button type="button" data-action="select-cluster" data-cluster="${escapeHtml(route.cluster)}" aria-pressed="${selected?.cluster === route.cluster}"><strong>${route.order}. ${escapeHtml(route.cluster)}</strong><span>${escapeHtml(route.week)} · ${route.targetCount}곳 · ${escapeHtml(route.recommendedDate)}</span></button></article>`).join("")}</div>
+          <div class="route-cluster-list" id="routeClusterList">${selected ? `<article class="card route-card">
+            <div class="route-card-head"><div><span class="badge badge-brand">${selected.order}번째 동선</span><h3>${escapeHtml(selected.cluster)}</h3><p class="section-desc">${escapeHtml(selected.representativeAddress)} · ${escapeHtml(selected.company)} · ${escapeHtml(selected.recommendedDate)}</p></div>${mapLinks(selected.representativeAddress, true)}</div>
+            <p>${escapeHtml(selected.operation)}</p>
+            <ol class="route-stop-list">${stops.map((target, index) => `<li class="route-stop"><span class="route-stop-order">${index + 1}</span><div><strong>${escapeHtml(target.company)} ${escapeHtml(target.branch)}</strong><span>${escapeHtml(target.phone)} · ${escapeHtml(target.address)}</span></div><div class="route-actions"><a class="btn btn-small" href="tel:${escapeHtml(target.phone)}">전화</a><button class="btn btn-small" type="button" data-action="open-target" data-id="${escapeHtml(target.id)}">대상 기록</button></div></li>`).join("")}</ol>
+          </article>` : `<div class="card empty-state">동선을 선택하면 지점별 순서가 표시됩니다.</div>`}</div>
+          <div class="section-head" style="margin-top:28px"><div><h3 style="margin:0">9월 이후 전국 확장 순서</h3><p class="section-desc">8월 우선 40곳의 반응을 확인한 뒤, 같은 권역 관리직 미팅 2건 이상이 잡힌 주차만 이동합니다.</p></div></div>
+          <div class="card table-wrap"><table aria-label="전국 확장 순서"><thead><tr><th>실행주차</th><th>권역</th><th>첫 대상</th><th>출발 조건</th></tr></thead><tbody>${nationwide.map((target) => `<tr><td>${escapeHtml(target.week)}</td><td><strong>${escapeHtml(target.region)}</strong></td><td>${escapeHtml(target.company)} ${escapeHtml(target.branch)} 외</td><td>같은 권역 관리직 약속 2건 이상 확정</td></tr>`).join("")}</tbody></table></div>`;
+      }
+
+      function renderTabs() {
+        const validTabs = ["today", "targets", "planning", "locations", "scenarios"];
+        const activeTab = validTabs.includes(state.settings.activeTab) ? state.settings.activeTab : "today";
+        state.settings.activeTab = activeTab;
+        validTabs.forEach((tab) => {
+          const button = document.getElementById(`${tab}Tab`);
+          const panel = document.getElementById(`${tab}Panel`);
+          const active = tab === activeTab;
+          if (button) {
+            button.setAttribute("aria-selected", String(active));
+            button.tabIndex = active ? 0 : -1;
+          }
+          if (panel) panel.hidden = !active;
+        });
+      }
+
+      function renderAll() {
+        renderHeader();
+        renderToday();
+        renderMonthlyGoals();
+        renderAugustExecution();
+        renderCalendar();
+        renderOverview();
+        renderTargets();
+        renderPartners();
+        renderResearch();
+        renderLocations();
+        renderScenarios();
+        renderReviews();
+        renderTabs();
+        document.title = state.meta.title || "인파 영업·마케팅 실행판";
+      }
+
+      function updateControl(element) {
+        const field = element.dataset.field;
+        if (!field) return false;
+        const newValue = valueOf(element);
+        if (element.dataset.scope === "meta") {
+          state.meta[field] = newValue;
+          if (field === "title") document.title = newValue || "인파 영업·마케팅 실행판";
+          return true;
+        }
+        if (element.dataset.scope === "settings") {
+          state.settings[field] = newValue;
+          return true;
+        }
+        const collection = element.dataset.collection;
+        const id = element.dataset.id;
+        if (!collection || !id || !Array.isArray(state[collection])) return false;
+        const item = state[collection].find((candidate) => candidate.id === id);
+        if (!item) return false;
+        item[field] = newValue;
+        return true;
+      }
+
+      function rerenderAfterChange(element) {
+        const scope = element.dataset.scope;
+        const collection = element.dataset.collection;
+        const field = element.dataset.field;
+        if (scope === "settings") {
+          if (["focusDate", "selectedDate"].includes(field)) {
+            renderCalendar();
+            renderTargets();
+            renderPartners();
+          } else if (["origin", "selectedCluster"].includes(field)) {
+            renderLocations();
+          } else {
+            renderCalendar();
+          }
+          return;
+        }
+        if (scope === "meta") {
+          if (["startDate", "endDate", "finalGoal"].includes(field)) renderAll();
+          return;
+        }
+        if (collection === "tasks") {
+          renderOverview();
+          renderToday();
+          renderCalendar();
+          return;
+        }
+        if (collection === "kpis") {
+          renderOverview();
+          return;
+        }
+        if (collection === "targets") {
+          renderTargets();
+          renderLocations();
+          return;
+        }
+        if (collection === "augustDailyActions") {
+          const item = state.augustDailyActions.find((candidate) => candidate.id === element.dataset.id);
+          const task = item ? state.tasks.find((candidate) => candidate.id === `task-${item.date}-spreadsheet`) : null;
+          if (task) task.done = item.status === "완료";
+          renderAugustExecution();
+          renderToday();
+          renderCalendar();
+          return;
+        }
+        if (collection === "monthlyGoals") {
+          renderMonthlyGoals();
+          return;
+        }
+        if (collection === "partners") {
+          renderOverview();
+          renderPartners();
+        }
+      }
+
+      function addTask(dateString) {
+        state.tasks.push(normalizeTask({
+          id: uid("task"),
+          date: dateString || state.settings.focusDate || CAMPAIGN_START,
+          phase: "직접 추가",
+          region: "",
+          category: "준비",
+          action: "새 실행 행동을 작성하세요",
+          metricId: "none",
+          target: 1,
+          actual: 0,
+          unit: "건",
+          owner: "두 명 함께",
+          method: "",
+          note: "",
+          done: false
+        }));
+        state.tasks.sort((a, b) => a.date.localeCompare(b.date));
+        saveState();
+        renderToday();
+        renderCalendar();
+        renderOverview();
+        showToast("실행 항목을 추가했습니다.");
+      }
+
+      function addTarget() {
+        state.targets.push(normalizeTarget({ id: uid("target"), phase: "직접 추가", region: "서울", contactRoute: "대표번호", status: "조사", contactStatus: "미연락", meetingStatus: "미정", nextActionAt: state.settings.focusDate }));
+        state.settings.targetView = "all80";
+        state.settings.targetFilters = { ...state.settings.targetFilters, search: "" };
+        saveState();
+        renderTargets();
+        showToast("영업 대상을 추가했습니다.");
+      }
+
+      function addPartner() {
+        state.partners.push(normalizePartner({ id: uid("partner"), startedAt: state.settings.focusDate, nextFollowupAt: addDays(state.settings.focusDate, 2) }));
+        saveState();
+        renderPartners();
+        renderOverview();
+        showToast("설계파트너를 추가했습니다.");
+      }
+
+      function addScenario() {
+        state.scenarios.push(normalizeScenario({
+          id: uid("scenario"),
+          title: "새 영업 시나리오",
+          suitable: "적합한 상황을 작성하세요",
+          objective: "달성할 목표를 작성하세요",
+          preparation: "준비물을 작성하세요",
+          steps: "1. 첫 행동\n2. 다음 행동\n3. 후속 약속",
+          success: "성공 기준을 작성하세요",
+          stop: "중단 기준을 작성하세요",
+          followup: "후속 행동을 작성하세요"
+        }, state.scenarios.length));
+        saveState();
+        renderScenarios();
+        showToast("영업 시나리오를 추가했습니다.");
+      }
+
+      function addReview() {
+        const last = state.reviews.at(-1);
+        const start = last ? addDays(last.weekStart, 7) : state.settings.focusDate;
+        state.reviews.push(normalizeReview({ id: uid("review"), weekStart: start, weekEnd: addDays(start, 4) }));
+        saveState();
+        renderReviews();
+        showToast("회고 주차를 추가했습니다.");
+      }
+
+      function deleteRecord(collection, id) {
+        if (!Array.isArray(state[collection])) return;
+        if (!window.confirm("이 항목을 삭제할까요? JSON 백업이 있으면 다시 불러올 수 있습니다.")) return;
+        state[collection] = state[collection].filter((item) => item.id !== id);
+        saveState();
+        renderAll();
+        showToast("항목을 삭제했습니다.");
+      }
+
+      function duplicateTask(id) {
+        const source = state.tasks.find((task) => task.id === id);
+        if (!source) return;
+        const newDate = window.prompt("복제할 날짜를 YYYY-MM-DD로 입력하세요.", addDays(source.date, 1));
+        if (!newDate || !parseDate(newDate)) {
+          showToast("날짜를 확인한 뒤 다시 복제해 주세요.");
+          return;
+        }
+        state.tasks.push({ ...source, id: uid("task"), date: newDate, actual: 0, done: false });
+        state.tasks.sort((a, b) => a.date.localeCompare(b.date));
+        saveState();
+        renderToday();
+        renderCalendar();
+        renderOverview();
+        showToast(`${formatDate(newDate)} 일정으로 복제했습니다.`);
+      }
+
+      function exportState() {
+        const content = JSON.stringify(state, null, 2);
+        const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `inpa-sales-marketing-backup-${toDateString(new Date())}.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        showToast("JSON 백업 파일을 만들었습니다.");
+      }
+
+      function importState(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.addEventListener("load", () => {
+          try {
+            const parsed = JSON.parse(String(reader.result || ""));
+            const next = normalizeState(parsed);
+            if (!Array.isArray(next.tasks) || !Array.isArray(next.scenarios)) throw new Error("invalid state");
+            state = next;
+            saveState();
+            renderAll();
+            showToast("백업 내용을 불러왔습니다.");
+          } catch (error) {
+            showToast("백업 파일의 내용을 확인해 주세요. 현재 실행판은 그대로 유지했습니다.");
+          } finally {
+            document.getElementById("importFile").value = "";
+          }
+        });
+        reader.addEventListener("error", () => showToast("파일을 읽는 과정에서 멈췄습니다. 다른 백업 파일로 다시 시도해 주세요."));
+        reader.readAsText(file, "utf-8");
+      }
+
+      function resetState() {
+        if (!window.confirm("기본 계획으로 복원할까요? 현재 내용은 JSON 백업 후 복원하는 것을 권합니다.")) return;
+        state = buildDefaultState();
+        saveState();
+        renderAll();
+        showToast("기본 실행계획으로 복원했습니다.");
+      }
+
+      function selectCalendarDate(dateString) {
+        if (!parseDate(dateString) || dateString < state.meta.startDate || dateString > state.meta.endDate) return;
+        state.settings.selectedDate = dateString;
+        state.settings.focusDate = dateString;
+        state.settings.calendarMonth = dateString.slice(0, 7);
+        state.settings.monthFilter = dateString.slice(0, 7);
+        saveState();
+        renderCalendar();
+        renderTargets();
+        renderPartners();
+      }
+
+      function moveCalendar(amount) {
+        const minMonth = state.meta.startDate.slice(0, 7);
+        const maxMonth = state.meta.endDate.slice(0, 7);
+        const next = shiftMonth(state.settings.calendarMonth || minMonth, amount);
+        state.settings.calendarMonth = next < minMonth ? minMonth : next > maxMonth ? maxMonth : next;
+        saveState();
+        renderCalendar();
+      }
+
+      function moveCalendarToToday() {
+        const actualToday = toDateString(new Date());
+        const date = actualToday >= state.meta.startDate && actualToday <= state.meta.endDate
+          ? actualToday
+          : getTodayPresentationDate(state, actualToday);
+        selectCalendarDate(date);
+      }
+
+      function switchTab(tab, focus = false) {
+        if (!["today", "targets", "planning", "locations", "scenarios"].includes(tab)) return;
+        state.settings.activeTab = tab;
+        saveState();
+        renderTabs();
+        if (focus) document.getElementById(`${tab}Tab`)?.focus();
+      }
+
+      function setTargetView(view) {
+        if (!["priority40", "all80"].includes(view)) return;
+        state.settings.targetView = view;
+        saveState();
+        renderTargets();
+      }
+
+      function selectCluster(cluster) {
+        if (!state.routeClusters.some((route) => route.cluster === cluster)) return;
+        state.settings.selectedCluster = cluster;
+        saveState();
+        renderLocations();
+      }
+
+      function copyAddress(address) {
+        const value = String(address || "").trim();
+        if (!value) return;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(value).then(() => showToast("주소를 복사했습니다.")).catch(() => showToast("주소를 선택해 복사해 주세요."));
+          return;
+        }
+        const area = document.createElement("textarea");
+        area.value = value;
+        area.setAttribute("readonly", "");
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        try { document.execCommand("copy"); showToast("주소를 복사했습니다."); }
+        catch (_) { showToast("주소를 선택해 복사해 주세요."); }
+        area.remove();
+      }
+
+      function openTarget(id) {
+        const target = state.targets.find((item) => item.id === id);
+        if (!target) return;
+        state.settings.targetView = "all80";
+        state.settings.targetFilters = { ...state.settings.targetFilters, search: target.branch || target.company };
+        state.settings.activeTab = "targets";
+        saveState();
+        renderTargets();
+        renderTabs();
+        document.getElementById("targetSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      function setScenarioCategory(category) {
+        const categories = ["전체", "첫 접촉", "관리직 미팅", "소개·출장", "사용·피드백", "온라인·확장"];
+        if (!categories.includes(category)) return;
+        state.settings.scenarioCategory = category;
+        saveState();
+        renderScenarios();
+      }
+
+      function handleAction(button) {
+        const action = button.dataset.action;
+        if (!action) return;
+        if (action === "add-task") addTask(button.dataset.date);
+        if (action === "add-target") addTarget();
+        if (action === "add-partner") addPartner();
+        if (action === "add-scenario") addScenario();
+        if (action === "add-review") addReview();
+        if (action === "delete-record") deleteRecord(button.dataset.collection, button.dataset.id);
+        if (action === "duplicate-task") duplicateTask(button.dataset.id);
+        if (action === "export") exportState();
+        if (action === "import") document.getElementById("importFile").click();
+        if (action === "print") window.print();
+        if (action === "reset") resetState();
+        if (action === "select-calendar-date") selectCalendarDate(button.dataset.date);
+        if (action === "calendar-prev") moveCalendar(-1);
+        if (action === "calendar-next") moveCalendar(1);
+        if (action === "calendar-today") moveCalendarToToday();
+        if (action === "switch-tab") switchTab(button.dataset.tab);
+        if (action === "set-target-view") setTargetView(button.dataset.view);
+        if (action === "select-cluster") selectCluster(button.dataset.cluster);
+        if (action === "copy-address") copyAddress(button.dataset.address);
+        if (action === "open-target") openTarget(button.dataset.id);
+        if (action === "set-scenario-category") setScenarioCategory(button.dataset.category);
+      }
+
+      function bindEvents() {
+        const root = document.getElementById("appRoot");
+        root.addEventListener("input", (event) => {
+          const filter = event.target.closest("[data-target-filter]");
+          if (filter) {
+            state.settings.targetFilters[filter.dataset.targetFilter] = filter.value;
+            queueSave();
+            return;
+          }
+          const element = event.target.closest("[data-field]");
+          if (!element || !updateControl(element)) return;
+          queueSave();
+          if (element.dataset.scope === "settings" && element.dataset.field === "search") renderCalendar();
+        });
+        root.addEventListener("change", (event) => {
+          const filter = event.target.closest("[data-target-filter]");
+          if (filter) {
+            state.settings.targetFilters[filter.dataset.targetFilter] = filter.value;
+            saveState();
+            renderTargets();
+            return;
+          }
+          const element = event.target.closest("[data-field]");
+          if (!element || !updateControl(element)) return;
+          saveState();
+          rerenderAfterChange(element);
+        });
+        root.addEventListener("click", (event) => {
+          const button = event.target.closest("button[data-action]");
+          if (button) handleAction(button);
+        });
+        document.getElementById("sectionNav").addEventListener("keydown", (event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          const tabs = [...document.querySelectorAll("#sectionNav [role='tab']")];
+          const currentIndex = tabs.indexOf(event.target);
+          if (currentIndex < 0) return;
+          event.preventDefault();
+          const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : event.key === "ArrowRight" ? (currentIndex + 1) % tabs.length : (currentIndex - 1 + tabs.length) % tabs.length;
+          switchTab(tabs[nextIndex].dataset.tab, true);
+        });
+        document.getElementById("importFile").addEventListener("change", (event) => importState(event.target.files?.[0]));
+      }
+
+      function getState() {
+        return state;
+      }
+
+      function setState(nextState) {
+        state = normalizeState(nextState);
+        renderAll();
+      }
+
+      state = loadState();
+      window.InpaExecution = {
+        storageKey: STORAGE_KEY,
+        buildDefaultState,
+        normalizeState,
+        getState,
+        setState,
+        calculateKpis,
+        saveState,
+        qualifiesFinalPartner,
+        buildMonthCells,
+        getTodayPresentationDate,
+        getOverdueTasks,
+        buildOfficialTargets,
+        buildMonthlyGoals,
+        buildRouteClusters,
+        getFilteredTargets,
+        buildMapUrl,
+        exportState,
+        importState,
+        resetState
+      };
+      renderAll();
+      bindEvents();
+    })();
+  </script>
+</body>
+</html>
