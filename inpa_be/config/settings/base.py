@@ -551,6 +551,9 @@ REQUIRE_CUSTOMER_SELF_CONSENT = env.bool('REQUIRE_CUSTOMER_SELF_CONSENT', defaul
 BOOKING_ENABLED = env.bool('BOOKING_ENABLED', default=True)
 BOOKING_EMAIL_ENABLED = env.bool('BOOKING_EMAIL_ENABLED', default=False)
 BOOKING_TOKEN_TTL_HOURS = env.int('BOOKING_TOKEN_TTL_HOURS', default=72)
+# 공개 예약(/b)에서 고객에게 보여줄 = 받아줄 향후 일수. GET 노출과 POST 재확인이 이 값 하나를 쓴다
+# (달라지면 화면에 없던 시간이 예약된다). 기본은 현행 노출 기준 14일.
+BOOKING_PUBLIC_HORIZON_DAYS = env.int('BOOKING_PUBLIC_HORIZON_DAYS', default=14)
 
 # 설계사 영입은 개인정보 동의 경로가 완성된 뒤 운영에서 명시적으로 연다.
 RECRUITING_ENABLED = env.bool('RECRUITING_ENABLED', default=False)

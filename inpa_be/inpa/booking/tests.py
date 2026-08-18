@@ -611,3 +611,347 @@ class BookingDisabledGateTests(TestCase):
     def test_public_get_404(self):
         token = make_booking_token(self.customer)
         self.assertEqual(self.public.get(f'/api/v1/b/{token}/').status_code, 404)
+
+
+@override_settings(BOOKING_ENABLED=True, SHOWCASE_ACCOUNT_EMAIL='showcase@inpa.example')
+class MeetingCancelCalendarTests(TestCase):
+    """취소·거절 시 구글 캘린더 일정 정리 + 실패 시 재시도 대상 표시(spec 2026-07-21 §9.2)."""
+
+    def setUp(self):
+        cache.clear()
+        self.user, self.client_a, self.profile = _make_planner('cancel_agent@test.com')
+        self.profile.google_calendar_refresh_token = 'linked-token'
+        self.profile.save(update_fields=['google_calendar_refresh_token'])
+        self.customer = Customer.objects.create(owner=self.user, name='홍길동')
+
+    def _meeting(self, status_value=Meeting.STATUS_CONFIRMED, event_id='gcal-event-1'):
+        return Meeting.objects.create(
+            owner=self.user, customer=self.customer, start_at=_future(),
+            method=Meeting.METHOD_PHONE, status=status_value, google_event_id=event_id)
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=True)
+    @mock.patch('inpa.accounts.google_calendar.delete_meeting_event', return_value=True)
+    def test_cancel_deletes_calendar_event(self, delete_event, _enabled):
+        meeting = self._meeting()
+        response = self.client_a.post(f'/api/v1/meetings/{meeting.id}/cancel/')
+        self.assertEqual(response.status_code, 200, response.content)
+        delete_event.assert_called_once()
+        self.assertEqual(delete_event.call_args.args[1], 'gcal-event-1')
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_CANCELED)
+        self.assertIsNone(meeting.google_event_id)
+        self.assertFalse(meeting.calendar_cleanup_pending)
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=True)
+    @mock.patch('inpa.accounts.google_calendar.delete_meeting_event', return_value=True)
+    def test_decline_deletes_leftover_calendar_event(self, delete_event, _enabled):
+        meeting = self._meeting(status_value=Meeting.STATUS_PENDING)
+        response = self.client_a.post(f'/api/v1/meetings/{meeting.id}/decline/')
+        self.assertEqual(response.status_code, 200, response.content)
+        delete_event.assert_called_once()
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_DECLINED)
+        self.assertIsNone(meeting.google_event_id)
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=True)
+    @mock.patch('inpa.accounts.google_calendar.delete_meeting_event',
+                side_effect=RuntimeError('google down'))
+    def test_calendar_failure_keeps_cancel_successful(self, _delete_event, _enabled):
+        meeting = self._meeting()
+        response = self.client_a.post(f'/api/v1/meetings/{meeting.id}/cancel/')
+        self.assertEqual(response.status_code, 200, response.content)
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_CANCELED)
+        # 삭제가 확인되기 전에는 이벤트 id를 지우지 않는다(재시도 추적용).
+        self.assertEqual(meeting.google_event_id, 'gcal-event-1')
+        self.assertTrue(meeting.calendar_cleanup_pending)
+        self.assertTrue(response.json()['calendar_cleanup_pending'])
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=True)
+    def test_daily_retry_deletes_pending_calendar_event(self, _enabled):
+        from inpa.booking.calendar_sync import retry_pending_calendar_cleanup
+
+        meeting = self._meeting()
+        with mock.patch('inpa.accounts.google_calendar.delete_meeting_event',
+                        side_effect=RuntimeError('google down')):
+            self.client_a.post(f'/api/v1/meetings/{meeting.id}/cancel/')
+        meeting.refresh_from_db()
+        self.assertTrue(meeting.calendar_cleanup_pending)
+
+        with mock.patch('inpa.accounts.google_calendar.delete_meeting_event',
+                        return_value=True) as retry_delete:
+            cleaned = retry_pending_calendar_cleanup()
+        self.assertEqual(cleaned, 1)
+        retry_delete.assert_called_once()
+        meeting.refresh_from_db()
+        self.assertIsNone(meeting.google_event_id)
+        self.assertFalse(meeting.calendar_cleanup_pending)
+
+        # 재실행 멱등: 정리된 건은 다시 잡히지 않는다.
+        with mock.patch('inpa.accounts.google_calendar.delete_meeting_event',
+                        return_value=True) as second_delete:
+            self.assertEqual(retry_pending_calendar_cleanup(), 0)
+        second_delete.assert_not_called()
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=True)
+    @mock.patch('inpa.accounts.google_calendar.delete_meeting_event', return_value=True)
+    def test_run_daily_jobs_includes_calendar_cleanup_step(self, delete_event, _enabled):
+        from inpa.notifications.jobs import run_daily_jobs
+
+        meeting = self._meeting()
+        Meeting.objects.filter(pk=meeting.pk).update(
+            status=Meeting.STATUS_CANCELED, calendar_cleanup_pending=True)
+        result = run_daily_jobs()
+        self.assertEqual(result['counts']['calendar_cleanup_retried'], 1)
+        self.assertNotIn('calendar_cleanup', result['errors'])
+        delete_event.assert_called_once()
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=False)
+    @mock.patch('inpa.accounts.google_calendar.delete_meeting_event', return_value=True)
+    def test_disconnected_calendar_stays_pending_for_retry(self, delete_event, _enabled):
+        meeting = self._meeting()
+        response = self.client_a.post(f'/api/v1/meetings/{meeting.id}/cancel/')
+        self.assertEqual(response.status_code, 200, response.content)
+        delete_event.assert_not_called()
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_CANCELED)
+        self.assertTrue(meeting.calendar_cleanup_pending)
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=True)
+    @mock.patch('inpa.accounts.google_calendar.delete_meeting_event', return_value=True)
+    def test_retry_skips_meetings_without_linked_calendar(self, delete_event, _enabled):
+        """연동이 끊긴 설계사 건은 재시도 대상에서 빠져 처리 가능한 건을 밀어내지 않는다."""
+        from inpa.booking.calendar_sync import retry_pending_calendar_cleanup
+
+        self.profile.google_calendar_refresh_token = None
+        self.profile.save(update_fields=['google_calendar_refresh_token'])
+        meeting = self._meeting()
+        Meeting.objects.filter(pk=meeting.pk).update(
+            status=Meeting.STATUS_CANCELED, calendar_cleanup_pending=True)
+
+        self.assertEqual(retry_pending_calendar_cleanup(), 0)
+        delete_event.assert_not_called()
+        meeting.refresh_from_db()
+        self.assertTrue(meeting.calendar_cleanup_pending)
+
+        # 다시 연결하면 그때 정리된다.
+        self.profile.google_calendar_refresh_token = 'relinked-token'
+        self.profile.save(update_fields=['google_calendar_refresh_token'])
+        self.assertEqual(retry_pending_calendar_cleanup(), 1)
+        meeting.refresh_from_db()
+        self.assertIsNone(meeting.google_event_id)
+        self.assertFalse(meeting.calendar_cleanup_pending)
+
+    @override_settings(SHOWCASE_ACCOUNT_EMAIL='cancel_agent@test.com')
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=True)
+    @mock.patch('inpa.accounts.google_calendar.delete_meeting_event', return_value=True)
+    def test_showcase_cancel_skips_google_and_clears_retry_flag(self, delete_event, _enabled):
+        from inpa.booking.calendar_sync import retry_pending_calendar_cleanup
+
+        self.profile.is_showcase = True
+        self.profile.save(update_fields=['is_showcase'])
+        meeting = self._meeting()
+        Meeting.objects.filter(pk=meeting.pk).update(calendar_cleanup_pending=True)
+        response = self.client_a.post(f'/api/v1/meetings/{meeting.id}/cancel/')
+        self.assertEqual(response.status_code, 200, response.content)
+        delete_event.assert_not_called()
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_CANCELED)
+        # 내부 계정은 지울 외부 일정이 없다 → 재시도 대기열에 계속 남지 않는다.
+        self.assertFalse(meeting.calendar_cleanup_pending)
+        self.assertEqual(retry_pending_calendar_cleanup(), 0)
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=True)
+    @mock.patch('inpa.accounts.google_calendar.delete_meeting_event', return_value=True)
+    def test_cancel_without_calendar_event_skips_google(self, delete_event, _enabled):
+        meeting = self._meeting(event_id=None)
+        response = self.client_a.post(f'/api/v1/meetings/{meeting.id}/cancel/')
+        self.assertEqual(response.status_code, 200, response.content)
+        delete_event.assert_not_called()
+        meeting.refresh_from_db()
+        self.assertFalse(meeting.calendar_cleanup_pending)
+
+    # ── 상태 전이 ──
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=False)
+    def test_cancel_is_idempotent(self, _enabled):
+        meeting = self._meeting(event_id=None)
+        first = self.client_a.post(f'/api/v1/meetings/{meeting.id}/cancel/')
+        second = self.client_a.post(f'/api/v1/meetings/{meeting.id}/cancel/')
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200, second.content)
+        self.assertEqual(second.json()['status'], Meeting.STATUS_CANCELED)
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=False)
+    def test_cancel_declined_meeting_rejected(self, _enabled):
+        meeting = self._meeting(status_value=Meeting.STATUS_DECLINED, event_id=None)
+        response = self.client_a.post(f'/api/v1/meetings/{meeting.id}/cancel/')
+        self.assertEqual(response.status_code, 409, response.content)
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_DECLINED)
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=False)
+    def test_cancel_pending_meeting_allowed(self, _enabled):
+        meeting = self._meeting(status_value=Meeting.STATUS_PENDING, event_id=None)
+        response = self.client_a.post(f'/api/v1/meetings/{meeting.id}/cancel/')
+        self.assertEqual(response.status_code, 200, response.content)
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_CANCELED)
+
+    @mock.patch('inpa.accounts.google.google_calendar_enabled', return_value=False)
+    def test_accept_and_cancel_race_is_deterministic(self, _enabled):
+        """수락·취소가 어느 순서로 들어와도 결과는 '취소'로 하나로 정해진다."""
+        # 취소가 먼저 도착한 경우 → 뒤늦은 수락은 막힌다.
+        first = self._meeting(status_value=Meeting.STATUS_PENDING, event_id=None)
+        self.assertEqual(
+            self.client_a.post(f'/api/v1/meetings/{first.id}/cancel/').status_code, 200)
+        self.assertEqual(
+            self.client_a.post(f'/api/v1/meetings/{first.id}/accept/').status_code, 400)
+        first.refresh_from_db()
+        self.assertEqual(first.status, Meeting.STATUS_CANCELED)
+
+        # 수락이 먼저 도착한 경우 → 확정된 예약도 취소할 수 있다.
+        second = self._meeting(status_value=Meeting.STATUS_PENDING, event_id=None)
+        self.assertEqual(
+            self.client_a.post(f'/api/v1/meetings/{second.id}/accept/').status_code, 200)
+        self.assertEqual(
+            self.client_a.post(f'/api/v1/meetings/{second.id}/cancel/').status_code, 200)
+        second.refresh_from_db()
+        self.assertEqual(second.status, Meeting.STATUS_CANCELED)
+
+
+@override_settings(BOOKING_ENABLED=True)
+class WorkHourOverlapTests(TestCase):
+    """같은 요일 업무시간 겹침 거절 + 겹친 기존 데이터의 슬롯 중복 제거."""
+
+    def setUp(self):
+        cache.clear()
+        self.user, self.client_a, _ = _make_planner('workhour_agent@test.com')
+
+    def _post(self, weekday, start, end):
+        return self.client_a.post(
+            '/api/v1/work-hours/',
+            {'weekday': weekday, 'start_time': start, 'end_time': end}, format='json')
+
+    def test_adjacent_work_hours_allowed(self):
+        self.assertEqual(self._post(0, '09:00', '12:00').status_code, 201)
+        response = self._post(0, '12:00', '18:00')
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_partial_overlap_rejected(self):
+        self.assertEqual(self._post(0, '09:00', '12:00').status_code, 201)
+        response = self._post(0, '11:00', '13:00')
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(WorkHour.objects.filter(owner=self.user).count(), 1)
+
+    def test_contained_range_rejected(self):
+        self.assertEqual(self._post(0, '09:00', '18:00').status_code, 201)
+        self.assertEqual(self._post(0, '10:00', '11:00').status_code, 400)
+
+    def test_exact_duplicate_rejected(self):
+        self.assertEqual(self._post(0, '09:00', '18:00').status_code, 201)
+        self.assertEqual(self._post(0, '09:00', '18:00').status_code, 400)
+
+    def test_other_weekday_allowed(self):
+        self.assertEqual(self._post(0, '09:00', '18:00').status_code, 201)
+        self.assertEqual(self._post(1, '09:00', '18:00').status_code, 201)
+
+    def test_other_owner_range_does_not_block(self):
+        from datetime import time
+        other, _client, _profile = _make_planner('workhour_other@test.com')
+        WorkHour.objects.create(owner=other, weekday=0,
+                                start_time=time(9, 0), end_time=time(18, 0))
+        self.assertEqual(self._post(0, '09:00', '18:00').status_code, 201)
+
+    def test_update_excludes_self(self):
+        created = self._post(0, '09:00', '12:00').json()
+        response = self.client_a.patch(
+            f"/api/v1/work-hours/{created['id']}/", {'end_time': '13:00'}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['end_time'], '13:00:00')
+
+    def test_update_into_other_range_rejected(self):
+        first = self._post(0, '09:00', '12:00').json()
+        self.assertEqual(self._post(0, '13:00', '18:00').status_code, 201)
+        response = self.client_a.patch(
+            f"/api/v1/work-hours/{first['id']}/", {'end_time': '14:00'}, format='json')
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_generator_deduplicates_legacy_overlap(self):
+        """검증 이전에 저장된 겹침 데이터가 있어도 같은 시각 슬롯은 한 번만 나온다."""
+        from datetime import time
+
+        from .availability import generate_available_slots
+
+        for wd in range(7):
+            # ORM 직접 생성 = serializer 검증 우회(과거에 저장된 겹침 데이터 재현).
+            WorkHour.objects.create(owner=self.user, weekday=wd,
+                                    start_time=time(9, 0), end_time=time(18, 0))
+            WorkHour.objects.create(owner=self.user, weekday=wd,
+                                    start_time=time(10, 0), end_time=time(17, 0))
+        slots = generate_available_slots(self.user, days=7, duration_min=30,
+                                         buffer_min=0, step_min=30)
+        self.assertTrue(slots)
+        self.assertEqual(len(slots), len(set(slots)))
+        self.assertEqual(slots, sorted(slots))
+
+
+@override_settings(BOOKING_ENABLED=True)
+class PublicBookingHorizonTests(TestCase):
+    """공개 GET 노출 기간과 POST 수락 기간이 같은 계약을 쓴다."""
+
+    def setUp(self):
+        cache.clear()
+        self.user, self.client_a, _ = _make_planner('horizon_agent@test.com')
+        _all_week_workhours(self.user)
+        self.customer = Customer.objects.create(owner=self.user, name='홍길동')
+        self.public = APIClient()
+        self.token = make_booking_token(self.customer)
+
+    def _slots(self):
+        return [s['start_at'] for s in self.public.get(f'/api/v1/b/{self.token}/').json()['slots']]
+
+    def test_get_exposes_configured_horizon_only(self):
+        with override_settings(BOOKING_PUBLIC_HORIZON_DAYS=14):
+            slots = self._slots()
+        self.assertTrue(slots)
+        today = timezone.localtime(timezone.now()).date()
+        last = max(timezone.datetime.fromisoformat(s).date() for s in slots)
+        self.assertLessEqual(last, today + timedelta(days=13))
+
+    def test_post_rejects_slot_beyond_exposed_horizon(self):
+        # 15~60일 구간은 화면에 없다 → 예전엔 POST가 60일로 재확인해 그대로 받아줬다.
+        with override_settings(BOOKING_PUBLIC_HORIZON_DAYS=14):
+            far = (timezone.localtime(timezone.now()) + timedelta(days=20)).replace(
+                hour=10, minute=0, second=0, microsecond=0)
+            response = self.public.post(
+                f'/api/v1/b/{self.token}/',
+                {'start_at': far.isoformat(), 'method': 'phone'}, format='json')
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()['code'], 'TIME_OUT_OF_RANGE')
+        self.assertFalse(Meeting.objects.filter(customer=self.customer).exists())
+
+    def test_post_accepts_last_exposed_slot(self):
+        with override_settings(BOOKING_PUBLIC_HORIZON_DAYS=14):
+            slots = self._slots()
+            self.assertTrue(slots)
+            cache.clear()
+            response = self.public.post(
+                f'/api/v1/b/{self.token}/',
+                {'start_at': slots[-1], 'method': 'phone'}, format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_horizon_setting_shrinks_both_get_and_post(self):
+        with override_settings(BOOKING_PUBLIC_HORIZON_DAYS=2):
+            slots = self._slots()
+            self.assertTrue(slots)
+            today = timezone.localtime(timezone.now()).date()
+            self.assertLessEqual(
+                max(timezone.datetime.fromisoformat(s).date() for s in slots),
+                today + timedelta(days=1))
+            cache.clear()
+            beyond = (timezone.localtime(timezone.now()) + timedelta(days=5)).replace(
+                hour=10, minute=0, second=0, microsecond=0)
+            response = self.public.post(
+                f'/api/v1/b/{self.token}/',
+                {'start_at': beyond.isoformat(), 'method': 'phone'}, format='json')
+        self.assertEqual(response.status_code, 400, response.content)

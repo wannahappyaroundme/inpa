@@ -1305,3 +1305,55 @@ class ShowcaseExternalActionTests(TestCase):
             self.client.get('/api/v1/auth/profile/').json()['name'],
             '시연 설계사',
         )
+
+
+class GoogleCalendarDeleteTests(TestCase):
+    """취소된 미팅의 구글 캘린더 일정 삭제 — 이미 없는 일정은 멱등 성공."""
+
+    def setUp(self):
+        self.profile = mock.Mock(google_calendar_refresh_token='linked-token')
+
+    def _http_error(self, code):
+        from googleapiclient.errors import HttpError
+        return HttpError(mock.Mock(status=code, reason='gone'), b'{}')
+
+    def _service_with(self, delete_side_effect=None):
+        service = mock.Mock()
+        execute = service.events.return_value.delete.return_value.execute
+        if delete_side_effect is not None:
+            execute.side_effect = delete_side_effect
+        return service
+
+    def test_delete_calls_google_with_event_id(self):
+        from inpa.accounts.google_calendar import delete_meeting_event
+        service = self._service_with()
+        with mock.patch('inpa.accounts.google_calendar._calendar_service',
+                        return_value=service):
+            self.assertTrue(delete_meeting_event(self.profile, 'event-1'))
+        service.events.return_value.delete.assert_called_once_with(
+            calendarId='primary', eventId='event-1')
+
+    def test_already_missing_event_is_success(self):
+        from inpa.accounts.google_calendar import delete_meeting_event
+        for code in (404, 410):
+            with self.subTest(code=code):
+                service = self._service_with(self._http_error(code))
+                with mock.patch('inpa.accounts.google_calendar._calendar_service',
+                                return_value=service):
+                    self.assertTrue(delete_meeting_event(self.profile, 'event-1'))
+
+    def test_other_http_error_propagates(self):
+        from googleapiclient.errors import HttpError
+
+        from inpa.accounts.google_calendar import delete_meeting_event
+        service = self._service_with(self._http_error(500))
+        with mock.patch('inpa.accounts.google_calendar._calendar_service',
+                        return_value=service):
+            with self.assertRaises(HttpError):
+                delete_meeting_event(self.profile, 'event-1')
+
+    def test_missing_event_id_skips_google(self):
+        from inpa.accounts.google_calendar import delete_meeting_event
+        with mock.patch('inpa.accounts.google_calendar._calendar_service') as build_service:
+            self.assertTrue(delete_meeting_event(self.profile, None))
+        build_service.assert_not_called()

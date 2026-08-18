@@ -10,11 +10,23 @@
 """
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.utils import timezone
 
 from inpa.schedule.models import ScheduleItem
 
 from .models import Meeting, WorkHour
+
+DEFAULT_HORIZON_DAYS = 14
+
+
+def public_horizon_days():
+    """공개 예약(/b)에서 고객에게 보여줄 = 받아줄 향후 일수(하나의 계약).
+
+    GET 노출 기간과 POST 재확인 기간이 다르면 화면에 없던 시간이 예약된다 → 두 곳이 이 값을 함께 쓴다.
+    """
+    days = int(getattr(settings, 'BOOKING_PUBLIC_HORIZON_DAYS', DEFAULT_HORIZON_DAYS) or 0)
+    return days if days > 0 else DEFAULT_HORIZON_DAYS
 
 
 def _overlaps(a_start, a_end, b_start, b_end):
@@ -22,7 +34,18 @@ def _overlaps(a_start, a_end, b_start, b_end):
     return a_start < b_end and a_end > b_start
 
 
-def generate_available_slots(owner, *, days=14, duration_min=30, buffer_min=60, step_min=30):
+def is_within_public_horizon(start_at, *, days=None):
+    """start_at 이 공개 예약 노출 기간 안이면 True(KST 날짜 기준, 마지막 날 포함)."""
+    if timezone.is_naive(start_at):
+        start_at = timezone.make_aware(start_at)
+    days = days or public_horizon_days()
+    today = timezone.localtime(timezone.now()).date()
+    # 슬롯 생성기는 today ~ today+days-1 까지 만든다 → 마지막 노출일은 today+days-1.
+    return today <= timezone.localtime(start_at).date() < today + timedelta(days=days)
+
+
+def generate_available_slots(owner, *, days=DEFAULT_HORIZON_DAYS, duration_min=30,
+                             buffer_min=60, step_min=30):
     """owner의 향후 `days`일 가용 슬롯(시작 시각, KST aware datetime) 리스트를 반환.
 
     업무시간 ∩ 미래 − (미팅 ± 버퍼) − (반복 차단) − (단건 차단/일정) 으로 계산.
@@ -67,7 +90,9 @@ def generate_available_slots(owner, *, days=14, duration_min=30, buffer_min=60, 
             busy.append((s, e))
 
     # ── 슬롯 생성 ──
-    slots = []
+    # set: 같은 요일에 겹치는 업무시간이 이미 저장돼 있어도 같은 시각을 한 번만 내보낸다
+    # (고객 화면에 같은 시간이 두 번 보이는 문제 방어 — 저장 단계 검증과 별개의 안전망).
+    slots = set()
     d = today
     while d < horizon:
         wd = d.weekday()  # Mon=0 .. Sun=6
@@ -99,15 +124,14 @@ def generate_available_slots(owner, *, days=14, duration_min=30, buffer_min=60, 
                             blocked = True
                             break
                 if not blocked:
-                    slots.append(cur)
+                    slots.add(cur)
                 cur += timedelta(minutes=step_min)
         d += timedelta(days=1)
 
-    slots.sort()
-    return slots
+    return sorted(slots)
 
 
-def is_slot_available(owner, start_at, *, duration_min=30, buffer_min=60):
+def is_slot_available(owner, start_at, *, duration_min=30, buffer_min=60, days=None):
     """단일 start_at(KST aware 또는 UTC aware)이 지금도 예약 가능한지 재확인(POST 확정 직전 검증).
 
     start_at 은 반드시 업무시간 안의 슬롯 경계와 정확히 일치해야 한다(임의 시각 차단).
@@ -117,7 +141,8 @@ def is_slot_available(owner, start_at, *, duration_min=30, buffer_min=60):
     target = timezone.localtime(start_at)  # KST aware
     # ★ POST 재확인 grid = GET 노출 grid 와 동일해야 함(step_min=소요시간).
     # 예전엔 max(15,...) 바닥을 둬서 10~14분 소요 미팅은 GET 슬롯이 POST에서 안 잡혀 409가 났다.
+    # ★ 기간(days)도 GET과 같은 값을 쓴다. 예전엔 60일로 재확인해 화면에 없던 15~60일 슬롯이 예약됐다.
     candidates = generate_available_slots(
-        owner, days=60, duration_min=duration_min, buffer_min=buffer_min,
-        step_min=duration_min or 30)
+        owner, days=days or public_horizon_days(), duration_min=duration_min,
+        buffer_min=buffer_min, step_min=duration_min or 30)
     return any(abs((c - target).total_seconds()) < 60 for c in candidates)

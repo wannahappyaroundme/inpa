@@ -29,6 +29,7 @@ from django.utils import timezone
 
 from inpa.accounts.models import Profile
 from inpa.analysis.models import SeedMarker
+from inpa.booking.calendar_sync import retry_pending_calendar_cleanup
 from inpa.booking.models import Meeting
 from inpa.core.internal_accounts import internal_user_q
 from inpa.customers.models import Customer
@@ -543,6 +544,17 @@ def run_daily_jobs(today=None):
         )
         counts['share_snapshot_retention_deleted'] = 0
         errors['share_snapshot_retention'] = type(exc).__name__
+    # 정리 단계 — 취소·거절 때 실패한 구글 캘린더 삭제 재시도(spec 2026-07-21 §9.2).
+    # 고객이 이미 취소된 시간에 찾아오는 일을 막는다. 실패 격리 동일.
+    try:
+        counts['calendar_cleanup_retried'] = retry_pending_calendar_cleanup()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            'daily job failed cleanup=calendar_cleanup exception=%s',
+            type(exc).__name__,
+        )
+        counts['calendar_cleanup_retried'] = 0
+        errors['calendar_cleanup'] = type(exc).__name__
     # 영입 개인정보 정리는 기능 공개 여부와 무관하게 계속한다.
     try:
         counts['recruiting_retention_deleted'] = cleanup_expired_recruiting_candidates()

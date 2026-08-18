@@ -106,6 +106,10 @@ class Meeting(models.Model):
     customer_note = models.TextField('고객 메모', blank=True, default='')
     status = models.CharField('상태', max_length=10, choices=STATUS_CHOICES, default=STATUS_CONFIRMED)
     google_event_id = models.CharField('구글 캘린더 이벤트 ID', max_length=1024, null=True, blank=True, default=None)
+    # 취소·거절했지만 구글 캘린더 일정 삭제가 아직 확인되지 않은 상태.
+    # 외부 삭제 실패가 사용자의 취소를 막지 않되(격리), 조용히 유실되지도 않게
+    # 일일 작업(notifications.jobs)이 이 표시를 보고 다시 지운다.
+    calendar_cleanup_pending = models.BooleanField('캘린더 정리 대기', default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
