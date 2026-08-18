@@ -21,11 +21,14 @@ from inpa.analytics.views import _NoIndexMixin, _mask_name
 from inpa.customers.models import Customer
 from inpa.notifications.models import NotifType, Notification
 
-from .availability import generate_available_slots, is_slot_available
+from .availability import (
+    generate_available_slots,
+    is_slot_available,
+    is_within_public_horizon,
+    public_horizon_days,
+)
 from .models import Meeting
 from .tokens import read_booking_token
-
-_BOOKING_DAYS = 14  # 공개 페이지에 노출할 향후 일수
 
 _METHODS = [
     {'key': Meeting.METHOD_IN_PERSON, 'label': '대면'},
@@ -84,7 +87,8 @@ class PublicBookingView(_NoIndexMixin, APIView):
         profile = getattr(customer.owner, 'profile', None)
         dur, buf = _planner_settings(profile)
         slots = generate_available_slots(
-            customer.owner, days=_BOOKING_DAYS, duration_min=dur, buffer_min=buf, step_min=dur)
+            customer.owner, days=public_horizon_days(), duration_min=dur,
+            buffer_min=buf, step_min=dur)
         return Response({
             'customer': {'name_masked': _mask_name(customer.name)},
             'planner': {
@@ -116,6 +120,14 @@ class PublicBookingView(_NoIndexMixin, APIView):
                             status=status.HTTP_400_BAD_REQUEST)
         if timezone.is_naive(start_at):
             start_at = timezone.make_aware(start_at)
+        # 화면에 노출한 기간(GET)과 받아주는 기간(POST)을 같은 값으로 맞춘다.
+        horizon = public_horizon_days()
+        if not is_within_public_horizon(start_at, days=horizon):
+            return Response(
+                {'code': 'TIME_OUT_OF_RANGE',
+                 'detail': f'지금은 앞으로 {horizon}일 안의 시간까지 잡을 수 있어요. '
+                           '화면에 보이는 시간 중에서 골라 주세요.'},
+                status=status.HTTP_400_BAD_REQUEST)
         profile = getattr(customer.owner, 'profile', None)
         dur, buf = _planner_settings(profile)
 
@@ -123,7 +135,8 @@ class PublicBookingView(_NoIndexMixin, APIView):
         with transaction.atomic():
             # 같은 설계사 동시 신청 직렬화(프로필 행 잠금) → 재확인 후 생성(경합 시 1명만 성공).
             Profile.objects.select_for_update().filter(user=customer.owner).first()
-            if not is_slot_available(customer.owner, start_at, duration_min=dur, buffer_min=buf):
+            if not is_slot_available(customer.owner, start_at, duration_min=dur,
+                                     buffer_min=buf, days=horizon):
                 return Response(
                     {'code': 'SLOT_TAKEN',
                      'detail': '이 시간은 방금 다른 분이 잡았거나 지금은 예약할 수 없어요. 다른 시간을 골라 주세요. '

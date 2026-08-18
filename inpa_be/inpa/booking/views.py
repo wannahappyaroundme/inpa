@@ -19,6 +19,7 @@ from inpa.core.mixins import OwnedQuerySetMixin
 from inpa.core.permissions import IsEmailVerified, IsOwner
 from inpa.customers.models import Customer
 
+from .calendar_sync import remove_meeting_event
 from .models import Meeting, WorkHour
 from .serializers import (
     BookingCustomerListSerializer,
@@ -146,13 +147,34 @@ class MeetingViewSet(OwnedQuerySetMixin, viewsets.ReadOnlyModelViewSet):
             return Response({'detail': '대기 중인 예약만 거절할 수 있어요.'},
                             status=status.HTTP_400_BAD_REQUEST)
         meeting.status = Meeting.STATUS_DECLINED
+        # 대기 상태에선 캘린더에 올리지 않지만, 예전 데이터에 남은 일정이 있으면 함께 정리한다.
+        remove_meeting_event(meeting)
         return Response(self.get_serializer(meeting).data)
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
+        """예약을 취소 → 그 시간이 다시 비워지고 연결된 구글 캘린더 일정도 정리된다.
+
+        허용 전이는 대기·확정 → 취소뿐이다. accept 와 동시에 들어와도 조건부 UPDATE 라
+        결과가 하나로 정해진다(취소가 확정을 덮고, 취소 뒤 수락은 400으로 막힌다).
+        """
         meeting = self.get_object()
-        meeting.status = Meeting.STATUS_CANCELED
-        meeting.save(update_fields=['status'])
+        updated = Meeting.objects.filter(
+            pk=meeting.pk,
+            status__in=(Meeting.STATUS_PENDING, Meeting.STATUS_CONFIRMED),
+        ).update(status=Meeting.STATUS_CANCELED)
+        if updated:
+            meeting.status = Meeting.STATUS_CANCELED
+        else:
+            meeting.refresh_from_db()
+            if meeting.status != Meeting.STATUS_CANCELED:
+                # 거절된 예약은 이미 그 시간이 비어 있다 → 다음 행동을 안내한다.
+                return Response(
+                    {'detail': '이미 거절한 예약이에요. 새로 잡으시려면 예약 링크를 다시 보내주세요.'},
+                    status=status.HTTP_409_CONFLICT)
+            # 이미 취소된 예약을 다시 취소 = 같은 결과 → 성공으로 응답(멱등).
+        # 외부 캘린더 삭제 실패는 취소 응답을 막지 않는다(실패 시 재시도 대상으로 표시).
+        remove_meeting_event(meeting)
         return Response(self.get_serializer(meeting).data)
 
 

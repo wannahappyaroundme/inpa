@@ -1,4 +1,4 @@
-"""구글 캘린더 — OAuth 코드 플로우 + 이벤트 생성. google libs는 함수 내부 lazy import.
+"""구글 캘린더 — OAuth 코드 플로우 + 이벤트 생성·삭제. google libs는 함수 내부 lazy import.
 
 state는 django signing(서명·짧은 TTL)으로 CSRF 방어. callback은 state로만 신원 식별.
 이벤트엔 병력·보험·분석 정보를 절대 넣지 않는다(국외이전 최소화).
@@ -65,8 +65,8 @@ def _mask_name(name):
     return name[0] + '○' * (len(name) - 1)
 
 
-def insert_meeting_event(profile, meeting, customer_name):
-    """미팅을 설계사 구글 캘린더(primary)에 등록 → event id. 병력·보험 정보 미포함."""
+def _calendar_service(profile):
+    """설계사 refresh_token으로 access token을 갱신한 캘린더 서비스 핸들(등록·삭제 공용)."""
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
@@ -76,7 +76,12 @@ def insert_meeting_event(profile, meeting, customer_name):
         client_id=settings.GOOGLE_OAUTH_CLIENT_ID,
         client_secret=settings.GOOGLE_OAUTH_CLIENT_SECRET,
         scopes=_SCOPES)
-    service = build('calendar', 'v3', credentials=creds, cache_discovery=False)
+    return build('calendar', 'v3', credentials=creds, cache_discovery=False)
+
+
+def insert_meeting_event(profile, meeting, customer_name):
+    """미팅을 설계사 구글 캘린더(primary)에 등록 → event id. 병력·보험 정보 미포함."""
+    service = _calendar_service(profile)
 
     name = _mask_name(customer_name) if profile.google_calendar_mask_name else (customer_name or '고객')
     start = timezone.localtime(meeting.start_at)
@@ -92,6 +97,27 @@ def insert_meeting_event(profile, meeting, customer_name):
         body['location'] = meeting.location_detail
     event = service.events().insert(calendarId='primary', body=body).execute()
     return event.get('id')
+
+
+def delete_meeting_event(profile, event_id):
+    """인파에서 취소·거절된 미팅의 구글 캘린더 일정을 지운다 → True=삭제 확인.
+
+    멱등: 구글에 이미 없는 일정(404 Not Found / 410 Gone)은 목표 상태가 같으므로 성공으로 본다.
+    그 밖의 실패는 그대로 올려보내 호출자가 재시도 대상으로 표시하게 한다.
+    """
+    if not event_id:
+        return True
+    from googleapiclient.errors import HttpError
+
+    service = _calendar_service(profile)
+    try:
+        service.events().delete(calendarId='primary', eventId=event_id).execute()
+    except HttpError as exc:
+        code = getattr(getattr(exc, 'resp', None), 'status', None)
+        if code in (404, 410):
+            return True
+        raise
+    return True
 
 
 def revoke_refresh_token(refresh_token):
