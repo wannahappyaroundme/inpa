@@ -63,3 +63,9 @@ Symptom: PR #170 Secret scan 2회 실패 (leaks found: 2)
 Cause: (1) 식별자에 key/token/secret 포함 + 리터럴 엔트로피 3.5 이상이면 generic-api-key 발화. 이번에는 localStorage 저장 키 이름 상수(`inpa_banner_consult_v1` 등)가 걸렸고 실제 비밀값은 없었다. 저장소에 `.gitleaks.toml`은 없고 액션은 v3다. (2) 액션은 PR 커밋 범위 전체를 스캔하므로 나중 커밋에 allow 주석을 달아도 원본 커밋이 계속 걸린다.
 Fix: 인라인 `// gitleaks:allow` (JSX 리터럴은 상단 const로 추출) + 커밋 squash로 히스토리 평탄화
 Prevention: KEY류 식별자 상수를 새로 만들 땐 그 패턴을 도입하는 커밋에서부터 allow 주석을 함께 작성한다. CI 실패는 매번 이 파일에 기록 + 같은 PR에 예방 조치(PM 2026-08-17 표준 규칙).
+
+### 2026-08-18 gitleaks generic-api-key 오탐 (문서 안 코드 예시)
+Symptom: PR #171 Secret scan 실패 (leaks found: 1). 문서만 추가한 커밋인데 걸렸다.
+Cause: 전날(2026-08-17) 학습한 규칙이 소스 코드뿐 아니라 마크다운 안의 코드 블록에도 그대로 적용된다는 점을 놓쳤다. `docs/superpowers/plans/2026-07-22-consultation-recording-release-2-recording-retention.md`의 파이썬 예시 `def iter_object(self, key, chunk_size=1024 * 1024):`에서 `key, chunk_size=1024` 부분이 키 대입으로 인식됐고, 탐지된 '비밀값'은 엔트로피 3.91의 `chunk_size=1024`였다. 실제 비밀값은 없다. <!-- gitleaks:allow -->
+Fix: 해당 줄 끝에 파이썬 주석으로 `# gitleaks:allow`를 달고 단일 커밋을 amend해 히스토리를 평탄화했다(액션이 PR 커밋 범위 전체를 스캔하므로 후속 커밋으로는 해결되지 않는다).
+Prevention: 시크릿 스캔 대상은 확장자를 가리지 않는다. 문서를 커밋할 때도 코드 블록에 `key`/`token`/`secret` 뒤에 `=` 대입이 오는 줄이 있으면 미리 allow 주석을 단다. 푸시 전 `gitleaks detect --log-opts "origin/master..HEAD"`로 로컬 선검사하면 CI 왕복을 없앨 수 있다.
