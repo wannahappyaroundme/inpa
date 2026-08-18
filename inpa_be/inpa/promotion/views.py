@@ -27,7 +27,7 @@
 ★ 크레딧 (dev/21 §6, dev/02 §16):
   - POST /promotion/orders/ → check_and_consume(user, 'promotion').
   - 한도 초과 → 402 Payment Required (LimitExceeded → credit_exhausted 변환).
-  - 베타: FREE_TIER_UNLIMITED=True → 무차감 통과.
+  - 베타: FREE_TIER_UNLIMITED=True → 402 없이 통과하되 계측은 그대로(2026-08-18 계약).
 """
 from django.db import transaction
 from django.shortcuts import get_object_or_404

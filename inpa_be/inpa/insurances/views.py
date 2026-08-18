@@ -78,7 +78,8 @@ _TRANSPORT_FAILURE_OUTCOMES = frozenset({'no_key', 'package_missing', 'timeout',
 def _refund_ocr_credit(user):
     """전송 계층 실패로 결과를 못 만들었을 때, check_and_consume 로 방금 올린 ocr 카운터 1건을 되돌린다.
 
-    - 베타(FREE_TIER_UNLIMITED=True)면 UsageMeter 행 자체가 없어 0건 갱신 = 무해한 no-op.
+    - 베타(무제한 모드)에서도 계측은 일어나므로(2026-08-18 계약) 되돌리기도 동일하게 동작한다
+      — 소비와 환불이 대칭이라 실패한 호출이 계측에 남지 않는다.
     - count>0 행만 -1 (PositiveIntegerField 음수 방지).
     - 되돌리기 실패가 사용자 응답을 막지 않도록 예외 격리(계측·정산은 부가 처리).
     """
@@ -446,7 +447,7 @@ class InsuranceOcrViewSet(viewsets.ViewSet):
 
         # ── 5) 크레딧 차감 (kind='ocr') — Claude 호출 직전. 한도 초과 시 402 ──
         #    검증(동의·파일)을 모두 통과한 뒤 차감해, 입력 오류가 크레딧을 소모하지 않게 한다.
-        #    베타 FREE_TIER_UNLIMITED=True 면 통과(무차감).
+        #    베타(무제한 모드)면 402 없이 통과하되 계측은 그대로 쌓인다(2026-08-18 계약).
         try:
             check_and_consume(request.user, 'ocr')
         except LimitExceeded as exc:

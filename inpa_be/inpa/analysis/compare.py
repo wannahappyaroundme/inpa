@@ -492,7 +492,8 @@ class CustomerCompareView(_CustomerScopedCompareMixin, APIView):
             getattr(settings, 'COMPARE_AI_ENABLED', False)
             and not is_showcase_user(request.user)
         ):
-            # 한도 차감(ai_compare) — 초과 시 402. 베타 무차감 스위치는 credit.py 가 처리.
+            # 한도 차감(ai_compare) — 초과 시 402. 베타(무제한) 모드는 credit.py 가 처리하며,
+            # 차단만 생략하고 계측은 그대로 수행한다(2026-08-18 계약).
             try:
                 check_and_consume(request.user, 'ai_compare')
             except LimitExceeded as exc:
