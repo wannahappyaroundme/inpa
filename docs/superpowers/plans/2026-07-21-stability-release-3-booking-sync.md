@@ -8,6 +8,24 @@
 
 **Tech Stack:** Django 5.2/DRF/PostgreSQL, Celery 5.6/Redis, Google Calendar API, Next.js 16/React 19, Django TestCase/TransactionTestCase.
 
+## 2026-08-18 검증 결과 (아래 원문은 그대로 유지)
+
+**이 릴리스 범위는 PR #173(머지 `52cf912`)으로 처리됐다. 단, 구현 형태는 아래 원문 계획과 다르다.** 원문은 outbox 테이블 + Celery worker + 결정론적 event ID를 설계했으나, 실제로는 더 작은 형태로 들어갔다. 다음 세션은 원문이 아니라 아래 실제 구현을 기준으로 볼 것.
+
+실제 구현:
+- 구글 캘린더 이벤트 삭제 함수 신설 (`accounts/google_calendar.py::delete_meeting_event`, 404/410 멱등).
+- `booking/calendar_sync.py`가 취소·거절 시 삭제를 수행하고, **삭제가 확인된 뒤에만** `google_event_id`를 정리한다.
+- 실패는 `Meeting.calendar_cleanup_pending`(migration booking `0004`, additive)으로 남고 `run_daily_jobs`가 재시도한다. 구글 연동이 끊긴 계정은 재시도 배치에서 제외한다.
+- 취소는 조건부 update로 원자화됐다 (대기·확정 → 취소만 허용, 이미 취소는 멱등 200, 거절 건은 409).
+- WorkHour 겹침·포함·완전중복을 저장 시 거절한다 (half-open 비교, PATCH는 자기 자신 제외). 슬롯 dedupe 적용.
+- `BOOKING_PUBLIC_HORIZON_DAYS`(기본 14)를 공개 GET과 POST가 공유하고, 기간 밖은 400 `TIME_OUT_OF_RANGE`다 (기존 60일 하드코딩 제거).
+- 검증: BE 2,602 OK/39 skip, 수정 전 RED 13건 확인.
+
+잔존:
+- WorkHour 완전중복을 막는 **DB 제약**은 아직 없다 (현재는 애플리케이션 레벨 검증만). 프로덕션의 기존 중복 여부를 먼저 확인한 뒤 별도로 처리해야 한다.
+
+아래 원문은 당시 구현 계획 기록으로 보존한다. 전체 잔존 목록은 `docs/superpowers/specs/2026-07-21-comprehensive-stability-upgrade.md` §0 참고.
+
 ## Global Constraints
 
 - 승인 설계는 `docs/superpowers/specs/2026-07-21-comprehensive-stability-upgrade.md`의 Release 3다.
