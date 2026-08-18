@@ -249,12 +249,17 @@ class BulkCustomerQuotaTests(TestCase):
         self.assertIsNone(result['limit'])
 
     @override_settings(FREE_TIER_UNLIMITED=True)
-    def test_bulk_bypassed_when_free_tier_unlimited(self):
-        """베타 스위치 — n이 한도를 넘어도 무차감 통과(dormant)."""
+    def test_bulk_not_blocked_when_free_tier_unlimited_but_still_metered(self):
+        """베타 스위치 — n이 한도를 넘어도 통과하되 벌크 건수만큼 계측된다(2026-08-18 계약)."""
         from .credit import check_and_consume_n
         result = check_and_consume_n(self.free_user, 'customer', 999)
         self.assertIsNone(result['limit'])
         self.assertIsNone(result['remaining'])
+        self.assertEqual(result['count'], 999)
+        meter = UsageMeter.objects.get(
+            user=self.free_user, action='customer',
+            year_month=UsageMeter.current_month())
+        self.assertEqual(meter.count, 999)
 
 
 # ─── AC-B4 ───────────────────────────────────────────────────────
@@ -372,8 +377,14 @@ class UnlimitedActionsTests(TestCase):
 # ─── AC-B7 ───────────────────────────────────────────────────────
 
 
+@override_settings(FREE_TIER_UNLIMITED=False)
 class AdminSubscriptionChangeTests(TestCase):
-    """AC-B7: 관리자 Subscription PATCH → /billing/usage/ 즉시 Plus 반영."""
+    """AC-B7: 관리자 Subscription PATCH → /billing/usage/ 즉시 Plus 반영.
+
+    ★ 2026-08-18 계약: 한도 '숫자'가 즉시 반영되는지가 이 AC 의 핵심이므로, 한도가 실제로
+      강제되는 유료 모드에서 검증한다(무제한 모드에서는 설계사 화면의 한도가 값 없음으로
+      나가며 그쪽 계약은 BetaUsageDisplayTests 가 담당). 요금제 코드 반영은 모드와 무관하다.
+    """
 
     def setUp(self):
         self.free_plan, self.plus_plan = _get_or_create_plans()
@@ -452,14 +463,27 @@ class FreeTierUnlimitedSwitchTests(TestCase):
         _subscribe(self.user, self.free_plan)
 
     @override_settings(FREE_TIER_UNLIMITED=True)
-    def test_unlimited_switch_bypasses_check(self):
-        """FREE_TIER_UNLIMITED=True → 한도 초과해도 무차감 통과."""
-        # 10건 이상 소비해도 LimitExceeded 발생 안 함
+    def test_unlimited_switch_skips_block_but_still_meters(self):
+        """FREE_TIER_UNLIMITED=True → 한도 초과해도 통과하되 UsageMeter 는 계속 증가한다.
+
+        ★ 2026-08-18 계약 변경: 예전에는 무제한이면 UsageMeter 에 닿기 전에 early return
+          했다(무차감). 베타 기간 실사용 데이터가 전부 소실돼 유료 전환 시 가격·한도 근거가
+          남지 않았으므로, '차단은 없지만 계측은 한다'로 바꿨다.
+          limit/remaining 은 무제한 sentinel(None)로 유지 — 호출자 계약 불변.
+        """
+        # 한도(10)를 이미 채운 상태여도 LimitExceeded 가 발생하지 않는다.
         _consume_n(self.user, 'ocr', 10)
         result = check_and_consume(self.user, 'ocr')
-        # 무차감(count=0, limit=None)
+
+        # 무제한 sentinel 유지 (호출자 계약).
         self.assertIsNone(result['limit'])
         self.assertIsNone(result['remaining'])
+        # 계측은 실제로 일어난다 — count 는 증가 후 실제 값, year_month 는 KST 월 receipt.
+        self.assertEqual(result['count'], 11)
+        self.assertEqual(result['year_month'], UsageMeter.current_month())
+        meter = UsageMeter.objects.get(
+            user=self.user, action='ocr', year_month=UsageMeter.current_month())
+        self.assertEqual(meter.count, 11)
 
     @override_settings(FREE_TIER_UNLIMITED=False)
     def test_unlimited_switch_off_counts_normally(self):
@@ -468,6 +492,134 @@ class FreeTierUnlimitedSwitchTests(TestCase):
         self.assertEqual(result['count'], 1)
         self.assertEqual(result['limit'], 10)
         self.assertEqual(result['remaining'], 9)
+
+
+# ─── 베타 계측 계약 (2026-08-18) ─────────────────────────────────
+
+
+@override_settings(FREE_TIER_UNLIMITED=True)
+class BetaUsageMeteringTests(TestCase):
+    """무제한(베타) 모드에서도 UsageMeter 가 정상 누적된다 — '차단은 없지만 계측은 한다'.
+
+    유료 전환 시 가격·한도를 정할 근거 데이터가 베타 기간에 쌓여야 하므로, 무제한 스위치는
+    한도 조회·차단만 건너뛴다. 반환 계약(limit/remaining=None)은 그대로 유지한다.
+    """
+
+    def setUp(self):
+        self.free_plan, _ = _get_or_create_plans()
+        self.user, _ = _make_user('beta_metering@test.com')
+        _subscribe(self.user, self.free_plan)
+
+    def _meter(self, kind, year_month=None):
+        return UsageMeter.objects.get(
+            user=self.user, action=kind,
+            year_month=year_month or UsageMeter.current_month())
+
+    def test_all_five_kinds_are_metered_without_402(self):
+        """정본 5종 각각 — 무제한 모드에서도 소비마다 UsageMeter 가 1씩 증가한다."""
+        for kind in ['ocr', 'analysis', 'ai_compare', 'promotion', 'customer']:
+            with self.subTest(kind=kind):
+                first = check_and_consume(self.user, kind)
+                second = check_and_consume(self.user, kind)
+
+                # 402 로 변환되는 LimitExceeded 는 발생하지 않는다.
+                self.assertIsNone(first['limit'])
+                self.assertIsNone(first['remaining'])
+                self.assertIsNone(second['limit'])
+                # count 는 실제 계측값.
+                self.assertEqual(first['count'], 1)
+                self.assertEqual(second['count'], 2)
+                self.assertEqual(self._meter(kind).count, 2)
+
+    def test_over_limit_still_passes_and_keeps_metering(self):
+        """이미 Free 한도를 한참 넘긴 상태여도 무제한이면 통과하고 계측만 계속 증가한다."""
+        _consume_n(self.user, 'analysis', 500)  # Free limit_analysis = 10
+        result = check_and_consume(self.user, 'analysis')
+        self.assertIsNone(result['limit'])
+        self.assertEqual(result['count'], 501)
+        self.assertEqual(self._meter('analysis').count, 501)
+
+    def test_bulk_consume_is_metered_by_n(self):
+        """check_and_consume_n — 무제한 모드에서도 n건이 한 번에 계측된다."""
+        from .credit import check_and_consume_n
+        result = check_and_consume_n(self.user, 'customer', 7)
+        self.assertIsNone(result['limit'])
+        self.assertEqual(result['count'], 7)
+        self.assertEqual(self._meter('customer').count, 7)
+
+        # 이어서 소비하면 누적된다(월 버킷 공유).
+        again = check_and_consume_n(self.user, 'customer', 3)
+        self.assertEqual(again['count'], 10)
+
+    def test_bulk_zero_stays_a_noop(self):
+        """n<=0 은 계측 대상이 아니다 — UsageMeter 행조차 만들지 않는다(호출부 방어)."""
+        from .credit import check_and_consume_n
+        result = check_and_consume_n(self.user, 'customer', 0)
+        self.assertEqual(result['count'], 0)
+        self.assertIsNone(result['year_month'])
+        self.assertFalse(UsageMeter.objects.filter(
+            user=self.user, action='customer').exists())
+
+    def test_month_bucket_is_kst(self):
+        """월 버킷은 KST(UsageMeter.current_month) 기준 — 월이 바뀌면 새 행에 계측된다."""
+        with patch.object(UsageMeter, 'current_month', return_value='2026-07'):
+            july = check_and_consume(self.user, 'ocr')
+        with patch.object(UsageMeter, 'current_month', return_value='2026-08'):
+            august = check_and_consume(self.user, 'ocr')
+
+        self.assertEqual(july['year_month'], '2026-07')
+        self.assertEqual(august['year_month'], '2026-08')
+        # 새 달은 0부터 다시 — lazy reset(행 분리)이 무제한 모드에서도 동일하게 동작한다.
+        self.assertEqual(july['count'], 1)
+        self.assertEqual(august['count'], 1)
+        self.assertEqual(self._meter('ocr', '2026-07').count, 1)
+        self.assertEqual(self._meter('ocr', '2026-08').count, 1)
+
+    def test_meters_even_without_a_seeded_free_plan(self):
+        """Free Plan 시드가 없어도 무제한 모드 계측은 죽지 않는다.
+
+        무제한이면 한도를 볼 필요가 없으므로 plan 조회 자체를 하지 않는다
+        (resolve_effective_plan 은 Free 시드가 없으면 RuntimeError 를 던진다).
+        """
+        Subscription.objects.filter(user=self.user).delete()
+        Plan.objects.all().delete()
+
+        result = check_and_consume(self.user, 'ocr')
+        self.assertIsNone(result['limit'])
+        self.assertEqual(result['count'], 1)
+        self.assertEqual(self._meter('ocr').count, 1)
+
+    def test_runtime_config_switch_also_meters(self):
+        """관리자 런타임 스위치(RuntimeConfig)로 무제한을 켠 경우도 동일하게 계측된다."""
+        from .models import RuntimeConfig
+        RuntimeConfig.objects.update_or_create(
+            pk=1, defaults={'free_tier_unlimited': True})
+
+        with override_settings(FREE_TIER_UNLIMITED=False):  # DB 값이 이긴다
+            _consume_n(self.user, 'promotion', 99)  # Free limit_promotion = 5
+            result = check_and_consume(self.user, 'promotion')
+
+        self.assertIsNone(result['limit'])
+        self.assertEqual(result['count'], 100)
+        self.assertEqual(self._meter('promotion').count, 100)
+
+    def test_switching_to_paid_mode_restores_blocking_on_metered_usage(self):
+        """유료 전환 시 기존 차단 동작 그대로 — 베타에 쌓인 계측값이 곧바로 한도에 반영된다."""
+        for _ in range(10):  # Free limit_ocr = 10 를 베타 중에 모두 계측
+            check_and_consume(self.user, 'ocr')
+        self.assertEqual(self._meter('ocr').count, 10)
+
+        from .models import RuntimeConfig
+        RuntimeConfig.objects.update_or_create(
+            pk=1, defaults={'free_tier_unlimited': False})
+        with override_settings(FREE_TIER_UNLIMITED=False):
+            with self.assertRaises(LimitExceeded) as ctx:
+                check_and_consume(self.user, 'ocr')
+
+        self.assertEqual(ctx.exception.limit, 10)
+        self.assertEqual(ctx.exception.current, 10)
+        # 거부된 시도는 계측되지 않는다(부분 반영 없음).
+        self.assertEqual(self._meter('ocr').count, 10)
 
 
 # ─── 공개 플랜 목록 ──────────────────────────────────────────────
@@ -1521,8 +1673,14 @@ class CouponActivePlanGuardTests(TestCase):
 # ──────────────────────────────────────────────────────────────────────
 # FIX 4 — GET /billing/usage/ 표시 한도 = 실제 강제 한도 (만료 시 Free + status 'expired')
 # ──────────────────────────────────────────────────────────────────────
+@override_settings(FREE_TIER_UNLIMITED=False)
 class UsageDisplayMatchesEnforcementTests(TestCase):
-    """만료·해지 구독이면 사용량 화면이 Free 한도 + status='expired' 를 보여준다."""
+    """만료·해지 구독이면 사용량 화면이 Free 한도 + status='expired' 를 보여준다.
+
+    ★ 2026-08-18 계약: '표시 한도 = 실제 강제 한도'라는 이 클래스의 원칙 그대로, 한도가
+      실제로 강제되는 유료 모드에서 검증한다. 무제한(베타) 모드에서는 아무것도 막지 않으므로
+      한도·잔여가 값 없음(None)으로 나가며, 그쪽은 BetaUsageDisplayTests 가 검증한다.
+    """
 
     URL = '/api/v1/billing/usage/'
 
@@ -1555,6 +1713,81 @@ class UsageDisplayMatchesEnforcementTests(TestCase):
         self.assertEqual(data['subscription']['status'], 'active')
         ocr = next(u for u in data['usage'] if u['action'] == 'ocr')
         self.assertEqual(ocr['limit'], self.plus.limit_ocr)
+
+    def test_remaining_never_goes_negative(self):
+        """관리자가 한도를 낮춰 이미 쓴 양이 한도를 넘어도 '남은 횟수'는 0에서 멈춘다."""
+        Subscription.objects.update_or_create(
+            user=self.user,
+            defaults={'plan': self.free, 'status': 'active', 'expires_at': None},
+        )
+        _consume_n(self.user, 'ocr', self.free.limit_ocr + 7)
+
+        ocr = next(u for u in self.client.get(self.URL).json()['usage']
+                   if u['action'] == 'ocr')
+        self.assertEqual(ocr['count'], self.free.limit_ocr + 7)
+        self.assertEqual(ocr['remaining'], 0)
+
+
+@override_settings(FREE_TIER_UNLIMITED=True)
+class BetaUsageDisplayTests(TestCase):
+    """무제한(베타) 모드의 GET /billing/usage/ 계약 — 한도·잔여는 값 없음, 카운트는 실제값.
+
+    ★ 정직성 레드라인(2026-08-18): 베타에는 402 가 발동하지 않는데 '12 / 5, 남은 0'으로
+      보이면 설계사가 한도에 걸린 줄 알게 된다. 실제로 막지 않으면 한도도 표시하지 않는다.
+      credit.py::_consume 의 반환 계약(limit/remaining=None)과 정확히 같은 모양이다.
+    """
+
+    URL = '/api/v1/billing/usage/'
+
+    def setUp(self):
+        self.free, self.plus = _get_or_create_plans()
+        self.user, self.client = _make_user('betausagedisplay@test.com')
+        _subscribe(self.user, self.free)
+
+    def test_limits_are_absent_but_counts_are_real(self):
+        # 베타에도 계측은 쌓인다 — Free 명목 한도(10)를 넘긴 상태를 만든다.
+        _consume_n(self.user, 'ocr', 12)
+
+        data = self.client.get(self.URL).json()
+        ocr = next(u for u in data['usage'] if u['action'] == 'ocr')
+        # 한도·잔여는 값 없음 = 무제한 sentinel (FE 는 Super 플랜과 동일하게 처리).
+        self.assertIsNone(ocr['limit'])
+        self.assertIsNone(ocr['remaining'])
+        # 사용량 카운트는 실제 계측값 그대로 — 유료 전환 근거 데이터가 화면에도 보인다.
+        self.assertEqual(ocr['count'], 12)
+
+    def test_every_action_reports_no_limit(self):
+        data = self.client.get(self.URL).json()
+        self.assertEqual(len(data['usage']), 5)
+        for item in data['usage']:
+            with self.subTest(action=item['action']):
+                self.assertIsNone(item['limit'])
+                self.assertIsNone(item['remaining'])
+                self.assertEqual(item['count'], 0)
+
+    def test_plan_identity_is_unchanged(self):
+        """한도만 감춘다 — 요금제 코드·표시명·구독 상태는 그대로 노출한다."""
+        data = self.client.get(self.URL).json()
+        self.assertEqual(data['plan']['code'], 'free')
+        self.assertEqual(data['subscription']['status'], 'active')
+        self.assertEqual(data['year_month'], UsageMeter.current_month())
+
+    def test_admin_view_still_shows_nominal_plan_limits(self):
+        """운영자 화면은 베타에도 요금제 명목 한도를 그대로 본다 — 설계사 화면만 감춘다.
+
+        운영자는 '지금 무제한이지만 이 요금제의 명목 한도는 얼마'를 알아야 유료 전환 한도를
+        정할 수 있다. 정직성 문제는 설계사에게 없는 한도를 있는 것처럼 보이는 쪽이다.
+        """
+        _consume_n(self.user, 'ocr', 12)
+        _, admin_client = _make_user('beta_usage_admin@test.com', is_admin=True)
+
+        r = admin_client.get(
+            f'/api/v1/admin/billing/usage/?user_id={self.user.pk}')
+        self.assertEqual(r.status_code, 200)
+        ocr = next(u for u in r.json()['usage'] if u['action'] == 'ocr')
+        self.assertEqual(ocr['limit'], self.free.limit_ocr)  # 명목 한도 유지
+        self.assertEqual(ocr['count'], 12)
+        self.assertEqual(ocr['remaining'], 0)  # 음수로 내려가지 않는다
 
 
 @override_settings(

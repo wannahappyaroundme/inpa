@@ -105,17 +105,28 @@ _ACTION_LABELS = {
 _ACTION_ORDER = ['ocr', 'ai_compare', 'analysis', 'promotion', 'customer']
 
 
-def _build_usage_response(user) -> dict:
+def _build_usage_response(user, *, hide_limits_when_unlimited: bool = True) -> dict:
     """설계사 1인의 사용량 응답 dict 구성 (내부 헬퍼).
 
     sub가 없으면 Free Plan으로 폴백 (비정상 상태 방어).
     Django OneToOneField 역방향 캐시를 우회해 항상 최신 DB 상태를 조회한다.
+
+    Args:
+        user: 사용량을 조회할 설계사.
+        hide_limits_when_unlimited: 무제한(베타) 모드에서 한도·잔여를 값 없음(None)으로
+            내릴지 여부. 설계사 본인 화면(True, 기본)은 실제로 막히는 것만 보여줘야 하고,
+            운영자 화면(False)은 요금제 명목 한도를 알아야 하므로 그대로 노출한다.
     """
-    from .credit import resolve_effective_plan
+    from .credit import free_tier_unlimited, resolve_effective_plan
 
     # ★ 표시 한도 = 실제 강제 한도. resolve_effective_plan 이 만료·해지 구독을 Free 로
     #   폴백하므로 화면에 보이는 한도가 402 로 실제 막히는 한도와 일치한다.
     plan = resolve_effective_plan(user)
+
+    # ★ 베타(무제한 모드)는 실제로 아무것도 막지 않으므로 한도·잔여를 값 없음(None)으로 내린다
+    #   (2026-08-18 계약, credit.py::_consume 의 반환 계약과 동일).
+    #   막지도 않으면서 '12 / 5, 남은 0'처럼 보이면 설계사에게 거짓 정보다(정직성 레드라인).
+    unlimited = hide_limits_when_unlimited and free_tier_unlimited()
 
     # select_related로 plan까지 단일 쿼리, 캐시 우회 — 폴백 여부 판정용.
     sub = (
@@ -149,9 +160,11 @@ def _build_usage_response(user) -> dict:
 
     usage_list = []
     for action in _ACTION_ORDER:
-        lim = plan.get_limit(action) if plan else None
-        cnt = meters.get(action, 0)
-        remaining = (lim - cnt) if lim is not None else None
+        # 무제한 모드면 한도 자체가 값 없음. 유료 모드에서만 유효 요금제 한도를 노출한다.
+        lim = None if unlimited else (plan.get_limit(action) if plan else None)
+        cnt = meters.get(action, 0)  # 사용량 카운트는 모드와 무관하게 항상 실제 계측값.
+        # 유료 모드 방어: 한도 하향 조정 등으로 count 가 한도를 넘어도 '남은 횟수'는 0에서 멈춘다.
+        remaining = max(0, lim - cnt) if lim is not None else None
         usage_list.append({
             'action': action,
             'label': _ACTION_LABELS[action],
@@ -837,7 +850,9 @@ class AdminBillingUsageView(APIView):
 
         if user_id:
             target_user = get_object_or_404(User, pk=user_id)
-            data = _build_usage_response(target_user)
+            # 운영자 화면 — 베타에도 요금제 명목 한도를 그대로 보여준다(아래 전체 목록 브랜치와 동일).
+            data = _build_usage_response(
+                target_user, hide_limits_when_unlimited=False)
             data['user'] = {
                 'id': target_user.pk,
                 'email': target_user.email,
@@ -957,7 +972,9 @@ class AdminSubscriptionPatchView(APIView):
         if update_fields:
             sub.save(update_fields=update_fields)
 
-        # 변경 후 사용량 응답 반환 (AC-B7 즉시 반영 확인)
-        resp_data = _build_usage_response(target_user)
+        # 변경 후 사용량 응답 반환 (AC-B7 즉시 반영 확인).
+        # 운영자 화면이므로 베타에도 방금 지정한 요금제의 명목 한도를 그대로 돌려준다.
+        resp_data = _build_usage_response(
+            target_user, hide_limits_when_unlimited=False)
         resp_data['user'] = {'id': target_user.pk, 'email': target_user.email}
         return Response(resp_data)

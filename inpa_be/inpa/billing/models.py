@@ -29,7 +29,8 @@ class Plan(models.Model):
     """요금제 정의. 관리자가 Django Admin에서 직접 수정(코드 배포 없이 한도·가격 변경 가능).
 
     limit_* = null → 무제한 sentinel (remaining이 아닌 is_unlimited 판별).
-    FREE_TIER_UNLIMITED=True(베타) 시 Plan 한도는 무시됨 — credit.py 레이어에서 우회.
+    FREE_TIER_UNLIMITED=True(베타) 시 Plan 한도는 강제되지 않는다 — credit.py 가 한도 조회·
+    차단만 건너뛴다. UsageMeter 계측은 모드와 무관하게 계속 쌓인다(2026-08-18 계약).
     """
     PLAN_CODE = (
         ('free', 'Free'),

@@ -442,7 +442,9 @@ LOGGING = {
 }
 
 # ── 요금제 베타 스위치 (dev/23 §3, G4) ──────────────────────────────
-# True(베타) = 한도 체크 전부 우회(무차감). 정식 출시 시 False 로 flip.
+# True(베타) = 한도 조회·차단만 건너뜀. UsageMeter 계측은 그대로 수행한다
+# (2026-08-18 계약 — 유료 전환 시 가격·한도 근거로 쓸 실사용 데이터를 남긴다).
+# 정식 출시 시 False 로 flip 하면 그때부터 402 가 발동한다.
 # 환경변수 FREE_TIER_UNLIMITED=true/false 로 런타임 제어.
 FREE_TIER_UNLIMITED = env.bool('FREE_TIER_UNLIMITED', default=True)
 

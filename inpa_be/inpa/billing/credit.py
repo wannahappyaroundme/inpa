@@ -8,9 +8,15 @@ kind ∈ {'ocr', 'ai_compare', 'analysis', 'promotion', 'customer'} (정본 5종
   spec 2026-07-09 pricing-limits-align으로 신설. 신규 고객 추가는 설계사 능동 등록만 집계
   — 셀프진단(/d)·소개카드(/p) 인바운드 리드는 Customer.objects.create() 직접 호출이라 미집계)
 
-베타 스위치:
-  settings.FREE_TIER_UNLIMITED=True → 한도 체크 전부 우회(무차감 통과)
-  settings.FREE_TIER_UNLIMITED=False → 정상 집계
+베타 스위치(2026-08-18 계약 변경 — '차단은 없지만 계측은 한다'):
+  free_tier_unlimited()=True  → 한도 조회·차단을 건너뛰되 UsageMeter 는 정상 증가.
+                                반환 dict 의 limit/remaining 은 무제한 sentinel(None) 유지,
+                                count/year_month 는 실제 계측값을 반환한다.
+  free_tier_unlimited()=False → 한도 조회 + 초과 시 LimitExceeded + UsageMeter 증가.
+
+  ★ 이전 동작(무제한이면 UsageMeter 에 닿기 전 early return)은 베타 기간 실사용 데이터를
+    전부 버려 유료 전환 시 가격·한도 근거가 남지 않았다. consultations/quota.py 의
+    reserve_minute_meter 와 동일하게, 무제한 여부와 무관하게 계측한다.
 
 share_link = 이 함수 호출 대상이 아님(북극성 차단 금지 — dev/23 §1.2).
 """
@@ -97,15 +103,15 @@ def resolve_effective_plan(user):
 def check_and_consume(user, kind: str) -> dict:
     """사용 전 호출. 한도 이내이면 count+1 후 반환, 초과이면 LimitExceeded raise.
 
-    베타 스위치(FREE_TIER_UNLIMITED=True)이면 모든 체크를 우회한다 (무차감).
+    베타 스위치(free_tier_unlimited()=True)이면 한도 조회·차단만 건너뛴다 — 계측은 그대로.
 
     반환값:
       {
         "action":    str,
-        "count":     int,        # 증가 후 현재 값 (베타 우회 시 0)
-        "limit":     int | None, # None = 무제한 sentinel (베타 우회 시 None)
-        "remaining": int | None, # None = 무제한 (베타 우회 시 None)
-        "year_month": str | None,# 실제 변경한 UsageMeter 월 receipt
+        "count":     int,        # 증가 후 현재 값 (무제한 모드에서도 실제 계측값)
+        "limit":     int | None, # None = 무제한 sentinel (무제한 모드는 항상 None)
+        "remaining": int | None, # None = 무제한 (무제한 모드는 항상 None)
+        "year_month": str,       # 실제 변경한 UsageMeter 월 receipt (KST)
       }
 
     Args:
@@ -145,25 +151,21 @@ def _consume(user, kind: str, n: int) -> dict:
             f'kind는 {sorted(_ALLOWED_KINDS)} 중 하나여야 합니다. 받은 값: {kind!r}'
         )
 
-    # 베타 무차감 스위치 — DB RuntimeConfig 우선, env fallback (dev/23 §3 §G4)
-    if free_tier_unlimited():
-        return {
-            'action': kind,
-            'count': 0,
-            'limit': None,
-            'remaining': None,
-            'year_month': None,
-        }
-
     from .models import UsageMeter  # 순환 import 방지
+
+    # 베타 무제한 스위치 — DB RuntimeConfig 우선, env fallback (dev/23 §3 §G4).
+    # ★ True 여도 아래 계측(UsageMeter 증가)은 그대로 수행한다. 건너뛰는 것은 '한도 조회 +
+    #   차단'뿐이다. 무제한 모드에서 plan 을 조회하지 않는 이유: Free Plan 시드가 없는
+    #   환경에서도(resolve_effective_plan 이 RuntimeError) 계측이 죽으면 안 되기 때문.
+    unlimited = free_tier_unlimited()
 
     # 유효 구독일 때만 그 plan, 아니면 Free 폴백(status·expires_at 동시 판정).
     # resolve_effective_plan 이 매번 DB 조회 → 관리자 변경 직후에도 최신 반영(AC-B7),
     # 역방향 OneToOne 캐시도 우회한다.
-    plan = resolve_effective_plan(user)
+    lim = None if unlimited else resolve_effective_plan(user).get_limit(kind)
 
+    # KST 월 버킷(UsageMeter.current_month) — UTC 를 쓰면 월 경계일에 어긋난다(§7).
     ym = UsageMeter.current_month()
-    lim = plan.get_limit(kind)  # None = 무제한 sentinel
 
     with transaction.atomic():
         meter, _ = UsageMeter.objects.select_for_update().get_or_create(

@@ -125,8 +125,9 @@ class CustomerViewSet(OwnedQuerySetMixin, viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         """단건 등록 — 신규 고객 추가 한도 강제(spec 2026-07-09 pricing-limits-align).
 
-        ★ FREE_TIER_UNLIMITED(베타 바이패스)이면 check_and_consume이 내부에서 우회 —
-          베타 기간에는 지금과 동일하게 무제한(dormant), 유료 전환(False) 시에만 발동한다.
+        ★ FREE_TIER_UNLIMITED(베타 무제한)이면 check_and_consume이 한도 조회·차단만 건너뛴다 —
+          베타 기간에는 402가 발동하지 않고(dormant), 계측(UsageMeter)은 그대로 쌓인다
+          (2026-08-18 계약). 실제 차단은 유료 전환(False) 시에만 발동한다.
         ★ 인바운드 자동 리드(셀프진단 /d, 소개카드 /p)는 Customer.objects.create()를 직접
           호출해 이 create()를 거치지 않으므로 이 한도와 무관하다(설계사 능동 등록만 집계).
         검증(serializer.is_valid) 통과 후에만 한도를 소비한다 — 잘못된 요청으로 소비되지 않도록

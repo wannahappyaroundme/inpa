@@ -174,7 +174,7 @@ class CustomerHeatmapView(APIView):
             raise NotFound('보험을 찾을 수 없습니다.')
 
         # ── 0) 크레딧 차감 (kind='analysis') — 한눈표/히트맵 진입. 한도 초과 시 402 ──
-        #    베타 FREE_TIER_UNLIMITED=True 면 통과(무차감).
+        #    베타(무제한 모드)면 402 없이 통과하되 계측은 그대로 쌓인다(2026-08-18 계약).
         try:
             check_and_consume(request.user, 'analysis')
         except LimitExceeded as exc:
